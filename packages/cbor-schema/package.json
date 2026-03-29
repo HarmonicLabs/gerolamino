@@ -1,0 +1,12 @@
+{
+  "name": "cbor-schema",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@harmoniclabs/cbor": "^2.0.1",
+    "effect": "^4.0.0-beta.43"
+  }
+}

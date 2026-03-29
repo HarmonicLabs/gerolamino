@@ -1,0 +1,7 @@
+{
+  "name": "wasm-plexer",
+  "version": "0.0.1",
+  "main": "./result/wasm_plexer.js",
+  "module": "./result/wasm_plexer.js",
+  "types": "./result/wasm_plexer.d.ts"
+}

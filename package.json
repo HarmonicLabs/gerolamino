@@ -1,9 +1,12 @@
 {
   "name": "@org/source",
   "version": "0.0.0",
-  "license": "MIT",
-  "scripts": {},
   "private": true,
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {},
   "dependencies": {},
   "devDependencies": {
     "@nx/js": "22.6.2",
@@ -13,8 +16,5 @@
     "nx": "22.6.2",
     "tslib": "^2.3.0",
     "typescript": "~5.9.2"
-  },
-  "workspaces": [
-    "packages/*"
-  ]
+  }
 }

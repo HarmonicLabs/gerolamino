@@ -6,30 +6,22 @@
       nodeModules = pkgs.stdenv.mkDerivation {
         name = "cbor-schema-node-modules";
 
+        src = ../packages/cbor-schema/package.json;
         dontUnpack = true;
-        buildPhase = ''
-          export HOME=$TMPDIR
-          cat > package.json <<'PACKAGE'
-          ${builtins.toJSON {
-            dependencies = {
-              "@harmoniclabs/cbor" = "^2.0.1";
-              "effect" = "^4.0.0-beta.43";
-            };
-            devDependencies = {
-              "typescript" = "^5.9.3";
-            };
-          }}
-          PACKAGE
-          npm install --ignore-scripts
-        '';
 
         nativeBuildInputs = [ pkgs.nodejs_latest pkgs.cacert ];
 
         outputHashAlgo = "sha256";
         outputHashMode = "recursive";
-        outputHash = "sha256-lzzbuXnkFQgNNFVkrxaQoxZpTVPutLcIbJ0T2hCd2Mg=";
+        outputHash = "sha256-vwAWFFXlnuTpBjiUdIZ0YxR5R8PAX242Ehu+yJytARg=";
 
         SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+
+        buildPhase = ''
+          export HOME=$TMPDIR
+          cp $src package.json
+          npm install --ignore-scripts
+        '';
 
         installPhase = ''
           cp -r node_modules $out

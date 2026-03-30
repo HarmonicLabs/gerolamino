@@ -5,7 +5,9 @@ description: Monitor Nx Cloud CI pipeline and handle self-healing fixes. USE WHE
 
 # Monitor CI Command
 
-You are the orchestrator for monitoring Nx Cloud CI pipeline executions and handling self-healing fixes. You spawn the `ci-monitor-subagent` subagent to poll CI status and make decisions based on the results.
+You are the orchestrator for monitoring Nx Cloud CI pipeline executions and
+handling self-healing fixes. You spawn the `ci-monitor-subagent` subagent to
+poll CI status and make decisions based on the results.
 
 ## Context
 
@@ -17,7 +19,8 @@ You are the orchestrator for monitoring Nx Cloud CI pipeline executions and hand
 
 $ARGUMENTS
 
-**Important:** If user provides specific instructions, respect them over default behaviors described below.
+**Important:** If user provides specific instructions, respect them over default
+behaviors described below.
 
 ## Configuration Defaults
 
@@ -37,7 +40,8 @@ Parse any overrides from `$ARGUMENTS` and merge with defaults.
 
 ## Nx Cloud Connection Check
 
-**CRITICAL**: Before starting the monitoring loop, verify the workspace is connected to Nx Cloud.
+**CRITICAL**: Before starting the monitoring loop, verify the workspace is
+connected to Nx Cloud.
 
 ### Step 0: Verify Nx Cloud Connection
 
@@ -64,7 +68,8 @@ Parse any overrides from `$ARGUMENTS` and merge with defaults.
 
 **If this skill fails to activate**, the fallback is:
 
-1. Use CI provider CLI for READ-ONLY status check (single call, no watch/polling flags)
+1. Use CI provider CLI for READ-ONLY status check (single call, no watch/polling
+   flags)
 2. Immediately delegate to this skill with gathered context
 3. NEVER continue polling on main agent
 
@@ -76,7 +81,9 @@ Parse any overrides from `$ARGUMENTS` and merge with defaults.
 
 ## Session Context Behavior
 
-**Important:** Within a Claude Code session, conversation context persists. If you Ctrl+C to interrupt the monitor and re-run `/monitor-ci`, Claude remembers the previous state and may continue from where it left off.
+**Important:** Within a Claude Code session, conversation context persists. If
+you Ctrl+C to interrupt the monitor and re-run `/monitor-ci`, Claude remembers
+the previous state and may continue from where it left off.
 
 - **To continue monitoring:** Just re-run `/monitor-ci` (context is preserved)
 - **To start fresh:** Use `/monitor-ci --fresh` to ignore previous context
@@ -84,7 +91,9 @@ Parse any overrides from `$ARGUMENTS` and merge with defaults.
 
 ## Default Behaviors by Status
 
-The subagent returns with one of the following statuses. This table defines the **default behavior** for each status. User instructions can override any of these.
+The subagent returns with one of the following statuses. This table defines the
+**default behavior** for each status. User instructions can override any of
+these.
 
 | Status              | Default Behavior                                                                                                                                                              |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -103,13 +112,15 @@ The subagent returns with one of the following statuses. This table defines the 
 
 ### Fix Available Decision Logic
 
-When subagent returns `fix_available`, main agent compares `failedTaskIds` vs `verifiedTaskIds`:
+When subagent returns `fix_available`, main agent compares `failedTaskIds` vs
+`verifiedTaskIds`:
 
 #### Step 1: Categorize Tasks
 
 1. **Verified tasks** = tasks in both `failedTaskIds` AND `verifiedTaskIds`
 2. **Unverified tasks** = tasks in `failedTaskIds` but NOT in `verifiedTaskIds`
-3. **E2E tasks** = unverified tasks where target contains "e2e" (task format: `<project>:<target>` or `<project>:<target>:<config>`)
+3. **E2E tasks** = unverified tasks where target contains "e2e" (task format:
+   `<project>:<target>` or `<project>:<target>:<config>`)
 4. **Verifiable tasks** = unverified tasks that are NOT e2e
 
 #### Step 2: Determine Path
@@ -130,13 +141,11 @@ When subagent returns `fix_available`, main agent compares `failedTaskIds` vs `v
 When verifiable (non-e2e) unverified tasks exist:
 
 1. **Detect package manager:**
-
    - `pnpm-lock.yaml` exists → `pnpm nx`
    - `yarn.lock` exists → `yarn nx`
    - Otherwise → `npx nx`
 
 2. **Run verifiable tasks in parallel:**
-
    - Spawn `general` subagents to run each task concurrently
    - Each subagent runs: `<pm> nx run <taskId>`
    - Collect pass/fail results from all subagents
@@ -149,18 +158,16 @@ When verifiable (non-e2e) unverified tasks exist:
 | ANY verifiable task fails | Apply-locally + enhance flow |
 
 1. **Apply-locally + enhance flow:**
-
    - Run `nx-cloud apply-locally <shortLink>`
    - Enhance the code to fix failing tasks
    - Run failing tasks again to verify fix
    - If still failing → increment `local_verify_count`, loop back to enhance
-   - If passing → commit and push, record `expected_commit_sha`, spawn subagent in wait mode
+   - If passing → commit and push, record `expected_commit_sha`, spawn subagent
+     in wait mode
 
 2. **Track attempts** (wraps step 4):
-
    - Increment `local_verify_count` after each enhance cycle
    - If `local_verify_count >= local_verify_attempts` (default: 3):
-
      - Get code in commit-able state
      - Commit and push with message indicating local verification failed
      - Report to user:
@@ -169,7 +176,8 @@ When verifiable (non-e2e) unverified tasks exist:
        [monitor-ci] Local verification failed after <N> attempts. Pushed to CI for final validation. Failed: <taskIds>
        ```
 
-     - Record `expected_commit_sha`, spawn subagent in wait mode (let CI be final judge)
+     - Record `expected_commit_sha`, spawn subagent in wait mode (let CI be
+       final judge)
 
 #### Commit Message Format
 
@@ -180,47 +188,75 @@ Failed tasks: <taskId1>, <taskId2>
 Local verification: passed|enhanced|failed-pushing-to-ci"
 ```
 
-**Git Safety**: Only stage and commit files that were modified as part of the fix. Users may have concurrent local changes (local publish, WIP features, config tweaks) that must NOT be committed. NEVER use `git add -A` or `git add .` — always stage specific files by name.
+**Git Safety**: Only stage and commit files that were modified as part of the
+fix. Users may have concurrent local changes (local publish, WIP features,
+config tweaks) that must NOT be committed. NEVER use `git add -A` or `git add .`
+— always stage specific files by name.
 
 ### Unverified Fix Flow (No Verification Attempted)
 
-When `verificationStatus` is `FAILED`, `NOT_EXECUTABLE`, or fix has `couldAutoApplyTasks != true` with no verification:
+When `verificationStatus` is `FAILED`, `NOT_EXECUTABLE`, or fix has
+`couldAutoApplyTasks != true` with no verification:
 
-- Analyze fix content (`suggestedFix`, `suggestedFixReasoning`, `taskOutputSummary`)
+- Analyze fix content (`suggestedFix`, `suggestedFixReasoning`,
+  `taskOutputSummary`)
 - If fix looks correct → apply via MCP
 - If fix needs enhancement → use Apply Locally + Enhance Flow above
 - If fix is wrong → reject via MCP, fix from scratch, commit, push
 
 ### Auto-Apply Eligibility
 
-The `couldAutoApplyTasks` field indicates whether the fix is eligible for automatic application:
+The `couldAutoApplyTasks` field indicates whether the fix is eligible for
+automatic application:
 
-- **`true`**: Fix is eligible for auto-apply. Subagent keeps polling while verification is in progress. Returns `fix_auto_applying` when verified, or `fix_available` if verification fails.
-- **`false`** or **`null`**: Fix requires manual action (apply via MCP, apply locally, or reject)
+- **`true`**: Fix is eligible for auto-apply. Subagent keeps polling while
+  verification is in progress. Returns `fix_auto_applying` when verified, or
+  `fix_available` if verification fails.
+- **`false`** or **`null`**: Fix requires manual action (apply via MCP, apply
+  locally, or reject)
 
-**Key point**: When subagent returns `fix_auto_applying`, do NOT call MCP to apply - self-healing handles it. Just spawn a new subagent in wait mode. No local git operations (no commit, no push).
+**Key point**: When subagent returns `fix_auto_applying`, do NOT call MCP to
+apply - self-healing handles it. Just spawn a new subagent in wait mode. No
+local git operations (no commit, no push).
 
 ### Accidental Local Fix Recovery
 
-If you find yourself with uncommitted local changes from your own fix attempt when the subagent returns (e.g., you accidentally analyzed/fixed the failure while the subagent was polling):
+If you find yourself with uncommitted local changes from your own fix attempt
+when the subagent returns (e.g., you accidentally analyzed/fixed the failure
+while the subagent was polling):
 
-1. **Compare your local changes with the self-healing fix** (`suggestedFix` / `suggestedFixDescription`)
-2. **If identical or substantially similar** → discard only the files you modified (`git checkout -- <file1> <file2> ...`), then apply via MCP instead. Self-healing's pipeline is the preferred path. Do NOT discard unrelated user changes.
-3. **If meaningfully different** (your fix addresses something self-healing missed) → proceed with the Apply Locally + Enhance Flow
+1. **Compare your local changes with the self-healing fix** (`suggestedFix` /
+   `suggestedFixDescription`)
+2. **If identical or substantially similar** → discard only the files you
+   modified (`git checkout -- <file1> <file2> ...`), then apply via MCP instead.
+   Self-healing's pipeline is the preferred path. Do NOT discard unrelated user
+   changes.
+3. **If meaningfully different** (your fix addresses something self-healing
+   missed) → proceed with the Apply Locally + Enhance Flow
 
-Self-healing fixes go through proper CI verification. Always prefer the self-healing path when fixes overlap.
+Self-healing fixes go through proper CI verification. Always prefer the
+self-healing path when fixes overlap.
 
 ### Apply vs Reject vs Apply Locally
 
-- **Apply via MCP**: Calls `update_self_healing_fix({ shortLink, action: "APPLY" })`. Self-healing agent applies the fix in CI and a new CI Attempt spawns automatically. No local git operations needed.
-- **Apply Locally**: Runs `nx-cloud apply-locally <shortLink>`. Applies the patch to your local working directory and sets state to `APPLIED_LOCALLY`. Use this when you want to enhance the fix before pushing.
-- **Reject via MCP**: Calls `update_self_healing_fix({ shortLink, action: "REJECT" })`. Marks fix as rejected. Use only when the fix is completely wrong and you'll fix from scratch.
+- **Apply via MCP**: Calls
+  `update_self_healing_fix({ shortLink, action: "APPLY" })`. Self-healing agent
+  applies the fix in CI and a new CI Attempt spawns automatically. No local git
+  operations needed.
+- **Apply Locally**: Runs `nx-cloud apply-locally <shortLink>`. Applies the
+  patch to your local working directory and sets state to `APPLIED_LOCALLY`. Use
+  this when you want to enhance the fix before pushing.
+- **Reject via MCP**: Calls
+  `update_self_healing_fix({ shortLink, action: "REJECT" })`. Marks fix as
+  rejected. Use only when the fix is completely wrong and you'll fix from
+  scratch.
 
 ### Apply Locally + Enhance Flow
 
 When the fix needs enhancement (use `nx-cloud apply-locally`, NOT reject):
 
-1. Apply the patch locally: `nx-cloud apply-locally <shortLink>` (this also updates state to `APPLIED_LOCALLY`)
+1. Apply the patch locally: `nx-cloud apply-locally <shortLink>` (this also
+   updates state to `APPLIED_LOCALLY`)
 2. Make additional changes as needed
 3. Stage only the files you modified: `git add <file1> <file2> ...`
 4. Commit and push:
@@ -236,7 +272,8 @@ When the fix needs enhancement (use `nx-cloud apply-locally`, NOT reject):
 
 When the fix is completely wrong:
 
-1. Call MCP to reject: `update_self_healing_fix({ shortLink, action: "REJECT" })`
+1. Call MCP to reject:
+   `update_self_healing_fix({ shortLink, action: "REJECT" })`
 2. Fix the issue from scratch locally
 3. Stage only the files you modified: `git add <file1> <file2> ...`
 4. Commit and push:
@@ -252,7 +289,8 @@ When the fix is completely wrong:
 
 When `failureClassification == 'ENVIRONMENT_STATE'`:
 
-1. Call MCP to request rerun: `update_self_healing_fix({ shortLink, action: "RERUN_ENVIRONMENT_STATE" })`
+1. Call MCP to request rerun:
+   `update_self_healing_fix({ shortLink, action: "RERUN_ENVIRONMENT_STATE" })`
 2. New CI Attempt spawns automatically (no local git operations needed)
 3. Loop to poll for new CI Attempt with `previousCipeUrl` set
 
@@ -260,7 +298,8 @@ When `failureClassification == 'ENVIRONMENT_STATE'`:
 
 When `status == 'no_new_cipe'`:
 
-This means the expected CI Attempt was never created - CI likely failed before Nx tasks could run.
+This means the expected CI Attempt was never created - CI likely failed before
+Nx tasks could run.
 
 1. **Report to user:**
 
@@ -269,8 +308,8 @@ This means the expected CI Attempt was never created - CI likely failed before N
    ```
 
 2. **If user configured auto-fix attempts** (e.g., `--auto-fix-workflow`):
-
-   - Detect package manager: check for `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`
+   - Detect package manager: check for `pnpm-lock.yaml`, `yarn.lock`,
+     `package-lock.json`
    - Run install to update lockfile:
 
      ```bash
@@ -287,13 +326,15 @@ This means the expected CI Attempt was never created - CI likely failed before N
 
    - Record new commit SHA, loop to poll with `expectedCommitSha`
 
-3. **Otherwise:** Exit with `no_new_cipe` status, providing guidance for user to investigate
+3. **Otherwise:** Exit with `no_new_cipe` status, providing guidance for user to
+   investigate
 
 ### CI-Attempt-No-Tasks Handling
 
 When `status == 'cipe_no_tasks'`:
 
-This means the CI Attempt was created but no Nx tasks were recorded before it failed. Common causes:
+This means the CI Attempt was created but no Nx tasks were recorded before it
+failed. Common causes:
 
 - CI timeout before tasks could run
 - Critical infrastructure error
@@ -319,7 +360,6 @@ This means the CI Attempt was created but no Nx tasks were recorded before it fa
 3. **Record `expected_commit_sha`, spawn subagent in wait mode**
 
 4. **If retry also returns `cipe_no_tasks`:**
-
    - Exit with failure
    - Provide guidance:
 
@@ -362,7 +402,8 @@ agent_triggered = false    # Set true after monitor takes an action that trigger
 
 ### Step 2: Spawn Subagent and Monitor Output
 
-Spawn the `ci-monitor-subagent` subagent to poll CI status. **Run in background** so you can actively monitor and relay its output to the user.
+Spawn the `ci-monitor-subagent` subagent to poll CI status. **Run in
+background** so you can actively monitor and relay its output to the user.
 
 **Fresh start (first spawn, no expected CI Attempt):**
 
@@ -396,12 +437,16 @@ Task(
 
 ### Step 2a: Active Output Monitoring (CRITICAL)
 
-**The subagent's text output is NOT visible to users when running in background.** You MUST actively monitor and relay its output. Do NOT passively wait for completion.
+**The subagent's text output is NOT visible to users when running in
+background.** You MUST actively monitor and relay its output. Do NOT passively
+wait for completion.
 
 After spawning the background subagent, enter a monitoring loop:
 
-1. **Every 60 seconds**, check the subagent output using `TaskOutput(task_id, block=false)`
-2. **Parse new lines** since your last check — look for `[ci-monitor]` and `⚡` prefixed lines
+1. **Every 60 seconds**, check the subagent output using
+   `TaskOutput(task_id, block=false)`
+2. **Parse new lines** since your last check — look for `[ci-monitor]` and `⚡`
+   prefixed lines
 3. **Relay to user** based on verbosity:
    - `minimal`: Only relay `⚡` critical transition lines
    - `medium`: Relay all `[ci-monitor]` status lines
@@ -429,9 +474,14 @@ After spawning the background subagent, enter a monitoring loop:
 - Spawn subagent and passively say "Waiting for results..."
 - Check once and say "Still working, I'll wait"
 - Only show output when the subagent finishes
-- Independently analyze CI failures, read task output, or attempt fixes while subagent is polling
+- Independently analyze CI failures, read task output, or attempt fixes while
+  subagent is polling
 
-**While the subagent is polling, your ONLY job is to relay its output.** Do not read CI task output, diagnose failures, generate fixes, modify code, or run tasks locally. All fix decisions happen in Step 3 AFTER the subagent returns with a status. Self-healing may already be working on a fix — independent local analysis races with it and causes duplicate/conflicting fixes.
+**While the subagent is polling, your ONLY job is to relay its output.** Do not
+read CI task output, diagnose failures, generate fixes, modify code, or run
+tasks locally. All fix decisions happen in Step 3 AFTER the subagent returns
+with a status. Self-healing may already be working on a fix — independent local
+analysis races with it and causes duplicate/conflicting fixes.
 
 ### Step 3: Handle Subagent Response
 
@@ -460,28 +510,40 @@ After actions that should trigger a new CI Attempt, record state before looping:
 | No-new-CI-Attempt + auto-fix + push | `expected_commit_sha = $(git rev-parse HEAD)` | Wait mode     |
 | CI Attempt no tasks + retry push    | `expected_commit_sha = $(git rev-parse HEAD)` | Wait mode     |
 
-**CRITICAL**: When passing `expectedCommitSha` or `last_cipe_url` to the subagent, it enters **wait mode**:
+**CRITICAL**: When passing `expectedCommitSha` or `last_cipe_url` to the
+subagent, it enters **wait mode**:
 
 - Subagent will **completely ignore** the old/stale CI Attempt
 - Subagent will only wait for new CI Attempt to appear
 - Subagent will NOT return to main agent with stale CI Attempt data
 - Once new CI Attempt detected, subagent switches to normal polling
 
-**Why wait mode matters for context preservation**: Stale CI Attempt data can be very large (task output summaries, suggested fix patches, reasoning). If subagent returns this to main agent, it pollutes main agent's context with useless data since we already processed that CI Attempt. Wait mode keeps stale data in the subagent, never sending it to main agent.
+**Why wait mode matters for context preservation**: Stale CI Attempt data can be
+very large (task output summaries, suggested fix patches, reasoning). If
+subagent returns this to main agent, it pollutes main agent's context with
+useless data since we already processed that CI Attempt. Wait mode keeps stale
+data in the subagent, never sending it to main agent.
 
 ### Step 4: Cycle Classification and Progress Tracking
 
 #### Cycle Classification
 
-Not all cycles are equal. Only count cycles the monitor itself triggered toward `--max-cycles`:
+Not all cycles are equal. Only count cycles the monitor itself triggered toward
+`--max-cycles`:
 
 1. **After subagent returns**, check `agent_triggered`:
-   - `agent_triggered == true` → this cycle was triggered by the monitor → `cycle_count++`
-   - `agent_triggered == false` → this cycle was human-initiated or a first observation → do NOT increment `cycle_count`
+   - `agent_triggered == true` → this cycle was triggered by the monitor →
+     `cycle_count++`
+   - `agent_triggered == false` → this cycle was human-initiated or a first
+     observation → do NOT increment `cycle_count`
 2. **Reset** `agent_triggered = false`
-3. **After Step 3a** (when the monitor takes an action that triggers a new CI Attempt) → set `agent_triggered = true`
+3. **After Step 3a** (when the monitor takes an action that triggers a new CI
+   Attempt) → set `agent_triggered = true`
 
-**How detection works**: Step 3a is only called when the monitor explicitly pushes code, applies a fix via MCP, or triggers an environment rerun. If a human pushes on their own, the subagent detects a new CI Attempt but the monitor never went through Step 3a, so `agent_triggered` remains `false`.
+**How detection works**: Step 3a is only called when the monitor explicitly
+pushes code, applies a fix via MCP, or triggers an environment rerun. If a human
+pushes on their own, the subagent detects a new CI Attempt but the monitor never
+went through Step 3a, so `agent_triggered` remains `false`.
 
 **When a human-initiated cycle is detected**, log it:
 

@@ -1,26 +1,27 @@
 {
-    "name": "@harmoniclabs/ouroboros-miniprotocols-ts",
-    "version": "0.0.5-dev7",
-    "dependencies": {
-        "@effect/opentelemetry": "^4.0.0-beta.38",
-        "@harmoniclabs/cbor": "^1.6.6",
-        "@harmoniclabs/obj-utils": "^1.0.0",
-        "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.5-dev7",
-        "@harmoniclabs/uint8array-utils": "^1.0.4",
-        "effect": "^4.0.0-beta.38",
-        "lodash": "^4.17.23",
-        "wasm-plexer": "workspace:*"
-    },
-    "devDependencies": {
-        "@effect/language-service": "^0.80.0",
-        "@effect/platform-bun": "^4.0.0-beta.38",
-        "@effect/vitest": "^4.0.0-beta.38",
-        "@types/lodash": "^4.17.24",
-        "tsc-alias": "^1.8.16",
-        "typescript": "^5.9.3",
-        "vitest": "^2.1.9"
-    },
-    "author": "Harmonic Laboratories",
-    "license": "Apache-2.0",
-    "funding": "https://github.com/sponsors/HarmonicLabs"
+  "name": "@harmoniclabs/ouroboros-miniprotocols-ts",
+  "version": "0.0.5-dev7",
+  "license": "Apache-2.0",
+  "author": "Harmonic Laboratories",
+  "funding": "https://github.com/sponsors/HarmonicLabs",
+  "dependencies": {
+    "@effect/opentelemetry": "^4.0.0-beta.38",
+    "@harmoniclabs/cbor": "^2.0.1",
+    "@harmoniclabs/obj-utils": "^1.0.0",
+    "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.5-dev7",
+    "@harmoniclabs/uint8array-utils": "^1.0.4",
+    "cbor-schema": "workspace:*",
+    "effect": "^4.0.0-beta.38",
+    "lodash": "^4.17.23",
+    "wasm-plexer": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.80.0",
+    "@effect/platform-bun": "^4.0.0-beta.38",
+    "@effect/vitest": "^4.0.0-beta.38",
+    "@types/lodash": "^4.17.24",
+    "tsc-alias": "^1.8.16",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
 }

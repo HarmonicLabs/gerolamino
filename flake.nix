@@ -39,14 +39,17 @@
       perSystem = { config, self', inputs', pkgs, system, lib, ... }: {
         treefmt = {
           projectRootFile = "flake.nix";
-          programs.deno.enable = true;
+          programs = {
+            oxfmt.enable = true;
+            nixpkgs-fmt.enable = true;
+          };
         };
 
         devenv = {
           shells.default = {
             packages = with pkgs; [
               lmdb
-              # sqlite
+              sqlite
               poppler-utils
               wasm-pack
               inputs.mithril.packages.${system}.mithril-client-cli

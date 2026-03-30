@@ -1,15 +1,15 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import {
-    Cbor,
-    CborArray as CborArrayObj,
-    CborBytes as CborBytesObj,
-    CborMap as CborMapObj,
-    CborNegInt as CborNegIntObj,
-    CborSimple as CborSimpleObj,
-    CborTag as CborTagObj,
-    CborText as CborTextObj,
-    CborUInt as CborUIntObj,
-    isCborObj,
+  Cbor,
+  CborArray as CborArrayObj,
+  CborBytes as CborBytesObj,
+  CborMap as CborMapObj,
+  CborNegInt as CborNegIntObj,
+  CborSimple as CborSimpleObj,
+  CborTag as CborTagObj,
+  CborText as CborTextObj,
+  CborUInt as CborUIntObj,
+  isCborObj,
 } from "@harmoniclabs/cbor";
 import type { CborObj } from "@harmoniclabs/cbor";
 
@@ -17,209 +17,255 @@ import type { CborObj } from "@harmoniclabs/cbor";
 // Error types
 // ────────────────────────────────────────────────────────────────────────────
 
-export class CborDecodeError extends Schema.TaggedErrorClass<CborDecodeError>()(
-    "CborDecodeError",
-    { cause: Schema.Defect },
-) {}
+export class CborDecodeError extends Schema.TaggedErrorClass<CborDecodeError>()("CborDecodeError", {
+  cause: Schema.Defect,
+}) {}
 
-export class CborEncodeError extends Schema.TaggedErrorClass<CborEncodeError>()(
-    "CborEncodeError",
-    { cause: Schema.Defect },
-) {}
+export class CborEncodeError extends Schema.TaggedErrorClass<CborEncodeError>()("CborEncodeError", {
+  cause: Schema.Defect,
+}) {}
 
 // ────────────────────────────────────────────────────────────────────────────
-// CborValue: CBOR AST as an Effect-TS tagged union
+// CborSchema: Effect-TS tagged union mirroring the CborObj AST
+//
+// Leaf cases use TaggedUnion for validation + .cases/.match utilities.
+// Recursive cases (Array, Map, Tag) use TaggedStruct + suspend.
 // ────────────────────────────────────────────────────────────────────────────
 
-export type CborValue =
-    | { readonly _tag: "CborUInt"; readonly value: bigint }
-    | { readonly _tag: "CborNegInt"; readonly value: bigint }
-    | { readonly _tag: "CborBytes"; readonly bytes: Uint8Array }
-    | { readonly _tag: "CborText"; readonly text: string }
-    | { readonly _tag: "CborArray"; readonly items: readonly CborValue[] }
-    | {
-          readonly _tag: "CborMap";
-          readonly entries: readonly {
-              readonly k: CborValue;
-              readonly v: CborValue;
-          }[];
-      }
-    | { readonly _tag: "CborTag"; readonly tag: bigint; readonly data: CborValue }
-    | {
-          readonly _tag: "CborSimple";
-          readonly value: boolean | null | number | undefined;
-      };
-
-// Leaf schemas (non-recursive)
-const CborUInt = Schema.TaggedStruct("CborUInt", { value: Schema.BigInt });
-const CborNegInt = Schema.TaggedStruct("CborNegInt", { value: Schema.BigInt });
-const CborBytes = Schema.TaggedStruct("CborBytes", { bytes: Schema.Uint8Array });
-const CborText = Schema.TaggedStruct("CborText", { text: Schema.String });
-const CborSimple = Schema.TaggedStruct("CborSimple", {
+const _CborLeaves = Schema.TaggedUnion({
+  UInt: { num: Schema.BigInt.check(Schema.isGreaterThanOrEqualToBigInt(0n)) },
+  NegInt: { num: Schema.BigInt.check(Schema.isLessThanBigInt(0n)) },
+  Bytes: { bytes: Schema.Uint8Array },
+  Text: { text: Schema.String },
+  Simple: {
     value: Schema.Union([Schema.Boolean, Schema.Null, Schema.Number, Schema.Undefined]),
+  },
 });
 
-// Self-referencing recursive schema — follows the Effect-TS pattern from
-// Schema.test.ts where the variable annotation breaks the inference cycle.
-export const CborValueSchema: Schema.Codec<CborValue> = Schema.Union([
-    CborUInt,
-    CborNegInt,
-    CborBytes,
-    CborText,
-    Schema.TaggedStruct("CborArray", {
-        items: Schema.Array(
-            Schema.suspend((): Schema.Codec<CborValue> => CborValueSchema),
-        ),
-    }),
-    Schema.TaggedStruct("CborMap", {
-        entries: Schema.Array(
-            Schema.Struct({
-                k: Schema.suspend((): Schema.Codec<CborValue> => CborValueSchema),
-                v: Schema.suspend((): Schema.Codec<CborValue> => CborValueSchema),
-            }),
-        ),
-    }),
-    Schema.TaggedStruct("CborTag", {
-        tag: Schema.BigInt,
-        data: Schema.suspend((): Schema.Codec<CborValue> => CborValueSchema),
-    }),
-    CborSimple,
+export type CborSchemaType =
+  | typeof _CborLeaves.cases.UInt.Type
+  | typeof _CborLeaves.cases.NegInt.Type
+  | typeof _CborLeaves.cases.Bytes.Type
+  | typeof _CborLeaves.cases.Text.Type
+  | { readonly _tag: "Array"; readonly items: readonly CborSchemaType[] }
+  | {
+      readonly _tag: "Map";
+      readonly entries: readonly {
+        readonly k: CborSchemaType;
+        readonly v: CborSchemaType;
+      }[];
+    }
+  | {
+      readonly _tag: "Tag";
+      readonly tag: bigint;
+      readonly data: CborSchemaType;
+    }
+  | typeof _CborLeaves.cases.Simple.Type;
+
+export const CborSchema: Schema.Codec<CborSchemaType> = Schema.Union([
+  _CborLeaves.cases.UInt,
+  _CborLeaves.cases.NegInt,
+  _CborLeaves.cases.Bytes,
+  _CborLeaves.cases.Text,
+  Schema.TaggedStruct("Array", {
+    items: Schema.Array(Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema)),
+  }),
+  Schema.TaggedStruct("Map", {
+    entries: Schema.Array(
+      Schema.Struct({
+        k: Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema),
+        v: Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema),
+      }),
+    ),
+  }),
+  Schema.TaggedStruct("Tag", {
+    tag: Schema.BigInt.check(Schema.isGreaterThanOrEqualToBigInt(0n)),
+    data: Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema),
+  }),
+  _CborLeaves.cases.Simple,
 ]);
 
-export { CborUInt, CborNegInt, CborBytes, CborText, CborSimple };
-
 // ────────────────────────────────────────────────────────────────────────────
-// CborObj ↔ CborValue isomorphism
+// CborObj ↔ CborSchema isomorphism
 // ────────────────────────────────────────────────────────────────────────────
 
-export const cborObjToValue = (obj: CborObj): CborValue => {
-    if (obj instanceof CborUIntObj)
-        return { _tag: "CborUInt", value: obj.num };
-    if (obj instanceof CborNegIntObj)
-        return { _tag: "CborNegInt", value: obj.num };
-    if (obj instanceof CborBytesObj)
-        return { _tag: "CborBytes", bytes: obj.bytes };
-    if (obj instanceof CborTextObj)
-        return { _tag: "CborText", text: obj.text };
-    if (obj instanceof CborArrayObj)
-        return { _tag: "CborArray", items: obj.array.map(cborObjToValue) };
-    if (obj instanceof CborMapObj)
-        return {
-            _tag: "CborMap",
-            entries: obj.map.map(({ k, v }) => ({
-                k: cborObjToValue(k),
-                v: cborObjToValue(v),
-            })),
-        };
-    if (obj instanceof CborTagObj)
-        return { _tag: "CborTag", tag: obj.tag, data: cborObjToValue(obj.data) };
-    return { _tag: "CborSimple", value: (obj as CborSimpleObj).simple };
+export const cborObjToSchema = (obj: CborObj): CborSchemaType => {
+  if (obj instanceof CborUIntObj) {
+    return { _tag: "UInt", num: obj.num };
+  }
+  if (obj instanceof CborNegIntObj) {
+    return { _tag: "NegInt", num: obj.num };
+  }
+  if (obj instanceof CborBytesObj) {
+    return { _tag: "Bytes", bytes: obj.bytes };
+  }
+  if (obj instanceof CborTextObj) {
+    return { _tag: "Text", text: obj.text };
+  }
+  if (obj instanceof CborArrayObj) {
+    return { _tag: "Array", items: obj.array.map(cborObjToSchema) };
+  }
+  if (obj instanceof CborMapObj) {
+    return {
+      _tag: "Map",
+      entries: obj.map.map(({ k, v }) => ({
+        k: cborObjToSchema(k),
+        v: cborObjToSchema(v),
+      })),
+    };
+  }
+  if (obj instanceof CborTagObj) {
+    return { _tag: "Tag", tag: obj.tag, data: cborObjToSchema(obj.data) };
+  }
+  return { _tag: "Simple", value: (obj as CborSimpleObj).simple };
 };
 
-export const valueToCborObj = (value: CborValue): CborObj => {
-    switch (value._tag) {
-        case "CborUInt":
-            return new CborUIntObj(value.value);
-        case "CborNegInt":
-            return new CborNegIntObj(value.value);
-        case "CborBytes":
-            return new CborBytesObj(value.bytes);
-        case "CborText":
-            return new CborTextObj(value.text);
-        case "CborArray":
-            return new CborArrayObj(value.items.map(valueToCborObj));
-        case "CborMap":
-            return new CborMapObj(
-                value.entries.map(({ k, v }) => ({
-                    k: valueToCborObj(k),
-                    v: valueToCborObj(v),
-                })),
-            );
-        case "CborTag":
-            return new CborTagObj(value.tag, valueToCborObj(value.data));
-        case "CborSimple":
-            return new CborSimpleObj(value.value);
-    }
+export const schemaToCborObj = (value: CborSchemaType): CborObj => {
+  switch (value._tag) {
+    case "UInt":
+      return new CborUIntObj(value.num);
+    case "NegInt":
+      return new CborNegIntObj(value.num);
+    case "Bytes":
+      return new CborBytesObj(value.bytes);
+    case "Text":
+      return new CborTextObj(value.text);
+    case "Array":
+      return new CborArrayObj(value.items.map(schemaToCborObj));
+    case "Map":
+      return new CborMapObj(
+        value.entries.map(({ k, v }) => ({
+          k: schemaToCborObj(k),
+          v: schemaToCborObj(v),
+        })),
+      );
+    case "Tag":
+      return new CborTagObj(value.tag, schemaToCborObj(value.data));
+    case "Simple":
+      return new CborSimpleObj(value.value);
+  }
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// CborObj schema (validates class instances from @harmoniclabs/cbor)
+// CborObjSchema: Schema.Codec<CborObj>
 // ────────────────────────────────────────────────────────────────────────────
 
-const CborObjSchema = Schema.declare(
-    (u: unknown): u is CborObj => isCborObj(u as object),
-    { expected: "CborObj" },
+export const CborObjSchema = Schema.declare((u: unknown): u is CborObj => isCborObj(u as object), {
+  expected: "CborObj",
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// CborSchemaFromObj: CborObj ↔ CborSchemaType
+//
+// Type:    CborSchemaType (Effect-TS tagged union)
+// Encoded: CborObj        (class instances)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const CborSchemaFromObj = CborObjSchema.pipe(
+  Schema.decodeTo(CborSchema, {
+    decode: SchemaGetter.transform(cborObjToSchema),
+    encode: SchemaGetter.transform(schemaToCborObj),
+  }),
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// CborObj ↔ CborValue codec
-//
-// Type:    CborValue  (Effect-TS tagged union)
-// Encoded: CborObj    (class instances from @harmoniclabs/cbor)
-// ────────────────────────────────────────────────────────────────────────────
-
-export const CborValueFromObj = CborObjSchema.pipe(
-    Schema.decodeTo(CborValueSchema, {
-        decode: SchemaGetter.transform(cborObjToValue),
-        encode: SchemaGetter.transform(valueToCborObj),
-    }),
-);
-
-// ────────────────────────────────────────────────────────────────────────────
-// Uint8Array ↔ CborObj codec
-//
-// Type:    CborObj
-// Encoded: Uint8Array (raw CBOR bytes)
+// CborObjFromBytes: Uint8Array ↔ CborObj
 // ────────────────────────────────────────────────────────────────────────────
 
 export const CborObjFromBytes = Schema.Uint8Array.pipe(
-    Schema.decodeTo(CborObjSchema, {
-        decode: SchemaGetter.transformOrFail((bytes: Uint8Array) =>
-            Effect.try({
-                try: () => Cbor.parse(bytes),
-                catch: (e) => new CborDecodeError({ cause: e }),
-            }).pipe(
-                Effect.mapError((e) =>
-                    new SchemaIssue.InvalidValue(Option.none(), {
-                        message: `CBOR decode failed: ${e}`,
-                    }),
-                ),
-            ),
+  Schema.decodeTo(CborObjSchema, {
+    decode: SchemaGetter.transformOrFail((bytes: Uint8Array) =>
+      Effect.try({
+        try: () => Cbor.parse(bytes),
+        catch: (e) => new CborDecodeError({ cause: e }),
+      }).pipe(
+        Effect.mapError(
+          (e) =>
+            new SchemaIssue.InvalidValue(Option.none(), {
+              message: `CBOR decode failed: ${e}`,
+            }),
         ),
-        encode: SchemaGetter.transformOrFail((obj: CborObj) =>
-            Effect.try({
-                try: () => Cbor.encode(obj),
-                catch: (e) => new CborEncodeError({ cause: e }),
-            }).pipe(
-                Effect.mapError((e) =>
-                    new SchemaIssue.InvalidValue(Option.none(), {
-                        message: `CBOR encode failed: ${e}`,
-                    }),
-                ),
-            ),
+      ),
+    ),
+    encode: SchemaGetter.transformOrFail((obj: CborObj) =>
+      Effect.try({
+        try: () => Cbor.encode(obj),
+        catch: (e) => new CborEncodeError({ cause: e }),
+      }).pipe(
+        Effect.mapError(
+          (e) =>
+            new SchemaIssue.InvalidValue(Option.none(), {
+              message: `CBOR encode failed: ${e}`,
+            }),
         ),
-    }),
+      ),
+    ),
+  }),
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// Uint8Array ↔ CborValue codec (full wire-format convenience)
-//
-// Compose: Uint8Array → CborObj → CborValue
+// CborSchemaFromBytes: Uint8Array ↔ CborSchemaType (full pipeline)
 // ────────────────────────────────────────────────────────────────────────────
 
-export const CborValueFromBytes = CborObjFromBytes.pipe(
-    Schema.decodeTo(CborValueSchema, {
-        decode: SchemaGetter.transform(cborObjToValue),
-        encode: SchemaGetter.transform(valueToCborObj),
-    }),
+export const CborSchemaFromBytes = CborObjFromBytes.pipe(
+  Schema.decodeTo(CborSchema, {
+    decode: SchemaGetter.transform(cborObjToSchema),
+    encode: SchemaGetter.transform(schemaToCborObj),
+  }),
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// CborSchema: compose a user schema on top of CborValue from bytes
-//
-// Given a schema S whose Encoded type accepts CborValue,
-// produces: Uint8Array ↔ CborObj ↔ CborValue ↔ S.Type
+// CborObj ↔ JS primitive conversions (lossy, for protocol schema compat)
 // ────────────────────────────────────────────────────────────────────────────
 
-export const CborSchema = <S extends Schema.Top>(schema: S) =>
-    CborValueFromBytes.pipe(Schema.decodeTo(schema));
+export const cborToJs = (obj: CborObj): unknown => {
+  if (obj instanceof CborUIntObj) return Number(obj.num);
+  if (obj instanceof CborNegIntObj) return -Number(obj.num) - 1;
+  if (obj instanceof CborBytesObj) return obj.bytes;
+  if (obj instanceof CborTextObj) return obj.text;
+  if (obj instanceof CborArrayObj) return obj.array.map(cborToJs);
+  if (obj instanceof CborMapObj) {
+    return Object.fromEntries(obj.map.map(({ k, v }) => [cborToJs(k), cborToJs(v)]));
+  }
+  if (obj instanceof CborTagObj) return cborToJs(obj.data);
+  if (obj instanceof CborSimpleObj) return obj.simple;
+  return obj;
+};
+
+export const jsToCbor = (value: unknown): CborObj => {
+  if (typeof value === "number") {
+    return value >= 0 ? new CborUIntObj(value) : new CborNegIntObj(-value - 1);
+  }
+  if (typeof value === "bigint") {
+    return value >= 0n ? new CborUIntObj(value) : new CborNegIntObj(-value - 1n);
+  }
+  if (typeof value === "string") return new CborTextObj(value);
+  if (typeof value === "boolean") {
+    return value ? CborSimpleObj.true : CborSimpleObj.false;
+  }
+  if (value === null || value === undefined) return CborSimpleObj.null;
+  if (value instanceof Uint8Array) return new CborBytesObj(value);
+  if (Array.isArray(value)) return new CborArrayObj(value.map(jsToCbor));
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return new CborMapObj(
+      entries.map(([k, v]) => ({
+        k: /^\d+$/.test(k) ? new CborUIntObj(parseInt(k, 10)) : jsToCbor(k),
+        v: jsToCbor(v),
+      })),
+    );
+  }
+  return CborSimpleObj.null;
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// CborBytes: Uint8Array ↔ CborObj ↔ JS primitives ↔ ApplicationType
+// ────────────────────────────────────────────────────────────────────────────
+
+export const CborBytes = <S extends Schema.Top>(cborSchema: S) =>
+  CborObjFromBytes.pipe(
+    Schema.decodeTo(cborSchema, {
+      decode: SchemaGetter.transform(cborToJs),
+      encode: SchemaGetter.transform(jsToCbor),
+    }),
+  );

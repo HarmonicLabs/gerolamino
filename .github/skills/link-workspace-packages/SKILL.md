@@ -5,7 +5,8 @@ description: 'Link workspace packages in monorepos (npm, yarn, pnpm, bun). USE W
 
 # Link Workspace Packages
 
-Add dependencies between packages in a monorepo. All package managers support workspaces but with different syntax.
+Add dependencies between packages in a monorepo. All package managers support
+workspaces but with different syntax.
 
 ## Detect Package Manager
 
@@ -124,4 +125,5 @@ npm install @org/data-access @org/ui --workspace @org/dashboard
   - npm/bun: hoist shared deps to root `node_modules`
   - pnpm: no hoisting (strict isolation, prevents phantom deps)
   - yarn berry: uses Plug'n'Play by default (no `node_modules`)
-- Root `package.json` should have `"private": true` to prevent accidental publish
+- Root `package.json` should have `"private": true` to prevent accidental
+  publish

@@ -1,6 +1,5 @@
 // Core
 export * from "./MiniProtocol";
-export * from "./CborBytes";
 export * from "./Metrics";
 
 // Multiplexer

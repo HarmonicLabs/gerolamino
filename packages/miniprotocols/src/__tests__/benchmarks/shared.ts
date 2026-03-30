@@ -20,45 +20,41 @@ export const PORT = 3001;
 export const PreprodSocket = BunSocket.layerNet({ host: HOST, port: PORT });
 
 export const PreprodMultiplexer = Multiplexer.layer.pipe(
-    Layer.provide(MultiplexerBuffer.layer),
-    Layer.provide(PreprodSocket),
+  Layer.provide(MultiplexerBuffer.layer),
+  Layer.provide(PreprodSocket),
 );
 
 /** Handshake-only layer */
-export const HandshakeLayer = HandshakeClient.layer.pipe(
-    Layer.provide(PreprodMultiplexer),
-);
+export const HandshakeLayer = HandshakeClient.layer.pipe(Layer.provide(PreprodMultiplexer));
 
 /** Handshake + KeepAlive */
-export const KeepAliveLayer = Layer.mergeAll(
-    HandshakeClient.layer,
-    KeepAliveClient.layer,
-).pipe(Layer.provide(PreprodMultiplexer));
+export const KeepAliveLayer = Layer.mergeAll(HandshakeClient.layer, KeepAliveClient.layer).pipe(
+  Layer.provide(PreprodMultiplexer),
+);
 
 /** Handshake + ChainSync */
-export const ChainSyncLayer = Layer.mergeAll(
-    HandshakeClient.layer,
-    ChainSyncClient.layer,
-).pipe(Layer.provide(PreprodMultiplexer));
+export const ChainSyncLayer = Layer.mergeAll(HandshakeClient.layer, ChainSyncClient.layer).pipe(
+  Layer.provide(PreprodMultiplexer),
+);
 
 /** Handshake + ChainSync + BlockFetch */
 export const BlockFetchLayer = Layer.mergeAll(
-    HandshakeClient.layer,
-    ChainSyncClient.layer,
-    BlockFetchClient.layer,
+  HandshakeClient.layer,
+  ChainSyncClient.layer,
+  BlockFetchClient.layer,
 ).pipe(Layer.provide(PreprodMultiplexer));
 
 /** Preprod: network magic = 1, N2N version 14 */
 export const preprodVersionTable = {
-    _tag: "node-to-node" as const,
-    data: {
-        14: {
-            networkMagic: 1,
-            initiatorOnlyDiffusionMode: false,
-            peerSharing: 0,
-            query: false,
-        },
+  _tag: "node-to-node" as const,
+  data: {
+    14: {
+      networkMagic: 1,
+      initiatorOnlyDiffusionMode: false,
+      peerSharing: 0,
+      query: false,
     },
+  },
 };
 
 // ── Legacy helpers ──
@@ -67,10 +63,10 @@ export const preprodVersionTable = {
 // appears in a transitively-imported .ts module, so we keep it local.
 
 export function makeLegacyVersionData(Legacy: any) {
-    return new Legacy.VersionData({
-        networkMagic: 1,
-        initiatorOnlyDiffusionMode: false,
-        peerSharing: false,
-        query: false,
-    });
+  return new Legacy.VersionData({
+    networkMagic: 1,
+    initiatorOnlyDiffusionMode: false,
+    peerSharing: false,
+    query: false,
+  });
 }

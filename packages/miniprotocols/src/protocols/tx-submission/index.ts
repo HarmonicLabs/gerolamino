@@ -4,7 +4,6 @@ export {
   TxIdAndSizeSchema,
   TxSubmissionMessage,
   TxSubmissionMessageBytes,
-  TxSubmissionMessageFromCbor,
   type TxSubmissionMessageT,
   TxSubmissionMessageType,
   TxSubmissionMessageTypeSchema,

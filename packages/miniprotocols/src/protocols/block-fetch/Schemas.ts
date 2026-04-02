@@ -1,7 +1,7 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
-import { ChainPointFromCbor, ChainPointSchema } from "../types/ChainPoint";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { ChainPointSchema, ChainPointType, type ChainPoint } from "../types/ChainPoint";
 
 // ── Application-level types ──
 
@@ -32,6 +32,29 @@ export const BlockFetchMessage = Schema.Union([
 
 export type BlockFetchMessageT = Schema.Schema.Type<typeof BlockFetchMessage>;
 
+// ── CBOR helpers for ChainPoint ──
+
+function decodeChainPoint(node: CborSchemaType): ChainPoint {
+  if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainPoint");
+  if (node.items.length === 0) return { _tag: ChainPointType.Origin as const };
+  const slot = node.items[0];
+  const hash = node.items[1];
+  if (slot?._tag !== CborKinds.UInt) throw new Error("Expected uint for slot");
+  if (hash?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for hash");
+  return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
+}
+
+function encodeChainPoint(point: ChainPoint): CborSchemaType {
+  if (point._tag === ChainPointType.Origin) return { _tag: CborKinds.Array, items: [] };
+  return {
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: BigInt(point.slot) },
+      { _tag: CborKinds.Bytes, bytes: point.hash },
+    ],
+  };
+}
+
 // ── CBOR wire format ──
 // [0, from, to] — RequestRange
 // [1]           — ClientDone
@@ -40,56 +63,70 @@ export type BlockFetchMessageT = Schema.Schema.Type<typeof BlockFetchMessage>;
 // [4, block]    — Block
 // [5]           — BatchDone
 
-const RequestRangeCbor = Schema.Tuple([Schema.Literal(0), ChainPointFromCbor, ChainPointFromCbor]);
-const ClientDoneCbor = Schema.Tuple([Schema.Literal(1)]);
-const StartBatchCbor = Schema.Tuple([Schema.Literal(2)]);
-const NoBlocksCbor = Schema.Tuple([Schema.Literal(3)]);
-const BlockCbor = Schema.Tuple([Schema.Literal(4), Schema.Uint8Array]);
-const BatchDoneCbor = Schema.Tuple([Schema.Literal(5)]);
-
-export const BlockFetchMessageFromCbor = Schema.Union([
-  RequestRangeCbor,
-  ClientDoneCbor,
-  StartBatchCbor,
-  NoBlocksCbor,
-  BlockCbor,
-  BatchDoneCbor,
-]).pipe(
+export const BlockFetchMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(BlockFetchMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? {
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0:
+          return {
             _tag: BlockFetchMessageType.RequestRange as const,
-            from: tuple[1],
-            to: tuple[2],
-          }
-        : tuple[0] === 1
-          ? { _tag: BlockFetchMessageType.ClientDone as const }
-          : tuple[0] === 2
-            ? { _tag: BlockFetchMessageType.StartBatch as const }
-            : tuple[0] === 3
-              ? { _tag: BlockFetchMessageType.NoBlocks as const }
-              : tuple[0] === 4
-                ? { _tag: BlockFetchMessageType.Block as const, block: tuple[1] }
-                : { _tag: BlockFetchMessageType.BatchDone as const },
-    ),
-    encode: SchemaGetter.transform((msg) => {
-      switch (msg._tag) {
-        case BlockFetchMessageType.RequestRange:
-          return [0, msg.from, msg.to];
-        case BlockFetchMessageType.ClientDone:
-          return [1];
-        case BlockFetchMessageType.StartBatch:
-          return [2];
-        case BlockFetchMessageType.NoBlocks:
-          return [3];
-        case BlockFetchMessageType.Block:
-          return [4, msg.block];
-        case BlockFetchMessageType.BatchDone:
-          return [5];
+            from: decodeChainPoint(cbor.items[1]!),
+            to: decodeChainPoint(cbor.items[2]!),
+          };
+        case 1:
+          return { _tag: BlockFetchMessageType.ClientDone as const };
+        case 2:
+          return { _tag: BlockFetchMessageType.StartBatch as const };
+        case 3:
+          return { _tag: BlockFetchMessageType.NoBlocks as const };
+        case 4: {
+          const block = cbor.items[1];
+          if (block?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for block");
+          return { _tag: BlockFetchMessageType.Block as const, block: block.bytes };
+        }
+        case 5:
+          return { _tag: BlockFetchMessageType.BatchDone as const };
+        default:
+          throw new Error(`Unknown BlockFetch tag: ${Number(tag.num)}`);
       }
     }),
+    encode: SchemaGetter.transform(
+      BlockFetchMessage.match({
+        RequestRange: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 0n },
+            encodeChainPoint(m.from),
+            encodeChainPoint(m.to),
+          ],
+        }),
+        ClientDone: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 1n }],
+        }),
+        StartBatch: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 2n }],
+        }),
+        NoBlocks: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 3n }],
+        }),
+        Block: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 4n },
+            { _tag: CborKinds.Bytes, bytes: m.block },
+          ],
+        }),
+        BatchDone: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 5n }],
+        }),
+      }),
+    ),
   }),
 );
-
-export const BlockFetchMessageBytes = CborBytes(BlockFetchMessageFromCbor);

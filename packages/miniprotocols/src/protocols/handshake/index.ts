@@ -3,7 +3,6 @@ export * from "./Server";
 export {
   HandshakeMessage,
   HandshakeMessageBytes,
-  HandshakeMessageFromCbor,
   type HandshakeMessageT,
   HandshakeMessageType,
   HandshakeMessageTypeSchema,
@@ -16,7 +15,6 @@ export {
   PeerSharing,
   Query,
   type RefuseReason,
-  RefuseReasonFromCbor,
   RefuseReasonSchema,
   RefuseReasonType,
   RefuseReasonTypeSchema,

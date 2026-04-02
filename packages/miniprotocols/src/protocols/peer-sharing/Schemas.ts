@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
 
 // ── PeerAddress types ──
 // IPv4 = [0, bytes4, port]
@@ -24,29 +24,27 @@ export const PeerAddressSchema = Schema.Union([
 
 export type PeerAddress = Schema.Schema.Type<typeof PeerAddressSchema>;
 
-const PeerAddressIPv4Cbor = Schema.Tuple([Schema.Literal(0), Schema.Uint8Array, Schema.Number]);
-const PeerAddressIPv6Cbor = Schema.Tuple([Schema.Literal(1), Schema.Uint8Array, Schema.Number]);
+// ── PeerAddress CBOR helpers ──
 
-export const PeerAddressFromCbor = Schema.Union([PeerAddressIPv4Cbor, PeerAddressIPv6Cbor]).pipe(
-  Schema.decodeTo(PeerAddressSchema, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? {
-            _tag: PeerAddressType.IPv4 as const,
-            addr: tuple[1],
-            port: tuple[2],
-          }
-        : {
-            _tag: PeerAddressType.IPv6 as const,
-            addr: tuple[1],
-            port: tuple[2],
-          },
-    ),
-    encode: SchemaGetter.transform((addr) =>
-      addr._tag === PeerAddressType.IPv4 ? [0, addr.addr, addr.port] : [1, addr.addr, addr.port],
-    ),
-  }),
-);
+const decodePeerAddress = (node: CborSchemaType): PeerAddress => {
+  if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for PeerAddress");
+  const tagNode = node.items[0];
+  if (tagNode?._tag !== CborKinds.UInt) throw new Error("Expected uint tag for PeerAddress");
+  const addrBytes = (node.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes;
+  const port = Number((node.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num);
+  return Number(tagNode.num) === 0
+    ? { _tag: PeerAddressType.IPv4 as const, addr: addrBytes, port }
+    : { _tag: PeerAddressType.IPv6 as const, addr: addrBytes, port };
+};
+
+const encodePeerAddress = (pa: PeerAddress): CborSchemaType => ({
+  _tag: CborKinds.Array,
+  items: [
+    { _tag: CborKinds.UInt, num: pa._tag === PeerAddressType.IPv4 ? 0n : 1n },
+    { _tag: CborKinds.Bytes, bytes: pa.addr },
+    { _tag: CborKinds.UInt, num: BigInt(pa.port) },
+  ],
+});
 
 // ── PeerSharing messages ──
 
@@ -75,37 +73,42 @@ export type PeerSharingMessageT = Schema.Schema.Type<typeof PeerSharingMessage>;
 // [1, [peerAddress*]]   — SharePeers
 // [2]                   — Done
 
-const ShareRequestCbor = Schema.Tuple([Schema.Literal(0), Schema.Number]);
-const SharePeersCbor = Schema.Tuple([Schema.Literal(1), Schema.Array(PeerAddressFromCbor)]);
-const DoneCbor = Schema.Tuple([Schema.Literal(2)]);
-
-export const PeerSharingMessageFromCbor = Schema.Union([
-  ShareRequestCbor,
-  SharePeersCbor,
-  DoneCbor,
-]).pipe(
+export const PeerSharingMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(PeerSharingMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? {
-            _tag: PeerSharingMessageType.ShareRequest as const,
-            amount: tuple[1],
-          }
-        : tuple[0] === 1
-          ? {
-              _tag: PeerSharingMessageType.SharePeers as const,
-              peers: tuple[1],
-            }
-          : { _tag: PeerSharingMessageType.Done as const },
-    ),
-    encode: SchemaGetter.transform((msg) =>
-      msg._tag === PeerSharingMessageType.ShareRequest
-        ? [0, msg.amount]
-        : msg._tag === PeerSharingMessageType.SharePeers
-          ? [1, msg.peers]
-          : [2],
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0: return {
+          _tag: PeerSharingMessageType.ShareRequest as const,
+          amount: Number((cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+        };
+        case 1: {
+          const peersArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+          return {
+            _tag: PeerSharingMessageType.SharePeers as const,
+            peers: peersArray.items.map(decodePeerAddress),
+          };
+        }
+        default: return { _tag: PeerSharingMessageType.Done as const };
+      }
+    }),
+    encode: SchemaGetter.transform(
+      PeerSharingMessage.match({
+        ShareRequest: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 0n }, { _tag: CborKinds.UInt, num: BigInt(m.amount) }],
+        }),
+        SharePeers: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 1n },
+            { _tag: CborKinds.Array, items: m.peers.map(encodePeerAddress) },
+          ],
+        }),
+        Done: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 2n }] }),
+      }),
     ),
   }),
 );
-
-export const PeerSharingMessageBytes = CborBytes(PeerSharingMessageFromCbor);

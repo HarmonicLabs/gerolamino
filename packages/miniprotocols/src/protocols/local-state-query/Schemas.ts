@@ -1,7 +1,7 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
-import { ChainPointFromCbor, ChainPointSchema } from "../types/ChainPoint";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { ChainPointSchema, ChainPointType, type ChainPoint } from "../types/ChainPoint";
 
 // ── Application-level types ──
 
@@ -41,6 +41,42 @@ export const LocalStateQueryMessage = Schema.Union([
 
 export type LocalStateQueryMessageT = Schema.Schema.Type<typeof LocalStateQueryMessage>;
 
+// ── CBOR helpers for ChainPoint ──
+
+function decodeChainPoint(node: CborSchemaType): ChainPoint {
+  if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainPoint");
+  if (node.items.length === 0) return { _tag: ChainPointType.Origin as const };
+  const slot = node.items[0];
+  const hash = node.items[1];
+  if (slot?._tag !== CborKinds.UInt) throw new Error("Expected uint for slot");
+  if (hash?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for hash");
+  return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
+}
+
+function encodeChainPoint(point: ChainPoint): CborSchemaType {
+  if (point._tag === ChainPointType.Origin) return { _tag: CborKinds.Array, items: [] };
+  return {
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: BigInt(point.slot) },
+      { _tag: CborKinds.Bytes, bytes: point.hash },
+    ],
+  };
+}
+
+/** Try to decode an optional ChainPoint from a CBOR item (undefined if absent) */
+function decodeOptionalChainPoint(node: CborSchemaType | undefined): ChainPoint | undefined {
+  if (node === undefined) return undefined;
+  // CBOR null / undefined → absent
+  if (node._tag === CborKinds.Simple && (node.value === null || node.value === undefined)) return undefined;
+  return decodeChainPoint(node);
+}
+
+function encodeOptionalChainPoint(point: ChainPoint | undefined): CborSchemaType {
+  if (point === undefined) return { _tag: CborKinds.Simple, value: null };
+  return encodeChainPoint(point);
+}
+
 // ── CBOR wire format ──
 // [0, point?]   — Acquire
 // [1]           — Acquired
@@ -51,79 +87,98 @@ export type LocalStateQueryMessageT = Schema.Schema.Type<typeof LocalStateQueryM
 // [6]           — Release
 // [7]           — Done
 
-const AcquireCbor = Schema.Tuple([Schema.Literal(0), Schema.optional(ChainPointFromCbor)]);
-const AcquiredCbor = Schema.Tuple([Schema.Literal(1)]);
-const FailureCbor = Schema.Tuple([Schema.Literal(2), Schema.Uint8Array]);
-const QueryCbor = Schema.Tuple([Schema.Literal(3), Schema.Uint8Array]);
-const ResultCbor = Schema.Tuple([Schema.Literal(4), Schema.Uint8Array]);
-const ReAcquireCbor = Schema.Tuple([Schema.Literal(5), Schema.optional(ChainPointFromCbor)]);
-const ReleaseCbor = Schema.Tuple([Schema.Literal(6)]);
-const DoneCbor = Schema.Tuple([Schema.Literal(7)]);
-
-export const LocalStateQueryMessageFromCbor = Schema.Union([
-  AcquireCbor,
-  AcquiredCbor,
-  FailureCbor,
-  QueryCbor,
-  ResultCbor,
-  ReAcquireCbor,
-  ReleaseCbor,
-  DoneCbor,
-]).pipe(
+export const LocalStateQueryMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(LocalStateQueryMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? {
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0:
+          return {
             _tag: LocalStateQueryMessageType.Acquire as const,
-            point: tuple[1],
-          }
-        : tuple[0] === 1
-          ? { _tag: LocalStateQueryMessageType.Acquired as const }
-          : tuple[0] === 2
-            ? {
-                _tag: LocalStateQueryMessageType.Failure as const,
-                failure: tuple[1],
-              }
-            : tuple[0] === 3
-              ? {
-                  _tag: LocalStateQueryMessageType.Query as const,
-                  query: tuple[1],
-                }
-              : tuple[0] === 4
-                ? {
-                    _tag: LocalStateQueryMessageType.Result as const,
-                    result: tuple[1],
-                  }
-                : tuple[0] === 5
-                  ? {
-                      _tag: LocalStateQueryMessageType.ReAcquire as const,
-                      point: tuple[1],
-                    }
-                  : tuple[0] === 6
-                    ? { _tag: LocalStateQueryMessageType.Release as const }
-                    : { _tag: LocalStateQueryMessageType.Done as const },
-    ),
-    encode: SchemaGetter.transform((msg) => {
-      switch (msg._tag) {
-        case LocalStateQueryMessageType.Acquire:
-          return [0, msg.point];
-        case LocalStateQueryMessageType.Acquired:
-          return [1];
-        case LocalStateQueryMessageType.Failure:
-          return [2, msg.failure];
-        case LocalStateQueryMessageType.Query:
-          return [3, msg.query];
-        case LocalStateQueryMessageType.Result:
-          return [4, msg.result];
-        case LocalStateQueryMessageType.ReAcquire:
-          return [5, msg.point];
-        case LocalStateQueryMessageType.Release:
-          return [6];
-        case LocalStateQueryMessageType.Done:
-          return [7];
+            point: decodeOptionalChainPoint(cbor.items[1]),
+          };
+        case 1:
+          return { _tag: LocalStateQueryMessageType.Acquired as const };
+        case 2: {
+          const failure = cbor.items[1];
+          if (failure?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for failure");
+          return { _tag: LocalStateQueryMessageType.Failure as const, failure: failure.bytes };
+        }
+        case 3: {
+          const query = cbor.items[1];
+          if (query?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for query");
+          return { _tag: LocalStateQueryMessageType.Query as const, query: query.bytes };
+        }
+        case 4: {
+          const result = cbor.items[1];
+          if (result?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for result");
+          return { _tag: LocalStateQueryMessageType.Result as const, result: result.bytes };
+        }
+        case 5:
+          return {
+            _tag: LocalStateQueryMessageType.ReAcquire as const,
+            point: decodeOptionalChainPoint(cbor.items[1]),
+          };
+        case 6:
+          return { _tag: LocalStateQueryMessageType.Release as const };
+        case 7:
+          return { _tag: LocalStateQueryMessageType.Done as const };
+        default:
+          throw new Error(`Unknown LocalStateQuery tag: ${Number(tag.num)}`);
       }
     }),
+    encode: SchemaGetter.transform(
+      LocalStateQueryMessage.match({
+        Acquire: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 0n },
+            encodeOptionalChainPoint(m.point),
+          ],
+        }),
+        Acquired: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 1n }],
+        }),
+        Failure: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 2n },
+            { _tag: CborKinds.Bytes, bytes: m.failure },
+          ],
+        }),
+        Query: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 3n },
+            { _tag: CborKinds.Bytes, bytes: m.query },
+          ],
+        }),
+        Result: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 4n },
+            { _tag: CborKinds.Bytes, bytes: m.result },
+          ],
+        }),
+        ReAcquire: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 5n },
+            encodeOptionalChainPoint(m.point),
+          ],
+        }),
+        Release: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 6n }],
+        }),
+        Done: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 7n }],
+        }),
+      }),
+    ),
   }),
 );
-
-export const LocalStateQueryMessageBytes = CborBytes(LocalStateQueryMessageFromCbor);

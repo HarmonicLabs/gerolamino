@@ -1,8 +1,8 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
-import { ChainPointFromCbor, ChainPointSchema } from "../types/ChainPoint";
-import { ChainTipFromCbor, ChainTipSchema } from "../types/ChainTip";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { ChainPointSchema, ChainPointType, type ChainPoint } from "../types/ChainPoint";
+import { ChainTipSchema, type ChainTip } from "../types/ChainTip";
 
 // ── Application-level types ──
 
@@ -45,6 +45,46 @@ export const ChainSyncMessage = Schema.Union([
 
 export type ChainSyncMessageT = Schema.Schema.Type<typeof ChainSyncMessage>;
 
+// ── CBOR helpers for ChainPoint / ChainTip ──
+
+function decodeChainPoint(node: CborSchemaType): ChainPoint {
+  if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainPoint");
+  if (node.items.length === 0) return { _tag: ChainPointType.Origin as const };
+  const slot = node.items[0];
+  const hash = node.items[1];
+  if (slot?._tag !== CborKinds.UInt) throw new Error("Expected uint for slot");
+  if (hash?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for hash");
+  return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
+}
+
+function encodeChainPoint(point: ChainPoint): CborSchemaType {
+  if (point._tag === ChainPointType.Origin) return { _tag: CborKinds.Array, items: [] };
+  return {
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: BigInt(point.slot) },
+      { _tag: CborKinds.Bytes, bytes: point.hash },
+    ],
+  };
+}
+
+function decodeChainTip(node: CborSchemaType): ChainTip {
+  if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainTip");
+  const blockNo = node.items[1];
+  if (blockNo?._tag !== CborKinds.UInt) throw new Error("Expected uint for blockNo");
+  return { point: decodeChainPoint(node.items[0]!), blockNo: Number(blockNo.num) };
+}
+
+function encodeChainTip(tip: ChainTip): CborSchemaType {
+  return {
+    _tag: CborKinds.Array,
+    items: [
+      encodeChainPoint(tip.point),
+      { _tag: CborKinds.UInt, num: BigInt(tip.blockNo) },
+    ],
+  };
+}
+
 // ── CBOR wire format ──
 // [0]                — RequestNext
 // [1]                — AwaitReply
@@ -55,82 +95,110 @@ export type ChainSyncMessageT = Schema.Schema.Type<typeof ChainSyncMessage>;
 // [6, tip]           — IntersectNotFound
 // [7]                — Done
 
-const RequestNextCbor = Schema.Tuple([Schema.Literal(0)]);
-const AwaitReplyCbor = Schema.Tuple([Schema.Literal(1)]);
-const RollForwardCbor = Schema.Tuple([Schema.Literal(2), Schema.Uint8Array, ChainTipFromCbor]);
-const RollBackwardCbor = Schema.Tuple([Schema.Literal(3), ChainPointFromCbor, ChainTipFromCbor]);
-const FindIntersectCbor = Schema.Tuple([Schema.Literal(4), Schema.Array(ChainPointFromCbor)]);
-const IntersectFoundCbor = Schema.Tuple([Schema.Literal(5), ChainPointFromCbor, ChainTipFromCbor]);
-const IntersectNotFoundCbor = Schema.Tuple([Schema.Literal(6), ChainTipFromCbor]);
-const DoneCbor = Schema.Tuple([Schema.Literal(7)]);
-
-export const ChainSyncMessageFromCbor = Schema.Union([
-  RequestNextCbor,
-  AwaitReplyCbor,
-  RollForwardCbor,
-  RollBackwardCbor,
-  FindIntersectCbor,
-  IntersectFoundCbor,
-  IntersectNotFoundCbor,
-  DoneCbor,
-]).pipe(
+export const ChainSyncMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(ChainSyncMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? { _tag: ChainSyncMessageType.RequestNext as const }
-        : tuple[0] === 1
-          ? { _tag: ChainSyncMessageType.AwaitReply as const }
-          : tuple[0] === 2
-            ? {
-                _tag: ChainSyncMessageType.RollForward as const,
-                header: tuple[1],
-                tip: tuple[2],
-              }
-            : tuple[0] === 3
-              ? {
-                  _tag: ChainSyncMessageType.RollBackward as const,
-                  point: tuple[1],
-                  tip: tuple[2],
-                }
-              : tuple[0] === 4
-                ? {
-                    _tag: ChainSyncMessageType.FindIntersect as const,
-                    points: tuple[1],
-                  }
-                : tuple[0] === 5
-                  ? {
-                      _tag: ChainSyncMessageType.IntersectFound as const,
-                      point: tuple[1],
-                      tip: tuple[2],
-                    }
-                  : tuple[0] === 6
-                    ? {
-                        _tag: ChainSyncMessageType.IntersectNotFound as const,
-                        tip: tuple[1],
-                      }
-                    : { _tag: ChainSyncMessageType.Done as const },
-    ),
-    encode: SchemaGetter.transform((msg) => {
-      switch (msg._tag) {
-        case ChainSyncMessageType.RequestNext:
-          return [0];
-        case ChainSyncMessageType.AwaitReply:
-          return [1];
-        case ChainSyncMessageType.RollForward:
-          return [2, msg.header, msg.tip];
-        case ChainSyncMessageType.RollBackward:
-          return [3, msg.point, msg.tip];
-        case ChainSyncMessageType.FindIntersect:
-          return [4, msg.points];
-        case ChainSyncMessageType.IntersectFound:
-          return [5, msg.point, msg.tip];
-        case ChainSyncMessageType.IntersectNotFound:
-          return [6, msg.tip];
-        case ChainSyncMessageType.Done:
-          return [7];
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0:
+          return { _tag: ChainSyncMessageType.RequestNext as const };
+        case 1:
+          return { _tag: ChainSyncMessageType.AwaitReply as const };
+        case 2: {
+          const header = cbor.items[1];
+          if (header?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for header");
+          return {
+            _tag: ChainSyncMessageType.RollForward as const,
+            header: header.bytes,
+            tip: decodeChainTip(cbor.items[2]!),
+          };
+        }
+        case 3:
+          return {
+            _tag: ChainSyncMessageType.RollBackward as const,
+            point: decodeChainPoint(cbor.items[1]!),
+            tip: decodeChainTip(cbor.items[2]!),
+          };
+        case 4: {
+          const arr = cbor.items[1];
+          if (arr?._tag !== CborKinds.Array) throw new Error("Expected CBOR array for points");
+          return {
+            _tag: ChainSyncMessageType.FindIntersect as const,
+            points: arr.items.map(decodeChainPoint),
+          };
+        }
+        case 5:
+          return {
+            _tag: ChainSyncMessageType.IntersectFound as const,
+            point: decodeChainPoint(cbor.items[1]!),
+            tip: decodeChainTip(cbor.items[2]!),
+          };
+        case 6:
+          return {
+            _tag: ChainSyncMessageType.IntersectNotFound as const,
+            tip: decodeChainTip(cbor.items[1]!),
+          };
+        case 7:
+          return { _tag: ChainSyncMessageType.Done as const };
+        default:
+          throw new Error(`Unknown ChainSync tag: ${Number(tag.num)}`);
       }
     }),
+    encode: SchemaGetter.transform(
+      ChainSyncMessage.match({
+        RequestNext: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 0n }],
+        }),
+        AwaitReply: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 1n }],
+        }),
+        RollForward: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 2n },
+            { _tag: CborKinds.Bytes, bytes: m.header },
+            encodeChainTip(m.tip),
+          ],
+        }),
+        RollBackward: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 3n },
+            encodeChainPoint(m.point),
+            encodeChainTip(m.tip),
+          ],
+        }),
+        FindIntersect: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 4n },
+            { _tag: CborKinds.Array, items: m.points.map(encodeChainPoint) },
+          ],
+        }),
+        IntersectFound: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 5n },
+            encodeChainPoint(m.point),
+            encodeChainTip(m.tip),
+          ],
+        }),
+        IntersectNotFound: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 6n },
+            encodeChainTip(m.tip),
+          ],
+        }),
+        Done: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 7n }],
+        }),
+      }),
+    ),
   }),
 );
-
-export const ChainSyncMessageBytes = CborBytes(ChainSyncMessageFromCbor);

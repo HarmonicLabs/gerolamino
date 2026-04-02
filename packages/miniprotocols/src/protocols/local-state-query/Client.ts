@@ -1,15 +1,4 @@
-import {
-  Cause,
-  Duration,
-  Effect,
-  Layer,
-  Queue,
-  Ref,
-  Schema,
-  Scope,
-  ServiceMap,
-  Stream,
-} from "effect";
+import { Cause, Duration, Effect, Layer, Option, Ref, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -20,9 +9,7 @@ import * as Schemas from "./Schemas";
 
 export class LocalStateQueryError extends Schema.TaggedErrorClass<LocalStateQueryError>()(
   "LocalStateQueryError",
-  {
-    cause: Schema.Defect,
-  },
+  { cause: Schema.Defect },
 ) {}
 
 export class AcquireFailure extends Schema.TaggedErrorClass<AcquireFailure>()("AcquireFailure", {
@@ -33,6 +20,9 @@ type QueryState = "Idle" | "Acquiring" | "Acquired" | "Querying" | "Done";
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalStateQueryMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalStateQueryMessageBytes);
+
+const unexpected = (tag: string) =>
+  Effect.fail(new LocalStateQueryError({ cause: `Unexpected message: ${tag}` }));
 
 export class LocalStateQueryClient extends ServiceMap.Service<
   LocalStateQueryClient,
@@ -93,17 +83,12 @@ export class LocalStateQueryClient extends ServiceMap.Service<
         .pipe(Effect.mapError((cause) => new LocalStateQueryError({ cause })));
       const state = yield* Ref.make<QueryState>("Idle");
 
-      const inbox = yield* Queue.unbounded<Schemas.LocalStateQueryMessageT>();
-      yield* channel.incoming.pipe(
-        Stream.mapEffect((bytes) => decodeMessage(bytes)),
-        Stream.runForEach((msg) => Queue.offer(inbox, msg)),
-        Effect.forkChild,
-      );
-
       const sendMessage = (msg: Schemas.LocalStateQueryMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));
 
-      const receiveOne = Queue.take(inbox);
+      const messages = Stream.fromPubSub(channel.pubsub).pipe(
+        Stream.mapEffect((bytes) => decodeMessage(bytes)),
+      );
 
       const guardState = (expected: QueryState) =>
         Ref.get(state).pipe(
@@ -118,106 +103,81 @@ export class LocalStateQueryClient extends ServiceMap.Service<
           ),
         );
 
+      const handleAcquireResponse = messages.pipe(
+        Stream.runHead,
+        Effect.timeout(Duration.seconds(10)),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.fail(new LocalStateQueryError({ cause: "No response received" })),
+            onSome: (v) =>
+              Schemas.LocalStateQueryMessage.match(v, {
+                Acquired: () => Ref.set(state, "Acquired"),
+                Failure: (m) =>
+                  Ref.set(state, "Idle").pipe(
+                    Effect.andThen(Effect.fail(new AcquireFailure({ failure: m.failure }))),
+                  ),
+                Acquire: (m) => unexpected(m._tag),
+                Query: (m) => unexpected(m._tag),
+                Result: (m) => unexpected(m._tag),
+                ReAcquire: (m) => unexpected(m._tag),
+                Release: (m) => unexpected(m._tag),
+                Done: (m) => unexpected(m._tag),
+              }),
+          }),
+        ),
+      );
+
       return LocalStateQueryClient.of({
-        acquire: Effect.fn("LocalStateQueryClient.acquire")(function* (point?: ChainPoint) {
-          yield* guardState("Idle");
-          yield* Ref.set(state, "Acquiring");
-
-          yield* sendMessage({
-            _tag: Schemas.LocalStateQueryMessageType.Acquire,
-            point,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-
-          if (response._tag === Schemas.LocalStateQueryMessageType.Acquired) {
-            yield* Ref.set(state, "Acquired");
-            return;
-          }
-
-          if (response._tag === Schemas.LocalStateQueryMessageType.Failure) {
-            yield* Ref.set(state, "Idle");
-            return yield* Effect.fail(
-              new AcquireFailure({
-                failure: response.failure,
-              }),
-            );
-          }
-
-          return yield* Effect.fail(
-            new LocalStateQueryError({
-              cause: `Unexpected message: ${response._tag}`,
-            }),
-          );
-        }),
-        query: Effect.fn("LocalStateQueryClient.query")(function* (query: Uint8Array) {
-          yield* guardState("Acquired");
-          yield* Ref.set(state, "Querying");
-
-          yield* sendMessage({
-            _tag: Schemas.LocalStateQueryMessageType.Query,
-            query,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-
-          yield* Ref.set(state, "Acquired");
-
-          if (response._tag === Schemas.LocalStateQueryMessageType.Result) {
-            return response.result;
-          }
-
-          return yield* Effect.fail(
-            new LocalStateQueryError({
-              cause: `Unexpected message: ${response._tag}`,
-            }),
-          );
-        }),
-        reAcquire: Effect.fn("LocalStateQueryClient.reAcquire")(function* (point?: ChainPoint) {
-          yield* guardState("Acquired");
-          yield* Ref.set(state, "Acquiring");
-
-          yield* sendMessage({
-            _tag: Schemas.LocalStateQueryMessageType.ReAcquire,
-            point,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-
-          if (response._tag === Schemas.LocalStateQueryMessageType.Acquired) {
-            yield* Ref.set(state, "Acquired");
-            return;
-          }
-
-          if (response._tag === Schemas.LocalStateQueryMessageType.Failure) {
-            yield* Ref.set(state, "Idle");
-            return yield* Effect.fail(
-              new AcquireFailure({
-                failure: response.failure,
-              }),
-            );
-          }
-
-          return yield* Effect.fail(
-            new LocalStateQueryError({
-              cause: `Unexpected message: ${response._tag}`,
-            }),
-          );
-        }),
-        release: Effect.fn("LocalStateQueryClient.release")(function* () {
-          yield* guardState("Acquired");
-          yield* sendMessage({
-            _tag: Schemas.LocalStateQueryMessageType.Release,
-          });
-          yield* Ref.set(state, "Idle");
-        }),
-        done: Effect.fn("LocalStateQueryClient.done")(function* () {
-          yield* guardState("Idle");
-          yield* sendMessage({
-            _tag: Schemas.LocalStateQueryMessageType.Done,
-          });
-          yield* Ref.set(state, "Done");
-        }),
+        acquire: (point?) =>
+          guardState("Idle").pipe(
+            Effect.andThen(Ref.set(state, "Acquiring")),
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Acquire, point })),
+            Effect.andThen(handleAcquireResponse),
+          ),
+        query: (query) =>
+          guardState("Acquired").pipe(
+            Effect.andThen(Ref.set(state, "Querying")),
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Query, query })),
+            Effect.andThen(
+              messages.pipe(
+                Stream.runHead,
+                Effect.timeout(Duration.seconds(10)),
+                Effect.tap(() => Ref.set(state, "Acquired")),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(new LocalStateQueryError({ cause: "No response received" })),
+                    onSome: (v) =>
+                      Schemas.LocalStateQueryMessage.match(v, {
+                        Result: (m) => Effect.succeed(m.result),
+                        Acquire: (m) => unexpected(m._tag),
+                        Acquired: (m) => unexpected(m._tag),
+                        Failure: (m) => unexpected(m._tag),
+                        Query: (m) => unexpected(m._tag),
+                        ReAcquire: (m) => unexpected(m._tag),
+                        Release: (m) => unexpected(m._tag),
+                        Done: (m) => unexpected(m._tag),
+                      }),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        reAcquire: (point?) =>
+          guardState("Acquired").pipe(
+            Effect.andThen(Ref.set(state, "Acquiring")),
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.ReAcquire, point })),
+            Effect.andThen(handleAcquireResponse),
+          ),
+        release: () =>
+          guardState("Acquired").pipe(
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Release })),
+            Effect.andThen(Ref.set(state, "Idle")),
+          ),
+        done: () =>
+          guardState("Idle").pipe(
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Done })),
+            Effect.andThen(Ref.set(state, "Done")),
+          ),
       });
     }),
   );

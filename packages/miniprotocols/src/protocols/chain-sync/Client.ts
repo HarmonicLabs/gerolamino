@@ -1,5 +1,6 @@
-import { Cause, Duration, Effect, Layer, Queue, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Cause, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
+import { TimeoutError } from "effect/Cause";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
@@ -26,6 +27,8 @@ export type ChainSyncIntersectNotFound = Schema.Schema.Type<typeof Schemas.Chain
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.ChainSyncMessageBytes);
+
+const unexpected = (tag: string) => Effect.fail(new ChainSyncError({ cause: `Unexpected message: ${tag}` }));
 
 export class ChainSyncClient extends ServiceMap.Service<
   ChainSyncClient,
@@ -65,76 +68,66 @@ export class ChainSyncClient extends ServiceMap.Service<
         .getProtocolChannel(MiniProtocol.ChainSync)
         .pipe(Effect.mapError((cause) => new ChainSyncError({ cause })));
 
-      const inbox = yield* Queue.unbounded<Schemas.ChainSyncMessageT>();
-      yield* channel.incoming.pipe(
-        Stream.mapEffect((bytes) => decodeMessage(bytes)),
-        Stream.runForEach((msg) => Queue.offer(inbox, msg)),
-        Effect.forkChild,
-      );
-
       const sendMessage = (msg: Schemas.ChainSyncMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));
 
-      const receiveOne = Queue.take(inbox);
-
-      // Skip AwaitReply messages and return the next substantive response
-      const receiveNonAwait = Effect.gen(function* () {
-        let msg = yield* receiveOne;
-        while (msg._tag === Schemas.ChainSyncMessageType.AwaitReply) {
-          msg = yield* receiveOne;
-        }
-        return msg;
-      });
+      const messages = Stream.fromPubSub(channel.pubsub).pipe(
+        Stream.mapEffect((bytes) => decodeMessage(bytes)),
+      );
 
       return ChainSyncClient.of({
-        requestNext: Effect.fn("ChainSyncClient.requestNext")(function* () {
-          yield* sendMessage({
-            _tag: Schemas.ChainSyncMessageType.RequestNext,
-          });
-
-          const msg = yield* receiveNonAwait.pipe(Effect.timeout(Duration.seconds(10)));
-
-          if (
-            msg._tag === Schemas.ChainSyncMessageType.RollForward ||
-            msg._tag === Schemas.ChainSyncMessageType.RollBackward
-          ) {
-            return msg;
-          }
-
-          return yield* Effect.fail(
-            new ChainSyncError({
-              cause: `Unexpected message: ${msg._tag}`,
-            }),
-          );
-        }),
-        findIntersect: Effect.fn("ChainSyncClient.findIntersect")(function* (
-          points: ReadonlyArray<ChainPoint>,
-        ) {
-          yield* sendMessage({
-            _tag: Schemas.ChainSyncMessageType.FindIntersect,
-            points: [...points],
-          });
-
-          const msg = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-
-          if (
-            msg._tag === Schemas.ChainSyncMessageType.IntersectFound ||
-            msg._tag === Schemas.ChainSyncMessageType.IntersectNotFound
-          ) {
-            return msg;
-          }
-
-          return yield* Effect.fail(
-            new ChainSyncError({
-              cause: `Unexpected message: ${msg._tag}`,
-            }),
-          );
-        }),
-        done: Effect.fn("ChainSyncClient.done")(function* () {
-          yield* sendMessage({
-            _tag: Schemas.ChainSyncMessageType.Done,
-          });
-        }),
+        requestNext: () =>
+          sendMessage({ _tag: Schemas.ChainSyncMessageType.RequestNext }).pipe(
+            Effect.andThen(
+              messages.pipe(
+                Stream.filter((msg) => msg._tag !== Schemas.ChainSyncMessageType.AwaitReply),
+                Stream.runHead,
+                Effect.timeout(Duration.seconds(10)),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(new ChainSyncError({ cause: "No response received" })),
+                    onSome: (v) =>
+                      Schemas.ChainSyncMessage.match(v, {
+                        RollForward: (m) => Effect.succeed(m),
+                        RollBackward: (m) => Effect.succeed(m),
+                        RequestNext: (m) => unexpected(m._tag),
+                        AwaitReply: (m) => unexpected(m._tag),
+                        FindIntersect: (m) => unexpected(m._tag),
+                        IntersectFound: (m) => unexpected(m._tag),
+                        IntersectNotFound: (m) => unexpected(m._tag),
+                        Done: (m) => unexpected(m._tag),
+                      }),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        findIntersect: (points) =>
+          sendMessage({ _tag: Schemas.ChainSyncMessageType.FindIntersect, points: [...points] }).pipe(
+            Effect.andThen(
+              messages.pipe(
+                Stream.runHead,
+                Effect.timeout(Duration.seconds(10)),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(new ChainSyncError({ cause: "No response received" })),
+                    onSome: (v) =>
+                      Schemas.ChainSyncMessage.match(v, {
+                        IntersectFound: (m) => Effect.succeed(m),
+                        IntersectNotFound: (m) => Effect.succeed(m),
+                        RequestNext: (m) => unexpected(m._tag),
+                        AwaitReply: (m) => unexpected(m._tag),
+                        RollForward: (m) => unexpected(m._tag),
+                        RollBackward: (m) => unexpected(m._tag),
+                        FindIntersect: (m) => unexpected(m._tag),
+                        Done: (m) => unexpected(m._tag),
+                      }),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        done: () => sendMessage({ _tag: Schemas.ChainSyncMessageType.Done }),
       });
     }),
   );

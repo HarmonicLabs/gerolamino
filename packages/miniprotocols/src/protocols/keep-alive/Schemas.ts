@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
 
 // ── Application-level types ──
 
@@ -29,34 +29,24 @@ export type KeepAliveMessageT = Schema.Schema.Type<typeof KeepAliveMessage>;
 // [1, cookie] — KeepAliveResponse
 // [2]         — Done
 
-const KeepAliveCbor = Schema.Tuple([Schema.Literal(0), Schema.Number]);
-const KeepAliveResponseCbor = Schema.Tuple([Schema.Literal(1), Schema.Number]);
-const DoneCbor = Schema.Tuple([Schema.Literal(2)]);
-
-export const KeepAliveMessageFromCbor = Schema.Union([
-  KeepAliveCbor,
-  KeepAliveResponseCbor,
-  DoneCbor,
-]).pipe(
+export const KeepAliveMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(KeepAliveMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? { _tag: KeepAliveMessageType.KeepAlive as const, cookie: tuple[1] }
-        : tuple[0] === 1
-          ? {
-              _tag: KeepAliveMessageType.KeepAliveResponse as const,
-              cookie: tuple[1],
-            }
-          : { _tag: KeepAliveMessageType.Done as const },
-    ),
-    encode: SchemaGetter.transform((msg) =>
-      msg._tag === KeepAliveMessageType.KeepAlive
-        ? [0, msg.cookie]
-        : msg._tag === KeepAliveMessageType.KeepAliveResponse
-          ? [1, msg.cookie]
-          : [2],
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0: return { _tag: KeepAliveMessageType.KeepAlive as const, cookie: Number((cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num) };
+        case 1: return { _tag: KeepAliveMessageType.KeepAliveResponse as const, cookie: Number((cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num) };
+        default: return { _tag: KeepAliveMessageType.Done as const };
+      }
+    }),
+    encode: SchemaGetter.transform(
+      KeepAliveMessage.match({
+        KeepAlive: (m): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 0n }, { _tag: CborKinds.UInt, num: BigInt(m.cookie) }] }),
+        KeepAliveResponse: (m): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 1n }, { _tag: CborKinds.UInt, num: BigInt(m.cookie) }] }),
+        Done: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 2n }] }),
+      }),
     ),
   }),
 );
-
-export const KeepAliveMessageBytes = CborBytes(KeepAliveMessageFromCbor);

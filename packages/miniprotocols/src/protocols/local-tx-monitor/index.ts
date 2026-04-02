@@ -2,7 +2,6 @@ export * from "./Client";
 export {
   LocalTxMonitorMessage,
   LocalTxMonitorMessageBytes,
-  LocalTxMonitorMessageFromCbor,
   type LocalTxMonitorMessageT,
   LocalTxMonitorMessageType,
   LocalTxMonitorMessageTypeSchema,

@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
 
 // ── Application-level types ──
 
@@ -64,97 +64,64 @@ export type LocalTxMonitorMessageT = Schema.Schema.Type<typeof LocalTxMonitorMes
 // [8, capacity, size, cnt]  — ReplyGetSizes
 // [9]                       — Done
 
-const AcquireCbor = Schema.Tuple([Schema.Literal(0)]);
-const AcquiredCbor = Schema.Tuple([Schema.Literal(1), Schema.Number]);
-const ReleaseCbor = Schema.Tuple([Schema.Literal(2)]);
-const NextTxCbor = Schema.Tuple([Schema.Literal(3)]);
-const ReplyNextTxCbor = Schema.Tuple([Schema.Literal(4), Schema.optional(Schema.Uint8Array)]);
-const HasTxCbor = Schema.Tuple([Schema.Literal(5), Schema.Uint8Array]);
-const ReplyHasTxCbor = Schema.Tuple([Schema.Literal(6), Schema.Boolean]);
-const GetSizesCbor = Schema.Tuple([Schema.Literal(7)]);
-const ReplyGetSizesCbor = Schema.Tuple([
-  Schema.Literal(8),
-  Schema.Number,
-  Schema.Number,
-  Schema.Number,
-]);
-const DoneCbor = Schema.Tuple([Schema.Literal(9)]);
-
-export const LocalTxMonitorMessageFromCbor = Schema.Union([
-  AcquireCbor,
-  AcquiredCbor,
-  ReleaseCbor,
-  NextTxCbor,
-  ReplyNextTxCbor,
-  HasTxCbor,
-  ReplyHasTxCbor,
-  GetSizesCbor,
-  ReplyGetSizesCbor,
-  DoneCbor,
-]).pipe(
+export const LocalTxMonitorMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(LocalTxMonitorMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? { _tag: LocalTxMonitorMessageType.Acquire as const }
-        : tuple[0] === 1
-          ? {
-              _tag: LocalTxMonitorMessageType.Acquired as const,
-              slot: tuple[1],
-            }
-          : tuple[0] === 2
-            ? { _tag: LocalTxMonitorMessageType.Release as const }
-            : tuple[0] === 3
-              ? { _tag: LocalTxMonitorMessageType.NextTx as const }
-              : tuple[0] === 4
-                ? {
-                    _tag: LocalTxMonitorMessageType.ReplyNextTx as const,
-                    tx: tuple[1],
-                  }
-                : tuple[0] === 5
-                  ? { _tag: LocalTxMonitorMessageType.HasTx as const, txId: tuple[1] }
-                  : tuple[0] === 6
-                    ? {
-                        _tag: LocalTxMonitorMessageType.ReplyHasTx as const,
-                        hasTx: tuple[1],
-                      }
-                    : tuple[0] === 7
-                      ? { _tag: LocalTxMonitorMessageType.GetSizes as const }
-                      : tuple[0] === 8
-                        ? {
-                            _tag: LocalTxMonitorMessageType.ReplyGetSizes as const,
-                            sizes: {
-                              capacity: tuple[1],
-                              size: tuple[2],
-                              txCount: tuple[3],
-                            },
-                          }
-                        : { _tag: LocalTxMonitorMessageType.Done as const },
-    ),
-    encode: SchemaGetter.transform((msg) => {
-      switch (msg._tag) {
-        case LocalTxMonitorMessageType.Acquire:
-          return [0];
-        case LocalTxMonitorMessageType.Acquired:
-          return [1, msg.slot];
-        case LocalTxMonitorMessageType.Release:
-          return [2];
-        case LocalTxMonitorMessageType.NextTx:
-          return [3];
-        case LocalTxMonitorMessageType.ReplyNextTx:
-          return [4, msg.tx];
-        case LocalTxMonitorMessageType.HasTx:
-          return [5, msg.txId];
-        case LocalTxMonitorMessageType.ReplyHasTx:
-          return [6, msg.hasTx];
-        case LocalTxMonitorMessageType.GetSizes:
-          return [7];
-        case LocalTxMonitorMessageType.ReplyGetSizes:
-          return [8, msg.sizes.capacity, msg.sizes.size, msg.sizes.txCount];
-        case LocalTxMonitorMessageType.Done:
-          return [9];
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0: return { _tag: LocalTxMonitorMessageType.Acquire as const };
+        case 1: return { _tag: LocalTxMonitorMessageType.Acquired as const, slot: Number((cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num) };
+        case 2: return { _tag: LocalTxMonitorMessageType.Release as const };
+        case 3: return { _tag: LocalTxMonitorMessageType.NextTx as const };
+        case 4: {
+          const txNode = cbor.items[1];
+          return {
+            _tag: LocalTxMonitorMessageType.ReplyNextTx as const,
+            tx: txNode !== undefined && txNode._tag === CborKinds.Bytes ? txNode.bytes : undefined,
+          };
+        }
+        case 5: return { _tag: LocalTxMonitorMessageType.HasTx as const, txId: (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes };
+        case 6: return { _tag: LocalTxMonitorMessageType.ReplyHasTx as const, hasTx: (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean };
+        case 7: return { _tag: LocalTxMonitorMessageType.GetSizes as const };
+        case 8: return {
+          _tag: LocalTxMonitorMessageType.ReplyGetSizes as const,
+          sizes: {
+            capacity: Number((cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+            size: Number((cbor.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+            txCount: Number((cbor.items[3] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+          },
+        };
+        default: return { _tag: LocalTxMonitorMessageType.Done as const };
       }
     }),
+    encode: SchemaGetter.transform(
+      LocalTxMonitorMessage.match({
+        Acquire: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 0n }] }),
+        Acquired: (m): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 1n }, { _tag: CborKinds.UInt, num: BigInt(m.slot) }] }),
+        Release: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 2n }] }),
+        NextTx: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 3n }] }),
+        ReplyNextTx: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: m.tx !== undefined
+            ? [{ _tag: CborKinds.UInt, num: 4n }, { _tag: CborKinds.Bytes, bytes: m.tx }]
+            : [{ _tag: CborKinds.UInt, num: 4n }],
+        }),
+        HasTx: (m): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 5n }, { _tag: CborKinds.Bytes, bytes: m.txId }] }),
+        ReplyHasTx: (m): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 6n }, { _tag: CborKinds.Simple, value: m.hasTx }] }),
+        GetSizes: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 7n }] }),
+        ReplyGetSizes: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 8n },
+            { _tag: CborKinds.UInt, num: BigInt(m.sizes.capacity) },
+            { _tag: CborKinds.UInt, num: BigInt(m.sizes.size) },
+            { _tag: CborKinds.UInt, num: BigInt(m.sizes.txCount) },
+          ],
+        }),
+        Done: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 9n }] }),
+      }),
+    ),
   }),
 );
-
-export const LocalTxMonitorMessageBytes = CborBytes(LocalTxMonitorMessageFromCbor);

@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Queue, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Cause, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -8,13 +8,14 @@ import * as Schemas from "./Schemas";
 
 export class LocalTxSubmitError extends Schema.TaggedErrorClass<LocalTxSubmitError>()(
   "LocalTxSubmitError",
-  {
-    cause: Schema.Defect,
-  },
+  { cause: Schema.Defect },
 ) {}
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalTxSubmitMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalTxSubmitMessageBytes);
+
+const unexpected = (tag: string) =>
+  Effect.fail(new LocalTxSubmitError({ cause: `Unexpected message: ${tag}` }));
 
 export class LocalTxSubmitClient extends ServiceMap.Service<
   LocalTxSubmitClient,
@@ -45,49 +46,36 @@ export class LocalTxSubmitClient extends ServiceMap.Service<
         .getProtocolChannel(MiniProtocol.LocalTxSubmission)
         .pipe(Effect.mapError((cause) => new LocalTxSubmitError({ cause })));
 
-      const inbox = yield* Queue.unbounded<Schemas.LocalTxSubmitMessageT>();
-      yield* channel.incoming.pipe(
-        Stream.mapEffect((bytes) => decodeMessage(bytes)),
-        Stream.runForEach((msg) => Queue.offer(inbox, msg)),
-        Effect.forkChild,
-      );
-
       const sendMessage = (msg: Schemas.LocalTxSubmitMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));
 
-      const receiveOne = Queue.take(inbox);
+      const messages = Stream.fromPubSub(channel.pubsub).pipe(
+        Stream.mapEffect((bytes) => decodeMessage(bytes)),
+      );
 
       return LocalTxSubmitClient.of({
-        submit: Effect.fn("LocalTxSubmitClient.submit")(function* (tx: Uint8Array) {
-          yield* sendMessage({
-            _tag: Schemas.LocalTxSubmitMessageType.SubmitTx,
-            tx,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-
-          if (response._tag === Schemas.LocalTxSubmitMessageType.AcceptTx) {
-            return { accepted: true as const };
-          }
-
-          if (response._tag === Schemas.LocalTxSubmitMessageType.RejectTx) {
-            return {
-              accepted: false as const,
-              reason: response.reason,
-            };
-          }
-
-          return yield* Effect.fail(
-            new LocalTxSubmitError({
-              cause: `Unexpected message: ${response._tag}`,
-            }),
-          );
-        }),
-        done: Effect.fn("LocalTxSubmitClient.done")(function* () {
-          yield* sendMessage({
-            _tag: Schemas.LocalTxSubmitMessageType.Done,
-          });
-        }),
+        submit: (tx) =>
+          sendMessage({ _tag: Schemas.LocalTxSubmitMessageType.SubmitTx, tx }).pipe(
+            Effect.andThen(
+              messages.pipe(
+                Stream.runHead,
+                Effect.timeout(Duration.seconds(10)),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(new LocalTxSubmitError({ cause: "No response received" })),
+                    onSome: (v) =>
+                      Schemas.LocalTxSubmitMessage.match(v, {
+                        AcceptTx: () => Effect.succeed({ accepted: true as const }),
+                        RejectTx: (m) => Effect.succeed({ accepted: false as const, reason: m.reason }),
+                        SubmitTx: (m) => unexpected(m._tag),
+                        Done: (m) => unexpected(m._tag),
+                      }),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        done: () => sendMessage({ _tag: Schemas.LocalTxSubmitMessageType.Done }),
       });
     }),
   );

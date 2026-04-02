@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
 
 // ── Application-level types ──
 
@@ -36,40 +36,56 @@ export type LocalTxSubmitResult =
 // [2, reason] — RejectTx
 // [3]         — Done
 
-const SubmitTxCbor = Schema.Tuple([Schema.Literal(0), Schema.Uint8Array]);
-const AcceptTxCbor = Schema.Tuple([Schema.Literal(1)]);
-const RejectTxCbor = Schema.Tuple([Schema.Literal(2), Schema.Uint8Array]);
-const DoneCbor = Schema.Tuple([Schema.Literal(3)]);
-
-export const LocalTxSubmitMessageFromCbor = Schema.Union([
-  SubmitTxCbor,
-  AcceptTxCbor,
-  RejectTxCbor,
-  DoneCbor,
-]).pipe(
+export const LocalTxSubmitMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(LocalTxSubmitMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? { _tag: LocalTxSubmitMessageType.SubmitTx as const, tx: tuple[1] }
-        : tuple[0] === 1
-          ? { _tag: LocalTxSubmitMessageType.AcceptTx as const }
-          : tuple[0] === 2
-            ? {
-                _tag: LocalTxSubmitMessageType.RejectTx as const,
-                reason: tuple[1],
-              }
-            : { _tag: LocalTxSubmitMessageType.Done as const },
-    ),
-    encode: SchemaGetter.transform((msg) =>
-      msg._tag === LocalTxSubmitMessageType.SubmitTx
-        ? [0, msg.tx]
-        : msg._tag === LocalTxSubmitMessageType.AcceptTx
-          ? [1]
-          : msg._tag === LocalTxSubmitMessageType.RejectTx
-            ? [2, msg.reason]
-            : [3],
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0: {
+          const tx = cbor.items[1];
+          if (tx?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for tx");
+          return { _tag: LocalTxSubmitMessageType.SubmitTx as const, tx: tx.bytes };
+        }
+        case 1:
+          return { _tag: LocalTxSubmitMessageType.AcceptTx as const };
+        case 2: {
+          const reason = cbor.items[1];
+          if (reason?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for reason");
+          return { _tag: LocalTxSubmitMessageType.RejectTx as const, reason: reason.bytes };
+        }
+        case 3:
+          return { _tag: LocalTxSubmitMessageType.Done as const };
+        default:
+          throw new Error(`Unknown LocalTxSubmit tag: ${Number(tag.num)}`);
+      }
+    }),
+    encode: SchemaGetter.transform(
+      LocalTxSubmitMessage.match({
+        SubmitTx: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 0n },
+            { _tag: CborKinds.Bytes, bytes: m.tx },
+          ],
+        }),
+        AcceptTx: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 1n }],
+        }),
+        RejectTx: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 2n },
+            { _tag: CborKinds.Bytes, bytes: m.reason },
+          ],
+        }),
+        Done: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 3n }],
+        }),
+      }),
     ),
   }),
 );
-
-export const LocalTxSubmitMessageBytes = CborBytes(LocalTxSubmitMessageFromCbor);

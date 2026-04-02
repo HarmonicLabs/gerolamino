@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Effect, Layer, PubSub, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import _ from "lodash";
@@ -9,16 +9,10 @@ import { MultiplexerHeaderError } from "@/multiplexer";
 import { MiniProtocol } from "../../MiniProtocol";
 import * as Schemas from "./Schemas";
 
-/**
- * Handshake server configuration
- */
 export interface HandshakeServerConfig {
   supportedVersions: Schemas.VersionTable;
 }
 
-/**
- * Handshake server errors
- */
 export class HandshakeServerError extends Schema.TaggedErrorClass<HandshakeServerError>()(
   "HandshakeServerError",
   {
@@ -29,9 +23,6 @@ export class HandshakeServerError extends Schema.TaggedErrorClass<HandshakeServe
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.HandshakeMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.HandshakeMessageBytes);
 
-/**
- * Handles a single handshake proposal message from a client.
- */
 const handleProposal = (
   message: Schemas.HandshakeMessageT,
   config: HandshakeServerConfig,
@@ -40,64 +31,63 @@ const handleProposal = (
       data: Uint8Array,
     ) => Effect.Effect<void, MultiplexerEncodingError | Socket.SocketError, Scope.Scope>;
   },
-) =>
-  message._tag === Schemas.HandshakeMessageType.MsgProposeVersions
-    ? Effect.gen(function* () {
-        const proposedVersions = Schema.decodeSync(
-          Schema.String.pipe(Schema.decodeTo(Schemas.VersionNumber), Schema.Array),
-        )(Object.keys(message.versionTable.data));
+) => {
+  // HandshakeMessageType is a numeric enum (0,1,2,3), so match keys are numbers
+  if (message._tag !== Schemas.HandshakeMessageType.MsgProposeVersions) {
+    return Effect.fail(
+      new HandshakeServerError({ cause: `Unexpected message type: ${message._tag}` }),
+    );
+  }
 
-        const supportedVersions = Schema.decodeSync(
-          Schema.String.pipe(Schema.decodeTo(Schemas.VersionNumber), Schema.Array),
-        )(Object.keys(config.supportedVersions.data));
+  return Effect.gen(function* () {
+    const proposedVersions = Schema.decodeSync(
+      Schema.String.pipe(Schema.decodeTo(Schemas.VersionNumber), Schema.Array),
+    )(Object.keys(message.versionTable.data));
 
-        const intersection = _.intersection(proposedVersions, supportedVersions);
-        const selectedVersion = _.max(intersection);
+    const supportedVersions = Schema.decodeSync(
+      Schema.String.pipe(Schema.decodeTo(Schemas.VersionNumber), Schema.Array),
+    )(Object.keys(config.supportedVersions.data));
 
-        if (selectedVersion) {
-          const proposedData = message.versionTable.data[selectedVersion];
+    const intersection = _.intersection(proposedVersions, supportedVersions);
+    const selectedVersion = _.max(intersection);
 
-          if (proposedData?.query) {
-            yield* encodeMessage({
-              _tag: Schemas.HandshakeMessageType.MsgQueryReply,
-              versionTable: config.supportedVersions,
-            }).pipe(Effect.flatMap(channel.send));
-          } else {
-            const acceptedData = config.supportedVersions.data[selectedVersion];
+    if (selectedVersion) {
+      const proposedData = message.versionTable.data[selectedVersion];
 
-            if (!acceptedData) {
-              return yield* Effect.fail(
-                new HandshakeServerError({
-                  cause: "Internal error: version not found",
-                }),
-              );
-            }
+      if (proposedData?.query) {
+        yield* encodeMessage({
+          _tag: Schemas.HandshakeMessageType.MsgQueryReply,
+          versionTable: config.supportedVersions,
+        }).pipe(Effect.flatMap(channel.send));
+      } else {
+        const acceptedData = config.supportedVersions.data[selectedVersion];
 
-            yield* encodeMessage({
-              _tag: Schemas.HandshakeMessageType.MsgAcceptVersion,
-              version: selectedVersion,
-              versionData: acceptedData,
-            }).pipe(Effect.flatMap(channel.send));
-          }
-        } else {
-          yield* encodeMessage({
-            _tag: Schemas.HandshakeMessageType.MsgRefuse,
-            reason: {
-              _tag: Schemas.RefuseReasonType.VersionMismatch,
-              validVersions: supportedVersions,
-            },
-          }).pipe(Effect.flatMap(channel.send));
+        if (!acceptedData) {
+          return yield* Effect.fail(
+            new HandshakeServerError({
+              cause: "Internal error: version not found",
+            }),
+          );
         }
-      })
-    : Effect.fail(
-        new HandshakeServerError({
-          cause: new Error(`Message doesn't have correct tag: ${message}`),
-        }),
-      );
 
-/**
- * Effect-TS Handshake server service
- */
+        yield* encodeMessage({
+          _tag: Schemas.HandshakeMessageType.MsgAcceptVersion,
+          version: selectedVersion,
+          versionData: acceptedData,
+        }).pipe(Effect.flatMap(channel.send));
+      }
+    } else {
+      yield* encodeMessage({
+        _tag: Schemas.HandshakeMessageType.MsgRefuse,
+        reason: {
+          _tag: Schemas.RefuseReasonType.VersionMismatch,
+          validVersions: supportedVersions,
+        },
+      }).pipe(Effect.flatMap(channel.send));
+    }
+  });
+};
+
 export class HandshakeServer extends ServiceMap.Service<
   HandshakeServer,
   {
@@ -119,15 +109,16 @@ export class HandshakeServer extends ServiceMap.Service<
         const multiplexer = yield* Multiplexer;
 
         return HandshakeServer.of({
-          start: Effect.fn("HandshakeServer.start")(function* () {
-            const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.Handshake);
-
-            yield* channel.incoming.pipe(
-              Stream.mapEffect((bytes) => decodeMessage(bytes)),
-              Stream.mapEffect((message) => handleProposal(message, config, channel)),
-              Stream.runDrain,
-            );
-          }),
+          start: () =>
+            multiplexer.getProtocolChannel(MiniProtocol.Handshake).pipe(
+              Effect.flatMap((channel) =>
+                Stream.fromPubSub(channel.pubsub).pipe(
+                  Stream.mapEffect((bytes) => decodeMessage(bytes)),
+                  Stream.mapEffect((message) => handleProposal(message, config, channel)),
+                  Stream.runDrain,
+                ),
+              ),
+            ),
         });
       }),
     );

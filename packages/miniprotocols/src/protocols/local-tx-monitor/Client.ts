@@ -1,16 +1,4 @@
-import {
-  Cause,
-  Duration,
-  Effect,
-  Layer,
-  Option,
-  Queue,
-  Ref,
-  Schema,
-  Scope,
-  ServiceMap,
-  Stream,
-} from "effect";
+import { Cause, Duration, Effect, Layer, Option, Ref, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -20,9 +8,7 @@ import * as Schemas from "./Schemas";
 
 export class LocalTxMonitorError extends Schema.TaggedErrorClass<LocalTxMonitorError>()(
   "LocalTxMonitorError",
-  {
-    cause: Schema.Defect,
-  },
+  { cause: Schema.Defect },
 ) {}
 
 type MonitorState = "Idle" | "Acquiring" | "Acquired" | "Busy" | "Done";
@@ -30,45 +16,32 @@ type MonitorState = "Idle" | "Acquiring" | "Acquired" | "Busy" | "Done";
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalTxMonitorMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalTxMonitorMessageBytes);
 
+const unexpected = (tag: string) =>
+  Effect.fail(new LocalTxMonitorError({ cause: `Unexpected message: ${tag}` }));
+
 export class LocalTxMonitorClient extends ServiceMap.Service<
   LocalTxMonitorClient,
   {
     acquire: () => Effect.Effect<
       number,
-      | LocalTxMonitorError
-      | MultiplexerEncodingError
-      | Socket.SocketError
-      | Schema.SchemaError
-      | Cause.TimeoutError,
+      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
       Scope.Scope
     >;
     nextTx: () => Effect.Effect<
       Option.Option<Uint8Array>,
-      | LocalTxMonitorError
-      | MultiplexerEncodingError
-      | Socket.SocketError
-      | Schema.SchemaError
-      | Cause.TimeoutError,
+      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
       Scope.Scope
     >;
     hasTx: (
       txId: Uint8Array,
     ) => Effect.Effect<
       boolean,
-      | LocalTxMonitorError
-      | MultiplexerEncodingError
-      | Socket.SocketError
-      | Schema.SchemaError
-      | Cause.TimeoutError,
+      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
       Scope.Scope
     >;
     getSizes: () => Effect.Effect<
       Schemas.MempoolSizes,
-      | LocalTxMonitorError
-      | MultiplexerEncodingError
-      | Socket.SocketError
-      | Schema.SchemaError
-      | Cause.TimeoutError,
+      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
       Scope.Scope
     >;
     release: () => Effect.Effect<
@@ -92,17 +65,12 @@ export class LocalTxMonitorClient extends ServiceMap.Service<
         .pipe(Effect.mapError((cause) => new LocalTxMonitorError({ cause })));
       const state = yield* Ref.make<MonitorState>("Idle");
 
-      const inbox = yield* Queue.unbounded<Schemas.LocalTxMonitorMessageT>();
-      yield* channel.incoming.pipe(
-        Stream.mapEffect((bytes) => decodeMessage(bytes)),
-        Stream.runForEach((msg) => Queue.offer(inbox, msg)),
-        Effect.forkChild,
-      );
-
       const sendMessage = (msg: Schemas.LocalTxMonitorMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));
 
-      const receiveOne = Queue.take(inbox);
+      const messages = Stream.fromPubSub(channel.pubsub).pipe(
+        Stream.mapEffect((bytes) => decodeMessage(bytes)),
+      );
 
       const guardState = (expected: MonitorState) =>
         Ref.get(state).pipe(
@@ -117,102 +85,115 @@ export class LocalTxMonitorClient extends ServiceMap.Service<
           ),
         );
 
+      // Helper: transition to Busy, send message, receive response, return to Acquired
+      const busyRequest = <A>(
+        msg: Schemas.LocalTxMonitorMessageT,
+        extract: (v: Schemas.LocalTxMonitorMessageT) => Effect.Effect<A, LocalTxMonitorError>,
+      ) =>
+        guardState("Acquired").pipe(
+          Effect.andThen(Ref.set(state, "Busy")),
+          Effect.andThen(sendMessage(msg)),
+          Effect.andThen(
+            messages.pipe(
+              Stream.runHead,
+              Effect.timeout(Duration.seconds(10)),
+              Effect.tap(() => Ref.set(state, "Acquired")),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
+                  onSome: extract,
+                }),
+              ),
+            ),
+          ),
+        );
+
       return LocalTxMonitorClient.of({
-        acquire: Effect.fn("LocalTxMonitorClient.acquire")(function* () {
-          yield* guardState("Idle");
-          yield* Ref.set(state, "Acquiring");
-          yield* sendMessage({
-            _tag: Schemas.LocalTxMonitorMessageType.Acquire,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-
-          if (response._tag === Schemas.LocalTxMonitorMessageType.Acquired) {
-            yield* Ref.set(state, "Acquired");
-            return response.slot;
-          }
-
-          return yield* Effect.fail(
-            new LocalTxMonitorError({
-              cause: `Unexpected message: ${response._tag}`,
+        acquire: () =>
+          guardState("Idle").pipe(
+            Effect.andThen(Ref.set(state, "Acquiring")),
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalTxMonitorMessageType.Acquire })),
+            Effect.andThen(
+              messages.pipe(
+                Stream.runHead,
+                Effect.timeout(Duration.seconds(10)),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
+                    onSome: (v) =>
+                      Schemas.LocalTxMonitorMessage.match(v, {
+                        Acquired: (m) => Ref.set(state, "Acquired").pipe(Effect.as(m.slot)),
+                        Acquire: (m) => unexpected(m._tag),
+                        Release: (m) => unexpected(m._tag),
+                        NextTx: (m) => unexpected(m._tag),
+                        ReplyNextTx: (m) => unexpected(m._tag),
+                        HasTx: (m) => unexpected(m._tag),
+                        ReplyHasTx: (m) => unexpected(m._tag),
+                        GetSizes: (m) => unexpected(m._tag),
+                        ReplyGetSizes: (m) => unexpected(m._tag),
+                        Done: (m) => unexpected(m._tag),
+                      }),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        nextTx: () =>
+          busyRequest({ _tag: Schemas.LocalTxMonitorMessageType.NextTx }, (v) =>
+            Schemas.LocalTxMonitorMessage.match(v, {
+              ReplyNextTx: (m) =>
+                Effect.succeed(m.tx !== undefined ? Option.some(m.tx) : Option.none()),
+              Acquire: (m) => unexpected(m._tag),
+              Acquired: (m) => unexpected(m._tag),
+              Release: (m) => unexpected(m._tag),
+              NextTx: (m) => unexpected(m._tag),
+              HasTx: (m) => unexpected(m._tag),
+              ReplyHasTx: (m) => unexpected(m._tag),
+              GetSizes: (m) => unexpected(m._tag),
+              ReplyGetSizes: (m) => unexpected(m._tag),
+              Done: (m) => unexpected(m._tag),
             }),
-          );
-        }),
-        nextTx: Effect.fn("LocalTxMonitorClient.nextTx")(function* () {
-          yield* guardState("Acquired");
-          yield* Ref.set(state, "Busy");
-          yield* sendMessage({
-            _tag: Schemas.LocalTxMonitorMessageType.NextTx,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-          yield* Ref.set(state, "Acquired");
-
-          if (response._tag === Schemas.LocalTxMonitorMessageType.ReplyNextTx) {
-            return response.tx !== undefined ? Option.some(response.tx) : Option.none();
-          }
-
-          return yield* Effect.fail(
-            new LocalTxMonitorError({
-              cause: `Unexpected message: ${response._tag}`,
+          ),
+        hasTx: (txId) =>
+          busyRequest({ _tag: Schemas.LocalTxMonitorMessageType.HasTx, txId }, (v) =>
+            Schemas.LocalTxMonitorMessage.match(v, {
+              ReplyHasTx: (m) => Effect.succeed(m.hasTx),
+              Acquire: (m) => unexpected(m._tag),
+              Acquired: (m) => unexpected(m._tag),
+              Release: (m) => unexpected(m._tag),
+              NextTx: (m) => unexpected(m._tag),
+              ReplyNextTx: (m) => unexpected(m._tag),
+              HasTx: (m) => unexpected(m._tag),
+              GetSizes: (m) => unexpected(m._tag),
+              ReplyGetSizes: (m) => unexpected(m._tag),
+              Done: (m) => unexpected(m._tag),
             }),
-          );
-        }),
-        hasTx: Effect.fn("LocalTxMonitorClient.hasTx")(function* (txId: Uint8Array) {
-          yield* guardState("Acquired");
-          yield* Ref.set(state, "Busy");
-          yield* sendMessage({
-            _tag: Schemas.LocalTxMonitorMessageType.HasTx,
-            txId,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-          yield* Ref.set(state, "Acquired");
-
-          if (response._tag === Schemas.LocalTxMonitorMessageType.ReplyHasTx) {
-            return response.hasTx;
-          }
-
-          return yield* Effect.fail(
-            new LocalTxMonitorError({
-              cause: `Unexpected message: ${response._tag}`,
+          ),
+        getSizes: () =>
+          busyRequest({ _tag: Schemas.LocalTxMonitorMessageType.GetSizes }, (v) =>
+            Schemas.LocalTxMonitorMessage.match(v, {
+              ReplyGetSizes: (m) => Effect.succeed(m.sizes),
+              Acquire: (m) => unexpected(m._tag),
+              Acquired: (m) => unexpected(m._tag),
+              Release: (m) => unexpected(m._tag),
+              NextTx: (m) => unexpected(m._tag),
+              ReplyNextTx: (m) => unexpected(m._tag),
+              HasTx: (m) => unexpected(m._tag),
+              ReplyHasTx: (m) => unexpected(m._tag),
+              GetSizes: (m) => unexpected(m._tag),
+              Done: (m) => unexpected(m._tag),
             }),
-          );
-        }),
-        getSizes: Effect.fn("LocalTxMonitorClient.getSizes")(function* () {
-          yield* guardState("Acquired");
-          yield* Ref.set(state, "Busy");
-          yield* sendMessage({
-            _tag: Schemas.LocalTxMonitorMessageType.GetSizes,
-          });
-
-          const response = yield* receiveOne.pipe(Effect.timeout(Duration.seconds(10)));
-          yield* Ref.set(state, "Acquired");
-
-          if (response._tag === Schemas.LocalTxMonitorMessageType.ReplyGetSizes) {
-            return response.sizes;
-          }
-
-          return yield* Effect.fail(
-            new LocalTxMonitorError({
-              cause: `Unexpected message: ${response._tag}`,
-            }),
-          );
-        }),
-        release: Effect.fn("LocalTxMonitorClient.release")(function* () {
-          yield* guardState("Acquired");
-          yield* sendMessage({
-            _tag: Schemas.LocalTxMonitorMessageType.Release,
-          });
-          yield* Ref.set(state, "Idle");
-        }),
-        done: Effect.fn("LocalTxMonitorClient.done")(function* () {
-          yield* guardState("Idle");
-          yield* sendMessage({
-            _tag: Schemas.LocalTxMonitorMessageType.Done,
-          });
-          yield* Ref.set(state, "Done");
-        }),
+          ),
+        release: () =>
+          guardState("Acquired").pipe(
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalTxMonitorMessageType.Release })),
+            Effect.andThen(Ref.set(state, "Idle")),
+          ),
+        done: () =>
+          guardState("Idle").pipe(
+            Effect.andThen(sendMessage({ _tag: Schemas.LocalTxMonitorMessageType.Done })),
+            Effect.andThen(Ref.set(state, "Done")),
+          ),
       });
     }),
   );

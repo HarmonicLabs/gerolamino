@@ -9,7 +9,6 @@ import {
   Schema,
   Scope,
   ServiceMap,
-  Stream,
 } from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 
@@ -20,11 +19,14 @@ import { MultiplexerBuffer } from "./Buffer";
 import { MultiplexerEncodingError, MultiplexerHeaderError } from "./Errors";
 
 /**
- * Protocol channel for streaming messages
+ * Protocol channel exposing a PubSub for direct subscription.
+ * Consumers should use `PubSub.subscribe(channel.pubsub)` to get a
+ * scoped subscription, then `PubSub.take(subscription)` for each message.
+ * For stream-based consumption, use `Stream.fromPubSub(channel.pubsub)`.
  */
 export interface ProtocolChannel {
   readonly protocolId: MiniProtocol;
-  readonly incoming: Stream.Stream<Uint8Array, never, Scope.Scope>;
+  readonly pubsub: PubSub.PubSub<Uint8Array>;
   readonly send: (
     data: Uint8Array,
   ) => Effect.Effect<void, MultiplexerEncodingError | Socket.SocketError, Scope.Scope>;
@@ -36,9 +38,6 @@ export interface ProtocolChannel {
 export class Multiplexer extends ServiceMap.Service<
   Multiplexer,
   {
-    /**
-     * Get a protocol channel for streaming messages
-     */
     getProtocolChannel: (
       protocolId: MiniProtocol,
     ) => Effect.Effect<
@@ -114,39 +113,36 @@ export class Multiplexer extends ServiceMap.Service<
         Fiber.interrupt(fetchFiber).pipe(Effect.andThen(Fiber.interrupt(processFiber))),
     ).pipe(
       Effect.map(({ socket, channels }) => ({
-        getProtocolChannel: Effect.fn("Multiplexer.getProtocolChannel")(
-          (protocolId: MiniProtocol) =>
-            channels.pipe(
-              HashMap.get(protocolId),
-              Option.match({
-                onNone: () =>
-                  Effect.die(
-                    new Error(`Protocol channel not initialized for protocol ID: ${protocolId}`),
-                  ),
-                onSome: (ps) =>
-                  Effect.succeed({
-                    protocolId,
-                    incoming: Stream.fromPubSub(ps),
-                    send: Effect.fn(`${protocolId}.send`)((data: Uint8Array) =>
-                      Effect.try({
-                        try: () => wrap_multiplexer_message(data, protocolId, true),
-                        catch: (e) =>
-                          new MultiplexerEncodingError({
-                            operation: "Frame wrapping",
-                            payload: data,
-                            protocol: protocolId,
-                            cause: e,
-                          }),
-                      }).pipe(
-                        Effect.flatMap((framedData) =>
-                          socket.writer.pipe(Effect.flatMap((write) => write(framedData))),
-                        ),
+        getProtocolChannel: (protocolId: MiniProtocol) =>
+          channels.pipe(
+            HashMap.get(protocolId),
+            Option.match({
+              onNone: () =>
+                Effect.die(
+                  new Error(`Protocol channel not initialized for protocol ID: ${protocolId}`),
+                ),
+              onSome: (ps) =>
+                Effect.succeed<ProtocolChannel>({
+                  protocolId,
+                  pubsub: ps,
+                  send: (data: Uint8Array) =>
+                    Effect.try({
+                      try: () => wrap_multiplexer_message(data, protocolId, true),
+                      catch: (e) =>
+                        new MultiplexerEncodingError({
+                          operation: "Frame wrapping",
+                          payload: data,
+                          protocol: protocolId,
+                          cause: e,
+                        }),
+                    }).pipe(
+                      Effect.flatMap((framedData) =>
+                        socket.writer.pipe(Effect.flatMap((write) => write(framedData))),
                       ),
                     ),
-                  }),
-              }),
-            ),
-        ),
+                }),
+            }),
+          ),
       })),
     ),
   );

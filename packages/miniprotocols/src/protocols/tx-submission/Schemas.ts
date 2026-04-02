@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborBytes } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
 
 // ── Application-level types ──
 
@@ -51,72 +51,94 @@ export type TxSubmissionMessageT = Schema.Schema.Type<typeof TxSubmissionMessage
 // [4]                       — Done
 // [6]                       — Init
 
-const TxIdAndSizeCbor = Schema.Tuple([Schema.Uint8Array, Schema.Number]);
-
-const RequestTxIdsCbor = Schema.Tuple([
-  Schema.Literal(0),
-  Schema.Boolean,
-  Schema.Number,
-  Schema.Number,
-]);
-const ReplyTxIdsCbor = Schema.Tuple([Schema.Literal(1), Schema.Array(TxIdAndSizeCbor)]);
-const RequestTxsCbor = Schema.Tuple([Schema.Literal(2), Schema.Array(Schema.Uint8Array)]);
-const ReplyTxsCbor = Schema.Tuple([Schema.Literal(3), Schema.Array(Schema.Uint8Array)]);
-const DoneCbor = Schema.Tuple([Schema.Literal(4)]);
-const InitCbor = Schema.Tuple([Schema.Literal(6)]);
-
-export const TxSubmissionMessageFromCbor = Schema.Union([
-  RequestTxIdsCbor,
-  ReplyTxIdsCbor,
-  RequestTxsCbor,
-  ReplyTxsCbor,
-  DoneCbor,
-  InitCbor,
-]).pipe(
+export const TxSubmissionMessageBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(TxSubmissionMessage, {
-    decode: SchemaGetter.transform((tuple) =>
-      tuple[0] === 0
-        ? {
-            _tag: TxSubmissionMessageType.RequestTxIds as const,
-            blocking: tuple[1],
-            ack: tuple[2],
-            req: tuple[3],
-          }
-        : tuple[0] === 1
-          ? {
-              _tag: TxSubmissionMessageType.ReplyTxIds as const,
-              ids: (tuple[1] as ReadonlyArray<readonly [Uint8Array, number]>).map(
-                ([txId, size]) => ({ txId, size }),
-              ),
-            }
-          : tuple[0] === 2
-            ? {
-                _tag: TxSubmissionMessageType.RequestTxs as const,
-                txIds: tuple[1],
-              }
-            : tuple[0] === 3
-              ? { _tag: TxSubmissionMessageType.ReplyTxs as const, txs: tuple[1] }
-              : tuple[0] === 4
-                ? { _tag: TxSubmissionMessageType.Done as const }
-                : { _tag: TxSubmissionMessageType.Init as const },
-    ),
-    encode: SchemaGetter.transform((msg) => {
-      switch (msg._tag) {
-        case TxSubmissionMessageType.RequestTxIds:
-          return [0, msg.blocking, msg.ack, msg.req];
-        case TxSubmissionMessageType.ReplyTxIds:
-          return [1, msg.ids.map((id): readonly [Uint8Array, number] => [id.txId, id.size])];
-        case TxSubmissionMessageType.RequestTxs:
-          return [2, msg.txIds];
-        case TxSubmissionMessageType.ReplyTxs:
-          return [3, msg.txs];
-        case TxSubmissionMessageType.Done:
-          return [4];
-        case TxSubmissionMessageType.Init:
-          return [6];
+    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
+      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+      const tag = cbor.items[0];
+      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+      switch (Number(tag.num)) {
+        case 0: return {
+          _tag: TxSubmissionMessageType.RequestTxIds as const,
+          blocking: (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean,
+          ack: Number((cbor.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+          req: Number((cbor.items[3] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+        };
+        case 1: {
+          const idsArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+          return {
+            _tag: TxSubmissionMessageType.ReplyTxIds as const,
+            ids: idsArray.items.map((pair) => {
+              const pairArr = pair as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+              return {
+                txId: (pairArr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes,
+                size: Number((pairArr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+              };
+            }),
+          };
+        }
+        case 2: {
+          const txIdsArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+          return {
+            _tag: TxSubmissionMessageType.RequestTxs as const,
+            txIds: txIdsArray.items.map((item) => (item as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes),
+          };
+        }
+        case 3: {
+          const txsArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+          return {
+            _tag: TxSubmissionMessageType.ReplyTxs as const,
+            txs: txsArray.items.map((item) => (item as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes),
+          };
+        }
+        case 4: return { _tag: TxSubmissionMessageType.Done as const };
+        default: return { _tag: TxSubmissionMessageType.Init as const };
       }
     }),
+    encode: SchemaGetter.transform(
+      TxSubmissionMessage.match({
+        RequestTxIds: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 0n },
+            { _tag: CborKinds.Simple, value: m.blocking },
+            { _tag: CborKinds.UInt, num: BigInt(m.ack) },
+            { _tag: CborKinds.UInt, num: BigInt(m.req) },
+          ],
+        }),
+        ReplyTxIds: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 1n },
+            {
+              _tag: CborKinds.Array,
+              items: m.ids.map((id): CborSchemaType => ({
+                _tag: CborKinds.Array,
+                items: [
+                  { _tag: CborKinds.Bytes, bytes: id.txId },
+                  { _tag: CborKinds.UInt, num: BigInt(id.size) },
+                ],
+              })),
+            },
+          ],
+        }),
+        RequestTxs: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 2n },
+            { _tag: CborKinds.Array, items: m.txIds.map((txId): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: txId })) },
+          ],
+        }),
+        ReplyTxs: (m): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 3n },
+            { _tag: CborKinds.Array, items: m.txs.map((tx): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: tx })) },
+          ],
+        }),
+        Done: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 4n }] }),
+        Init: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 6n }] }),
+      }),
+    ),
   }),
 );
-
-export const TxSubmissionMessageBytes = CborBytes(TxSubmissionMessageFromCbor);

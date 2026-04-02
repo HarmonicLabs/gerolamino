@@ -1,4 +1,4 @@
-import { Effect, Layer, Queue, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Effect, Layer, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -8,9 +8,7 @@ import * as Schemas from "./Schemas";
 
 export class TxSubmissionError extends Schema.TaggedErrorClass<TxSubmissionError>()(
   "TxSubmissionError",
-  {
-    cause: Schema.Defect,
-  },
+  { cause: Schema.Defect },
 ) {}
 
 export interface TxSubmissionHandlers {
@@ -26,6 +24,9 @@ export interface TxSubmissionHandlers {
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.TxSubmissionMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.TxSubmissionMessageBytes);
+
+const unexpected = (tag: string) =>
+  Effect.fail(new TxSubmissionError({ cause: `Unexpected server message: ${tag}` }));
 
 export class TxSubmissionClient extends ServiceMap.Service<
   TxSubmissionClient,
@@ -52,55 +53,43 @@ export class TxSubmissionClient extends ServiceMap.Service<
         .getProtocolChannel(MiniProtocol.TxSubmission)
         .pipe(Effect.mapError((cause) => new TxSubmissionError({ cause })));
 
-      const inbox = yield* Queue.unbounded<Schemas.TxSubmissionMessageT>();
-      yield* channel.incoming.pipe(
-        Stream.mapEffect((bytes) => decodeMessage(bytes)),
-        Stream.runForEach((msg) => Queue.offer(inbox, msg)),
-        Effect.forkChild,
-      );
-
       const sendMessage = (msg: Schemas.TxSubmissionMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));
 
+      const messages = Stream.fromPubSub(channel.pubsub).pipe(
+        Stream.mapEffect((bytes) => decodeMessage(bytes)),
+      );
+
       return TxSubmissionClient.of({
-        run: Effect.fn("TxSubmissionClient.run")(function* (handlers: TxSubmissionHandlers) {
-          // Send Init message to start the protocol
-          yield* sendMessage({
-            _tag: Schemas.TxSubmissionMessageType.Init,
-          });
-
-          // Enter the server-driven event loop
-          yield* Effect.gen(function* () {
-            const msg = yield* Queue.take(inbox);
-
-            if (msg._tag === Schemas.TxSubmissionMessageType.RequestTxIds) {
-              const ids = yield* handlers.onRequestTxIds(msg.ack, msg.req, msg.blocking);
-              yield* sendMessage({
-                _tag: Schemas.TxSubmissionMessageType.ReplyTxIds,
-                ids: [...ids],
-              });
-            } else if (msg._tag === Schemas.TxSubmissionMessageType.RequestTxs) {
-              const txs = yield* handlers.onRequestTxs(msg.txIds);
-              yield* sendMessage({
-                _tag: Schemas.TxSubmissionMessageType.ReplyTxs,
-                txs: [...txs],
-              });
-            } else if (msg._tag === Schemas.TxSubmissionMessageType.Done) {
-              // Protocol done
-            } else {
-              yield* Effect.fail(
-                new TxSubmissionError({
-                  cause: `Unexpected server message: ${msg._tag}`,
-                }),
-              );
-            }
-          }).pipe(Effect.forever);
-        }),
-        done: Effect.fn("TxSubmissionClient.done")(function* () {
-          yield* sendMessage({
-            _tag: Schemas.TxSubmissionMessageType.Done,
-          });
-        }),
+        run: (handlers) =>
+          sendMessage({ _tag: Schemas.TxSubmissionMessageType.Init }).pipe(
+            Effect.andThen(
+              messages.pipe(
+                Stream.mapEffect((msg) =>
+                  Schemas.TxSubmissionMessage.match(msg, {
+                    RequestTxIds: (m) =>
+                      handlers.onRequestTxIds(m.ack, m.req, m.blocking).pipe(
+                        Effect.flatMap((ids) =>
+                          sendMessage({ _tag: Schemas.TxSubmissionMessageType.ReplyTxIds, ids: [...ids] }),
+                        ),
+                      ),
+                    RequestTxs: (m) =>
+                      handlers.onRequestTxs(m.txIds).pipe(
+                        Effect.flatMap((txs) =>
+                          sendMessage({ _tag: Schemas.TxSubmissionMessageType.ReplyTxs, txs: [...txs] }),
+                        ),
+                      ),
+                    Done: () => Effect.void,
+                    Init: (m) => unexpected(m._tag),
+                    ReplyTxIds: (m) => unexpected(m._tag),
+                    ReplyTxs: (m) => unexpected(m._tag),
+                  }),
+                ),
+                Stream.runDrain,
+              ),
+            ),
+          ),
+        done: () => sendMessage({ _tag: Schemas.TxSubmissionMessageType.Done }),
       });
     }),
   );

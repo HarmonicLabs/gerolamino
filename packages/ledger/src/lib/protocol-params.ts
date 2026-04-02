@@ -83,14 +83,46 @@ export type PParams = Schema.Schema.Type<typeof PParams>
 
 // ────────────────────────────────────────────────────────────────────────────
 // PParamsUpdate — all fields optional (Haskell HKD StrictMaybe analog)
-// Uses mapFields to wrap every field in Schema.optional
 // ────────────────────────────────────────────────────────────────────────────
 
-export const PParamsUpdate = PParams.mapFields((fields) => {
-  const result: Record<string, unknown> = {}
-  for (const [key, schema] of Object.entries(fields)) {
-    result[key] = Schema.optional(schema as Schema.Schema<unknown>)
-  }
-  return result as any
+const opt = Schema.optional
+
+export const PParamsUpdate = Schema.Struct({
+  // NetworkGroup
+  maxBlockBodySize: opt(Schema.BigInt),
+  maxTxSize: opt(Schema.BigInt),
+  maxBlockHeaderSize: opt(Schema.BigInt),
+  maxTxExUnits: opt(Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt })),
+  maxBlockExUnits: opt(Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt })),
+  maxValSize: opt(Schema.BigInt),
+  maxCollateralInputs: opt(Schema.BigInt),
+
+  // EconomicGroup
+  minFeeA: opt(Schema.BigInt),
+  minFeeB: opt(Schema.BigInt),
+  keyDeposit: opt(Schema.BigInt),
+  poolDeposit: opt(Schema.BigInt),
+  monetaryExpansion: opt(Rational),
+  treasuryCut: opt(Rational),
+  coinsPerUTxOByte: opt(Schema.BigInt),
+  prices: opt(Schema.Struct({ memPrice: Rational, stepPrice: Rational })),
+  minFeeRefScriptCoinsPerByte: opt(Rational),
+
+  // TechnicalGroup
+  eMax: opt(Schema.BigInt),
+  nOpt: opt(Schema.BigInt),
+  a0: opt(Rational),
+  collateralPercentage: opt(Schema.BigInt),
+  costModels: opt(Schema.Uint8Array),
+
+  // GovernanceGroup
+  poolThresholds: opt(PoolThresholds),
+  drepThresholds: opt(DRepThresholds),
+  ccMinSize: opt(Schema.BigInt),
+  ccMaxTermLength: opt(Schema.BigInt),
+  govActionLifetime: opt(Schema.BigInt),
+  govActionDeposit: opt(Schema.BigInt),
+  drepDeposit: opt(Schema.BigInt),
+  drepActivity: opt(Schema.BigInt),
 })
 export type PParamsUpdate = Schema.Schema.Type<typeof PParamsUpdate>

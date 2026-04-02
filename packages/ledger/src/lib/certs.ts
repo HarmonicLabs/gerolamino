@@ -88,6 +88,22 @@ export const isGovernanceCert = DCert.isAnyOf([
   CertKind.UpdateDRep,
 ])
 
+export const isDeregistrationCert = DCert.isAnyOf([
+  CertKind.StakeDeregistration,
+  CertKind.UnregDeposit,
+])
+
+export const isDRepCert = DCert.isAnyOf([
+  CertKind.RegDRep,
+  CertKind.UnregDRep,
+  CertKind.UpdateDRep,
+])
+
+export const isCommitteeCert = DCert.isAnyOf([
+  CertKind.AuthCommitteeHot,
+  CertKind.ResignCommitteeCold,
+])
+
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode
 // CBOR: [certTag, ...fields]
@@ -187,28 +203,26 @@ export function decodeDCert(cbor: CborSchemaType): Effect.Effect<DCert, SchemaIs
   }
 }
 
-export function encodeDCert(cert: DCert): CborSchemaType {
-  const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
-  const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null }
-  const arr = (...items: CborSchemaType[]): CborSchemaType => ({ _tag: CborKinds.Array, items })
+const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
+const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null }
+const arr = (...items: CborSchemaType[]): CborSchemaType => ({ _tag: CborKinds.Array, items })
 
-  return DCert.match(cert, {
-    [CertKind.StakeRegistration]: (c) => arr(uint(0), encodeCredential(c.credential)),
-    [CertKind.StakeDeregistration]: (c) => arr(uint(1), encodeCredential(c.credential)),
-    [CertKind.StakeDelegation]: (c) => arr(uint(2), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }),
-    [CertKind.PoolRegistration]: (c) => arr(uint(3), encodePoolParams(c.poolParams)),
-    [CertKind.PoolRetirement]: (c) => arr(uint(4), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, uint(c.epoch)),
-    [CertKind.RegDeposit]: (c) => arr(uint(7), encodeCredential(c.credential), uint(c.deposit)),
-    [CertKind.UnregDeposit]: (c) => arr(uint(8), encodeCredential(c.credential), uint(c.deposit)),
-    [CertKind.VoteDeleg]: (c) => arr(uint(9), encodeCredential(c.credential), encodeDRep(c.drep)),
-    [CertKind.StakeVoteDeleg]: (c) => arr(uint(10), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, encodeDRep(c.drep)),
-    [CertKind.StakeRegDeleg]: (c) => arr(uint(11), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, uint(c.deposit)),
-    [CertKind.VoteRegDeleg]: (c) => arr(uint(12), encodeCredential(c.credential), encodeDRep(c.drep), uint(c.deposit)),
-    [CertKind.StakeVoteRegDeleg]: (c) => arr(uint(13), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, encodeDRep(c.drep), uint(c.deposit)),
-    [CertKind.AuthCommitteeHot]: (c) => arr(uint(14), encodeCredential(c.coldCredential), encodeCredential(c.hotCredential)),
-    [CertKind.ResignCommitteeCold]: (c) => arr(uint(15), encodeCredential(c.coldCredential), c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal),
-    [CertKind.RegDRep]: (c) => arr(uint(16), encodeCredential(c.credential), uint(c.deposit), c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal),
-    [CertKind.UnregDRep]: (c) => arr(uint(17), encodeCredential(c.credential), uint(c.deposit)),
-    [CertKind.UpdateDRep]: (c) => arr(uint(18), encodeCredential(c.credential), c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal),
-  })
-}
+export const encodeDCert = DCert.match({
+  [CertKind.StakeRegistration]: (c): CborSchemaType => arr(uint(0), encodeCredential(c.credential)),
+  [CertKind.StakeDeregistration]: (c): CborSchemaType => arr(uint(1), encodeCredential(c.credential)),
+  [CertKind.StakeDelegation]: (c): CborSchemaType => arr(uint(2), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }),
+  [CertKind.PoolRegistration]: (c): CborSchemaType => arr(uint(3), encodePoolParams(c.poolParams)),
+  [CertKind.PoolRetirement]: (c): CborSchemaType => arr(uint(4), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, uint(c.epoch)),
+  [CertKind.RegDeposit]: (c): CborSchemaType => arr(uint(7), encodeCredential(c.credential), uint(c.deposit)),
+  [CertKind.UnregDeposit]: (c): CborSchemaType => arr(uint(8), encodeCredential(c.credential), uint(c.deposit)),
+  [CertKind.VoteDeleg]: (c): CborSchemaType => arr(uint(9), encodeCredential(c.credential), encodeDRep(c.drep)),
+  [CertKind.StakeVoteDeleg]: (c): CborSchemaType => arr(uint(10), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, encodeDRep(c.drep)),
+  [CertKind.StakeRegDeleg]: (c): CborSchemaType => arr(uint(11), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, uint(c.deposit)),
+  [CertKind.VoteRegDeleg]: (c): CborSchemaType => arr(uint(12), encodeCredential(c.credential), encodeDRep(c.drep), uint(c.deposit)),
+  [CertKind.StakeVoteRegDeleg]: (c): CborSchemaType => arr(uint(13), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, encodeDRep(c.drep), uint(c.deposit)),
+  [CertKind.AuthCommitteeHot]: (c): CborSchemaType => arr(uint(14), encodeCredential(c.coldCredential), encodeCredential(c.hotCredential)),
+  [CertKind.ResignCommitteeCold]: (c): CborSchemaType => arr(uint(15), encodeCredential(c.coldCredential), c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal),
+  [CertKind.RegDRep]: (c): CborSchemaType => arr(uint(16), encodeCredential(c.credential), uint(c.deposit), c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal),
+  [CertKind.UnregDRep]: (c): CborSchemaType => arr(uint(17), encodeCredential(c.credential), uint(c.deposit)),
+  [CertKind.UpdateDRep]: (c): CborSchemaType => arr(uint(18), encodeCredential(c.credential), c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal),
+})

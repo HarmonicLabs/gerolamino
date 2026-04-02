@@ -87,21 +87,19 @@ function decodeDatumOption(cbor: CborSchemaType): Effect.Effect<DatumOption, Sch
   }
 }
 
-function encodeDatumOption(opt: DatumOption): CborSchemaType {
-  return DatumOption.match(opt, {
-    [DatumOptionKind.DatumHash]: (d) => ({
-      _tag: CborKinds.Array,
-      items: [{ _tag: CborKinds.UInt, num: 0n }, { _tag: CborKinds.Bytes, bytes: d.hash }],
-    }) as CborSchemaType,
-    [DatumOptionKind.InlineDatum]: (d) => ({
-      _tag: CborKinds.Array,
-      items: [
-        { _tag: CborKinds.UInt, num: 1n },
-        { _tag: CborKinds.Tag, tag: 24n, data: { _tag: CborKinds.Bytes, bytes: d.datum } },
-      ],
-    }) as CborSchemaType,
-  })
-}
+const encodeDatumOption = DatumOption.match({
+  [DatumOptionKind.DatumHash]: (d): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [{ _tag: CborKinds.UInt, num: 0n }, { _tag: CborKinds.Bytes, bytes: d.hash }],
+  }),
+  [DatumOptionKind.InlineDatum]: (d): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: 1n },
+      { _tag: CborKinds.Tag, tag: 24n, data: { _tag: CborKinds.Bytes, bytes: d.datum } },
+    ],
+  }),
+})
 
 // ────────────────────────────────────────────────────────────────────────────
 // TxOut — CBOR map: {0: addr, 1: value, ?2: datumOption, ?3: scriptRef}
@@ -136,7 +134,7 @@ export function decodeTxOut(cbor: CborSchemaType): Effect.Effect<TxOut, SchemaIs
   return Effect.all({
     address: Effect.succeed(addrCbor.bytes),
     value: decodeValue(valueCbor),
-    datumOption: datumCbor ? decodeDatumOption(datumCbor).pipe(Effect.map((d) => d as DatumOption | undefined)) : Effect.succeed(undefined),
+    datumOption: datumCbor ? decodeDatumOption(datumCbor) : Effect.succeed(undefined),
     scriptRef: Effect.succeed(
       scriptCbor?._tag === CborKinds.Tag && scriptCbor.tag === 24n && scriptCbor.data._tag === CborKinds.Bytes
         ? scriptCbor.data.bytes
@@ -146,17 +144,14 @@ export function decodeTxOut(cbor: CborSchemaType): Effect.Effect<TxOut, SchemaIs
 }
 
 export function encodeTxOut(txOut: TxOut): CborSchemaType {
-  const entry = (key: number, v: CborSchemaType | undefined) =>
-    v !== undefined ? [{ k: { _tag: CborKinds.UInt, num: BigInt(key) } as CborSchemaType, v }] : []
-
   return {
     _tag: CborKinds.Map,
     entries: [
-      ...entry(0, { _tag: CborKinds.Bytes, bytes: txOut.address }),
-      ...entry(1, encodeValue(txOut.value)),
-      ...entry(2, txOut.datumOption !== undefined ? encodeDatumOption(txOut.datumOption) : undefined),
-      ...entry(3, txOut.scriptRef !== undefined
-        ? { _tag: CborKinds.Tag, tag: 24n, data: { _tag: CborKinds.Bytes, bytes: txOut.scriptRef } }
+      ...mapEntry(0, cborBytes(txOut.address)),
+      ...mapEntry(1, encodeValue(txOut.value)),
+      ...mapEntry(2, txOut.datumOption !== undefined ? encodeDatumOption(txOut.datumOption) : undefined),
+      ...mapEntry(3, txOut.scriptRef !== undefined
+        ? { _tag: CborKinds.Tag, tag: 24n, data: cborBytes(txOut.scriptRef) }
         : undefined),
     ],
   }
@@ -373,52 +368,54 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
   })))
 }
 
-export function encodeTxBody(body: TxBody): CborSchemaType {
-  const uint = (n: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num: n })
-  const entry = (key: number, v: CborSchemaType | undefined) =>
-    v !== undefined ? [{ k: { _tag: CborKinds.UInt, num: BigInt(key) } as CborSchemaType, v }] : []
+const uint = (n: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num: n })
+const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes })
+const negInt = (num: bigint): CborSchemaType => ({ _tag: CborKinds.NegInt, num })
 
-  const encodeMint = (mint: TxBody["mint"]): CborSchemaType | undefined => {
-    if (!mint || mint.length === 0) return undefined
-    return {
-      _tag: CborKinds.Map,
-      entries: mint.map((m) => ({
-        k: { _tag: CborKinds.Bytes, bytes: m.policy } as CborSchemaType,
-        v: {
-          _tag: CborKinds.Map,
-          entries: m.assets.map((a) => ({
-            k: { _tag: CborKinds.Bytes, bytes: a.name } as CborSchemaType,
-            v: (a.quantity >= 0n
-              ? { _tag: CborKinds.UInt, num: a.quantity }
-              : { _tag: CborKinds.NegInt, num: a.quantity }) as CborSchemaType,
-          })),
-        } as CborSchemaType,
-      })),
-    }
+function mapEntry(key: number, v: CborSchemaType | undefined): { k: CborSchemaType; v: CborSchemaType }[] {
+  return v !== undefined ? [{ k: uint(BigInt(key)), v }] : []
+}
+
+function encodeMint(mint: TxBody["mint"]): CborSchemaType | undefined {
+  if (!mint || mint.length === 0) return undefined
+  return {
+    _tag: CborKinds.Map,
+    entries: mint.map((m): { k: CborSchemaType; v: CborSchemaType } => ({
+      k: cborBytes(m.policy),
+      v: {
+        _tag: CborKinds.Map,
+        entries: m.assets.map((a): { k: CborSchemaType; v: CborSchemaType } => ({
+          k: cborBytes(a.name),
+          v: a.quantity >= 0n ? uint(a.quantity) : negInt(a.quantity),
+        })),
+      },
+    })),
   }
+}
 
+export function encodeTxBody(body: TxBody): CborSchemaType {
   return {
     _tag: CborKinds.Map,
     entries: [
-      ...entry(0, { _tag: CborKinds.Array, items: body.inputs.map(encodeTxIn) }),
-      ...entry(1, { _tag: CborKinds.Array, items: body.outputs.map(encodeTxOut) }),
-      ...entry(2, uint(body.fee)),
-      ...entry(3, body.ttl !== undefined ? uint(body.ttl) : undefined),
-      ...entry(4, body.certs && body.certs.length > 0 ? { _tag: CborKinds.Array, items: body.certs.map(encodeDCert) } : undefined),
-      ...entry(7, body.auxDataHash !== undefined ? { _tag: CborKinds.Bytes, bytes: body.auxDataHash } : undefined),
-      ...entry(8, body.validityStart !== undefined ? uint(body.validityStart) : undefined),
-      ...entry(9, encodeMint(body.mint)),
-      ...entry(11, body.scriptDataHash !== undefined ? { _tag: CborKinds.Bytes, bytes: body.scriptDataHash } : undefined),
-      ...entry(13, body.collateral && body.collateral.length > 0 ? { _tag: CborKinds.Array, items: body.collateral.map(encodeTxIn) } : undefined),
-      ...entry(14, body.requiredSigners && body.requiredSigners.length > 0
-        ? { _tag: CborKinds.Array, items: body.requiredSigners.map((s) => ({ _tag: CborKinds.Bytes, bytes: s }) as CborSchemaType) }
+      ...mapEntry(0, { _tag: CborKinds.Array, items: body.inputs.map(encodeTxIn) }),
+      ...mapEntry(1, { _tag: CborKinds.Array, items: body.outputs.map(encodeTxOut) }),
+      ...mapEntry(2, uint(body.fee)),
+      ...mapEntry(3, body.ttl !== undefined ? uint(body.ttl) : undefined),
+      ...mapEntry(4, body.certs && body.certs.length > 0 ? { _tag: CborKinds.Array, items: body.certs.map(encodeDCert) } : undefined),
+      ...mapEntry(7, body.auxDataHash !== undefined ? cborBytes(body.auxDataHash) : undefined),
+      ...mapEntry(8, body.validityStart !== undefined ? uint(body.validityStart) : undefined),
+      ...mapEntry(9, encodeMint(body.mint)),
+      ...mapEntry(11, body.scriptDataHash !== undefined ? cborBytes(body.scriptDataHash) : undefined),
+      ...mapEntry(13, body.collateral && body.collateral.length > 0 ? { _tag: CborKinds.Array, items: body.collateral.map(encodeTxIn) } : undefined),
+      ...mapEntry(14, body.requiredSigners && body.requiredSigners.length > 0
+        ? { _tag: CborKinds.Array, items: body.requiredSigners.map(cborBytes) }
         : undefined),
-      ...entry(15, body.networkId !== undefined ? uint(body.networkId) : undefined),
-      ...entry(16, body.collateralReturn !== undefined ? encodeTxOut(body.collateralReturn) : undefined),
-      ...entry(17, body.totalCollateral !== undefined ? uint(body.totalCollateral) : undefined),
-      ...entry(18, body.referenceInputs && body.referenceInputs.length > 0 ? { _tag: CborKinds.Array, items: body.referenceInputs.map(encodeTxIn) } : undefined),
-      ...entry(21, body.currentTreasury !== undefined ? uint(body.currentTreasury) : undefined),
-      ...entry(22, body.donation !== undefined ? uint(body.donation) : undefined),
+      ...mapEntry(15, body.networkId !== undefined ? uint(body.networkId) : undefined),
+      ...mapEntry(16, body.collateralReturn !== undefined ? encodeTxOut(body.collateralReturn) : undefined),
+      ...mapEntry(17, body.totalCollateral !== undefined ? uint(body.totalCollateral) : undefined),
+      ...mapEntry(18, body.referenceInputs && body.referenceInputs.length > 0 ? { _tag: CborKinds.Array, items: body.referenceInputs.map(encodeTxIn) } : undefined),
+      ...mapEntry(21, body.currentTreasury !== undefined ? uint(body.currentTreasury) : undefined),
+      ...mapEntry(22, body.donation !== undefined ? uint(body.donation) : undefined),
     ],
   }
 }

@@ -67,11 +67,8 @@ function credKindBit(cred: Credential): number {
   return cred._tag === CredentialKind.Script ? 1 : 0
 }
 
-function decodeCredFromBytes(bytes: Uint8Array, offset: number): Credential {
-  const hash = bytes.slice(offset, offset + 28)
-  // The credential kind is encoded in the header byte, passed via caller
-  // This function just extracts raw bytes; caller determines kind
-  return { _tag: CredentialKind.KeyHash, hash } as Credential
+function makeCredential(kind: CredentialKind, hash: Uint8Array): Credential {
+  return { _tag: kind, hash }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -102,8 +99,8 @@ export function decodeAddr(cbor: CborSchemaType): Effect.Effect<Addr, SchemaIssu
     return Effect.succeed({
       _tag: AddrKind.Base as const,
       net,
-      pay: { _tag: payKind, hash: bytes.slice(1, 29) } as Credential,
-      stake: { _tag: stakeKind, hash: bytes.slice(29, 57) } as Credential,
+      pay: makeCredential(payKind, bytes.slice(1, 29)),
+      stake: makeCredential(stakeKind, bytes.slice(29, 57)),
     })
   }
 
@@ -115,7 +112,7 @@ export function decodeAddr(cbor: CborSchemaType): Effect.Effect<Addr, SchemaIssu
     return Effect.succeed({
       _tag: AddrKind.Enterprise as const,
       net,
-      pay: { _tag: payKind, hash: bytes.slice(1, 29) } as Credential,
+      pay: makeCredential(payKind, bytes.slice(1, 29)),
     })
   }
 
@@ -127,7 +124,7 @@ export function decodeAddr(cbor: CborSchemaType): Effect.Effect<Addr, SchemaIssu
     return Effect.succeed({
       _tag: AddrKind.Reward as const,
       net,
-      stake: { _tag: stakeKind, hash: bytes.slice(1, 29) } as Credential,
+      stake: makeCredential(stakeKind, bytes.slice(1, 29)),
     })
   }
 
@@ -142,45 +139,43 @@ export function decodeAddr(cbor: CborSchemaType): Effect.Effect<Addr, SchemaIssu
   return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Addr: unknown address type ${addrType}` }))
 }
 
-export function encodeAddr(addr: Addr): CborSchemaType {
-  return Addr.match(addr, {
-    [AddrKind.Base]: (a) => {
-      const payBit = credKindBit(a.pay)
-      const stakeBit = credKindBit(a.stake)
-      const addrType = (stakeBit << 1) | payBit
-      const networkId = a.net === Network.Mainnet ? 1 : 0
-      const header = (addrType << 4) | networkId
-      const result = new Uint8Array(57)
-      result[0] = header
-      result.set(a.pay.hash, 1)
-      result.set(a.stake.hash, 29)
-      return { _tag: CborKinds.Bytes, bytes: result } as CborSchemaType
-    },
-    [AddrKind.Enterprise]: (a) => {
-      const payBit = credKindBit(a.pay)
-      const addrType = 6 | payBit
-      const networkId = a.net === Network.Mainnet ? 1 : 0
-      const header = (addrType << 4) | networkId
-      const result = new Uint8Array(29)
-      result[0] = header
-      result.set(a.pay.hash, 1)
-      return { _tag: CborKinds.Bytes, bytes: result } as CborSchemaType
-    },
-    [AddrKind.Reward]: (a) => {
-      const stakeBit = credKindBit(a.stake)
-      const addrType = 14 | stakeBit
-      const networkId = a.net === Network.Mainnet ? 1 : 0
-      const header = (addrType << 4) | networkId
-      const result = new Uint8Array(29)
-      result[0] = header
-      result.set(a.stake.hash, 1)
-      return { _tag: CborKinds.Bytes, bytes: result } as CborSchemaType
-    },
-    [AddrKind.Bootstrap]: (a) => {
-      return { _tag: CborKinds.Bytes, bytes: a.bytes } as CborSchemaType
-    },
-  })
-}
+export const encodeAddr = Addr.match({
+  [AddrKind.Base]: (a): CborSchemaType => {
+    const payBit = credKindBit(a.pay)
+    const stakeBit = credKindBit(a.stake)
+    const addrType = (stakeBit << 1) | payBit
+    const networkId = a.net === Network.Mainnet ? 1 : 0
+    const header = (addrType << 4) | networkId
+    const result = new Uint8Array(57)
+    result[0] = header
+    result.set(a.pay.hash, 1)
+    result.set(a.stake.hash, 29)
+    return { _tag: CborKinds.Bytes, bytes: result }
+  },
+  [AddrKind.Enterprise]: (a): CborSchemaType => {
+    const payBit = credKindBit(a.pay)
+    const addrType = 6 | payBit
+    const networkId = a.net === Network.Mainnet ? 1 : 0
+    const header = (addrType << 4) | networkId
+    const result = new Uint8Array(29)
+    result[0] = header
+    result.set(a.pay.hash, 1)
+    return { _tag: CborKinds.Bytes, bytes: result }
+  },
+  [AddrKind.Reward]: (a): CborSchemaType => {
+    const stakeBit = credKindBit(a.stake)
+    const addrType = 14 | stakeBit
+    const networkId = a.net === Network.Mainnet ? 1 : 0
+    const header = (addrType << 4) | networkId
+    const result = new Uint8Array(29)
+    result[0] = header
+    result.set(a.stake.hash, 1)
+    return { _tag: CborKinds.Bytes, bytes: result }
+  },
+  [AddrKind.Bootstrap]: (a): CborSchemaType => {
+    return { _tag: CborKinds.Bytes, bytes: a.bytes }
+  },
+})
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode for RwdAddr specifically (used by withdrawals, certs)
@@ -201,7 +196,7 @@ export function decodeRwdAddr(cbor: CborSchemaType): Effect.Effect<RwdAddr, Sche
   const stakeKind = (addrType & 1) === 0 ? CredentialKind.KeyHash : CredentialKind.Script
   return Effect.succeed({
     net,
-    stake: { _tag: stakeKind, hash: bytes.slice(1, 29) } as Credential,
+    stake: makeCredential(stakeKind, bytes.slice(1, 29)),
   })
 }
 

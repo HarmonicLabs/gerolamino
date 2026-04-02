@@ -36,7 +36,7 @@
         ./nix
       ];
       systems = [ "x86_64-linux" ];
-      perSystem = { config, self', inputs', pkgs, system, lib, ... }: {
+      perSystem = { pkgs, system, ... }: {
         treefmt = {
           projectRootFile = "flake.nix";
           programs = {
@@ -56,10 +56,15 @@
             ];
 
             languages = {
+              nix = {
+                enable = true;
+                lsp.enable = true;
+              };
               rust = {
                 enable = true;
-                channel = "stable";
+                channel = "nightly";
                 targets = [ "wasm32-unknown-unknown" ];
+                lsp.enable = true;
               };
               typescript = {
                 enable = true;

@@ -64,23 +64,6 @@ export const encodeCredential = Credential.match({
 export const CredentialBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(Credential, {
     decode: SchemaGetter.transformOrFail(decodeCredential),
-    encode: SchemaGetter.transform(
-      Credential.match({
-        [CredentialKind.KeyHash]: (c): CborSchemaType => ({
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: 0n },
-            { _tag: CborKinds.Bytes, bytes: c.hash },
-          ],
-        }),
-        [CredentialKind.Script]: (c): CborSchemaType => ({
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: 1n },
-            { _tag: CborKinds.Bytes, bytes: c.hash },
-          ],
-        }),
-      }),
-    ),
+    encode: SchemaGetter.transform(encodeCredential),
   }),
 )

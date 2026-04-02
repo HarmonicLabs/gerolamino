@@ -81,6 +81,21 @@ export const Script = Schema.Union([
 
 export type Script = Schema.Schema.Type<typeof Script>
 
+// Domain predicates
+export const isPlutusScript = Script.isAnyOf([
+  ScriptKind.PlutusV1,
+  ScriptKind.PlutusV2,
+  ScriptKind.PlutusV3,
+])
+
+// ────────────────────────────────────────────────────────────────────────────
+// CBOR encoding helpers (module-private)
+// ────────────────────────────────────────────────────────────────────────────
+
+const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
+const cborBytes = (b: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: b })
+const arr = (...items: CborSchemaType[]): CborSchemaType => ({ _tag: CborKinds.Array, items })
+
 // ────────────────────────────────────────────────────────────────────────────
 // Timelock CBOR decode/encode helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -145,24 +160,14 @@ export function decodeTimelock(cbor: CborSchemaType): Effect.Effect<TimelockType
 }
 
 export function encodeTimelock(tl: TimelockType): CborSchemaType {
-  const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
-  const bytes = (b: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: b })
-  const arr = (...items: CborSchemaType[]): CborSchemaType => ({ _tag: CborKinds.Array, items })
-
-  switch (tl._tag) {
-    case TimelockKind.RequireAllOf:
-      return arr(uint(0), arr(...tl.scripts.map(encodeTimelock)))
-    case TimelockKind.RequireAnyOf:
-      return arr(uint(1), arr(...tl.scripts.map(encodeTimelock)))
-    case TimelockKind.RequireMOf:
-      return arr(uint(2), uint(tl.required), arr(...tl.scripts.map(encodeTimelock)))
-    case TimelockKind.RequireSig:
-      return arr(uint(3), bytes(tl.keyHash))
-    case TimelockKind.RequireTimeStart:
-      return arr(uint(4), uint(tl.slot))
-    case TimelockKind.RequireTimeExpire:
-      return arr(uint(5), uint(tl.slot))
-  }
+  return Timelock.match(tl, {
+    [TimelockKind.RequireAllOf]: (s) => arr(uint(0), arr(...s.scripts.map(encodeTimelock))),
+    [TimelockKind.RequireAnyOf]: (s) => arr(uint(1), arr(...s.scripts.map(encodeTimelock))),
+    [TimelockKind.RequireMOf]: (s) => arr(uint(2), uint(s.required), arr(...s.scripts.map(encodeTimelock))),
+    [TimelockKind.RequireSig]: (s) => arr(uint(3), cborBytes(s.keyHash)),
+    [TimelockKind.RequireTimeStart]: (s) => arr(uint(4), uint(s.slot)),
+    [TimelockKind.RequireTimeExpire]: (s) => arr(uint(5), uint(s.slot)),
+  })
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -173,23 +178,25 @@ export function encodeTimelock(tl: TimelockType): CborSchemaType {
 export function decodeScript(cbor: CborSchemaType, kind: ScriptKind): Effect.Effect<Script, SchemaIssue.Issue> {
   if (kind === ScriptKind.NativeScript) {
     return decodeTimelock(cbor).pipe(
-      Effect.map((script) => ({ _tag: ScriptKind.NativeScript as const, script }) as Script),
+      Effect.map((script): Script => ({ _tag: ScriptKind.NativeScript, script })),
     )
   }
   // Plutus scripts: expect raw bytes (already unwrapped from Tag(24))
   if (cbor._tag !== CborKinds.Bytes)
     return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Script(${kind}): expected CBOR bytes` }))
-  return Effect.succeed({ _tag: kind, bytes: cbor.bytes } as Script)
+  switch (kind) {
+    case ScriptKind.PlutusV1: return Effect.succeed({ _tag: ScriptKind.PlutusV1, bytes: cbor.bytes })
+    case ScriptKind.PlutusV2: return Effect.succeed({ _tag: ScriptKind.PlutusV2, bytes: cbor.bytes })
+    case ScriptKind.PlutusV3: return Effect.succeed({ _tag: ScriptKind.PlutusV3, bytes: cbor.bytes })
+  }
 }
 
-export function encodeScript(script: Script): CborSchemaType {
-  return Script.match(script, {
-    [ScriptKind.NativeScript]: (s) => encodeTimelock(s.script),
-    [ScriptKind.PlutusV1]: (s) => ({ _tag: CborKinds.Bytes, bytes: s.bytes }) as CborSchemaType,
-    [ScriptKind.PlutusV2]: (s) => ({ _tag: CborKinds.Bytes, bytes: s.bytes }) as CborSchemaType,
-    [ScriptKind.PlutusV3]: (s) => ({ _tag: CborKinds.Bytes, bytes: s.bytes }) as CborSchemaType,
-  })
-}
+export const encodeScript = Script.match({
+  [ScriptKind.NativeScript]: (s): CborSchemaType => encodeTimelock(s.script),
+  [ScriptKind.PlutusV1]: (s): CborSchemaType => cborBytes(s.bytes),
+  [ScriptKind.PlutusV2]: (s): CborSchemaType => cborBytes(s.bytes),
+  [ScriptKind.PlutusV3]: (s): CborSchemaType => cborBytes(s.bytes),
+})
 
 // ────────────────────────────────────────────────────────────────────────────
 // Full CBOR codec for Timelock (standalone native script)

@@ -63,6 +63,15 @@ export const PoolParams = Schema.Struct({
 export type PoolParams = Schema.Schema.Type<typeof PoolParams>
 
 // ────────────────────────────────────────────────────────────────────────────
+// CBOR encoding helpers (module-private)
+// ────────────────────────────────────────────────────────────────────────────
+
+const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
+const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes })
+const cborText = (text: string): CborSchemaType => ({ _tag: CborKinds.Text, text })
+const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null }
+
+// ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode helpers
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -101,36 +110,32 @@ function decodeRelay(cbor: CborSchemaType): Effect.Effect<Relay, SchemaIssue.Iss
   }
 }
 
-function encodeRelay(relay: Relay): CborSchemaType {
-  const uint = (n: number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
-  const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null }
-  return Relay.match(relay, {
-    [RelayKind.SingleHostAddr]: (r) => ({
-      _tag: CborKinds.Array,
-      items: [
-        uint(0),
-        r.port !== undefined ? uint(r.port) : nullVal,
-        r.ipv4 !== undefined ? { _tag: CborKinds.Bytes, bytes: r.ipv4 } as CborSchemaType : nullVal,
-        r.ipv6 !== undefined ? { _tag: CborKinds.Bytes, bytes: r.ipv6 } as CborSchemaType : nullVal,
-      ],
-    }) as CborSchemaType,
-    [RelayKind.SingleHostName]: (r) => ({
-      _tag: CborKinds.Array,
-      items: [
-        uint(1),
-        r.port !== undefined ? uint(r.port) : nullVal,
-        { _tag: CborKinds.Text, text: r.dnsName } as CborSchemaType,
-      ],
-    }) as CborSchemaType,
-    [RelayKind.MultiHostName]: (r) => ({
-      _tag: CborKinds.Array,
-      items: [
-        uint(2),
-        { _tag: CborKinds.Text, text: r.dnsName } as CborSchemaType,
-      ],
-    }) as CborSchemaType,
-  })
-}
+const encodeRelay = Relay.match({
+  [RelayKind.SingleHostAddr]: (r): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      uint(0),
+      r.port !== undefined ? uint(r.port) : nullVal,
+      r.ipv4 !== undefined ? cborBytes(r.ipv4) : nullVal,
+      r.ipv6 !== undefined ? cborBytes(r.ipv6) : nullVal,
+    ],
+  }),
+  [RelayKind.SingleHostName]: (r): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      uint(1),
+      r.port !== undefined ? uint(r.port) : nullVal,
+      { _tag: CborKinds.Text, text: r.dnsName },
+    ],
+  }),
+  [RelayKind.MultiHostName]: (r): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      uint(2),
+      { _tag: CborKinds.Text, text: r.dnsName },
+    ],
+  }),
+})
 
 export function decodePoolParams(cbor: CborSchemaType): Effect.Effect<PoolParams, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Array || cbor.items.length < 9)
@@ -168,12 +173,14 @@ export function decodePoolParams(cbor: CborSchemaType): Effect.Effect<PoolParams
 
   return Effect.all(relaysCbor.items.map(decodeRelay)).pipe(
     Effect.map((relays) => {
-      const metadata = metaCbor && !decodeCborNull(metaCbor) && metaCbor._tag === CborKinds.Array
-        ? {
-          url: (metaCbor.items[0] as Extract<CborSchemaType, { _tag: CborKinds.Text }>).text,
-          hash: (metaCbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes,
+      let metadata: { url: string; hash: Uint8Array } | undefined
+      if (metaCbor && !decodeCborNull(metaCbor) && metaCbor._tag === CborKinds.Array) {
+        const urlItem = metaCbor.items[0]
+        const hashItem = metaCbor.items[1]
+        if (urlItem?._tag === CborKinds.Text && hashItem?._tag === CborKinds.Bytes) {
+          metadata = { url: urlItem.text, hash: hashItem.bytes }
         }
-        : undefined
+      }
 
       return {
         operator: opCbor.bytes,
@@ -191,9 +198,6 @@ export function decodePoolParams(cbor: CborSchemaType): Effect.Effect<PoolParams
 }
 
 export function encodePoolParams(pp: PoolParams): CborSchemaType {
-  const uint = (n: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num: n })
-  const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null }
-
   return {
     _tag: CborKinds.Array,
     items: [
@@ -210,14 +214,14 @@ export function encodePoolParams(pp: PoolParams): CborSchemaType {
         },
       },
       { _tag: CborKinds.Bytes, bytes: pp.rewardAccount },
-      { _tag: CborKinds.Array, items: pp.owners.map((o) => ({ _tag: CborKinds.Bytes, bytes: o }) as CborSchemaType) },
+      { _tag: CborKinds.Array, items: pp.owners.map(cborBytes) },
       { _tag: CborKinds.Array, items: pp.relays.map(encodeRelay) },
       pp.metadata !== undefined
         ? {
           _tag: CborKinds.Array,
           items: [
-            { _tag: CborKinds.Text, text: pp.metadata.url } as CborSchemaType,
-            { _tag: CborKinds.Bytes, bytes: pp.metadata.hash } as CborSchemaType,
+            cborText(pp.metadata.url),
+            cborBytes(pp.metadata.hash),
           ],
         }
         : nullVal,

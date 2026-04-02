@@ -53,27 +53,42 @@ export function decodeDRep(cbor: CborSchemaType): Effect.Effect<DRep, SchemaIssu
   if (tag?._tag !== CborKinds.UInt)
     return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "DRep: expected uint tag" }))
   switch (Number(tag.num)) {
-    case 0: case 1: {
+    case 0: {
       const hash = cbor.items[1]
       if (hash?._tag !== CborKinds.Bytes || hash.bytes.length !== 28)
         return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "DRep: expected 28-byte hash" }))
-      return Effect.succeed({ _tag: Number(tag.num) as DRepKind.KeyHash | DRepKind.Script, hash: hash.bytes } as DRep)
+      return Effect.succeed({ _tag: DRepKind.KeyHash, hash: hash.bytes })
     }
-    case 2: return Effect.succeed({ _tag: DRepKind.AlwaysAbstain } as DRep)
-    case 3: return Effect.succeed({ _tag: DRepKind.AlwaysNoConfidence } as DRep)
+    case 1: {
+      const hash = cbor.items[1]
+      if (hash?._tag !== CborKinds.Bytes || hash.bytes.length !== 28)
+        return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "DRep: expected 28-byte hash" }))
+      return Effect.succeed({ _tag: DRepKind.Script, hash: hash.bytes })
+    }
+    case 2: return Effect.succeed({ _tag: DRepKind.AlwaysAbstain })
+    case 3: return Effect.succeed({ _tag: DRepKind.AlwaysNoConfidence })
     default: return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `DRep: unknown tag ${tag.num}` }))
   }
 }
 
-export function encodeDRep(drep: DRep): CborSchemaType {
-  const uint = (n: number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
-  return DRep.match(drep, {
-    [DRepKind.KeyHash]: (d) => ({ _tag: CborKinds.Array, items: [uint(0), { _tag: CborKinds.Bytes, bytes: d.hash }] }) as CborSchemaType,
-    [DRepKind.Script]: (d) => ({ _tag: CborKinds.Array, items: [uint(1), { _tag: CborKinds.Bytes, bytes: d.hash }] }) as CborSchemaType,
-    [DRepKind.AlwaysAbstain]: () => ({ _tag: CborKinds.Array, items: [uint(2)] }) as CborSchemaType,
-    [DRepKind.AlwaysNoConfidence]: () => ({ _tag: CborKinds.Array, items: [uint(3)] }) as CborSchemaType,
-  })
-}
+export const encodeDRep = DRep.match({
+  [DRepKind.KeyHash]: (d): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [{ _tag: CborKinds.UInt, num: 0n }, { _tag: CborKinds.Bytes, bytes: d.hash }],
+  }),
+  [DRepKind.Script]: (d): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [{ _tag: CborKinds.UInt, num: 1n }, { _tag: CborKinds.Bytes, bytes: d.hash }],
+  }),
+  [DRepKind.AlwaysAbstain]: (): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [{ _tag: CborKinds.UInt, num: 2n }],
+  }),
+  [DRepKind.AlwaysNoConfidence]: (): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [{ _tag: CborKinds.UInt, num: 3n }],
+  }),
+})
 
 // ────────────────────────────────────────────────────────────────────────────
 // Voter — [voterKind, credential]
@@ -95,16 +110,21 @@ export const Voter = Schema.Struct({
 })
 export type Voter = Schema.Schema.Type<typeof Voter>
 
+const voterKindValues = [VoterKind.CCKeyHash, VoterKind.CCScript, VoterKind.DRepKeyHash, VoterKind.DRepScript, VoterKind.SPOKeyHash] as const
+
 export function decodeVoter(cbor: CborSchemaType): Effect.Effect<Voter, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Array || cbor.items.length !== 2)
     return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Voter: expected 2-element array" }))
-  const kind = cbor.items[0]
-  if (kind?._tag !== CborKinds.UInt || Number(kind.num) > 4)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Voter: expected uint kind 0-4" }))
+  const kindCbor = cbor.items[0]
+  if (kindCbor?._tag !== CborKinds.UInt)
+    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Voter: expected uint kind" }))
+  const kind = voterKindValues[Number(kindCbor.num)]
+  if (kind === undefined)
+    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Voter: unknown kind ${kindCbor.num}` }))
   const hash = cbor.items[1]
   if (hash?._tag !== CborKinds.Bytes || hash.bytes.length !== 28)
     return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Voter: expected 28-byte hash" }))
-  return Effect.succeed({ kind: Number(kind.num) as VoterKind, hash: hash.bytes })
+  return Effect.succeed({ kind, hash: hash.bytes })
 }
 
 export function encodeVoter(voter: Voter): CborSchemaType {
@@ -191,18 +211,23 @@ export const VotingProcedure = Schema.Struct({
 })
 export type VotingProcedure = Schema.Schema.Type<typeof VotingProcedure>
 
+const voteValues = [Vote.No, Vote.Yes, Vote.Abstain] as const
+
 export function decodeVotingProcedure(cbor: CborSchemaType): Effect.Effect<VotingProcedure, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Array || cbor.items.length !== 2)
     return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "VotingProcedure: expected 2-element array" }))
   const voteCbor = cbor.items[0]
-  if (voteCbor?._tag !== CborKinds.UInt || Number(voteCbor.num) > 2)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "VotingProcedure: expected vote 0-2" }))
+  if (voteCbor?._tag !== CborKinds.UInt)
+    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "VotingProcedure: expected uint vote" }))
+  const vote = voteValues[Number(voteCbor.num)]
+  if (vote === undefined)
+    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `VotingProcedure: unknown vote ${voteCbor.num}` }))
   const anchorCbor = cbor.items[1]
   if (anchorCbor?._tag === CborKinds.Simple && anchorCbor.value === null) {
-    return Effect.succeed({ vote: Number(voteCbor.num) as Vote })
+    return Effect.succeed({ vote })
   }
   return decodeAnchor(anchorCbor!).pipe(
-    Effect.map((anchor) => ({ vote: Number(voteCbor.num) as Vote, anchor })),
+    Effect.map((anchor) => ({ vote, anchor })),
   )
 }
 
@@ -284,6 +309,13 @@ export const isDelayingAction = GovAction.isAnyOf([
   GovActionKind.UpdateCommittee,
   GovActionKind.NewConstitution,
   GovActionKind.HardForkInitiation,
+])
+
+// Actions allowed during bootstrap period (before CC/DReps are functional)
+export const isBootstrapAction = GovAction.isAnyOf([
+  GovActionKind.ParameterChange,
+  GovActionKind.HardForkInitiation,
+  GovActionKind.InfoAction,
 ])
 
 // ────────────────────────────────────────────────────────────────────────────

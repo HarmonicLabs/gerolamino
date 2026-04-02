@@ -52,6 +52,14 @@ export const Value = Schema.Struct({
 export type Value = Schema.Schema.Type<typeof Value>
 
 // ────────────────────────────────────────────────────────────────────────────
+// CBOR encoding helpers (module-private)
+// ────────────────────────────────────────────────────────────────────────────
+
+const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes })
+const uint = (num: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num })
+const negInt = (num: bigint): CborSchemaType => ({ _tag: CborKinds.NegInt, num })
+
+// ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode helpers
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -82,17 +90,15 @@ function decodeMultiAsset(cbor: CborSchemaType): Effect.Effect<readonly MultiAss
 function encodeMultiAsset(ma: readonly MultiAssetEntry[]): CborSchemaType {
   return {
     _tag: CborKinds.Map,
-    entries: ma.map((entry) => ({
-      k: { _tag: CborKinds.Bytes, bytes: entry.policy } as CborSchemaType,
+    entries: ma.map((entry): { k: CborSchemaType; v: CborSchemaType } => ({
+      k: cborBytes(entry.policy),
       v: {
         _tag: CborKinds.Map,
-        entries: entry.assets.map((asset) => ({
-          k: { _tag: CborKinds.Bytes, bytes: asset.name } as CborSchemaType,
-          v: (asset.quantity >= 0n
-            ? { _tag: CborKinds.UInt, num: asset.quantity }
-            : { _tag: CborKinds.NegInt, num: asset.quantity }) as CborSchemaType,
+        entries: entry.assets.map((asset): { k: CborSchemaType; v: CborSchemaType } => ({
+          k: cborBytes(asset.name),
+          v: asset.quantity >= 0n ? uint(asset.quantity) : negInt(asset.quantity),
         })),
-      } as CborSchemaType,
+      },
     })),
   }
 }

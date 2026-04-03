@@ -1,0 +1,23 @@
+{
+  "name": "bootstrap-server",
+  "module": "src/cli.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@effect/vitest": "^4.0.0-beta.43",
+    "@types/bun": "latest",
+    "@types/lodash": "^4",
+    "vitest": "^4.1.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "^4.0.0-beta.43",
+    "bootstrap": "workspace:*",
+    "cbor-schema": "workspace:*",
+    "effect": "^4.0.0-beta.43",
+    "ledger": "workspace:*",
+    "lodash": "^4.18.1"
+  }
+}

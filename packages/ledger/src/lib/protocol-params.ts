@@ -1,9 +1,24 @@
+/**
+ * Protocol parameters with era-conditional fields via VariantSchema.
+ *
+ * Era variants: shelley, alonzo, babbage, conway
+ * - Shelley: Base fields only (keys 0-12, 16-18)
+ * - Alonzo:  Adds execution unit fields (keys 3-6, 13-15, 19-20)
+ * - Babbage: Same as Alonzo (coinsPerUTxOByte replaces coinsPerUTxOWord)
+ * - Conway:  Adds governance group (keys 21-28)
+ *
+ * Per-era schemas are auto-derived:
+ *   PParams.shelley — only shared fields
+ *   PParams.alonzo  — shared + execution units
+ *   PParams.conway  — all fields (default)
+ */
 import { Schema } from "effect"
+import * as VariantSchema from "effect/unstable/schema/VariantSchema"
 import { Rational } from "./primitives.ts"
 
-// ────────────────────────────────────────────────────────────────────────────
-// DRep Thresholds (P1..P6, 10 fields per spec Section 8)
-// ────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Threshold types (Conway governance only)
+// ---------------------------------------------------------------------------
 
 export const DRepThresholds = Schema.Struct({
   p1: Rational,    // NoConfidence
@@ -19,10 +34,6 @@ export const DRepThresholds = Schema.Struct({
 })
 export type DRepThresholds = Schema.Schema.Type<typeof DRepThresholds>
 
-// ────────────────────────────────────────────────────────────────────────────
-// Pool Thresholds (Q1..Q5, 5 fields per spec Section 8)
-// ────────────────────────────────────────────────────────────────────────────
-
 export const PoolThresholds = Schema.Struct({
   q1: Rational,    // NoConfidence
   q2a: Rational,   // UpdateCommittee (normal)
@@ -32,90 +43,127 @@ export const PoolThresholds = Schema.Struct({
 })
 export type PoolThresholds = Schema.Schema.Type<typeof PoolThresholds>
 
-// ────────────────────────────────────────────────────────────────────────────
-// PParams — full protocol parameters (Conway era)
-// Grouped by: NetworkGroup, EconomicGroup, TechnicalGroup, GovernanceGroup
-// CBOR: sparse map with integer keys
-// ────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Execution units (shared sub-schema for Alonzo+)
+// ---------------------------------------------------------------------------
 
-export const PParams = Schema.Struct({
-  // NetworkGroup
+const ExUnitsStruct = Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt })
+const PricesStruct = Schema.Struct({ memPrice: Rational, stepPrice: Rational })
+
+// ---------------------------------------------------------------------------
+// VariantSchema setup: era variants for PParams
+// ---------------------------------------------------------------------------
+
+const PV = VariantSchema.make({
+  variants: ["shelley", "alonzo", "babbage", "conway"] as const,
+  defaultVariant: "conway",
+})
+
+// ---------------------------------------------------------------------------
+// PParams — era-conditional protocol parameters
+//
+// Fields present in all eras use plain Schema types.
+// Fields present only in some eras use FieldOnly/FieldExcept.
+// ---------------------------------------------------------------------------
+
+export const PParams = PV.Struct({
+  // ── Shared across all eras ──────────────────────────────────────────────
   maxBlockBodySize: Schema.BigInt,        // key 0
   maxTxSize: Schema.BigInt,               // key 1
   maxBlockHeaderSize: Schema.BigInt,      // key 2
-  maxTxExUnits: Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt }), // key 3 (renamed from spec)
-  maxBlockExUnits: Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt }), // key 4
-  maxValSize: Schema.BigInt,              // key 5
-  maxCollateralInputs: Schema.BigInt,     // key 6
-
-  // EconomicGroup
   minFeeA: Schema.BigInt,                 // key 7 (fee coefficient)
   minFeeB: Schema.BigInt,                 // key 8 (fee constant)
   keyDeposit: Schema.BigInt,              // key 9
   poolDeposit: Schema.BigInt,             // key 10
   monetaryExpansion: Rational,            // key 11 (ρ)
   treasuryCut: Rational,                  // key 12 (τ)
-  coinsPerUTxOByte: Schema.BigInt,        // key 13
-  prices: Schema.Struct({                 // key 14
-    memPrice: Rational,
-    stepPrice: Rational,
-  }),
-  minFeeRefScriptCoinsPerByte: Rational,  // key 15
-
-  // TechnicalGroup
   eMax: Schema.BigInt,                    // key 16 (max pool retirement epoch)
   nOpt: Schema.BigInt,                    // key 17 (desired number of pools)
   a0: Rational,                           // key 18 (pledge influence)
-  collateralPercentage: Schema.BigInt,    // key 19
-  costModels: Schema.Uint8Array,          // key 20 (opaque CBOR for now)
 
-  // GovernanceGroup
-  poolThresholds: PoolThresholds,         // key 21
-  drepThresholds: DRepThresholds,         // key 22
-  ccMinSize: Schema.BigInt,               // key 23
-  ccMaxTermLength: Schema.BigInt,         // key 24
-  govActionLifetime: Schema.BigInt,       // key 25
-  govActionDeposit: Schema.BigInt,        // key 26
-  drepDeposit: Schema.BigInt,             // key 27
-  drepActivity: Schema.BigInt,            // key 28
+  // ── Shelley-only fields ─────────────────────────────────────────────────
+  // d (decentralization) and extraEntropy were removed in Babbage
+  d: PV.FieldOnly(["shelley"])(Rational),
+  extraEntropy: PV.FieldOnly(["shelley"])(Schema.Uint8Array),
+  minUTxOValue: PV.FieldOnly(["shelley"])(Schema.BigInt),
+
+  // ── Alonzo+ fields (execution units, script costs) ──────────────────────
+  maxTxExUnits: PV.FieldExcept(["shelley"])(ExUnitsStruct),
+  maxBlockExUnits: PV.FieldExcept(["shelley"])(ExUnitsStruct),
+  maxValSize: PV.FieldExcept(["shelley"])(Schema.BigInt),
+  maxCollateralInputs: PV.FieldExcept(["shelley"])(Schema.BigInt),
+  coinsPerUTxOByte: PV.FieldExcept(["shelley"])(Schema.BigInt),
+  prices: PV.FieldExcept(["shelley"])(PricesStruct),
+  minFeeRefScriptCoinsPerByte: PV.FieldExcept(["shelley"])(Rational),
+  collateralPercentage: PV.FieldExcept(["shelley"])(Schema.BigInt),
+  costModels: PV.FieldExcept(["shelley"])(Schema.Uint8Array),
+
+  // ── Conway-only fields (governance group) ───────────────────────────────
+  poolThresholds: PV.FieldOnly(["conway"])(PoolThresholds),
+  drepThresholds: PV.FieldOnly(["conway"])(DRepThresholds),
+  ccMinSize: PV.FieldOnly(["conway"])(Schema.BigInt),
+  ccMaxTermLength: PV.FieldOnly(["conway"])(Schema.BigInt),
+  govActionLifetime: PV.FieldOnly(["conway"])(Schema.BigInt),
+  govActionDeposit: PV.FieldOnly(["conway"])(Schema.BigInt),
+  drepDeposit: PV.FieldOnly(["conway"])(Schema.BigInt),
+  drepActivity: PV.FieldOnly(["conway"])(Schema.BigInt),
 })
-export type PParams = Schema.Schema.Type<typeof PParams>
 
-// ────────────────────────────────────────────────────────────────────────────
-// PParamsUpdate — all fields optional (Haskell HKD StrictMaybe analog)
-// ────────────────────────────────────────────────────────────────────────────
+// Per-era schemas (auto-derived with caching):
+//   PParams.pipe(PV.extract("shelley"))  → Schema.Struct with only Shelley fields
+//   PParams.pipe(PV.extract("alonzo"))   → Schema.Struct with Shelley + Alonzo fields
+//   PParams.pipe(PV.extract("conway"))   → Schema.Struct with all fields (default)
+
+/** Shelley-era PParams schema (no execution units, no governance) */
+export const ShelleyPParams = PV.extract(PParams, "shelley")
+export type ShelleyPParams = Schema.Schema.Type<typeof ShelleyPParams>
+
+/** Alonzo-era PParams schema (adds execution units) */
+export const AlonzoPParams = PV.extract(PParams, "alonzo")
+export type AlonzoPParams = Schema.Schema.Type<typeof AlonzoPParams>
+
+/** Babbage-era PParams schema (same fields as Alonzo, different semantics for coinsPerUTxOByte) */
+export const BabbagePParams = PV.extract(PParams, "babbage")
+export type BabbagePParams = Schema.Schema.Type<typeof BabbagePParams>
+
+/** Conway-era PParams schema (all fields including governance) */
+export const ConwayPParams = PV.extract(PParams, "conway")
+export type ConwayPParams = Schema.Schema.Type<typeof ConwayPParams>
+
+// ---------------------------------------------------------------------------
+// PParamsUpdate — all fields optional (for governance proposals)
+// Uses the Conway variant as the base since updates can propose any field.
+// ---------------------------------------------------------------------------
 
 const opt = Schema.optional
 
 export const PParamsUpdate = Schema.Struct({
-  // NetworkGroup
+  // Shared
   maxBlockBodySize: opt(Schema.BigInt),
   maxTxSize: opt(Schema.BigInt),
   maxBlockHeaderSize: opt(Schema.BigInt),
-  maxTxExUnits: opt(Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt })),
-  maxBlockExUnits: opt(Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt })),
-  maxValSize: opt(Schema.BigInt),
-  maxCollateralInputs: opt(Schema.BigInt),
-
-  // EconomicGroup
   minFeeA: opt(Schema.BigInt),
   minFeeB: opt(Schema.BigInt),
   keyDeposit: opt(Schema.BigInt),
   poolDeposit: opt(Schema.BigInt),
   monetaryExpansion: opt(Rational),
   treasuryCut: opt(Rational),
-  coinsPerUTxOByte: opt(Schema.BigInt),
-  prices: opt(Schema.Struct({ memPrice: Rational, stepPrice: Rational })),
-  minFeeRefScriptCoinsPerByte: opt(Rational),
-
-  // TechnicalGroup
   eMax: opt(Schema.BigInt),
   nOpt: opt(Schema.BigInt),
   a0: opt(Rational),
+
+  // Alonzo+
+  maxTxExUnits: opt(ExUnitsStruct),
+  maxBlockExUnits: opt(ExUnitsStruct),
+  maxValSize: opt(Schema.BigInt),
+  maxCollateralInputs: opt(Schema.BigInt),
+  coinsPerUTxOByte: opt(Schema.BigInt),
+  prices: opt(PricesStruct),
+  minFeeRefScriptCoinsPerByte: opt(Rational),
   collateralPercentage: opt(Schema.BigInt),
   costModels: opt(Schema.Uint8Array),
 
-  // GovernanceGroup
+  // Conway governance
   poolThresholds: opt(PoolThresholds),
   drepThresholds: opt(DRepThresholds),
   ccMinSize: opt(Schema.BigInt),

@@ -1,5 +1,6 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
 import { CborKinds, type CborSchemaType } from "cbor-schema"
+import { uint, nullVal, arr } from "./cbor-utils.ts"
 import { Bytes28 } from "./hashes.ts"
 import { Credential, CredentialKind, decodeCredential, encodeCredential } from "./credentials.ts"
 import { DRep, decodeDRep, encodeDRep } from "./governance.ts"
@@ -203,9 +204,7 @@ export function decodeDCert(cbor: CborSchemaType): Effect.Effect<DCert, SchemaIs
   }
 }
 
-const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
-const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null }
-const arr = (...items: CborSchemaType[]): CborSchemaType => ({ _tag: CborKinds.Array, items })
+// CBOR helpers imported from cbor-utils.ts
 
 export const encodeDCert = DCert.match({
   [CertKind.StakeRegistration]: (c): CborSchemaType => arr(uint(0), encodeCredential(c.credential)),

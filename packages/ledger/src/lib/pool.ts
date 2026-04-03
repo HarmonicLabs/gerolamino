@@ -1,5 +1,6 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
 import { CborKinds, type CborSchemaType } from "cbor-schema"
+import { uint, cborBytes, cborText, nullVal } from "./cbor-utils.ts"
 import { Bytes28, Bytes32, isByteMaxLength } from "./hashes.ts"
 import { Rational } from "./primitives.ts"
 import { decodeRwdAddr, encodeRwdAddr, type RwdAddr } from "./address.ts"
@@ -66,10 +67,7 @@ export type PoolParams = Schema.Schema.Type<typeof PoolParams>
 // CBOR encoding helpers (module-private)
 // ────────────────────────────────────────────────────────────────────────────
 
-const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
-const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes })
-const cborText = (text: string): CborSchemaType => ({ _tag: CborKinds.Text, text })
-const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null }
+// CBOR helpers imported from cbor-utils.ts
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode helpers

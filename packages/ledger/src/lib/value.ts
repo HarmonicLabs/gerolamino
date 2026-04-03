@@ -1,5 +1,6 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
 import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema"
+import { uint, cborBytes, negInt } from "./cbor-utils.ts"
 import { Coin } from "./primitives.ts"
 import { isByteMaxLength } from "./hashes.ts"
 
@@ -55,9 +56,7 @@ export type Value = Schema.Schema.Type<typeof Value>
 // CBOR encoding helpers (module-private)
 // ────────────────────────────────────────────────────────────────────────────
 
-const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes })
-const uint = (num: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num })
-const negInt = (num: bigint): CborSchemaType => ({ _tag: CborKinds.NegInt, num })
+// CBOR helpers imported from cbor-utils.ts
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode helpers

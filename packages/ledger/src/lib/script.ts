@@ -2,6 +2,7 @@ import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
 import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema"
 import type { Slot } from "./primitives.ts"
 import { Bytes28 } from "./hashes.ts"
+import { uint, cborBytes, arr } from "./cbor-utils.ts"
 
 // ────────────────────────────────────────────────────────────────────────────
 // Timelock (native script) — recursive tagged union
@@ -92,9 +93,7 @@ export const isPlutusScript = Script.isAnyOf([
 // CBOR encoding helpers (module-private)
 // ────────────────────────────────────────────────────────────────────────────
 
-const uint = (n: bigint | number): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(n) })
-const cborBytes = (b: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: b })
-const arr = (...items: CborSchemaType[]): CborSchemaType => ({ _tag: CborKinds.Array, items })
+// CBOR helpers imported from cbor-utils.ts
 
 // ────────────────────────────────────────────────────────────────────────────
 // Timelock CBOR decode/encode helpers

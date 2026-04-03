@@ -1,5 +1,6 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema"
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType, encodeSync } from "cbor-schema"
+import { uint, cborBytes, negInt, mapEntry, getCborSet } from "./cbor-utils.ts"
 import { Bytes28, Bytes32, Bytes64 } from "./hashes.ts"
 import { decodeValue, encodeValue, Value } from "./value.ts"
 import { decodeAddr, encodeAddr, Addr, decodeRwdAddr, encodeRwdAddr } from "./address.ts"
@@ -102,7 +103,10 @@ const encodeDatumOption = DatumOption.match({
 })
 
 // ────────────────────────────────────────────────────────────────────────────
-// TxOut — CBOR map: {0: addr, 1: value, ?2: datumOption, ?3: scriptRef}
+// TxOut — multi-era CBOR decoder
+// Shelley/Allegra/Mary: Array[addr, value]
+// Alonzo:               Array[addr, value, datumHash]
+// Babbage/Conway:        Map{0: addr, 1: value, 2?: datumOption, 3?: scriptRef}
 // ────────────────────────────────────────────────────────────────────────────
 
 export const TxOut = Schema.Struct({
@@ -114,33 +118,83 @@ export const TxOut = Schema.Struct({
 export type TxOut = Schema.Schema.Type<typeof TxOut>
 
 export function decodeTxOut(cbor: CborSchemaType): Effect.Effect<TxOut, SchemaIssue.Issue> {
-  if (cbor._tag !== CborKinds.Map)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: expected CBOR map" }))
+  // Shelley/Allegra/Mary: Array[addr, value] (2-element array)
+  if (cbor._tag === CborKinds.Array && cbor.items.length === 2) {
+    const addrCbor = cbor.items[0]
+    const valueCbor = cbor.items[1]
+    if (addrCbor?._tag !== CborKinds.Bytes)
+      return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: invalid address in array format" }))
+    if (!valueCbor)
+      return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: missing value in array format" }))
+    return Effect.map(decodeValue(valueCbor), (value) => ({
+      address: addrCbor.bytes,
+      value,
+      datumOption: undefined,
+      scriptRef: undefined,
+    }))
+  }
 
-  const get = (key: number) =>
-    cbor.entries.find((e) => e.k._tag === CborKinds.UInt && Number(e.k.num) === key)?.v
+  // Alonzo: Array[addr, value, datumHash] (3-element array)
+  // The datumHash in Alonzo array format is a raw 32-byte hash, NOT a [tag, value] DatumOption
+  if (cbor._tag === CborKinds.Array && cbor.items.length === 3) {
+    const addrCbor = cbor.items[0]
+    const valueCbor = cbor.items[1]
+    const datumHashCbor = cbor.items[2]
+    if (addrCbor?._tag !== CborKinds.Bytes)
+      return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: invalid address in Alonzo array format" }))
+    if (!valueCbor)
+      return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: missing value in Alonzo array format" }))
 
-  const addrCbor = get(0)
-  if (addrCbor?._tag !== CborKinds.Bytes)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: missing/invalid address (key 0)" }))
+    // Handle datum: raw Bytes(32) hash, or [tag, value] DatumOption, or null
+    const datumOption = (() => {
+      if (!datumHashCbor) return undefined
+      // Raw hash bytes (Alonzo legacy format)
+      if (datumHashCbor._tag === CborKinds.Bytes && datumHashCbor.bytes.length === 32)
+        return { _tag: DatumOptionKind.DatumHash, hash: datumHashCbor.bytes } as DatumOption
+      // DatumOption [tag, value] format (post-Alonzo)
+      if (datumHashCbor._tag === CborKinds.Array && datumHashCbor.items.length === 2)
+        return Effect.runSync(decodeDatumOption(datumHashCbor))
+      // Null/absent
+      return undefined
+    })()
 
-  const valueCbor = get(1)
-  if (!valueCbor)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: missing value (key 1)" }))
+    return Effect.map(decodeValue(valueCbor), (value) => ({
+      address: addrCbor.bytes,
+      value,
+      datumOption,
+      scriptRef: undefined,
+    }))
+  }
 
-  const datumCbor = get(2)
-  const scriptCbor = get(3)
+  // Babbage/Conway: Map{0: addr, 1: value, 2?: datumOption, 3?: scriptRef}
+  if (cbor._tag === CborKinds.Map) {
+    const get = (key: number) =>
+      cbor.entries.find((e) => e.k._tag === CborKinds.UInt && Number(e.k.num) === key)?.v
 
-  return Effect.all({
-    address: Effect.succeed(addrCbor.bytes),
-    value: decodeValue(valueCbor),
-    datumOption: datumCbor ? decodeDatumOption(datumCbor) : Effect.succeed(undefined),
-    scriptRef: Effect.succeed(
-      scriptCbor?._tag === CborKinds.Tag && scriptCbor.tag === 24n && scriptCbor.data._tag === CborKinds.Bytes
-        ? scriptCbor.data.bytes
-        : undefined,
-    ),
-  })
+    const addrCbor = get(0)
+    if (addrCbor?._tag !== CborKinds.Bytes)
+      return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: missing/invalid address (key 0)" }))
+
+    const valueCbor = get(1)
+    if (!valueCbor)
+      return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: missing value (key 1)" }))
+
+    const datumCbor = get(2)
+    const scriptCbor = get(3)
+
+    return Effect.all({
+      address: Effect.succeed(addrCbor.bytes),
+      value: decodeValue(valueCbor),
+      datumOption: datumCbor ? decodeDatumOption(datumCbor) : Effect.succeed(undefined),
+      scriptRef: Effect.succeed(
+        scriptCbor?._tag === CborKinds.Tag && scriptCbor.tag === 24n && scriptCbor.data._tag === CborKinds.Bytes
+          ? scriptCbor.data.bytes
+          : undefined,
+      ),
+    })
+  }
+
+  return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxOut: expected Array or Map CBOR" }))
 }
 
 export function encodeTxOut(txOut: TxOut): CborSchemaType {
@@ -231,6 +285,7 @@ export const TxBody = Schema.Struct({
     rewardAccount: Schema.Uint8Array,
     coin: Schema.BigInt,
   }))),
+  update: Schema.optional(Schema.Uint8Array),                           // key 6 (opaque, Shelley-Babbage only)
   auxDataHash: Schema.optional(Bytes32),                               // key 7
   validityStart: Schema.optional(Schema.BigInt),                       // key 8
   mint: Schema.optional(Schema.Array(Schema.Struct({                   // key 9
@@ -290,9 +345,10 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
   const get = (key: number) =>
     cbor.entries.find((e) => e.k._tag === CborKinds.UInt && Number(e.k.num) === key)?.v
 
-  // Required: inputs (key 0)
-  const inputsCbor = get(0)
-  if (!inputsCbor || inputsCbor._tag !== CborKinds.Array)
+  // Required: inputs (key 0) — bare Array (pre-Conway) or Tag(258, Array) (Conway)
+  const inputsRaw = get(0)
+  const inputItems = inputsRaw ? getCborSet(inputsRaw) : undefined
+  if (!inputItems)
     return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "TxBody: missing inputs (key 0)" }))
 
   // Required: outputs (key 1)
@@ -309,6 +365,7 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
   const ttlCbor = get(3)
   const certsCbor = get(4)
   const wdrlCbor = get(5)
+  const updateCbor = get(6)
   const auxHashCbor = get(7)
   const validityStartCbor = get(8)
   const mintCbor = get(9)
@@ -324,8 +381,14 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
   const treasuryCbor = get(21)
   const donationCbor = get(22)
 
+  // Also use getCborSet for optional set-typed fields (certs, collateral, reqSigners, refInputs)
+  const certItems = certsCbor ? getCborSet(certsCbor) : undefined
+  const collateralItems = collateralCbor ? getCborSet(collateralCbor) : undefined
+  const reqSignerItems = reqSignersCbor ? getCborSet(reqSignersCbor) : undefined
+  const refInputItems = refInputsCbor ? getCborSet(refInputsCbor) : undefined
+
   return Effect.all({
-    inputs: Effect.all(inputsCbor.items.map(decodeTxIn)),
+    inputs: Effect.all([...inputItems].map(decodeTxIn)),
     outputs: Effect.all(outputsCbor.items.map(decodeTxOut)),
     fee: Effect.succeed(feeCbor.num),
   }).pipe(Effect.map(({ inputs, outputs, fee }) => ({
@@ -333,12 +396,13 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
     outputs,
     fee,
     ttl: ttlCbor?._tag === CborKinds.UInt ? ttlCbor.num : undefined,
+    update: updateCbor ? encodeSync(updateCbor) : undefined,
     auxDataHash: auxHashCbor?._tag === CborKinds.Bytes && auxHashCbor.bytes.length === 32 ? auxHashCbor.bytes : undefined,
     validityStart: validityStartCbor?._tag === CborKinds.UInt ? validityStartCbor.num : undefined,
     mint: mintCbor ? decodeMultiAssetEntries(mintCbor) : undefined,
     scriptDataHash: scriptDataHashCbor?._tag === CborKinds.Bytes && scriptDataHashCbor.bytes.length === 32 ? scriptDataHashCbor.bytes : undefined,
-    collateral: collateralCbor?._tag === CborKinds.Array
-      ? collateralCbor.items.map((i) => {
+    collateral: collateralItems
+      ? [...collateralItems].map((i) => {
           if (i._tag !== CborKinds.Array || i.items.length !== 2) throw new Error("collateral TxIn parse error")
           const txId = i.items[0]
           const idx = i.items[1]
@@ -346,16 +410,16 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
           return { txId: txId.bytes, index: idx.num }
         })
       : undefined,
-    requiredSigners: reqSignersCbor?._tag === CborKinds.Array
-      ? reqSignersCbor.items.map((i) => {
+    requiredSigners: reqSignerItems
+      ? [...reqSignerItems].map((i) => {
           if (i._tag !== CborKinds.Bytes || i.bytes.length !== 28) throw new Error("requiredSigner parse error")
           return i.bytes
         })
       : undefined,
     networkId: networkIdCbor?._tag === CborKinds.UInt ? networkIdCbor.num : undefined,
     totalCollateral: totCollCbor?._tag === CborKinds.UInt ? totCollCbor.num : undefined,
-    referenceInputs: refInputsCbor?._tag === CborKinds.Array
-      ? refInputsCbor.items.map((i) => {
+    referenceInputs: refInputItems
+      ? [...refInputItems].map((i) => {
           if (i._tag !== CborKinds.Array || i.items.length !== 2) throw new Error("refInput TxIn parse error")
           const txId = i.items[0]
           const idx = i.items[1]
@@ -368,13 +432,7 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
   })))
 }
 
-const uint = (n: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num: n })
-const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes })
-const negInt = (num: bigint): CborSchemaType => ({ _tag: CborKinds.NegInt, num })
-
-function mapEntry(key: number, v: CborSchemaType | undefined): { k: CborSchemaType; v: CborSchemaType }[] {
-  return v !== undefined ? [{ k: uint(BigInt(key)), v }] : []
-}
+// CBOR helpers imported from cbor-utils.ts
 
 function encodeMint(mint: TxBody["mint"]): CborSchemaType | undefined {
   if (!mint || mint.length === 0) return undefined

@@ -29,7 +29,10 @@ describe("parseSync", () => {
 
     it("4-byte", () => {
       expect(parseSync(fromHex("1a00010000"))).toMatchObject({ _tag: CborKinds.UInt, num: 65536n });
-      expect(parseSync(fromHex("1affffffff"))).toMatchObject({ _tag: CborKinds.UInt, num: 4294967295n });
+      expect(parseSync(fromHex("1affffffff"))).toMatchObject({
+        _tag: CborKinds.UInt,
+        num: 4294967295n,
+      });
     });
 
     it("8-byte", () => {
@@ -147,11 +150,17 @@ describe("parseSync", () => {
     });
 
     it("ciaone", () => {
-      expect(parseSync(fromHex("666369616f6e65"))).toMatchObject({ _tag: CborKinds.Text, text: "ciaone" });
+      expect(parseSync(fromHex("666369616f6e65"))).toMatchObject({
+        _tag: CborKinds.Text,
+        text: "ciaone",
+      });
     });
 
     it("hello world", () => {
-      expect(parseSync(fromHex("6b68656c6c6f20776f726c64"))).toMatchObject({ _tag: CborKinds.Text, text: "hello world" });
+      expect(parseSync(fromHex("6b68656c6c6f20776f726c64"))).toMatchObject({
+        _tag: CborKinds.Text,
+        text: "hello world",
+      });
     });
   });
 
@@ -229,17 +238,25 @@ describe("parseSync", () => {
   });
 
   describe("simple values", () => {
-    it("false", () => expect(parseSync(fromHex("f4"))).toMatchObject({ _tag: CborKinds.Simple, value: false }));
-    it("true", () => expect(parseSync(fromHex("f5"))).toMatchObject({ _tag: CborKinds.Simple, value: true }));
-    it("null", () => expect(parseSync(fromHex("f6"))).toMatchObject({ _tag: CborKinds.Simple, value: null }));
-    it("undefined", () => expect(parseSync(fromHex("f7"))).toMatchObject({ _tag: CborKinds.Simple, value: undefined }));
+    it("false", () =>
+      expect(parseSync(fromHex("f4"))).toMatchObject({ _tag: CborKinds.Simple, value: false }));
+    it("true", () =>
+      expect(parseSync(fromHex("f5"))).toMatchObject({ _tag: CborKinds.Simple, value: true }));
+    it("null", () =>
+      expect(parseSync(fromHex("f6"))).toMatchObject({ _tag: CborKinds.Simple, value: null }));
+    it("undefined", () =>
+      expect(parseSync(fromHex("f7"))).toMatchObject({ _tag: CborKinds.Simple, value: undefined }));
   });
 
   describe("floats", () => {
     it("float64: 2.5", () => {
       const result = parseSync(fromHex("fb4004000000000000"));
       expect(result._tag).toBe(CborKinds.Simple);
-      if (result._tag === CborKinds.Simple && typeof result.value === "object" && result.value !== null) {
+      if (
+        result._tag === CborKinds.Simple &&
+        typeof result.value === "object" &&
+        result.value !== null
+      ) {
         expect(BigDecimal.toNumberUnsafe(result.value as BigDecimal.BigDecimal)).toBe(2.5);
         expect(result.addInfos).toBe(27);
       }
@@ -248,7 +265,11 @@ describe("parseSync", () => {
     it("float16: 5.5", () => {
       const result = parseSync(fromHex("f94580"));
       expect(result._tag).toBe(CborKinds.Simple);
-      if (result._tag === CborKinds.Simple && typeof result.value === "object" && result.value !== null) {
+      if (
+        result._tag === CborKinds.Simple &&
+        typeof result.value === "object" &&
+        result.value !== null
+      ) {
         expect(BigDecimal.toNumberUnsafe(result.value as BigDecimal.BigDecimal)).toBe(5.5);
         expect(result.addInfos).toBe(25);
       }

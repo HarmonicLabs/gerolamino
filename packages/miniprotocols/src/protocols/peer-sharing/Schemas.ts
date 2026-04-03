@@ -80,10 +80,13 @@ export const PeerSharingMessageBytes = CborSchemaFromBytes.pipe(
       const tag = cbor.items[0];
       if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
       switch (Number(tag.num)) {
-        case 0: return {
-          _tag: PeerSharingMessageType.ShareRequest as const,
-          amount: Number((cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-        };
+        case 0:
+          return {
+            _tag: PeerSharingMessageType.ShareRequest as const,
+            amount: Number(
+              (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+            ),
+          };
         case 1: {
           const peersArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
           return {
@@ -91,14 +94,18 @@ export const PeerSharingMessageBytes = CborSchemaFromBytes.pipe(
             peers: peersArray.items.map(decodePeerAddress),
           };
         }
-        default: return { _tag: PeerSharingMessageType.Done as const };
+        default:
+          return { _tag: PeerSharingMessageType.Done as const };
       }
     }),
     encode: SchemaGetter.transform(
       PeerSharingMessage.match({
         ShareRequest: (m): CborSchemaType => ({
           _tag: CborKinds.Array,
-          items: [{ _tag: CborKinds.UInt, num: 0n }, { _tag: CborKinds.UInt, num: BigInt(m.amount) }],
+          items: [
+            { _tag: CborKinds.UInt, num: 0n },
+            { _tag: CborKinds.UInt, num: BigInt(m.amount) },
+          ],
         }),
         SharePeers: (m): CborSchemaType => ({
           _tag: CborKinds.Array,
@@ -107,7 +114,10 @@ export const PeerSharingMessageBytes = CborSchemaFromBytes.pipe(
             { _tag: CborKinds.Array, items: m.peers.map(encodePeerAddress) },
           ],
         }),
-        Done: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 2n }] }),
+        Done: (): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 2n }],
+        }),
       }),
     ),
   }),

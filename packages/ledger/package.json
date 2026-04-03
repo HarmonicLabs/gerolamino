@@ -1,8 +1,13 @@
 {
   "name": "ledger",
-  "module": "./src/index.ts",
-  "type": "module",
   "private": true,
+  "type": "module",
+  "module": "./src/index.ts",
+  "dependencies": {
+    "@harmoniclabs/crypto": "^0.3.0",
+    "cbor-schema": "workspace:*",
+    "effect": "^4.0.0-beta.43"
+  },
   "devDependencies": {
     "@effect/vitest": "^4.0.0-beta.43",
     "@types/bun": "latest",
@@ -10,10 +15,5 @@
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "@harmoniclabs/crypto": "^0.3.0",
-    "cbor-schema": "workspace:*",
-    "effect": "^4.0.0-beta.43"
   }
 }

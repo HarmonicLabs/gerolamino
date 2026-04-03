@@ -1,4 +1,15 @@
-import { Cause, Duration, Effect, Layer, Option, Ref, Schema, Scope, ServiceMap, Stream } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+  Scope,
+  ServiceMap,
+  Stream,
+} from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -131,7 +142,9 @@ export class LocalStateQueryClient extends ServiceMap.Service<
         acquire: (point?) =>
           guardState("Idle").pipe(
             Effect.andThen(Ref.set(state, "Acquiring")),
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Acquire, point })),
+            Effect.andThen(
+              sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Acquire, point }),
+            ),
             Effect.andThen(handleAcquireResponse),
           ),
         query: (query) =>
@@ -145,7 +158,8 @@ export class LocalStateQueryClient extends ServiceMap.Service<
                 Effect.tap(() => Ref.set(state, "Acquired")),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new LocalStateQueryError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new LocalStateQueryError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.LocalStateQueryMessage.match(v, {
                         Result: (m) => Effect.succeed(m.result),
@@ -165,7 +179,9 @@ export class LocalStateQueryClient extends ServiceMap.Service<
         reAcquire: (point?) =>
           guardState("Acquired").pipe(
             Effect.andThen(Ref.set(state, "Acquiring")),
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.ReAcquire, point })),
+            Effect.andThen(
+              sendMessage({ _tag: Schemas.LocalStateQueryMessageType.ReAcquire, point }),
+            ),
             Effect.andThen(handleAcquireResponse),
           ),
         release: () =>

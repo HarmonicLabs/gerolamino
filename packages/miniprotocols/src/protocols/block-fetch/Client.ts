@@ -26,7 +26,8 @@ export class BlockFetchError extends Schema.TaggedErrorClass<BlockFetchError>()(
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.BlockFetchMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.BlockFetchMessageBytes);
 
-const unexpected = (tag: string) => Effect.fail(new BlockFetchError({ cause: `Unexpected message: ${tag}` }));
+const unexpected = (tag: string) =>
+  Effect.fail(new BlockFetchError({ cause: `Unexpected message: ${tag}` }));
 
 export class BlockFetchClient extends ServiceMap.Service<
   BlockFetchClient,
@@ -55,8 +56,7 @@ export class BlockFetchClient extends ServiceMap.Service<
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
 
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.BlockFetch);
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.BlockFetch);
 
       const sendMessage = (msg: Schemas.BlockFetchMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));
@@ -75,9 +75,7 @@ export class BlockFetchClient extends ServiceMap.Service<
                 Effect.flatMap(
                   Option.match({
                     onNone: () =>
-                      Effect.fail(
-                        new BlockFetchError({ cause: "No response received" }),
-                      ),
+                      Effect.fail(new BlockFetchError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.BlockFetchMessage.match(v, {
                         StartBatch: () =>

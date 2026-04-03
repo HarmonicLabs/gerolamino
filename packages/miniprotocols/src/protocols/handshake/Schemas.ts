@@ -96,23 +96,30 @@ const versionTableToCbor = (vt: VersionTable): CborSchemaType => ({
   _tag: CborKinds.Map,
   entries: Object.entries(vt.data).map(([ver, vData]) => ({
     k: { _tag: CborKinds.UInt, num: BigInt(parseInt(ver, 10)) } as CborSchemaType,
-    v: vt._tag === MultiplexerProtocolTypeSchema.enums.NodeToNode
-      ? ({
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: BigInt((vData as NodeToNodeVersionData).networkMagic) },
-            { _tag: CborKinds.Simple, value: (vData as NodeToNodeVersionData).initiatorOnlyDiffusionMode },
-            { _tag: CborKinds.UInt, num: BigInt((vData as NodeToNodeVersionData).peerSharing) },
-            { _tag: CborKinds.Simple, value: (vData as NodeToNodeVersionData).query },
-          ],
-        } as CborSchemaType)
-      : ({
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: BigInt((vData as NodeToClientVersionData).networkMagic) },
-            { _tag: CborKinds.Simple, value: (vData as NodeToClientVersionData).query },
-          ],
-        } as CborSchemaType),
+    v:
+      vt._tag === MultiplexerProtocolTypeSchema.enums.NodeToNode
+        ? ({
+            _tag: CborKinds.Array,
+            items: [
+              { _tag: CborKinds.UInt, num: BigInt((vData as NodeToNodeVersionData).networkMagic) },
+              {
+                _tag: CborKinds.Simple,
+                value: (vData as NodeToNodeVersionData).initiatorOnlyDiffusionMode,
+              },
+              { _tag: CborKinds.UInt, num: BigInt((vData as NodeToNodeVersionData).peerSharing) },
+              { _tag: CborKinds.Simple, value: (vData as NodeToNodeVersionData).query },
+            ],
+          } as CborSchemaType)
+        : ({
+            _tag: CborKinds.Array,
+            items: [
+              {
+                _tag: CborKinds.UInt,
+                num: BigInt((vData as NodeToClientVersionData).networkMagic),
+              },
+              { _tag: CborKinds.Simple, value: (vData as NodeToClientVersionData).query },
+            ],
+          } as CborSchemaType),
   })),
 });
 
@@ -135,14 +142,24 @@ const versionTableFromCbor = (mapNode: CborSchemaType): VersionTable => {
     const arr = entry.v as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
     data[ver] = isN2N
       ? {
-          networkMagic: Number((arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-          initiatorOnlyDiffusionMode: (arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean,
-          peerSharing: Number((arr.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-          query: (arr.items[3] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean,
+          networkMagic: Number(
+            (arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+          ),
+          initiatorOnlyDiffusionMode: (
+            arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>
+          ).value as boolean,
+          peerSharing: Number(
+            (arr.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+          ),
+          query: (arr.items[3] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>)
+            .value as boolean,
         }
       : {
-          networkMagic: Number((arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-          query: (arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean,
+          networkMagic: Number(
+            (arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+          ),
+          query: (arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>)
+            .value as boolean,
         };
   }
   return isN2N
@@ -170,18 +187,30 @@ const versionDataToCbor = (vd: NodeToNodeVersionData | NodeToClientVersionData):
         ],
       } as CborSchemaType);
 
-const versionDataFromCbor = (node: CborSchemaType): NodeToNodeVersionData | NodeToClientVersionData => {
+const versionDataFromCbor = (
+  node: CborSchemaType,
+): NodeToNodeVersionData | NodeToClientVersionData => {
   const arr = node as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
   return arr.items.length === 4
     ? {
-        networkMagic: Number((arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-        initiatorOnlyDiffusionMode: (arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean,
-        peerSharing: Number((arr.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-        query: (arr.items[3] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean,
+        networkMagic: Number(
+          (arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+        ),
+        initiatorOnlyDiffusionMode: (
+          arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>
+        ).value as boolean,
+        peerSharing: Number(
+          (arr.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+        ),
+        query: (arr.items[3] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>)
+          .value as boolean,
       }
     : {
-        networkMagic: Number((arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-        query: (arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>).value as boolean,
+        networkMagic: Number(
+          (arr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+        ),
+        query: (arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>)
+          .value as boolean,
       };
 };
 
@@ -193,7 +222,9 @@ const refuseReasonFromCbor = (node: CborSchemaType): RefuseReason => {
     const versArray = arr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
     return {
       _tag: RefuseReasonType.VersionMismatch as const,
-      validVersions: versArray.items.map((v) => Number((v as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num)),
+      validVersions: versArray.items.map((v) =>
+        Number((v as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+      ),
     };
   } else if (reasonTag === 1) {
     return {
@@ -218,7 +249,9 @@ const refuseReasonToCbor = (reason: RefuseReason): CborSchemaType =>
           { _tag: CborKinds.UInt, num: BigInt(reason._tag) },
           {
             _tag: CborKinds.Array,
-            items: reason.validVersions.map((v): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(v) })),
+            items: reason.validVersions.map(
+              (v): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(v) }),
+            ),
           },
         ],
       } as CborSchemaType)
@@ -239,35 +272,57 @@ export const HandshakeMessageBytes = CborSchemaFromBytes.pipe(
       const tag = cbor.items[0];
       if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
       switch (Number(tag.num)) {
-        case 0: return {
-          _tag: HandshakeMessageType.MsgProposeVersions as const,
-          versionTable: versionTableFromCbor(cbor.items[1]!),
-        };
-        case 1: return {
-          _tag: HandshakeMessageType.MsgAcceptVersion as const,
-          version: Number((cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-          versionData: versionDataFromCbor(cbor.items[2]!),
-        };
-        case 2: return {
-          _tag: HandshakeMessageType.MsgRefuse as const,
-          reason: refuseReasonFromCbor(cbor.items[1]!),
-        };
-        default: return {
-          _tag: HandshakeMessageType.MsgQueryReply as const,
-          versionTable: versionTableFromCbor(cbor.items[1]!),
-        };
+        case 0:
+          return {
+            _tag: HandshakeMessageType.MsgProposeVersions as const,
+            versionTable: versionTableFromCbor(cbor.items[1]!),
+          };
+        case 1:
+          return {
+            _tag: HandshakeMessageType.MsgAcceptVersion as const,
+            version: Number(
+              (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
+            ),
+            versionData: versionDataFromCbor(cbor.items[2]!),
+          };
+        case 2:
+          return {
+            _tag: HandshakeMessageType.MsgRefuse as const,
+            reason: refuseReasonFromCbor(cbor.items[1]!),
+          };
+        default:
+          return {
+            _tag: HandshakeMessageType.MsgQueryReply as const,
+            versionTable: versionTableFromCbor(cbor.items[1]!),
+          };
       }
     }),
     encode: SchemaGetter.transform((data): CborSchemaType => {
       switch (data._tag) {
         case HandshakeMessageType.MsgProposeVersions:
-          return { _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 0n }, versionTableToCbor(data.versionTable)] };
+          return {
+            _tag: CborKinds.Array,
+            items: [{ _tag: CborKinds.UInt, num: 0n }, versionTableToCbor(data.versionTable)],
+          };
         case HandshakeMessageType.MsgAcceptVersion:
-          return { _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 1n }, { _tag: CborKinds.UInt, num: BigInt(data.version) }, versionDataToCbor(data.versionData)] };
+          return {
+            _tag: CborKinds.Array,
+            items: [
+              { _tag: CborKinds.UInt, num: 1n },
+              { _tag: CborKinds.UInt, num: BigInt(data.version) },
+              versionDataToCbor(data.versionData),
+            ],
+          };
         case HandshakeMessageType.MsgRefuse:
-          return { _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 2n }, refuseReasonToCbor(data.reason)] };
+          return {
+            _tag: CborKinds.Array,
+            items: [{ _tag: CborKinds.UInt, num: 2n }, refuseReasonToCbor(data.reason)],
+          };
         case HandshakeMessageType.MsgQueryReply:
-          return { _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 3n }, versionTableToCbor(data.versionTable)] };
+          return {
+            _tag: CborKinds.Array,
+            items: [{ _tag: CborKinds.UInt, num: 3n }, versionTableToCbor(data.versionTable)],
+          };
       }
     }),
   }),

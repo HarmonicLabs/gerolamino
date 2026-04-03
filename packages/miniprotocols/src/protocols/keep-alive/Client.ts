@@ -1,4 +1,15 @@
-import { Cause, Duration, Effect, Layer, Option, Schedule, Schema, Scope, ServiceMap, Stream } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Schedule,
+  Schema,
+  Scope,
+  ServiceMap,
+  Stream,
+} from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -13,7 +24,8 @@ export class KeepAliveError extends Schema.TaggedErrorClass<KeepAliveError>()("K
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.KeepAliveMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.KeepAliveMessageBytes);
 
-const unexpected = (tag: string) => Effect.fail(new KeepAliveError({ cause: `Unexpected message: ${tag}` }));
+const unexpected = (tag: string) =>
+  Effect.fail(new KeepAliveError({ cause: `Unexpected message: ${tag}` }));
 
 export class KeepAliveClient extends ServiceMap.Service<
   KeepAliveClient,
@@ -69,7 +81,8 @@ export class KeepAliveClient extends ServiceMap.Service<
                 Effect.timeout(Duration.seconds(97)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new KeepAliveError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new KeepAliveError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.KeepAliveMessage.match(v, {
                         KeepAliveResponse: (m) => Effect.succeed(m.cookie),

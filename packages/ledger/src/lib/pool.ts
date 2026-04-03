@@ -1,9 +1,9 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
-import { CborKinds, type CborSchemaType } from "cbor-schema"
-import { uint, cborBytes, cborText, nullVal } from "./cbor-utils.ts"
-import { Bytes28, Bytes32, isByteMaxLength } from "./hashes.ts"
-import { Rational } from "./primitives.ts"
-import { decodeRwdAddr, encodeRwdAddr, type RwdAddr } from "./address.ts"
+import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
+import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { uint, cborBytes, cborText, nullVal } from "./cbor-utils.ts";
+import { Bytes28, Bytes32, isByteMaxLength } from "./hashes.ts";
+import { Rational } from "./primitives.ts";
+import { decodeRwdAddr, encodeRwdAddr, type RwdAddr } from "./address.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Relay — how to reach a stake pool
@@ -29,9 +29,9 @@ export const Relay = Schema.Union([
   Schema.TaggedStruct(RelayKind.MultiHostName, {
     dnsName: Schema.String,
   }),
-]).pipe(Schema.toTaggedUnion("_tag"))
+]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type Relay = Schema.Schema.Type<typeof Relay>
+export type Relay = Schema.Schema.Type<typeof Relay>;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Pool Metadata
@@ -41,8 +41,8 @@ export type Relay = Schema.Schema.Type<typeof Relay>
 export const PoolMetadata = Schema.Struct({
   url: Schema.String.pipe(Schema.check(Schema.isMaxLength(128))),
   hash: Bytes32,
-})
-export type PoolMetadata = Schema.Schema.Type<typeof PoolMetadata>
+});
+export type PoolMetadata = Schema.Schema.Type<typeof PoolMetadata>;
 
 // ────────────────────────────────────────────────────────────────────────────
 // PoolParams — stake pool registration parameters
@@ -60,8 +60,8 @@ export const PoolParams = Schema.Struct({
   owners: Schema.Array(Bytes28),
   relays: Schema.Array(Relay),
   metadata: Schema.optional(PoolMetadata),
-})
-export type PoolParams = Schema.Schema.Type<typeof PoolParams>
+});
+export type PoolParams = Schema.Schema.Type<typeof PoolParams>;
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR encoding helpers (module-private)
@@ -74,37 +74,55 @@ export type PoolParams = Schema.Schema.Type<typeof PoolParams>
 // ────────────────────────────────────────────────────────────────────────────
 
 function decodeCborNull(cbor: CborSchemaType): boolean {
-  return cbor._tag === CborKinds.Simple && cbor.value === null
+  return cbor._tag === CborKinds.Simple && cbor.value === null;
 }
 
 function decodeRelay(cbor: CborSchemaType): Effect.Effect<Relay, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Array || cbor.items.length < 1)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Relay: expected non-empty array" }))
-  const tag = cbor.items[0]
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: "Relay: expected non-empty array",
+      }),
+    );
+  const tag = cbor.items[0];
   if (tag?._tag !== CborKinds.UInt)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Relay: expected uint tag" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Relay: expected uint tag" }),
+    );
   switch (Number(tag.num)) {
     case 0: {
-      const port = cbor.items[1]?._tag === CborKinds.UInt ? Number(cbor.items[1].num) : undefined
-      const ipv4 = cbor.items[2]?._tag === CborKinds.Bytes ? cbor.items[2].bytes : undefined
-      const ipv6 = cbor.items[3]?._tag === CborKinds.Bytes ? cbor.items[3].bytes : undefined
-      return Effect.succeed({ _tag: RelayKind.SingleHostAddr as const, port, ipv4, ipv6 })
+      const port = cbor.items[1]?._tag === CborKinds.UInt ? Number(cbor.items[1].num) : undefined;
+      const ipv4 = cbor.items[2]?._tag === CborKinds.Bytes ? cbor.items[2].bytes : undefined;
+      const ipv6 = cbor.items[3]?._tag === CborKinds.Bytes ? cbor.items[3].bytes : undefined;
+      return Effect.succeed({ _tag: RelayKind.SingleHostAddr as const, port, ipv4, ipv6 });
     }
     case 1: {
-      const port = cbor.items[1]?._tag === CborKinds.UInt ? Number(cbor.items[1].num) : undefined
-      const dns = cbor.items[2]
+      const port = cbor.items[1]?._tag === CborKinds.UInt ? Number(cbor.items[1].num) : undefined;
+      const dns = cbor.items[2];
       if (dns?._tag !== CborKinds.Text)
-        return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Relay SingleHostName: expected text dnsName" }))
-      return Effect.succeed({ _tag: RelayKind.SingleHostName as const, port, dnsName: dns.text })
+        return Effect.fail(
+          new SchemaIssue.InvalidValue(Option.some(cbor), {
+            message: "Relay SingleHostName: expected text dnsName",
+          }),
+        );
+      return Effect.succeed({ _tag: RelayKind.SingleHostName as const, port, dnsName: dns.text });
     }
     case 2: {
-      const dns = cbor.items[1]
+      const dns = cbor.items[1];
       if (dns?._tag !== CborKinds.Text)
-        return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Relay MultiHostName: expected text dnsName" }))
-      return Effect.succeed({ _tag: RelayKind.MultiHostName as const, dnsName: dns.text })
+        return Effect.fail(
+          new SchemaIssue.InvalidValue(Option.some(cbor), {
+            message: "Relay MultiHostName: expected text dnsName",
+          }),
+        );
+      return Effect.succeed({ _tag: RelayKind.MultiHostName as const, dnsName: dns.text });
     }
     default:
-      return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Relay: unknown tag ${tag.num}` }))
+      return Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(cbor), {
+          message: `Relay: unknown tag ${tag.num}`,
+        }),
+      );
   }
 }
 
@@ -128,55 +146,99 @@ const encodeRelay = Relay.match({
   }),
   [RelayKind.MultiHostName]: (r): CborSchemaType => ({
     _tag: CborKinds.Array,
-    items: [
-      uint(2),
-      { _tag: CborKinds.Text, text: r.dnsName },
-    ],
+    items: [uint(2), { _tag: CborKinds.Text, text: r.dnsName }],
   }),
-})
+});
 
-export function decodePoolParams(cbor: CborSchemaType): Effect.Effect<PoolParams, SchemaIssue.Issue> {
+export function decodePoolParams(
+  cbor: CborSchemaType,
+): Effect.Effect<PoolParams, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Array || cbor.items.length < 9)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: expected 9-element array" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: "PoolParams: expected 9-element array",
+      }),
+    );
 
-  const [opCbor, vrfCbor, pledgeCbor, costCbor, marginCbor, rwdCbor, ownersCbor, relaysCbor, metaCbor] = cbor.items
+  const [
+    opCbor,
+    vrfCbor,
+    pledgeCbor,
+    costCbor,
+    marginCbor,
+    rwdCbor,
+    ownersCbor,
+    relaysCbor,
+    metaCbor,
+  ] = cbor.items;
 
   if (opCbor?._tag !== CborKinds.Bytes || opCbor.bytes.length !== 28)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid operator" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid operator" }),
+    );
   if (vrfCbor?._tag !== CborKinds.Bytes || vrfCbor.bytes.length !== 32)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid vrfKeyHash" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: "PoolParams: invalid vrfKeyHash",
+      }),
+    );
   if (pledgeCbor?._tag !== CborKinds.UInt)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid pledge" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid pledge" }),
+    );
   if (costCbor?._tag !== CborKinds.UInt)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid cost" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid cost" }),
+    );
   if (marginCbor?._tag !== CborKinds.Tag || marginCbor.tag !== 30n)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid margin (expected Tag(30))" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: "PoolParams: invalid margin (expected Tag(30))",
+      }),
+    );
   if (marginCbor.data._tag !== CborKinds.Array || marginCbor.data.items.length !== 2)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid margin array" }))
-  const marginNum = marginCbor.data.items[0]
-  const marginDen = marginCbor.data.items[1]
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: "PoolParams: invalid margin array",
+      }),
+    );
+  const marginNum = marginCbor.data.items[0];
+  const marginDen = marginCbor.data.items[1];
   if (marginNum?._tag !== CborKinds.UInt || marginDen?._tag !== CborKinds.UInt)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid margin components" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: "PoolParams: invalid margin components",
+      }),
+    );
   if (rwdCbor?._tag !== CborKinds.Bytes)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid rewardAccount" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: "PoolParams: invalid rewardAccount",
+      }),
+    );
   if (ownersCbor?._tag !== CborKinds.Array)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid owners" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid owners" }),
+    );
   if (relaysCbor?._tag !== CborKinds.Array)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid relays" }))
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), { message: "PoolParams: invalid relays" }),
+    );
 
   const owners = ownersCbor.items.map((o) => {
-    if (o._tag !== CborKinds.Bytes || o.bytes.length !== 28) throw new Error("PoolParams: invalid owner hash")
-    return o.bytes
-  })
+    if (o._tag !== CborKinds.Bytes || o.bytes.length !== 28)
+      throw new Error("PoolParams: invalid owner hash");
+    return o.bytes;
+  });
 
   return Effect.all(relaysCbor.items.map(decodeRelay)).pipe(
     Effect.map((relays) => {
-      let metadata: { url: string; hash: Uint8Array } | undefined
+      let metadata: { url: string; hash: Uint8Array } | undefined;
       if (metaCbor && !decodeCborNull(metaCbor) && metaCbor._tag === CborKinds.Array) {
-        const urlItem = metaCbor.items[0]
-        const hashItem = metaCbor.items[1]
+        const urlItem = metaCbor.items[0];
+        const hashItem = metaCbor.items[1];
         if (urlItem?._tag === CborKinds.Text && hashItem?._tag === CborKinds.Bytes) {
-          metadata = { url: urlItem.text, hash: hashItem.bytes }
+          metadata = { url: urlItem.text, hash: hashItem.bytes };
         }
       }
 
@@ -190,9 +252,9 @@ export function decodePoolParams(cbor: CborSchemaType): Effect.Effect<PoolParams
         owners,
         relays,
         metadata,
-      }
+      };
     }),
-  )
+  );
 }
 
 export function encodePoolParams(pp: PoolParams): CborSchemaType {
@@ -216,13 +278,10 @@ export function encodePoolParams(pp: PoolParams): CborSchemaType {
       { _tag: CborKinds.Array, items: pp.relays.map(encodeRelay) },
       pp.metadata !== undefined
         ? {
-          _tag: CborKinds.Array,
-          items: [
-            cborText(pp.metadata.url),
-            cborBytes(pp.metadata.hash),
-          ],
-        }
+            _tag: CborKinds.Array,
+            items: [cborText(pp.metadata.url), cborBytes(pp.metadata.hash)],
+          }
         : nullVal,
     ],
-  }
+  };
 }

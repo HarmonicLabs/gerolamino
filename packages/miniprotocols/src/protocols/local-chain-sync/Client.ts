@@ -16,13 +16,19 @@ export class LocalChainSyncError extends Schema.TaggedErrorClass<LocalChainSyncE
 export type LocalChainSyncRollForward = Schema.Schema.Type<typeof Schemas.LocalChainSyncMessage> & {
   readonly _tag: Schemas.LocalChainSyncMessageType.RollForward;
 };
-export type LocalChainSyncRollBackward = Schema.Schema.Type<typeof Schemas.LocalChainSyncMessage> & {
+export type LocalChainSyncRollBackward = Schema.Schema.Type<
+  typeof Schemas.LocalChainSyncMessage
+> & {
   readonly _tag: Schemas.LocalChainSyncMessageType.RollBackward;
 };
-export type LocalChainSyncIntersectFound = Schema.Schema.Type<typeof Schemas.LocalChainSyncMessage> & {
+export type LocalChainSyncIntersectFound = Schema.Schema.Type<
+  typeof Schemas.LocalChainSyncMessage
+> & {
   readonly _tag: Schemas.LocalChainSyncMessageType.IntersectFound;
 };
-export type LocalChainSyncIntersectNotFound = Schema.Schema.Type<typeof Schemas.LocalChainSyncMessage> & {
+export type LocalChainSyncIntersectNotFound = Schema.Schema.Type<
+  typeof Schemas.LocalChainSyncMessage
+> & {
   readonly _tag: Schemas.LocalChainSyncMessageType.IntersectNotFound;
 };
 
@@ -87,7 +93,8 @@ export class LocalChainSyncClient extends ServiceMap.Service<
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new LocalChainSyncError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new LocalChainSyncError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.LocalChainSyncMessage.match(v, {
                         RollForward: (m) => Effect.succeed(m),
@@ -105,14 +112,18 @@ export class LocalChainSyncClient extends ServiceMap.Service<
             ),
           ),
         findIntersect: (points) =>
-          sendMessage({ _tag: Schemas.LocalChainSyncMessageType.FindIntersect, points: [...points] }).pipe(
+          sendMessage({
+            _tag: Schemas.LocalChainSyncMessageType.FindIntersect,
+            points: [...points],
+          }).pipe(
             Effect.andThen(
               messages.pipe(
                 Stream.runHead,
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new LocalChainSyncError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new LocalChainSyncError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.LocalChainSyncMessage.match(v, {
                         IntersectFound: (m) => Effect.succeed(m),

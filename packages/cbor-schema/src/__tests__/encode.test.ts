@@ -2,25 +2,27 @@ import { it, describe, expect } from "@effect/vitest";
 import { encodeSync, CborKinds, type CborSchemaType } from "../index";
 
 const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
 describe("encodeSync", () => {
   describe("unsigned integers", () => {
     it("0", () => expect(toHex(encodeSync({ _tag: CborKinds.UInt, num: 0n }))).toBe("00"));
     it("1", () => expect(toHex(encodeSync({ _tag: CborKinds.UInt, num: 1n }))).toBe("01"));
     it("MAX_SAFE_INTEGER", () =>
-      expect(toHex(encodeSync({ _tag: CborKinds.UInt, num: BigInt(Number.MAX_SAFE_INTEGER) }))).toBe(
-        "1b001fffffffffffff",
-      ));
+      expect(
+        toHex(encodeSync({ _tag: CborKinds.UInt, num: BigInt(Number.MAX_SAFE_INTEGER) })),
+      ).toBe("1b001fffffffffffff"));
   });
 
   describe("negative integers", () => {
     it("-1", () => expect(toHex(encodeSync({ _tag: CborKinds.NegInt, num: -1n }))).toBe("20"));
     it("-5", () => expect(toHex(encodeSync({ _tag: CborKinds.NegInt, num: -5n }))).toBe("24"));
     it("-MAX_SAFE_INTEGER", () =>
-      expect(toHex(encodeSync({ _tag: CborKinds.NegInt, num: -BigInt(Number.MAX_SAFE_INTEGER) }))).toBe(
-        "3b001ffffffffffffe",
-      ));
+      expect(
+        toHex(encodeSync({ _tag: CborKinds.NegInt, num: -BigInt(Number.MAX_SAFE_INTEGER) })),
+      ).toBe("3b001ffffffffffffe"));
   });
 
   describe("text strings", () => {
@@ -81,12 +83,16 @@ describe("encodeSync", () => {
   describe("tags", () => {
     it("tag 6 wrapping empty array", () =>
       expect(
-        toHex(encodeSync({ _tag: CborKinds.Tag, tag: 6n, data: { _tag: CborKinds.Array, items: [] } })),
+        toHex(
+          encodeSync({ _tag: CborKinds.Tag, tag: 6n, data: { _tag: CborKinds.Array, items: [] } }),
+        ),
       ).toBe("c680"));
 
     it("tag 6 wrapping uint 2", () =>
       expect(
-        toHex(encodeSync({ _tag: CborKinds.Tag, tag: 6n, data: { _tag: CborKinds.UInt, num: 2n } })),
+        toHex(
+          encodeSync({ _tag: CborKinds.Tag, tag: 6n, data: { _tag: CborKinds.UInt, num: 2n } }),
+        ),
       ).toBe("c602"));
   });
 });

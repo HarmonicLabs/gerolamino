@@ -156,7 +156,11 @@ export const parseSync = (input: Uint8Array): CborSchemaType => {
         }
         default: {
           if (addInfos < CborKinds.SIMPLE_FALSE) {
-            return { _tag: CborKinds.Simple, value: BigDecimal.fromBigInt(BigInt(addInfos)), addInfos };
+            return {
+              _tag: CborKinds.Simple,
+              value: BigDecimal.fromBigInt(BigInt(addInfos)),
+              addInfos,
+            };
           }
           throw new Error(`Invalid simple value addInfos: ${addInfos}`);
         }

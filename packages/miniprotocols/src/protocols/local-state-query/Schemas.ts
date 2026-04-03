@@ -68,7 +68,8 @@ function encodeChainPoint(point: ChainPoint): CborSchemaType {
 function decodeOptionalChainPoint(node: CborSchemaType | undefined): ChainPoint | undefined {
   if (node === undefined) return undefined;
   // CBOR null / undefined → absent
-  if (node._tag === CborKinds.Simple && (node.value === null || node.value === undefined)) return undefined;
+  if (node._tag === CborKinds.Simple && (node.value === null || node.value === undefined))
+    return undefined;
   return decodeChainPoint(node);
 }
 
@@ -133,10 +134,7 @@ export const LocalStateQueryMessageBytes = CborSchemaFromBytes.pipe(
       LocalStateQueryMessage.match({
         Acquire: (m): CborSchemaType => ({
           _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: 0n },
-            encodeOptionalChainPoint(m.point),
-          ],
+          items: [{ _tag: CborKinds.UInt, num: 0n }, encodeOptionalChainPoint(m.point)],
         }),
         Acquired: (): CborSchemaType => ({
           _tag: CborKinds.Array,
@@ -165,10 +163,7 @@ export const LocalStateQueryMessageBytes = CborSchemaFromBytes.pipe(
         }),
         ReAcquire: (m): CborSchemaType => ({
           _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: 5n },
-            encodeOptionalChainPoint(m.point),
-          ],
+          items: [{ _tag: CborKinds.UInt, num: 5n }, encodeOptionalChainPoint(m.point)],
         }),
         Release: (): CborSchemaType => ({
           _tag: CborKinds.Array,

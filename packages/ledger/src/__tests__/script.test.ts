@@ -1,12 +1,17 @@
-import { describe, it, expect } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { describe, it, expect } from "@effect/vitest";
+import { Effect, Schema } from "effect";
 import {
-  Timelock, TimelockKind, TimelockBytes, type TimelockType,
-  Script, ScriptKind,
-  decodeTimelock, encodeTimelock,
-} from "../lib/script.ts"
+  Timelock,
+  TimelockKind,
+  TimelockBytes,
+  type TimelockType,
+  Script,
+  ScriptKind,
+  decodeTimelock,
+  encodeTimelock,
+} from "../lib/script.ts";
 
-const testKeyHash = new Uint8Array(28).fill(0xaa)
+const testKeyHash = new Uint8Array(28).fill(0xaa);
 
 describe("Timelock schema", () => {
   it.effect("accepts RequireSig", () =>
@@ -14,10 +19,10 @@ describe("Timelock schema", () => {
       const tl = yield* Schema.decodeUnknownEffect(Timelock)({
         _tag: TimelockKind.RequireSig,
         keyHash: testKeyHash,
-      })
-      expect(tl._tag).toBe(TimelockKind.RequireSig)
+      });
+      expect(tl._tag).toBe(TimelockKind.RequireSig);
     }),
-  )
+  );
 
   it.effect("accepts nested RequireAllOf", () =>
     Effect.gen(function* () {
@@ -27,39 +32,39 @@ describe("Timelock schema", () => {
           { _tag: TimelockKind.RequireSig, keyHash: testKeyHash },
           { _tag: TimelockKind.RequireTimeStart, slot: 1000n },
         ],
-      })
-      expect(tl._tag).toBe(TimelockKind.RequireAllOf)
+      });
+      expect(tl._tag).toBe(TimelockKind.RequireAllOf);
       if (tl._tag === TimelockKind.RequireAllOf) {
-        expect(tl.scripts).toHaveLength(2)
+        expect(tl.scripts).toHaveLength(2);
       }
     }),
-  )
-})
+  );
+});
 
 describe("Timelock CBOR round-trip", () => {
   it.effect("RequireSig round-trip", () =>
     Effect.gen(function* () {
-      const original: TimelockType = { _tag: TimelockKind.RequireSig, keyHash: testKeyHash }
-      const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original)
-      const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded)
-      expect(decoded._tag).toBe(TimelockKind.RequireSig)
+      const original: TimelockType = { _tag: TimelockKind.RequireSig, keyHash: testKeyHash };
+      const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original);
+      const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded);
+      expect(decoded._tag).toBe(TimelockKind.RequireSig);
       if (decoded._tag === TimelockKind.RequireSig) {
-        expect(decoded.keyHash).toEqual(testKeyHash)
+        expect(decoded.keyHash).toEqual(testKeyHash);
       }
     }),
-  )
+  );
 
   it.effect("RequireTimeExpire round-trip", () =>
     Effect.gen(function* () {
-      const original: TimelockType = { _tag: TimelockKind.RequireTimeExpire, slot: 42000000n }
-      const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original)
-      const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded)
-      expect(decoded._tag).toBe(TimelockKind.RequireTimeExpire)
+      const original: TimelockType = { _tag: TimelockKind.RequireTimeExpire, slot: 42000000n };
+      const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original);
+      const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded);
+      expect(decoded._tag).toBe(TimelockKind.RequireTimeExpire);
       if (decoded._tag === TimelockKind.RequireTimeExpire) {
-        expect(decoded.slot).toBe(42000000n)
+        expect(decoded.slot).toBe(42000000n);
       }
     }),
-  )
+  );
 
   it.effect("nested RequireMOf round-trip", () =>
     Effect.gen(function* () {
@@ -71,17 +76,17 @@ describe("Timelock CBOR round-trip", () => {
           { _tag: TimelockKind.RequireSig, keyHash: new Uint8Array(28).fill(0xbb) },
           { _tag: TimelockKind.RequireTimeStart, slot: 500n },
         ],
-      }
-      const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original)
-      const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded)
-      expect(decoded._tag).toBe(TimelockKind.RequireMOf)
+      };
+      const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original);
+      const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded);
+      expect(decoded._tag).toBe(TimelockKind.RequireMOf);
       if (decoded._tag === TimelockKind.RequireMOf) {
-        expect(decoded.required).toBe(2)
-        expect(decoded.scripts).toHaveLength(3)
+        expect(decoded.required).toBe(2);
+        expect(decoded.scripts).toHaveLength(3);
       }
     }),
-  )
-})
+  );
+});
 
 describe("Script schema", () => {
   it.effect("accepts NativeScript", () =>
@@ -89,25 +94,25 @@ describe("Script schema", () => {
       const s = yield* Schema.decodeUnknownEffect(Script)({
         _tag: ScriptKind.NativeScript,
         script: { _tag: TimelockKind.RequireSig, keyHash: testKeyHash },
-      })
-      expect(s._tag).toBe(ScriptKind.NativeScript)
+      });
+      expect(s._tag).toBe(ScriptKind.NativeScript);
     }),
-  )
+  );
 
   it.effect("accepts PlutusV3", () =>
     Effect.gen(function* () {
       const s = yield* Schema.decodeUnknownEffect(Script)({
         _tag: ScriptKind.PlutusV3,
         bytes: new Uint8Array([0x01, 0x02, 0x03]),
-      })
-      expect(s._tag).toBe(ScriptKind.PlutusV3)
+      });
+      expect(s._tag).toBe(ScriptKind.PlutusV3);
     }),
-  )
-})
+  );
+});
 
 describe("Timelock.match", () => {
   it("exhaustive pattern matching on timelock", () => {
-    const tl: TimelockType = { _tag: TimelockKind.RequireTimeStart, slot: 100n }
+    const tl: TimelockType = { _tag: TimelockKind.RequireTimeStart, slot: 100n };
     const result = Timelock.match(tl, {
       [TimelockKind.RequireAllOf]: () => "allOf",
       [TimelockKind.RequireAnyOf]: () => "anyOf",
@@ -115,7 +120,7 @@ describe("Timelock.match", () => {
       [TimelockKind.RequireSig]: () => "sig",
       [TimelockKind.RequireTimeStart]: (t) => `start:${t.slot}`,
       [TimelockKind.RequireTimeExpire]: () => "expire",
-    })
-    expect(result).toBe("start:100")
-  })
-})
+    });
+    expect(result).toBe("start:100");
+  });
+});

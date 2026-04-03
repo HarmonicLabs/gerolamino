@@ -62,11 +62,13 @@ export class LocalTxSubmitClient extends ServiceMap.Service<
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new LocalTxSubmitError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new LocalTxSubmitError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.LocalTxSubmitMessage.match(v, {
                         AcceptTx: () => Effect.succeed({ accepted: true as const }),
-                        RejectTx: (m) => Effect.succeed({ accepted: false as const, reason: m.reason }),
+                        RejectTx: (m) =>
+                          Effect.succeed({ accepted: false as const, reason: m.reason }),
                         SubmitTx: (m) => unexpected(m._tag),
                         Done: (m) => unexpected(m._tag),
                       }),

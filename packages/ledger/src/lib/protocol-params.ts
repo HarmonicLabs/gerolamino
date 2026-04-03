@@ -12,43 +12,43 @@
  *   PParams.alonzo  — shared + execution units
  *   PParams.conway  — all fields (default)
  */
-import { Schema } from "effect"
-import * as VariantSchema from "effect/unstable/schema/VariantSchema"
-import { Rational } from "./primitives.ts"
+import { Schema } from "effect";
+import * as VariantSchema from "effect/unstable/schema/VariantSchema";
+import { Rational } from "./primitives.ts";
 
 // ---------------------------------------------------------------------------
 // Threshold types (Conway governance only)
 // ---------------------------------------------------------------------------
 
 export const DRepThresholds = Schema.Struct({
-  p1: Rational,    // NoConfidence
-  p2a: Rational,   // UpdateCommittee (normal)
-  p2b: Rational,   // UpdateCommittee (no confidence state)
-  p3: Rational,    // NewConstitution
-  p4: Rational,    // TriggerHF
-  p5a: Rational,   // ChangePParams (network)
-  p5b: Rational,   // ChangePParams (economic)
-  p5c: Rational,   // ChangePParams (technical)
-  p5d: Rational,   // ChangePParams (governance)
-  p6: Rational,    // TreasuryWdrl
-})
-export type DRepThresholds = Schema.Schema.Type<typeof DRepThresholds>
+  p1: Rational, // NoConfidence
+  p2a: Rational, // UpdateCommittee (normal)
+  p2b: Rational, // UpdateCommittee (no confidence state)
+  p3: Rational, // NewConstitution
+  p4: Rational, // TriggerHF
+  p5a: Rational, // ChangePParams (network)
+  p5b: Rational, // ChangePParams (economic)
+  p5c: Rational, // ChangePParams (technical)
+  p5d: Rational, // ChangePParams (governance)
+  p6: Rational, // TreasuryWdrl
+});
+export type DRepThresholds = Schema.Schema.Type<typeof DRepThresholds>;
 
 export const PoolThresholds = Schema.Struct({
-  q1: Rational,    // NoConfidence
-  q2a: Rational,   // UpdateCommittee (normal)
-  q2b: Rational,   // UpdateCommittee (no confidence state)
-  q4: Rational,    // TriggerHF
-  q5: Rational,    // ChangePParams (security)
-})
-export type PoolThresholds = Schema.Schema.Type<typeof PoolThresholds>
+  q1: Rational, // NoConfidence
+  q2a: Rational, // UpdateCommittee (normal)
+  q2b: Rational, // UpdateCommittee (no confidence state)
+  q4: Rational, // TriggerHF
+  q5: Rational, // ChangePParams (security)
+});
+export type PoolThresholds = Schema.Schema.Type<typeof PoolThresholds>;
 
 // ---------------------------------------------------------------------------
 // Execution units (shared sub-schema for Alonzo+)
 // ---------------------------------------------------------------------------
 
-const ExUnitsStruct = Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt })
-const PricesStruct = Schema.Struct({ memPrice: Rational, stepPrice: Rational })
+const ExUnitsStruct = Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt });
+const PricesStruct = Schema.Struct({ memPrice: Rational, stepPrice: Rational });
 
 // ---------------------------------------------------------------------------
 // VariantSchema setup: era variants for PParams
@@ -57,7 +57,7 @@ const PricesStruct = Schema.Struct({ memPrice: Rational, stepPrice: Rational })
 const PV = VariantSchema.make({
   variants: ["shelley", "alonzo", "babbage", "conway"] as const,
   defaultVariant: "conway",
-})
+});
 
 // ---------------------------------------------------------------------------
 // PParams — era-conditional protocol parameters
@@ -68,18 +68,18 @@ const PV = VariantSchema.make({
 
 export const PParams = PV.Struct({
   // ── Shared across all eras ──────────────────────────────────────────────
-  maxBlockBodySize: Schema.BigInt,        // key 0
-  maxTxSize: Schema.BigInt,               // key 1
-  maxBlockHeaderSize: Schema.BigInt,      // key 2
-  minFeeA: Schema.BigInt,                 // key 7 (fee coefficient)
-  minFeeB: Schema.BigInt,                 // key 8 (fee constant)
-  keyDeposit: Schema.BigInt,              // key 9
-  poolDeposit: Schema.BigInt,             // key 10
-  monetaryExpansion: Rational,            // key 11 (ρ)
-  treasuryCut: Rational,                  // key 12 (τ)
-  eMax: Schema.BigInt,                    // key 16 (max pool retirement epoch)
-  nOpt: Schema.BigInt,                    // key 17 (desired number of pools)
-  a0: Rational,                           // key 18 (pledge influence)
+  maxBlockBodySize: Schema.BigInt, // key 0
+  maxTxSize: Schema.BigInt, // key 1
+  maxBlockHeaderSize: Schema.BigInt, // key 2
+  minFeeA: Schema.BigInt, // key 7 (fee coefficient)
+  minFeeB: Schema.BigInt, // key 8 (fee constant)
+  keyDeposit: Schema.BigInt, // key 9
+  poolDeposit: Schema.BigInt, // key 10
+  monetaryExpansion: Rational, // key 11 (ρ)
+  treasuryCut: Rational, // key 12 (τ)
+  eMax: Schema.BigInt, // key 16 (max pool retirement epoch)
+  nOpt: Schema.BigInt, // key 17 (desired number of pools)
+  a0: Rational, // key 18 (pledge influence)
 
   // ── Shelley-only fields ─────────────────────────────────────────────────
   // d (decentralization) and extraEntropy were removed in Babbage
@@ -107,7 +107,7 @@ export const PParams = PV.Struct({
   govActionDeposit: PV.FieldOnly(["conway"])(Schema.BigInt),
   drepDeposit: PV.FieldOnly(["conway"])(Schema.BigInt),
   drepActivity: PV.FieldOnly(["conway"])(Schema.BigInt),
-})
+});
 
 // Per-era schemas (auto-derived with caching):
 //   PParams.pipe(PV.extract("shelley"))  → Schema.Struct with only Shelley fields
@@ -115,27 +115,27 @@ export const PParams = PV.Struct({
 //   PParams.pipe(PV.extract("conway"))   → Schema.Struct with all fields (default)
 
 /** Shelley-era PParams schema (no execution units, no governance) */
-export const ShelleyPParams = PV.extract(PParams, "shelley")
-export type ShelleyPParams = Schema.Schema.Type<typeof ShelleyPParams>
+export const ShelleyPParams = PV.extract(PParams, "shelley");
+export type ShelleyPParams = Schema.Schema.Type<typeof ShelleyPParams>;
 
 /** Alonzo-era PParams schema (adds execution units) */
-export const AlonzoPParams = PV.extract(PParams, "alonzo")
-export type AlonzoPParams = Schema.Schema.Type<typeof AlonzoPParams>
+export const AlonzoPParams = PV.extract(PParams, "alonzo");
+export type AlonzoPParams = Schema.Schema.Type<typeof AlonzoPParams>;
 
 /** Babbage-era PParams schema (same fields as Alonzo, different semantics for coinsPerUTxOByte) */
-export const BabbagePParams = PV.extract(PParams, "babbage")
-export type BabbagePParams = Schema.Schema.Type<typeof BabbagePParams>
+export const BabbagePParams = PV.extract(PParams, "babbage");
+export type BabbagePParams = Schema.Schema.Type<typeof BabbagePParams>;
 
 /** Conway-era PParams schema (all fields including governance) */
-export const ConwayPParams = PV.extract(PParams, "conway")
-export type ConwayPParams = Schema.Schema.Type<typeof ConwayPParams>
+export const ConwayPParams = PV.extract(PParams, "conway");
+export type ConwayPParams = Schema.Schema.Type<typeof ConwayPParams>;
 
 // ---------------------------------------------------------------------------
 // PParamsUpdate — all fields optional (for governance proposals)
 // Uses the Conway variant as the base since updates can propose any field.
 // ---------------------------------------------------------------------------
 
-const opt = Schema.optional
+const opt = Schema.optional;
 
 export const PParamsUpdate = Schema.Struct({
   // Shared
@@ -172,5 +172,5 @@ export const PParamsUpdate = Schema.Struct({
   govActionDeposit: opt(Schema.BigInt),
   drepDeposit: opt(Schema.BigInt),
   drepActivity: opt(Schema.BigInt),
-})
-export type PParamsUpdate = Schema.Schema.Type<typeof PParamsUpdate>
+});
+export type PParamsUpdate = Schema.Schema.Type<typeof PParamsUpdate>;

@@ -28,7 +28,8 @@ export type ChainSyncIntersectNotFound = Schema.Schema.Type<typeof Schemas.Chain
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 
-const unexpected = (tag: string) => Effect.fail(new ChainSyncError({ cause: `Unexpected message: ${tag}` }));
+const unexpected = (tag: string) =>
+  Effect.fail(new ChainSyncError({ cause: `Unexpected message: ${tag}` }));
 
 export class ChainSyncClient extends ServiceMap.Service<
   ChainSyncClient,
@@ -85,7 +86,8 @@ export class ChainSyncClient extends ServiceMap.Service<
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new ChainSyncError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new ChainSyncError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.ChainSyncMessage.match(v, {
                         RollForward: (m) => Effect.succeed(m),
@@ -103,14 +105,18 @@ export class ChainSyncClient extends ServiceMap.Service<
             ),
           ),
         findIntersect: (points) =>
-          sendMessage({ _tag: Schemas.ChainSyncMessageType.FindIntersect, points: [...points] }).pipe(
+          sendMessage({
+            _tag: Schemas.ChainSyncMessageType.FindIntersect,
+            points: [...points],
+          }).pipe(
             Effect.andThen(
               messages.pipe(
                 Stream.runHead,
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new ChainSyncError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new ChainSyncError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.ChainSyncMessage.match(v, {
                         IntersectFound: (m) => Effect.succeed(m),

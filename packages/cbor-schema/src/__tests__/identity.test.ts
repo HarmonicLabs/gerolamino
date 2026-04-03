@@ -9,7 +9,9 @@ const fromHex = (hex: string): Uint8Array => {
 };
 
 const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
 // Byte-level round-trip: encodeSync(parseSync(bytes)) === bytes
 const byteRoundTrip = (hex: string) => {
@@ -56,8 +58,10 @@ describe("byte-level round-trip: encodeSync(parseSync(bytes)) === bytes", () => 
     it("indefinite 4 chunks", () => byteRoundTrip("5f4058005900005a00000000ff"));
     it("indefinite 5 chunks", () => byteRoundTrip("5f4058005900005a000000005b0000000000000000ff"));
     it("nested indefinite", () => byteRoundTrip("5f5fffff"));
-    it("mixed indefinite", () => byteRoundTrip("5f4058005900005a000000005f4058005900005a00000000ffff"));
-    it("indefinite with data", () => byteRoundTrip("5f4601070a0f14184601070a0f14184601070a0f1418ff"));
+    it("mixed indefinite", () =>
+      byteRoundTrip("5f4058005900005a000000005f4058005900005a00000000ffff"));
+    it("indefinite with data", () =>
+      byteRoundTrip("5f4601070a0f14184601070a0f14184601070a0f1418ff"));
   });
 
   describe("text strings", () => {
@@ -73,7 +77,8 @@ describe("byte-level round-trip: encodeSync(parseSync(bytes)) === bytes", () => 
 
   describe("maps", () => {
     it("empty", () => byteRoundTrip("a0"));
-    it("{bytes: text, uint: array}", () => byteRoundTrip("a2466369616f6e65676d6f6e646f6e6501820203"));
+    it("{bytes: text, uint: array}", () =>
+      byteRoundTrip("a2466369616f6e65676d6f6e646f6e6501820203"));
   });
 
   describe("tags", () => {

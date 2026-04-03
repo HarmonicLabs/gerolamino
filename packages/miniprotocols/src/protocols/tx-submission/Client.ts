@@ -68,17 +68,27 @@ export class TxSubmissionClient extends ServiceMap.Service<
                 Stream.mapEffect((msg) =>
                   Schemas.TxSubmissionMessage.match(msg, {
                     RequestTxIds: (m) =>
-                      handlers.onRequestTxIds(m.ack, m.req, m.blocking).pipe(
-                        Effect.flatMap((ids) =>
-                          sendMessage({ _tag: Schemas.TxSubmissionMessageType.ReplyTxIds, ids: [...ids] }),
+                      handlers
+                        .onRequestTxIds(m.ack, m.req, m.blocking)
+                        .pipe(
+                          Effect.flatMap((ids) =>
+                            sendMessage({
+                              _tag: Schemas.TxSubmissionMessageType.ReplyTxIds,
+                              ids: [...ids],
+                            }),
+                          ),
                         ),
-                      ),
                     RequestTxs: (m) =>
-                      handlers.onRequestTxs(m.txIds).pipe(
-                        Effect.flatMap((txs) =>
-                          sendMessage({ _tag: Schemas.TxSubmissionMessageType.ReplyTxs, txs: [...txs] }),
+                      handlers
+                        .onRequestTxs(m.txIds)
+                        .pipe(
+                          Effect.flatMap((txs) =>
+                            sendMessage({
+                              _tag: Schemas.TxSubmissionMessageType.ReplyTxs,
+                              txs: [...txs],
+                            }),
+                          ),
                         ),
-                      ),
                     Done: () => Effect.void,
                     Init: (m) => unexpected(m._tag),
                     ReplyTxIds: (m) => unexpected(m._tag),

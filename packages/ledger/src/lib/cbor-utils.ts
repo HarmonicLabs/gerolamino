@@ -2,35 +2,35 @@
  * Shared CBOR construction and utility helpers.
  * Centralizes helpers previously duplicated across tx.ts, certs.ts, pool.ts, value.ts, script.ts.
  */
-import { CborKinds, type CborSchemaType } from "cbor-schema"
+import { CborKinds, type CborSchemaType } from "cbor-schema";
 
 // ---------------------------------------------------------------------------
 // CBOR value constructors
 // ---------------------------------------------------------------------------
 
-export const uint = (n: bigint | number): CborSchemaType =>
-  ({ _tag: CborKinds.UInt, num: BigInt(n) })
+export const uint = (n: bigint | number): CborSchemaType => ({
+  _tag: CborKinds.UInt,
+  num: BigInt(n),
+});
 
-export const negInt = (num: bigint): CborSchemaType =>
-  ({ _tag: CborKinds.NegInt, num })
+export const negInt = (num: bigint): CborSchemaType => ({ _tag: CborKinds.NegInt, num });
 
-export const cborBytes = (bytes: Uint8Array): CborSchemaType =>
-  ({ _tag: CborKinds.Bytes, bytes })
+export const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes });
 
-export const cborText = (text: string): CborSchemaType =>
-  ({ _tag: CborKinds.Text, text })
+export const cborText = (text: string): CborSchemaType => ({ _tag: CborKinds.Text, text });
 
-export const arr = (...items: ReadonlyArray<CborSchemaType>): CborSchemaType =>
-  ({ _tag: CborKinds.Array, items: [...items] })
+export const arr = (...items: ReadonlyArray<CborSchemaType>): CborSchemaType => ({
+  _tag: CborKinds.Array,
+  items: [...items],
+});
 
-export const nullVal: CborSchemaType =
-  { _tag: CborKinds.Simple, value: null }
+export const nullVal: CborSchemaType = { _tag: CborKinds.Simple, value: null };
 
 export function mapEntry(
   key: number,
   v: CborSchemaType | undefined,
 ): ReadonlyArray<{ k: CborSchemaType; v: CborSchemaType }> {
-  return v !== undefined ? [{ k: uint(key), v }] : []
+  return v !== undefined ? [{ k: uint(key), v }] : [];
 }
 
 // ---------------------------------------------------------------------------
@@ -44,15 +44,11 @@ export function mapEntry(
  * Returns undefined if the input is neither format.
  */
 export function getCborSet(cbor: CborSchemaType): ReadonlyArray<CborSchemaType> | undefined {
-  if (cbor._tag === CborKinds.Array) return cbor.items
-  if (
-    cbor._tag === CborKinds.Tag &&
-    cbor.tag === 258n &&
-    cbor.data._tag === CborKinds.Array
-  ) {
-    return cbor.data.items
+  if (cbor._tag === CborKinds.Array) return cbor.items;
+  if (cbor._tag === CborKinds.Tag && cbor.tag === 258n && cbor.data._tag === CborKinds.Array) {
+    return cbor.data.items;
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -62,10 +58,8 @@ export function encodeCborSet(
   items: ReadonlyArray<CborSchemaType>,
   useTag258: boolean,
 ): CborSchemaType {
-  const array: CborSchemaType = { _tag: CborKinds.Array, items: [...items] }
-  return useTag258
-    ? { _tag: CborKinds.Tag, tag: 258n, data: array }
-    : array
+  const array: CborSchemaType = { _tag: CborKinds.Array, items: [...items] };
+  return useTag258 ? { _tag: CborKinds.Tag, tag: 258n, data: array } : array;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,5 +67,5 @@ export function encodeCborSet(
 // ---------------------------------------------------------------------------
 
 export function decodeCborNull(cbor: CborSchemaType): boolean {
-  return cbor._tag === CborKinds.Simple && cbor.value === null
+  return cbor._tag === CborKinds.Simple && cbor.value === null;
 }

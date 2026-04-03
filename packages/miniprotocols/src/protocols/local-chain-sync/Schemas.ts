@@ -79,10 +79,7 @@ function decodeChainTip(node: CborSchemaType): ChainTip {
 function encodeChainTip(tip: ChainTip): CborSchemaType {
   return {
     _tag: CborKinds.Array,
-    items: [
-      encodeChainPoint(tip.point),
-      { _tag: CborKinds.UInt, num: BigInt(tip.blockNo) },
-    ],
+    items: [encodeChainPoint(tip.point), { _tag: CborKinds.UInt, num: BigInt(tip.blockNo) }],
   };
 }
 
@@ -182,10 +179,7 @@ export const LocalChainSyncMessageBytes = CborSchemaFromBytes.pipe(
         }),
         IntersectNotFound: (m): CborSchemaType => ({
           _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: 6n },
-            encodeChainTip(m.tip),
-          ],
+          items: [{ _tag: CborKinds.UInt, num: 6n }, encodeChainTip(m.tip)],
         }),
         Done: (): CborSchemaType => ({
           _tag: CborKinds.Array,

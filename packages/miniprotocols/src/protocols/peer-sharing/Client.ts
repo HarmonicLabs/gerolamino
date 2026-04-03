@@ -62,7 +62,8 @@ export class PeerSharingClient extends ServiceMap.Service<
                 Effect.timeout(Duration.seconds(60)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new PeerSharingError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new PeerSharingError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.PeerSharingMessage.match(v, {
                         SharePeers: (m) => Effect.succeed(m.peers),

@@ -41,7 +41,9 @@ export class HandshakeClient extends ServiceMap.Service<
         .pipe(Effect.mapError((cause) => new HandshakeError({ cause })));
 
       const messages = Stream.fromPubSub(channel.pubsub).pipe(
-        Stream.mapEffect((bytes) => Schema.decodeUnknownEffect(Schemas.HandshakeMessageBytes)(bytes)),
+        Stream.mapEffect((bytes) =>
+          Schema.decodeUnknownEffect(Schemas.HandshakeMessageBytes)(bytes),
+        ),
       );
 
       return HandshakeClient.of({
@@ -57,7 +59,8 @@ export class HandshakeClient extends ServiceMap.Service<
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new HandshakeError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new HandshakeError({ cause: "No response received" })),
                     onSome: Effect.succeed,
                   }),
                 ),

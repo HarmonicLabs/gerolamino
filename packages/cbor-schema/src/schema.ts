@@ -53,7 +53,7 @@ export namespace CborKinds {
   export const OVERFLOW_1 = 0x100;
   export const OVERFLOW_2 = 0x10000;
   export const OVERFLOW_4 = 0x100000000n;
-  export const MAX_UINT64 = (2n ** 64n) - 1n;
+  export const MAX_UINT64 = 2n ** 64n - 1n;
   export const MIN_NEG_INT64 = -(2n ** 64n);
 }
 
@@ -63,13 +63,44 @@ export namespace CborKinds {
 
 export type CborSchemaType =
   | { readonly _tag: CborKinds.UInt; readonly num: bigint; readonly addInfos?: number | undefined }
-  | { readonly _tag: CborKinds.NegInt; readonly num: bigint; readonly addInfos?: number | undefined }
-  | { readonly _tag: CborKinds.Bytes; readonly bytes: Uint8Array; readonly addInfos?: number | undefined; readonly chunks?: readonly CborSchemaType[] | undefined }
-  | { readonly _tag: CborKinds.Text; readonly text: string; readonly addInfos?: number | undefined; readonly chunks?: readonly CborSchemaType[] | undefined }
-  | { readonly _tag: CborKinds.Simple; readonly value: boolean | null | BigDecimal.BigDecimal | undefined; readonly addInfos?: number | undefined }
-  | { readonly _tag: CborKinds.Array; readonly items: readonly CborSchemaType[]; readonly addInfos?: number | undefined }
-  | { readonly _tag: CborKinds.Map; readonly entries: readonly { readonly k: CborSchemaType; readonly v: CborSchemaType }[]; readonly addInfos?: number | undefined }
-  | { readonly _tag: CborKinds.Tag; readonly tag: bigint; readonly data: CborSchemaType; readonly addInfos?: number | undefined };
+  | {
+      readonly _tag: CborKinds.NegInt;
+      readonly num: bigint;
+      readonly addInfos?: number | undefined;
+    }
+  | {
+      readonly _tag: CborKinds.Bytes;
+      readonly bytes: Uint8Array;
+      readonly addInfos?: number | undefined;
+      readonly chunks?: readonly CborSchemaType[] | undefined;
+    }
+  | {
+      readonly _tag: CborKinds.Text;
+      readonly text: string;
+      readonly addInfos?: number | undefined;
+      readonly chunks?: readonly CborSchemaType[] | undefined;
+    }
+  | {
+      readonly _tag: CborKinds.Simple;
+      readonly value: boolean | null | BigDecimal.BigDecimal | undefined;
+      readonly addInfos?: number | undefined;
+    }
+  | {
+      readonly _tag: CborKinds.Array;
+      readonly items: readonly CborSchemaType[];
+      readonly addInfos?: number | undefined;
+    }
+  | {
+      readonly _tag: CborKinds.Map;
+      readonly entries: readonly { readonly k: CborSchemaType; readonly v: CborSchemaType }[];
+      readonly addInfos?: number | undefined;
+    }
+  | {
+      readonly _tag: CborKinds.Tag;
+      readonly tag: bigint;
+      readonly data: CborSchemaType;
+      readonly addInfos?: number | undefined;
+    };
 
 // ────────────────────────────────────────────────────────────────────────────
 // Schema Codecs
@@ -103,16 +134,16 @@ export const CborSchema: Schema.Codec<CborSchemaType> = Schema.Union([
   Schema.TaggedStruct(CborKinds.Bytes, {
     bytes: Schema.Uint8Array,
     addInfos: Schema.optional(AddInfos),
-    chunks: Schema.optional(Schema.Array(
-      Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema),
-    )),
+    chunks: Schema.optional(
+      Schema.Array(Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema)),
+    ),
   }),
   Schema.TaggedStruct(CborKinds.Text, {
     text: Schema.String,
     addInfos: Schema.optional(AddInfos),
-    chunks: Schema.optional(Schema.Array(
-      Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema),
-    )),
+    chunks: Schema.optional(
+      Schema.Array(Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema)),
+    ),
   }),
   Schema.TaggedStruct(CborKinds.Array, {
     items: Schema.suspend((): Schema.Codec<CborSchemaType> => CborSchema).pipe(Schema.Array),
@@ -141,15 +172,18 @@ export const transformation: SchemaTransformation.Transformation<CborSchemaType,
   SchemaTransformation.transformOrFail({
     decode: (bytes, _options) =>
       parse(bytes).pipe(
-        Effect.mapError((e) => new SchemaIssue.InvalidValue(Option.some(bytes), { message: String(e) })),
+        Effect.mapError(
+          (e) => new SchemaIssue.InvalidValue(Option.some(bytes), { message: String(e) }),
+        ),
       ),
     encode: (ast, _options) =>
       encode(ast).pipe(
-        Effect.mapError((e) => new SchemaIssue.InvalidValue(Option.some(ast), { message: String(e) })),
+        Effect.mapError(
+          (e) => new SchemaIssue.InvalidValue(Option.some(ast), { message: String(e) }),
+        ),
       ),
   });
 
 export const CborSchemaFromBytes = (Schema.Uint8Array as Schema.instanceOf<Uint8Array>).pipe(
   Schema.decodeTo(CborSchema, transformation),
 );
-

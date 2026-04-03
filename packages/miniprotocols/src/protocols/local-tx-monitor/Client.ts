@@ -1,4 +1,15 @@
-import { Cause, Duration, Effect, Layer, Option, Ref, Schema, Scope, ServiceMap, Stream } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+  Scope,
+  ServiceMap,
+  Stream,
+} from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -24,24 +35,40 @@ export class LocalTxMonitorClient extends ServiceMap.Service<
   {
     acquire: () => Effect.Effect<
       number,
-      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
+      | LocalTxMonitorError
+      | MultiplexerEncodingError
+      | Socket.SocketError
+      | Schema.SchemaError
+      | Cause.TimeoutError,
       Scope.Scope
     >;
     nextTx: () => Effect.Effect<
       Option.Option<Uint8Array>,
-      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
+      | LocalTxMonitorError
+      | MultiplexerEncodingError
+      | Socket.SocketError
+      | Schema.SchemaError
+      | Cause.TimeoutError,
       Scope.Scope
     >;
     hasTx: (
       txId: Uint8Array,
     ) => Effect.Effect<
       boolean,
-      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
+      | LocalTxMonitorError
+      | MultiplexerEncodingError
+      | Socket.SocketError
+      | Schema.SchemaError
+      | Cause.TimeoutError,
       Scope.Scope
     >;
     getSizes: () => Effect.Effect<
       Schemas.MempoolSizes,
-      LocalTxMonitorError | MultiplexerEncodingError | Socket.SocketError | Schema.SchemaError | Cause.TimeoutError,
+      | LocalTxMonitorError
+      | MultiplexerEncodingError
+      | Socket.SocketError
+      | Schema.SchemaError
+      | Cause.TimeoutError,
       Scope.Scope
     >;
     release: () => Effect.Effect<
@@ -100,7 +127,8 @@ export class LocalTxMonitorClient extends ServiceMap.Service<
               Effect.tap(() => Ref.set(state, "Acquired")),
               Effect.flatMap(
                 Option.match({
-                  onNone: () => Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
+                  onNone: () =>
+                    Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
                   onSome: extract,
                 }),
               ),
@@ -119,7 +147,8 @@ export class LocalTxMonitorClient extends ServiceMap.Service<
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(
                   Option.match({
-                    onNone: () => Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
+                    onNone: () =>
+                      Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
                     onSome: (v) =>
                       Schemas.LocalTxMonitorMessage.match(v, {
                         Acquired: (m) => Ref.set(state, "Acquired").pipe(Effect.as(m.slot)),

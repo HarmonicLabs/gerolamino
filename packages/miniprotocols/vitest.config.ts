@@ -6,7 +6,8 @@ export default defineConfig({
     environment: "node",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    exclude: ["./old/**", "./.direnv/**", "./.devenv/**"],
+    exclude: ["./old/**", "./.direnv/**", "./.devenv/**", "**/node_modules/**"],
+    include: ["src/**/*.test.ts"],
     benchmark: {
       include: ["src/__tests__/benchmarks/**/*.bench.ts"],
       reporters: ["default"],

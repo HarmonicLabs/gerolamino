@@ -1,7 +1,7 @@
+# Top-level Nix module.
+# Imports package derivations from ./packages/.
 {
   imports = [
-    ./wasm-plexer.nix
-    ./miniprotocols.nix
-    ./cbor-schema.nix
+    ./packages
   ];
 }

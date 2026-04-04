@@ -6,7 +6,7 @@ import {
   CredentialBytes,
   decodeCredential,
   encodeCredential,
-} from "../lib/credentials.ts";
+} from "../lib/core/credentials.ts";
 
 const testKeyHash = new Uint8Array(28).fill(0xaa);
 const testScriptHash = new Uint8Array(28).fill(0xbb);

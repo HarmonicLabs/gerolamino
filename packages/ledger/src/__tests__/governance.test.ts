@@ -23,7 +23,7 @@ import {
   encodeGovActionId,
   decodeVotingProcedure,
   encodeVotingProcedure,
-} from "../lib/governance.ts";
+} from "../lib/governance/governance.ts";
 import { CborKinds, type CborSchemaType, encodeSync, parseSync } from "cbor-schema";
 
 const hash28 = new Uint8Array(28).fill(0xaa);

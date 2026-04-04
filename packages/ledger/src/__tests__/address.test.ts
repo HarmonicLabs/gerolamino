@@ -1,7 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { Network } from "../lib/primitives.ts";
-import { CredentialKind } from "../lib/credentials.ts";
+import { Network } from "../lib/core/primitives.ts";
+import { CredentialKind } from "../lib/core/credentials.ts";
 import {
   Addr,
   AddrKind,
@@ -10,7 +10,7 @@ import {
   RwdAddrBytes,
   decodeAddr,
   encodeAddr,
-} from "../lib/address.ts";
+} from "../lib/address/address.ts";
 
 const keyHash1 = new Uint8Array(28).fill(0x01);
 const keyHash2 = new Uint8Array(28).fill(0x02);

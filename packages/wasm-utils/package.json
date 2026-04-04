@@ -1,0 +1,14 @@
+{
+  "name": "wasm-utils",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "WASM utility bindings for Cardano primitives (Pallas crypto, addresses)",
+  "main": "./pkg/wasm_utils.js",
+  "module": "./pkg/wasm_utils.js",
+  "types": "./pkg/wasm_utils.d.ts",
+  "exports": {
+    ".": "./pkg/wasm_utils.js",
+    "./*": "./pkg/*"
+  }
+}

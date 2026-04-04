@@ -7,7 +7,7 @@ import {
   AlonzoPParams,
   BabbagePParams,
   ConwayPParams,
-} from "../lib/protocol-params.ts";
+} from "../lib/protocol-params/protocol-params.ts";
 
 describe("PParamsUpdate (all-optional)", () => {
   it.effect("accepts empty update", () =>

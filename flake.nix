@@ -1,5 +1,5 @@
 {
-  description = "Gerolamo: In-browser Cardano node";
+  description = "Gerolamino: In-browser Cardano node";
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
@@ -25,6 +25,12 @@
     mithril = {
       url = "github:input-output-hk/mithril";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # IOG's libsodium fork with VRF (crypto_vrf_ietfdraft13)
+    libsodium-iog = {
+      url = "github:input-output-hk/libsodium";
+      flake = false;
     };
   };
 
@@ -52,11 +58,16 @@
               sqlite
               poppler-utils
               wasm-pack
-              inputs.mithril.packages.${system}.mithril-client-cli
+              binaryen
+              # inputs.mithril.packages.${system}.mithril-client-cli
             ];
 
             languages = {
               nix = {
+                enable = true;
+                lsp.enable = true;
+              };
+              zig = {
                 enable = true;
                 lsp.enable = true;
               };

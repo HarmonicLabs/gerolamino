@@ -13,7 +13,8 @@
     "cbor-schema": "workspace:*",
     "effect": "^4.0.0-beta.43",
     "lodash": "^4.18.0",
-    "wasm-plexer": "workspace:*"
+    "wasm-plexer": "workspace:*",
+    "xstate": "^5.30.0"
   },
   "devDependencies": {
     "@effect/language-service": "^0.80.0",

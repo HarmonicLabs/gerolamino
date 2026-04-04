@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType, encodeSync } from "cbor-schema";
 import { ChainPointSchema, ChainPointType, type ChainPoint } from "../types/ChainPoint";
 import { ChainTipSchema, type ChainTip } from "../types/ChainTip";
 
@@ -104,11 +104,20 @@ export const ChainSyncMessageBytes = CborSchemaFromBytes.pipe(
         case 1:
           return { _tag: ChainSyncMessageType.AwaitReply as const };
         case 2: {
-          const header = cbor.items[1];
-          if (header?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for header");
+          const headerCbor = cbor.items[1];
+          // Header can be bare Bytes or Tag(24, Bytes) (CBOR-in-CBOR wrapping used in N2N)
+          let headerBytes: Uint8Array;
+          if (headerCbor?._tag === CborKinds.Bytes) {
+            headerBytes = headerCbor.bytes;
+          } else if (headerCbor?._tag === CborKinds.Tag && headerCbor.tag === 24n && headerCbor.data._tag === CborKinds.Bytes) {
+            headerBytes = headerCbor.data.bytes;
+          } else {
+            // Fallback: encode whatever CBOR we got as bytes
+            headerBytes = encodeSync(headerCbor!);
+          }
           return {
             _tag: ChainSyncMessageType.RollForward as const,
-            header: header.bytes,
+            header: headerBytes,
             tip: decodeChainTip(cbor.items[2]!),
           };
         }

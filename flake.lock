@@ -605,6 +605,22 @@
         "type": "github"
       }
     },
+    "libsodium-iog": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1683097763,
+        "narHash": "sha256-dphH/KpJd5Cz623Um0G9xN/OjaDpxHST/ssi7+sEL90=",
+        "owner": "input-output-hk",
+        "repo": "libsodium",
+        "rev": "8a355ef81ed0de09f1fbc4eec76a3f7cf716f202",
+        "type": "github"
+      },
+      "original": {
+        "owner": "input-output-hk",
+        "repo": "libsodium",
+        "type": "github"
+      }
+    },
     "mithril": {
       "inputs": {
         "crane": "crane_2",
@@ -884,6 +900,7 @@
         "crane": "crane",
         "devenv": "devenv",
         "flake-parts": "flake-parts_4",
+        "libsodium-iog": "libsodium-iog",
         "mithril": "mithril",
         "nixpkgs": "nixpkgs_4",
         "rust-overlay": "rust-overlay_3",
@@ -939,11 +956,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1775185947,
-        "narHash": "sha256-8ctPmj6RME4q4ELeg+BuY9lV/34M4AG1CNc0Im9PDDk=",
+        "lastModified": 1775272153,
+        "narHash": "sha256-FwYb64ysv8J2TxaqsYYcDyHAHBUEaQlriPMWPMi1K7M=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "199eeb6748116f7da4fbd3a680bc854e99d9132b",
+        "rev": "740fb0203b2852917b909a72b948d34d0b171ec0",
         "type": "github"
       },
       "original": {

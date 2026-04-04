@@ -6,7 +6,8 @@
   "dependencies": {
     "@harmoniclabs/crypto": "^0.3.0",
     "cbor-schema": "workspace:*",
-    "effect": "^4.0.0-beta.43"
+    "effect": "^4.0.0-beta.43",
+    "wasm-utils": "workspace:*"
   },
   "devDependencies": {
     "@effect/vitest": "^4.0.0-beta.43",

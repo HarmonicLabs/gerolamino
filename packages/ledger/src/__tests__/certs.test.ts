@@ -10,9 +10,9 @@ import {
   isGovernanceCert,
   decodeDCert,
   encodeDCert,
-} from "../lib/certs.ts";
-import { CredentialKind } from "../lib/credentials.ts";
-import { DRepKind } from "../lib/governance.ts";
+} from "../lib/certs/certs.ts";
+import { CredentialKind } from "../lib/core/credentials.ts";
+import { DRepKind } from "../lib/governance/governance.ts";
 
 const keyHash = new Uint8Array(28).fill(0x01);
 const scriptHash = new Uint8Array(28).fill(0x02);

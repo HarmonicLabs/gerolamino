@@ -9,7 +9,7 @@ import {
   ScriptKind,
   decodeTimelock,
   encodeTimelock,
-} from "../lib/script.ts";
+} from "../lib/script/script.ts";
 
 const testKeyHash = new Uint8Array(28).fill(0xaa);
 

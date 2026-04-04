@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { Value, ValueBytes, type MultiAssetEntry } from "../lib/value.ts";
+import { Value, ValueBytes, type MultiAssetEntry } from "../lib/value/value.ts";
 
 describe("Value schema", () => {
   it.effect("accepts coin-only value", () =>

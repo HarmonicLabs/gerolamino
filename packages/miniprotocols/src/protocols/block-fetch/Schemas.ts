@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType, encodeSync } from "cbor-schema";
 import { ChainPointSchema, ChainPointType, type ChainPoint } from "../types/ChainPoint";
 
 // ── Application-level types ──
@@ -83,9 +83,17 @@ export const BlockFetchMessageBytes = CborSchemaFromBytes.pipe(
         case 3:
           return { _tag: BlockFetchMessageType.NoBlocks as const };
         case 4: {
-          const block = cbor.items[1];
-          if (block?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for block");
-          return { _tag: BlockFetchMessageType.Block as const, block: block.bytes };
+          const blockCbor = cbor.items[1];
+          // Block can be bare Bytes or Tag(24, Bytes) (CBOR-in-CBOR wrapping in N2N)
+          let blockBytes: Uint8Array;
+          if (blockCbor?._tag === CborKinds.Bytes) {
+            blockBytes = blockCbor.bytes;
+          } else if (blockCbor?._tag === CborKinds.Tag && blockCbor.tag === 24n && blockCbor.data._tag === CborKinds.Bytes) {
+            blockBytes = blockCbor.data.bytes;
+          } else {
+            blockBytes = encodeSync(blockCbor!);
+          }
+          return { _tag: BlockFetchMessageType.Block as const, block: blockBytes };
         }
         case 5:
           return { _tag: BlockFetchMessageType.BatchDone as const };

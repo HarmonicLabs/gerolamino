@@ -19,7 +19,7 @@ import {
   UnitInterval,
   ExUnits,
   ExUnitsBytes,
-} from "../lib/primitives.ts";
+} from "../lib/core/primitives.ts";
 
 describe("Branded primitives", () => {
   it.effect("Coin accepts non-negative bigint", () =>

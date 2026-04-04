@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "^4.0.0-beta.43",
-    "@types/bun": "latest",
+    "@types/bun": "^1.3.11",
     "@types/lodash": "^4",
     "vitest": "^4.1.2"
   },

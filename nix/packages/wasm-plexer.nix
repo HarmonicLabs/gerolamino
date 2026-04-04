@@ -1,64 +1,22 @@
-{ inputs, ... }: {
-  perSystem = { system, lib, ... }:
+{ root, ... }: {
+  perSystem = { lib, buildWasmPackage, ... }:
     let
-      pkgs = import inputs.nixpkgs {
-        inherit system;
-        overlays = [ inputs.rust-overlay.overlays.default ];
-      };
-
-      rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-        targets = [ "wasm32-unknown-unknown" ];
-      };
-
-      craneLib = (inputs.crane.mkLib pkgs).overrideToolchain (_: rustToolchain);
-
-      wasm-bindgen-cli-src = pkgs.fetchCrate {
-        pname = "wasm-bindgen-cli";
-        version = "0.2.115";
-        hash = "sha256-wRynyZKYEMoIhX64n4DkGG2iepU6rE5qdBjT1LkUgtE=";
-      };
-
-      wasm-bindgen-cli = pkgs.buildWasmBindgenCli {
-        src = wasm-bindgen-cli-src;
-        cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-          inherit (wasm-bindgen-cli-src) pname version;
-          src = wasm-bindgen-cli-src;
-          hash = "sha256-+7hgX56dOo/GErpf/unRprv72Kkars5dOFew+NfZZMY=";
-        };
-      };
-
-      src = lib.fileset.toSource {
-        root = ../packages/wasm-plexer;
-        fileset = craneLib.fileset.commonCargoSources ../packages/wasm-plexer;
-      };
-
-      commonArgs = {
-        inherit src;
-        pname = "wasm-plexer";
-        version = "0.0.1";
-        strictDeps = true;
-        CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-        doCheck = false;
-      };
-
-      cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-
-      wasmPlexerRaw = craneLib.buildPackage (commonArgs // {
-        inherit cargoArtifacts;
-      });
+      plexerDir = root + "/packages/wasm-plexer";
     in
     {
-      packages.wasm-plexer = pkgs.stdenv.mkDerivation {
+      packages.wasm-plexer = buildWasmPackage {
         pname = "wasm-plexer";
         version = "0.0.1";
-        dontUnpack = true;
-        nativeBuildInputs = [ wasm-bindgen-cli ];
-        buildPhase = ''
-          wasm-bindgen ${wasmPlexerRaw}/lib/wasm_plexer.wasm \
-            --target bundler \
-            --out-dir $out
-        '';
-        dontInstall = true;
+        rustChannel = "stable";
+        bindgenTarget = "bundler";
+        src = lib.fileset.toSource {
+          root = plexerDir;
+          fileset = lib.fileset.unions [
+            (plexerDir + "/Cargo.toml")
+            (plexerDir + "/Cargo.lock")
+            (plexerDir + "/src")
+          ];
+        };
       };
     };
 }

@@ -1,33 +1,21 @@
 /**
  * LMDB FFI bindings for Bun.
  * Wraps liblmdb operations in Effect with acquireRelease for resource safety.
+ *
+ * Call `initLmdb` before using any LMDB operations — it reads LIBLMDB_PATH
+ * from the Effect Config provider and loads the shared library.
  */
 import { dlopen, FFIType, ptr, toArrayBuffer, CString, type Pointer } from "bun:ffi";
-import { Effect, Schema, Scope } from "effect";
+import { Config, Effect, Schema, Scope } from "effect";
 import { LmdbError } from "./errors.ts";
 
-const NativePointer = Schema.Number.pipe(
-  Schema.check(
-    Schema.makeFilter<number>((n) => n !== 0 || "null pointer", {
-      expected: "non-null native pointer",
-    }),
-  ),
-);
-
-function toPointer(n: number): Pointer {
-  Schema.decodeSync(NativePointer)(n);
-  return n as never;
-}
+export const LmdbLibPath = Config.string("LIBLMDB_PATH");
 
 // ---------------------------------------------------------------------------
-// FFI library loading
+// FFI type definitions
 // ---------------------------------------------------------------------------
 
-const LMDB_LIB_PATH =
-  process.env["LIBLMDB_PATH"] ??
-  "/nix/store/3nx9lw1xvaj6byw6nii6rifgccfj7mcp-lmdb-0.9.35/lib/liblmdb.so";
-
-const lib = dlopen(LMDB_LIB_PATH, {
+const FFI_SYMBOLS = {
   mdb_env_create: { args: [FFIType.ptr], returns: FFIType.int },
   mdb_env_set_mapsize: { args: [FFIType.ptr, FFIType.u64], returns: FFIType.int },
   mdb_env_set_maxdbs: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.int },
@@ -52,7 +40,39 @@ const lib = dlopen(LMDB_LIB_PATH, {
     returns: FFIType.int,
   },
   mdb_strerror: { args: [FFIType.int], returns: FFIType.ptr },
-});
+} as const;
+
+type LmdbLib = ReturnType<typeof dlopen<typeof FFI_SYMBOLS>>;
+
+let lib: LmdbLib;
+
+/**
+ * Initialize the LMDB FFI library. Must be called once before any LMDB operations.
+ * Reads `LIBLMDB_PATH` from the Effect Config provider.
+ */
+export const initLmdb = Effect.gen(function* () {
+  const libPath = yield* LmdbLibPath;
+  lib = dlopen(libPath, FFI_SYMBOLS);
+}).pipe(
+  Effect.mapError((cause) => new LmdbError({ operation: "initLmdb", cause })),
+);
+
+// ---------------------------------------------------------------------------
+// Pointer validation
+// ---------------------------------------------------------------------------
+
+const NativePointer = Schema.Number.pipe(
+  Schema.check(
+    Schema.makeFilter<number>((n) => n !== 0 || "null pointer", {
+      expected: "non-null native pointer",
+    }),
+  ),
+);
+
+function toPointer(n: number): Pointer {
+  Schema.decodeSync(NativePointer)(n);
+  return n as never;
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -342,36 +362,32 @@ export function cursorGetSync(
 export const discoverDatabases = (
   txn: LmdbTxn,
 ): Effect.Effect<ReadonlyArray<string>, LmdbError, Scope.Scope> =>
-  openDbi(txn, null).pipe(
-    Effect.flatMap((rootDbi) =>
-      openCursor(txn, rootDbi).pipe(
-        Effect.flatMap((cursor) =>
-          Effect.try({
-            try: () => {
-              const names: string[] = [];
-              let rc = lib.symbols.mdb_cursor_get(
-                toPointer(cursor.cursorPtr),
-                ptr(cursor.keyBuf),
-                ptr(cursor.dataBuf),
-                MDB_FIRST,
-              );
-              while (rc === MDB_SUCCESS) {
-                names.push(new TextDecoder().decode(readMdbValData(cursor.keyBuf, 0)));
-                rc = lib.symbols.mdb_cursor_get(
-                  toPointer(cursor.cursorPtr),
-                  ptr(cursor.keyBuf),
-                  ptr(cursor.dataBuf),
-                  MDB_NEXT,
-                );
-              }
-              return names;
-            },
-            catch: (e) =>
-              e instanceof LmdbError
-                ? e
-                : new LmdbError({ operation: "discoverDatabases", cause: e }),
-          }),
-        ),
-      ),
-    ),
-  );
+  Effect.gen(function* () {
+    const rootDbi = yield* openDbi(txn, null);
+    const cursor = yield* openCursor(txn, rootDbi);
+    return yield* Effect.try({
+      try: () => {
+        const names: string[] = [];
+        let rc = lib.symbols.mdb_cursor_get(
+          toPointer(cursor.cursorPtr),
+          ptr(cursor.keyBuf),
+          ptr(cursor.dataBuf),
+          MDB_FIRST,
+        );
+        while (rc === MDB_SUCCESS) {
+          names.push(new TextDecoder().decode(readMdbValData(cursor.keyBuf, 0)));
+          rc = lib.symbols.mdb_cursor_get(
+            toPointer(cursor.cursorPtr),
+            ptr(cursor.keyBuf),
+            ptr(cursor.dataBuf),
+            MDB_NEXT,
+          );
+        }
+        return names;
+      },
+      catch: (e) =>
+        e instanceof LmdbError
+          ? e
+          : new LmdbError({ operation: "discoverDatabases", cause: e }),
+    });
+  });

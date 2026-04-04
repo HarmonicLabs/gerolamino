@@ -4,6 +4,7 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Config, Effect } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
+import { initLmdb } from "./lmdb.ts";
 import { readSnapshotMeta } from "./loader.ts";
 import { startServer } from "./server.ts";
 
@@ -28,18 +29,18 @@ const serve = Command.make(
       Flag.withFallbackConfig(Config.string("UPSTREAM_URL")),
     ),
   },
-  (config) => {
-    const upstreamUrl = new URL(config.upstreamUrl);
-    return readSnapshotMeta(config.snapshotPath).pipe(
-      Effect.tap((meta) =>
-        Effect.log(
-          `Snapshot: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks} lmdb=[${meta.lmdbDatabases.join(",")}]`,
-        ),
-      ),
-      Effect.flatMap((meta) => startServer(meta, { port: config.port, upstreamUrl })),
-      Effect.tap(() => Effect.log(`Bootstrap server ready on :${config.port}`)),
-    );
-  },
+  (config) =>
+    Effect.gen(function* () {
+      const upstreamUrl = new URL(config.upstreamUrl);
+      yield* initLmdb;
+      yield* Effect.log("LMDB library loaded");
+      const meta = yield* readSnapshotMeta(config.snapshotPath);
+      yield* Effect.log(
+        `Snapshot: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks} lmdb=[${meta.lmdbDatabases.join(",")}]`,
+      );
+      yield* startServer(meta, { port: config.port, upstreamUrl });
+      yield* Effect.log(`Bootstrap server ready on :${config.port}`);
+    }),
 ).pipe(
   Command.withDescription("Start the Gerolamo bootstrap server"),
   Command.withExamples([

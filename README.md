@@ -1,129 +1,104 @@
-# New Nx Repository
+# Gerolamino
 
-<a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
+In-browser Cardano node. An Nx monorepo with reproducible Nix builds.
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
+## Quick start
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-or run `npx nx graph` to visually explore what was created. Now, let's get you
-up to speed!
+```bash
+# Enter the dev shell (requires Nix with flakes)
+nix develop
 
-## Try the full Nx platform
+# Install dependencies
+bun install
 
-🚀 If you haven't connected to Nx Cloud yet,
-[complete your setup here](https://cloud.nx.app/setup/connect-workspace/guide).
-Get faster builds with remote caching, distributed task execution, and
-self-healing CI. [See how your workspace can benefit](#nx-cloud).
-
-## Generate a library
-
-```sh
-npx nx g @nx/js:lib packages/pkg1 --publishable --importPath=@my-org/pkg1
+# Build all TypeScript packages
+bunx nx run-many --target=build --all
 ```
 
-## Run tasks
+## Packages
 
-To build the library use:
+| Package | Description |
+|---------|-------------|
+| `packages/cbor-schema` | CBOR schema definition and validation |
+| `packages/ledger` | Cardano ledger type decoders (full Mithril snapshot coverage) |
+| `packages/miniprotocols` | Ouroboros miniprotocol implementation (ChainSync, BlockFetch, etc.) |
+| `packages/storage` | Storage layer with XState state machines and Effect-TS |
+| `packages/bootstrap` | Bootstrap WebSocket protocol library |
+| `packages/wasm-plexer` | Rust WASM protocol multiplexer |
+| `packages/wasm-utils` | Rust WASM crypto primitives (blake2b, ed25519, bech32, KES) |
+| `apps/bootstrap` | Bootstrap server -- streams Mithril snapshots to browser clients |
 
-```sh
-npx nx build pkg1
+## Building with Nix
+
+All packages are built reproducibly with Nix. The TypeScript packages use bun2nix for dependency management and Nx for build orchestration. The Rust packages use Crane.
+
+```bash
+# Build the bootstrap server app
+nix build .#bootstrap-app
+
+# Build the bootstrap OCI container image
+nix build .#bootstrap-image
+
+# Build all TypeScript packages
+nix build .#ts-packages
+
+# Build WASM packages
+nix build .#wasm-plexer
+nix build .#wasm-utils
 ```
 
-To run any task with Nx use:
+## Bootstrap server
 
-```sh
-npx nx <target> <project-name>
+The bootstrap server streams a Mithril Cardano snapshot (~16 GB) to in-browser nodes via WebSocket. It requires `liblmdb.so` at runtime for reading the LMDB-formatted ledger state -- this native dependency is why Nix is used for builds (it pins the exact `liblmdb.so` version and injects the path via the `LIBLMDB_PATH` environment variable). See [apps/bootstrap/README.md](apps/bootstrap/README.md) for full details.
+
+```bash
+# Download the latest Mithril snapshot
+nix run .#download-snapshot -- /var/lib/gerolamino/snapshot
+
+# Build and load the container image
+nix build .#bootstrap-image
+./result | podman load
+
+# Run the container
+podman run --rm -p 3040:3040 \
+  -v /var/lib/gerolamino/snapshot:/data:ro \
+  ghcr.io/harmoniclabs/bootstrap:latest
 ```
 
-These targets are either
-[inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-or defined in the `project.json` or `package.json` files.
+## Deployment
 
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+The production server at `decentralizationmaxi.io` is managed as a NixOS configuration with deploy-rs for rollback-safe deployments.
 
-## Versioning and releasing
-
-To version and release the library use
-
-```
-npx nx release
+```bash
+# Deploy to production (with magic rollback)
+nix run github:serokell/deploy-rs -- .#production
 ```
 
-Pass `--dry-run` to see what would happen without actually releasing the
-library.
+Pushes to `main` trigger automatic deployment via GitHub Actions.
 
-[Learn more about Nx release &raquo;](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+## CI/CD
 
-## Keep TypeScript project references up to date
+GitHub Actions runs on every push to `main`:
+1. **Build**: Compiles the bootstrap app and its WASM/TS dependencies
+2. **Deploy**: Deploys the NixOS configuration to production via deploy-rs with magic rollback
 
-Nx automatically updates TypeScript
-[project references](https://www.typescriptlang.org/docs/handbook/project-references.html)
-in `tsconfig.json` files to ensure they remain accurate based on your project
-dependencies (`import` or `require` statements). This sync is automatically done
-when running tasks such as `build` or `typecheck`, which require updated
-references to function correctly.
+The CI runner uses a custom Arch Linux container with Determinate Nix (`ghcr.io/harmoniclabs/gerolamino-ci`).
 
-To manually trigger the process to sync the project graph dependencies
-information to the TypeScript project references, run the following command:
+## Project structure
 
-```sh
-npx nx sync
 ```
-
-You can enforce that the TypeScript project references are always in the correct
-state when running in CI by adding a step to your CI job configuration that runs
-the following command:
-
-```sh
-npx nx sync:check
+flake.nix                 # Nix flake (flake-parts)
+nix/
+  packages/               # Nix package derivations
+    ts-packages.nix        # bun2nix + Nx TypeScript build
+    bootstrap-image.nix    # OCI container image
+    wasm-plexer.nix        # Rust WASM (Crane)
+    wasm-utils.nix         # Rust WASM (Crane)
+    libsodium-vrf-wasm.nix # C WASM (zig cc)
+  apps/                   # Nix app definitions
+    download-snapshot.nix  # Mithril snapshot downloader
+  machine-configs/        # NixOS configurations
+    production.nix         # Production server (decentralizationmaxi.io)
+packages/                 # TypeScript/Rust source packages
+apps/                     # Application source code
 ```
-
-[Learn more about nx sync](https://nx.dev/reference/nx-commands#sync)
-
-## Nx Cloud
-
-Nx Cloud ensures a
-[fast and scalable CI](https://nx.dev/ci/intro/why-nx-cloud?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-pipeline. It includes features such as:
-
-- [Remote caching](https://nx.dev/ci/features/remote-cache?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task distribution across multiple machines](https://nx.dev/ci/features/distribute-task-execution?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Automated e2e test splitting](https://nx.dev/ci/features/split-e2e-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task flakiness detection and rerunning](https://nx.dev/ci/features/flaky-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-### Set up CI (non-Github Actions CI)
-
-**Note:** This is only required if your CI provider is not GitHub Actions.
-
-Use the following command to configure a CI workflow for your workspace:
-
-```sh
-npx nx g ci-workflow
-```
-
-[Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Install Nx Console
-
-Nx Console is an editor extension that enriches your developer experience. It
-lets you run tasks, generate code, and improves code autocompletion in your IDE.
-It is available for VSCode and IntelliJ.
-
-[Install Nx Console &raquo;](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Useful links
-
-Learn more:
-
-- [Learn more about this workspace setup](https://nx.dev/nx-api/js?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-And join the Nx community:
-
-- [Discord](https://go.nx.dev/community)
-- [Follow us on X](https://twitter.com/nxdevtools) or
-  [LinkedIn](https://www.linkedin.com/company/nrwl)
-- [Our Youtube channel](https://www.youtube.com/@nxdevtools)
-- [Our blog](https://nx.dev/blog?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)

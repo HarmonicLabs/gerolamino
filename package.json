@@ -7,7 +7,9 @@
     "packages/*",
     "apps/*"
   ],
-  "scripts": {},
+  "scripts": {
+    "postinstall": "command -v bun2nix >/dev/null && bun2nix -o bun.nix || true"
+  },
   "dependencies": {},
   "devDependencies": {
     "@nx/js": "22.6.2",

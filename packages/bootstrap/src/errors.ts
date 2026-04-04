@@ -1,5 +1,5 @@
-import { Data } from "effect";
+import { Schema } from "effect";
 
-export class ProtocolError extends Data.TaggedError("ProtocolError")<{
-  readonly message: string;
-}> {}
+export class ProtocolError extends Schema.TaggedErrorClass<ProtocolError>()("ProtocolError", {
+  message: Schema.String,
+}) {}

@@ -1,13 +1,13 @@
-import { Data } from "effect";
+import { Schema } from "effect";
 
-export class LmdbError extends Data.TaggedError("LmdbError")<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+export class LmdbError extends Schema.TaggedErrorClass<LmdbError>()("LmdbError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
-export class ChunkReadError extends Data.TaggedError("ChunkReadError")<{
-  readonly chunkNo: number;
-  readonly cause: unknown;
-}> {}
+export class ChunkReadError extends Schema.TaggedErrorClass<ChunkReadError>()("ChunkReadError", {
+  chunkNo: Schema.Number,
+  cause: Schema.Defect,
+}) {}
 
 export type BootstrapError = LmdbError | ChunkReadError;

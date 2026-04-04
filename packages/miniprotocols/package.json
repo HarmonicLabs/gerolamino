@@ -1,6 +1,7 @@
 {
-  "name": "@harmoniclabs/ouroboros-miniprotocols-ts",
+  "name": "miniprotocols",
   "version": "0.0.5-dev7",
+  "main": "./dist/index.js",
   "license": "Apache-2.0",
   "author": "Harmonic Laboratories",
   "funding": "https://github.com/sponsors/HarmonicLabs",

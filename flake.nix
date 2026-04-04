@@ -32,6 +32,30 @@
       url = "github:input-output-hk/libsodium";
       flake = false;
     };
+
+    mk-shell-bin.url = "github:rrbutani/nix-mk-shell-bin";
+
+    nix2container = {
+      url = "github:nlewo/nix2container";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    bun2nix = {
+      url = "github:nix-community/bun2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    deploy-rs = {
+      url = "github:serokell/deploy-rs";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    flake-root.url = "github:srid/flake-root";
   };
 
   outputs = inputs@{ flake-parts, ... }:
@@ -39,10 +63,15 @@
       imports = [
         inputs.devenv.flakeModule
         inputs.treefmt-nix.flakeModule
+        inputs.flake-root.flakeModule
         ./nix
       ];
+
+      # Project root as a Nix path — available in all modules via `config._module.args.root`
+      _module.args.root = ./.;
       systems = [ "x86_64-linux" ];
-      perSystem = { pkgs, system, ... }: {
+      perSystem = { pkgs, system, config, ... }: {
+        flake-root.projectRootFile = "flake.nix";
         treefmt = {
           projectRootFile = "flake.nix";
           programs = {
@@ -53,13 +82,18 @@
 
         devenv = {
           shells.default = {
-            packages = with pkgs; [
-              lmdb
-              sqlite
-              poppler-utils
-              wasm-pack
-              binaryen
-              # inputs.mithril.packages.${system}.mithril-client-cli
+            devenv.root =
+              let
+                envRoot = builtins.getEnv "PWD";
+              in
+              if envRoot != "" then envRoot else builtins.toString ./.;
+            packages = [
+              pkgs.lmdb
+              pkgs.sqlite
+              pkgs.poppler-utils
+              pkgs.wasm-pack
+              pkgs.binaryen
+              config.flake-root.package
             ];
 
             languages = {

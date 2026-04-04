@@ -3,5 +3,7 @@
 {
   imports = [
     ./packages
+    ./apps
+    ./machine-configs
   ];
 }

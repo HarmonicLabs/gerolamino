@@ -1,7 +1,6 @@
 /**
  * ImmutableDB chunk file parser.
  */
-import _ from "lodash";
 import { Effect, FileSystem, Path, Schema, Stream } from "effect";
 import { ChunkReadError } from "./errors.ts";
 
@@ -19,7 +18,7 @@ export type ChunkBlock = typeof ChunkBlock.Type;
 function readPrimaryOffsets(primary: Uint8Array): ReadonlyArray<number> {
   const dv = new DataView(primary.buffer, primary.byteOffset);
   const numSlots = (primary.length - 1) / 4;
-  return _.range(numSlots).map((i) => dv.getUint32(1 + i * 4, false));
+  return Array.from({ length: numSlots }, (_, i) => dv.getUint32(1 + i * 4, false));
 }
 
 function* filledSlots(offsets: ReadonlyArray<number>): IterableIterator<number> {
@@ -57,8 +56,9 @@ function* parseChunkIter(
     return readSecondaryEntry(secondaryDv, secondary, secOff);
   });
 
-  for (const [entry, nextEntry] of _.zip(entries, [...entries.slice(1), undefined])) {
-    if (!entry) continue;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]!;
+    const nextEntry = entries[i + 1];
     const blockStart = Number(entry.blockOff);
     const blockEnd = nextEntry ? Number(nextEntry.blockOff) : chunk.length;
 

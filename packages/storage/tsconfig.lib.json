@@ -5,8 +5,10 @@
     "rootDir": "./src",
     "composite": true,
     "declaration": true,
-    "noEmit": false
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "verbatimModuleSyntax": false
   },
   "include": ["./src/**/*"],
-  "exclude": ["**/__tests__/**/*", "**/*.test.ts", "**/*.spec.ts"]
+  "exclude": ["**/__tests__/**/*", "**/*.test.ts", "**/*.spec.ts", "**/*.bench.ts"]
 }

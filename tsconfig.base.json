@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "composite": true,
     "declarationMap": true,
     "emitDeclarationOnly": true,
@@ -16,6 +17,20 @@
     "skipLibCheck": true,
     "strict": true,
     "target": "es2022",
-    "customConditions": ["@org/source"]
+    "customConditions": ["@org/source"],
+    "paths": {
+      "cbor-schema": ["packages/cbor-schema/src/index.ts"],
+      "cbor-schema/*": ["packages/cbor-schema/src/*"],
+      "ledger": ["packages/ledger/src/index.ts"],
+      "ledger/*": ["packages/ledger/src/*"],
+      "storage": ["packages/storage/src/index.ts"],
+      "storage/*": ["packages/storage/src/*"],
+      "miniprotocols": ["packages/miniprotocols/src/index.ts"],
+      "miniprotocols/*": ["packages/miniprotocols/src/*"],
+      "bootstrap": ["packages/bootstrap/src/index.ts"],
+      "bootstrap/*": ["packages/bootstrap/src/*"],
+      "wasm-utils": ["packages/wasm-utils/pkg/wasm_utils.js"],
+      "wasm-plexer": ["packages/wasm-plexer/result/wasm_plexer_bun.js"]
+    }
   }
 }

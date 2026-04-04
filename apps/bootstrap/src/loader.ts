@@ -9,22 +9,30 @@ import { readAllChunks } from "./chunk-reader.ts";
 import { iterateEntries, discoverLmdbDatabases, UtxoKeySchema } from "./lmdb-kv.ts";
 import { MessageTag, encodeFrame, encodeInit, encodeBlock, encodeLmdbBatch } from "bootstrap";
 
-export interface SnapshotMeta {
-  readonly protocolMagic: number;
-  readonly snapshotSlot: bigint;
-  readonly ledgerDir: string;
-  readonly immutableDir: string;
-  readonly tablesDir: string;
-  readonly lmdbDatabases: ReadonlyArray<string>;
-  readonly totalChunks: number;
-}
+export class SnapshotMeta extends Schema.Class<SnapshotMeta>("SnapshotMeta")({
+  protocolMagic: Schema.Number,
+  snapshotSlot: Schema.BigInt,
+  ledgerDir: Schema.String,
+  immutableDir: Schema.String,
+  tablesDir: Schema.String,
+  lmdbDatabases: Schema.Array(Schema.String),
+  totalChunks: Schema.Number,
+}) {}
 
 export const readSnapshotMeta = (snapshotPath: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const ledgerDir = path.join(snapshotPath, "ledger", "119401006");
+    // Discover the ledger snapshot directory (first subdirectory under ledger/)
+    const ledgerBase = path.join(snapshotPath, "ledger");
+    const ledgerEntries = yield* fs
+      .readDirectory(ledgerBase)
+      .pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause })));
+    const snapshotSlotStr = ledgerEntries[0]!;
+    const snapshotSlot = BigInt(snapshotSlotStr);
+
+    const ledgerDir = path.join(ledgerBase, snapshotSlotStr);
     const immutableDir = path.join(snapshotPath, "immutable");
     const tablesDir = path.join(ledgerDir, "tables");
 
@@ -37,15 +45,15 @@ export const readSnapshotMeta = (snapshotPath: string) =>
       .pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause })));
     const totalChunks = chunkFiles.filter((f) => f.endsWith(".chunk")).length;
 
-    return {
+    return new SnapshotMeta({
       protocolMagic,
-      snapshotSlot: 119401006n,
+      snapshotSlot,
       ledgerDir,
       immutableDir,
       tablesDir,
-      lmdbDatabases,
+      lmdbDatabases: [...lmdbDatabases],
       totalChunks,
-    };
+    });
   });
 
 export const bootstrapStream = (

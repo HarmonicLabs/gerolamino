@@ -3,29 +3,28 @@
  */
 import { Effect, Stream, Schema } from "effect";
 import { LmdbError } from "./errors.ts";
+import {
+  openEnv,
+  beginTxn,
+  discoverDatabases,
+  cursorGetSync,
+  openLmdbSessionSync,
+  closeLmdbSessionSync,
+  MDB_FIRST,
+  MDB_NEXT,
+  type LmdbCursor,
+} from "./lmdb.ts";
 
 const isByteLength = (n: number) =>
   Schema.makeFilter<Uint8Array>(
     (bytes) => bytes.length === n || `expected ${n} bytes, got ${bytes.length}`,
     { expected: `Uint8Array of exactly ${n} bytes` },
   );
-import {
-  openEnv,
-  beginTxn,
-  openDbi,
-  openCursor,
-  cursorGetSync,
-  openLmdbSessionSync,
-  closeLmdbSessionSync,
-  discoverDatabases,
-  MDB_FIRST,
-  MDB_NEXT,
-} from "./lmdb.ts";
 
 export const UtxoKeySchema = Schema.Uint8Array.pipe(Schema.check(isByteLength(34)));
 
 function* cursorIterator(
-  cursor: import("./lmdb.ts").LmdbCursor,
+  cursor: LmdbCursor,
 ): IterableIterator<{ readonly key: Uint8Array; readonly value: Uint8Array }> {
   let entry = cursorGetSync(cursor, MDB_FIRST);
   while (entry !== undefined) {

@@ -43,7 +43,10 @@ function readChunkBlocks(chunkNo: number) {
     const offsets: number[] = [];
     for (let i = 0; i < numSlots; i++) offsets.push(primaryDv.getUint32(1 + i * 4, false));
 
-    interface Entry { blockOff: bigint; slotNo: bigint }
+    interface Entry {
+      blockOff: bigint;
+      slotNo: bigint;
+    }
     const entries: Entry[] = [];
     for (let i = 0; i + 1 < offsets.length; i++) {
       if (offsets[i] !== offsets[i + 1]) {
@@ -113,9 +116,13 @@ describe("Full Mithril snapshot coverage", () => {
 
                 const hdr = blockResult.header;
                 headersDecoded++;
-                if (hdr.issuerVKey.length !== 32 || hdr.vrfVKey.length !== 32 ||
-                    hdr.bodyHash.length !== 32 || hdr.opCert.hotVKey.length !== 32 ||
-                    hdr.opCert.sigma.length !== 64) {
+                if (
+                  hdr.issuerVKey.length !== 32 ||
+                  hdr.vrfVKey.length !== 32 ||
+                  hdr.bodyHash.length !== 32 ||
+                  hdr.opCert.hotVKey.length !== 32 ||
+                  hdr.opCert.sigma.length !== 64
+                ) {
                   if (failures.length < MAX_FAILURES)
                     failures.push(`chunk ${chunkNo}, slot ${slotNo}: invalid header field lengths`);
                 }
@@ -127,7 +134,9 @@ describe("Full Mithril snapshot coverage", () => {
           }
 
           if ((chunkNo + 1) % 500 === 0) {
-            yield* Effect.log(`processed ${chunkNo + 1}/${totalChunks} chunks, ${totalBlocks} blocks`);
+            yield* Effect.log(
+              `processed ${chunkNo + 1}/${totalChunks} chunks, ${totalBlocks} blocks`,
+            );
           }
         }
 

@@ -1,105 +1,59 @@
-Default to using Bun instead of Node.js.
+# apps/bootstrap
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+Bootstrap HTTP server. Serves Mithril snapshot data over REST. Uses Effect CLI
+framework with Bun runtime and LMDB for block storage.
 
-## APIs
+## Structure
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+```
+src/
+  cli.ts           <- Effect CLI entry point (Commands, Flags)
+  server.ts        <- HTTP server (Bun.serve)
+  openapi.ts       <- REST API schema
+  loader.ts        <- snapshot loading (SnapshotMeta as Schema.Class)
+  chunk-reader.ts  <- streaming block chunks from LMDB
+  proxy.ts         <- upstream Cardano node proxy
+  lmdb.ts          <- LMDB FFI integration (lazy init via Config.string)
+  lmdb-kv.ts       <- key-value operations on LMDB databases
+  errors.ts        <- Schema.TaggedErrorClass error types
+  __tests__/
+    integration.test.ts       <- full server integration
+    chunk-reader.test.ts      <- chunk parsing
+    lmdb-kv.test.ts           <- database operations
+    full-stream-decode.test.ts <- E2E: stream + decode all ~4.5M blocks
+```
+
+## Dependencies
+
+- `@effect/platform-bun` - Bun runtime layer (`BunRuntime.runMain`, `BunServices.layer`)
+- `bootstrap` (workspace) - protocol client
+- `cbor-schema` (workspace) - CBOR handling
+- `ledger` (workspace) - block decoding
+- `effect` ^4.0.0-beta.43
+
+## Key Patterns
+
+- **LMDB**: Loaded lazily via `initLmdb` effect reading `Config.string("LIBLMDB_PATH")`
+- **FFI**: Bun FFI for native LMDB C library (`bun:ffi`)
+- **CLI**: `Command.make()` + `Flag.string()` / `Flag.directory()` from `effect/unstable/cli`
+- **Snapshot**: Dynamic slot discovery from LMDB directory listing (not hardcoded)
+
+## Running
+
+```sh
+LIBLMDB_PATH=/path/to/liblmdb.so SNAPSHOT_PATH=/path/to/snapshot bun run apps/bootstrap/src/cli.ts serve
+```
 
 ## Testing
 
-Use `bun test` to run tests.
-
-```ts#index.test.ts
-import { test, expect } from "bun:test";
-
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
-
-## Frontend
-
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
-
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
-
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
 ```sh
-bun --hot ./index.ts
+bunx --bun vitest run apps/bootstrap
 ```
 
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+The full-stream-decode test requires a local Mithril snapshot (~16GB).
+
+## Deployment
+
+Containerized via `nix build .#bootstrap-image` (OCI image). Runs in Podman
+on the production NixOS server. Mithril snapshot mounted as `/data` volume.
+Port 3040.

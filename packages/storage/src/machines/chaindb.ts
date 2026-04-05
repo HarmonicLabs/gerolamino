@@ -26,8 +26,7 @@ export const chainDBMachine = setup({
     input: {} as { securityParam: number },
   },
   guards: {
-    shouldCopyToImmutable: ({ context }) =>
-      context.volatileLength > context.securityParam,
+    shouldCopyToImmutable: ({ context }) => context.volatileLength > context.securityParam,
   },
 }).createMachine({
   id: "chainDB",

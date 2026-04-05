@@ -14,17 +14,17 @@
  *   4: TxOutCompactDatum (CompactAddr + CompactValue + BinaryData)
  *   5: TxOutCompactRefScript (CompactAddr + CompactValue + Datum + Script)
  */
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { TxOut } from "../tx/tx.ts";
 
 // ---------------------------------------------------------------------------
 // Error type
 // ---------------------------------------------------------------------------
 
-export class MemPackError extends Data.TaggedError("MemPackError")<{
-  readonly offset: number;
-  readonly message: string;
-}> {}
+export class MemPackError extends Schema.TaggedErrorClass<MemPackError>()("MemPackError", {
+  offset: Schema.Number,
+  message: Schema.String,
+}) {}
 
 // ---------------------------------------------------------------------------
 // VarLen decoder: LEB128-like 7-bit continuation, little-endian

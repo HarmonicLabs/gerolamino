@@ -53,9 +53,7 @@ let lib: LmdbLib;
 export const initLmdb = Effect.gen(function* () {
   const libPath = yield* LmdbLibPath;
   lib = dlopen(libPath, FFI_SYMBOLS);
-}).pipe(
-  Effect.mapError((cause) => new LmdbError({ operation: "initLmdb", cause })),
-);
+}).pipe(Effect.mapError((cause) => new LmdbError({ operation: "initLmdb", cause })));
 
 // ---------------------------------------------------------------------------
 // Pointer validation
@@ -386,8 +384,6 @@ export const discoverDatabases = (
         return names;
       },
       catch: (e) =>
-        e instanceof LmdbError
-          ? e
-          : new LmdbError({ operation: "discoverDatabases", cause: e }),
+        e instanceof LmdbError ? e : new LmdbError({ operation: "discoverDatabases", cause: e }),
     });
   });

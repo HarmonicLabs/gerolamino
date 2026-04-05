@@ -17,16 +17,16 @@ bunx nx run-many --target=build --all
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| `packages/cbor-schema` | CBOR schema definition and validation |
-| `packages/ledger` | Cardano ledger type decoders (full Mithril snapshot coverage) |
+| Package                  | Description                                                         |
+| ------------------------ | ------------------------------------------------------------------- |
+| `packages/cbor-schema`   | CBOR schema definition and validation                               |
+| `packages/ledger`        | Cardano ledger type decoders (full Mithril snapshot coverage)       |
 | `packages/miniprotocols` | Ouroboros miniprotocol implementation (ChainSync, BlockFetch, etc.) |
-| `packages/storage` | Storage layer with XState state machines and Effect-TS |
-| `packages/bootstrap` | Bootstrap WebSocket protocol library |
-| `packages/wasm-plexer` | Rust WASM protocol multiplexer |
-| `packages/wasm-utils` | Rust WASM crypto primitives (blake2b, ed25519, bech32, KES) |
-| `apps/bootstrap` | Bootstrap server -- streams Mithril snapshots to browser clients |
+| `packages/storage`       | Storage layer with XState state machines and Effect-TS              |
+| `packages/bootstrap`     | Bootstrap WebSocket protocol library                                |
+| `packages/wasm-plexer`   | Rust WASM protocol multiplexer                                      |
+| `packages/wasm-utils`    | Rust WASM crypto primitives (blake2b, ed25519, bech32, KES)         |
+| `apps/bootstrap`         | Bootstrap server -- streams Mithril snapshots to browser clients    |
 
 ## Building with Nix
 
@@ -79,6 +79,7 @@ Pushes to `main` trigger automatic deployment via GitHub Actions.
 ## CI/CD
 
 GitHub Actions runs on every push to `main`:
+
 1. **Build**: Compiles the bootstrap app and its WASM/TS dependencies
 2. **Deploy**: Deploys the NixOS configuration to production via deploy-rs with magic rollback
 

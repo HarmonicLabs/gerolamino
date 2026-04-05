@@ -25,7 +25,11 @@ function mergeMultiAsset(
   op: (x: bigint, y: bigint) => bigint,
 ): ReadonlyArray<MultiAssetEntry> | undefined {
   if (!a && !b) return undefined;
-  if (!a) return b?.map((e) => ({ ...e, assets: e.assets.map((a) => ({ ...a, quantity: op(0n, a.quantity) })) }));
+  if (!a)
+    return b?.map((e) => ({
+      ...e,
+      assets: e.assets.map((a) => ({ ...a, quantity: op(0n, a.quantity) })),
+    }));
   if (!b) return a;
 
   // Build policy → asset → quantity map

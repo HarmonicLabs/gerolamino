@@ -70,59 +70,69 @@
       # Project root as a Nix path — available in all modules via `config._module.args.root`
       _module.args.root = ./.;
       systems = [ "x86_64-linux" ];
-      perSystem = { pkgs, system, config, ... }: {
-        flake-root.projectRootFile = "flake.nix";
-        treefmt = {
-          projectRootFile = "flake.nix";
-          programs = {
-            oxfmt.enable = true;
-            nixpkgs-fmt.enable = true;
+      perSystem = { pkgs, system, config, ... }:
+        let
+          rustPkgs = import inputs.nixpkgs {
+            inherit system;
+            overlays = [ inputs.rust-overlay.overlays.default ];
           };
-        };
+        in
+        {
+          flake-root.projectRootFile = "flake.nix";
+          treefmt = {
+            projectRootFile = "flake.nix";
+            programs = {
+              oxfmt.enable = true;
+              nixpkgs-fmt.enable = true;
+              rustfmt.enable = true;
+              rustfmt.package = rustPkgs.rust-bin.selectLatestNightlyWith
+                (toolchain: toolchain.rustfmt);
+            };
+          };
 
-        devenv = {
-          shells.default = {
-            devenv.root =
-              let
-                envRoot = builtins.getEnv "PWD";
-              in
-              if envRoot != "" then envRoot else builtins.toString ./.;
-            packages = [
-              pkgs.lmdb
-              pkgs.sqlite
-              pkgs.poppler-utils
-              pkgs.wasm-pack
-              pkgs.binaryen
-              config.flake-root.package
-            ];
+          devenv = {
+            shells.default = {
+              devenv.root =
+                let
+                  envRoot = builtins.getEnv "PWD";
+                in
+                if envRoot != "" then envRoot else builtins.toString ./.;
+              packages = [
+                pkgs.lmdb
+                pkgs.sqlite
+                pkgs.poppler-utils
+                pkgs.wasm-pack
+                pkgs.binaryen
+                config.flake-root.package
+              ];
 
-            languages = {
-              nix = {
-                enable = true;
-                lsp.enable = true;
-              };
-              zig = {
-                enable = true;
-                lsp.enable = true;
-              };
-              rust = {
-                enable = true;
-                channel = "nightly";
-                targets = [ "wasm32-unknown-unknown" ];
-                lsp.enable = true;
-              };
-              typescript = {
-                enable = true;
-                lsp.enable = true;
-              };
-              javascript = {
-                enable = true;
-                npm.enable = true;
-                bun.enable = true;
+              languages = {
+                nix = {
+                  enable = true;
+                  lsp.enable = true;
+                };
+                zig = {
+                  enable = true;
+                  lsp.enable = true;
+                };
+                rust = {
+                  enable = true;
+                  channel = "nightly";
+                  targets = [ "wasm32-unknown-unknown" ];
+                  lsp.enable = true;
+                };
+                typescript = {
+                  enable = true;
+                  lsp.enable = true;
+                };
+                javascript = {
+                  enable = true;
+                  npm.enable = true;
+                  bun.enable = true;
+                };
               };
             };
           };
         };
-      };
     };
 }

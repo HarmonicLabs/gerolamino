@@ -40,13 +40,10 @@ describe("Full snapshot stream + decode", () => {
                   const block = msg as BlockMessage;
                   const result = yield* decodeMultiEraBlock(block.blockCbor).pipe(
                     Effect.map((decoded) => {
-                      const txCount =
-                        decoded._tag === "postByron" ? decoded.txBodies.length : 0;
+                      const txCount = decoded._tag === "postByron" ? decoded.txBodies.length : 0;
                       return { ok: true as const, txCount };
                     }),
-                    Effect.catch(() =>
-                      Effect.succeed({ ok: false as const, txCount: 0 }),
-                    ),
+                    Effect.catch(() => Effect.succeed({ ok: false as const, txCount: 0 })),
                   );
 
                   if (result.ok) {

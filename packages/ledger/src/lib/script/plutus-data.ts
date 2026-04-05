@@ -28,8 +28,15 @@ export enum PlutusDataKind {
 }
 
 export type PlutusData =
-  | { readonly _tag: PlutusDataKind.Constr; readonly constrTag: bigint; readonly fields: ReadonlyArray<PlutusData> }
-  | { readonly _tag: PlutusDataKind.Map; readonly entries: ReadonlyArray<readonly [PlutusData, PlutusData]> }
+  | {
+      readonly _tag: PlutusDataKind.Constr;
+      readonly constrTag: bigint;
+      readonly fields: ReadonlyArray<PlutusData>;
+    }
+  | {
+      readonly _tag: PlutusDataKind.Map;
+      readonly entries: ReadonlyArray<readonly [PlutusData, PlutusData]>;
+    }
   | { readonly _tag: PlutusDataKind.List; readonly items: ReadonlyArray<PlutusData> }
   | { readonly _tag: PlutusDataKind.Int; readonly value: bigint }
   | { readonly _tag: PlutusDataKind.Bytes; readonly value: Uint8Array };
@@ -118,7 +125,11 @@ export function decodePlutusData(
         if (tagNum >= 1280 && tagNum <= 1400) {
           const fieldsArr = yield* expectArray(cbor.data, `Constr(${tagNum - 1280 + 7})`);
           const fields = yield* Effect.all(fieldsArr.map(decodePlutusData));
-          return { _tag: PlutusDataKind.Constr as const, constrTag: BigInt(tagNum - 1280 + 7), fields };
+          return {
+            _tag: PlutusDataKind.Constr as const,
+            constrTag: BigInt(tagNum - 1280 + 7),
+            fields,
+          };
         }
 
         // Tag(102) = general Constr [tag, fields]

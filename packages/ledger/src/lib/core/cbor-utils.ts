@@ -96,9 +96,7 @@ export function expectArray(
   if (cbor._tag !== CborKinds.Array)
     return Effect.fail(issueAt(cbor, `${ctx}: expected array, got ${cbor._tag}`));
   if (len !== undefined && cbor.items.length !== len)
-    return Effect.fail(
-      issueAt(cbor, `${ctx}: expected ${len} items, got ${cbor.items.length}`),
-    );
+    return Effect.fail(issueAt(cbor, `${ctx}: expected ${len} items, got ${cbor.items.length}`));
   return Effect.succeed(cbor.items);
 }
 
@@ -148,9 +146,7 @@ export function expectBytes(
   if (cbor._tag !== CborKinds.Bytes)
     return Effect.fail(issueAt(cbor, `${ctx}: expected bytes, got ${cbor._tag}`));
   if (len !== undefined && cbor.bytes.length !== len)
-    return Effect.fail(
-      issueAt(cbor, `${ctx}: expected ${len} bytes, got ${cbor.bytes.length}`),
-    );
+    return Effect.fail(issueAt(cbor, `${ctx}: expected ${len} bytes, got ${cbor.bytes.length}`));
   return Effect.succeed(cbor.bytes);
 }
 
@@ -168,10 +164,7 @@ export function expectText(
 export function expectMap(
   cbor: CborSchemaType,
   ctx: string,
-): Effect.Effect<
-  ReadonlyArray<{ k: CborSchemaType; v: CborSchemaType }>,
-  SchemaIssue.Issue
-> {
+): Effect.Effect<ReadonlyArray<{ k: CborSchemaType; v: CborSchemaType }>, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Map)
     return Effect.fail(issueAt(cbor, `${ctx}: expected map, got ${cbor._tag}`));
   return Effect.succeed(cbor.entries);
@@ -185,7 +178,10 @@ export function expectTag(
 ): Effect.Effect<CborSchemaType, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Tag || cbor.tag !== tag)
     return Effect.fail(
-      issueAt(cbor, `${ctx}: expected Tag(${tag}), got ${cbor._tag === CborKinds.Tag ? `Tag(${cbor.tag})` : cbor._tag}`),
+      issueAt(
+        cbor,
+        `${ctx}: expected Tag(${tag}), got ${cbor._tag === CborKinds.Tag ? `Tag(${cbor.tag})` : cbor._tag}`,
+      ),
     );
   return Effect.succeed(cbor.data);
 }

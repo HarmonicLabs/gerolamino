@@ -85,7 +85,8 @@ const program = Effect.gen(function* () {
   if (hsResult._tag === HandshakeMessageType.MsgAcceptVersion) {
     ok("Handshake", `version=${hsResult.version}, magic=${hsResult.versionData.networkMagic}`);
     if (hsResult.version !== 14) fail("Handshake version", `expected 14, got ${hsResult.version}`);
-    if (hsResult.versionData.networkMagic !== 1) fail("Handshake magic", `expected 1, got ${hsResult.versionData.networkMagic}`);
+    if (hsResult.versionData.networkMagic !== 1)
+      fail("Handshake magic", `expected 1, got ${hsResult.versionData.networkMagic}`);
   } else {
     fail("Handshake", `unexpected: ${hsResult._tag}`);
   }
@@ -110,7 +111,10 @@ const program = Effect.gen(function* () {
     Effect.timeout(Duration.seconds(15)),
     Effect.catchTag("TimeoutError", () => Effect.fail("FindIntersect timed out")),
   );
-  if (intersect._tag === ChainSyncMessageType.IntersectFound || intersect._tag === ChainSyncMessageType.IntersectNotFound) {
+  if (
+    intersect._tag === ChainSyncMessageType.IntersectFound ||
+    intersect._tag === ChainSyncMessageType.IntersectNotFound
+  ) {
     ok("FindIntersect at origin", intersect._tag);
   } else {
     fail("FindIntersect", `unexpected: ${intersect._tag}`);
@@ -128,7 +132,10 @@ const program = Effect.gen(function* () {
       const tipSlot = next.tip.point._tag === ChainPointType.RealPoint ? next.tip.point.slot : 0n;
       if (tipSlot < lastSlot) slotsMonotonic = false;
       lastSlot = tipSlot;
-      ok(`RequestNext[${i}]`, `RollForward tip.blockNo=${next.tip.blockNo}, header=${next.header.length}B`);
+      ok(
+        `RequestNext[${i}]`,
+        `RollForward tip.blockNo=${next.tip.blockNo}, header=${next.header.length}B`,
+      );
     } else if (next._tag === ChainSyncMessageType.RollBackward) {
       ok(`RequestNext[${i}]`, `RollBackward`);
     } else {
@@ -152,9 +159,16 @@ const program = Effect.gen(function* () {
     Effect.catchTag("TimeoutError", () => Effect.succeed(undefined)),
   );
 
-  if (nextForFetch && nextForFetch._tag === ChainSyncMessageType.RollForward && nextForFetch.tip.point._tag === ChainPointType.RealPoint) {
+  if (
+    nextForFetch &&
+    nextForFetch._tag === ChainSyncMessageType.RollForward &&
+    nextForFetch.tip.point._tag === ChainPointType.RealPoint
+  ) {
     const tipPoint = nextForFetch.tip.point;
-    ok("BlockFetch point", `slot=${tipPoint.slot}, hash=${Buffer.from(tipPoint.hash).toString("hex").slice(0, 16)}...`);
+    ok(
+      "BlockFetch point",
+      `slot=${tipPoint.slot}, hash=${Buffer.from(tipPoint.hash).toString("hex").slice(0, 16)}...`,
+    );
 
     const result = yield* bf.requestRange(tipPoint, tipPoint).pipe(
       Effect.timeout(Duration.seconds(15)),
@@ -176,7 +190,10 @@ const program = Effect.gen(function* () {
           const decoded = Effect.runSync(decodeMultiEraBlock(blockCbor));
           if (decoded._tag === "postByron" && decoded.header) {
             const hdr = decoded.header as BlockHeader;
-            ok("Block header decode", `slot=${hdr.slot}, blockNo=${hdr.blockNo}, txs=${decoded.txBodies.length}`);
+            ok(
+              "Block header decode",
+              `slot=${hdr.slot}, blockNo=${hdr.blockNo}, txs=${decoded.txBodies.length}`,
+            );
           } else if (decoded._tag === "byron") {
             ok("Block decode", "Byron block (opaque)");
           }
@@ -200,11 +217,7 @@ const program = Effect.gen(function* () {
 
 // Run
 const exit = await Effect.runPromiseExit(
-  program.pipe(
-    Effect.scoped,
-    Effect.provide(N2NProtocols),
-    Effect.timeout(Duration.seconds(120)),
-  ),
+  program.pipe(Effect.scoped, Effect.provide(N2NProtocols), Effect.timeout(Duration.seconds(120))),
 );
 
 if (exit._tag === "Failure") {

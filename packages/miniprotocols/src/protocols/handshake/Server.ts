@@ -1,8 +1,6 @@
 import { Effect, Layer, PubSub, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
-import _ from "lodash";
-
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MultiplexerHeaderError } from "@/multiplexer";
@@ -48,8 +46,10 @@ const handleProposal = (
       Schema.String.pipe(Schema.decodeTo(Schemas.VersionNumber), Schema.Array),
     )(Object.keys(config.supportedVersions.data));
 
-    const intersection = _.intersection(proposedVersions, supportedVersions);
-    const selectedVersion = _.max(intersection);
+    const supportedSet = new Set(supportedVersions);
+    const intersection = proposedVersions.filter((v) => supportedSet.has(v));
+    const selectedVersion =
+      intersection.length > 0 ? intersection.reduce((a, b) => (a > b ? a : b)) : undefined;
 
     if (selectedVersion) {
       const proposedData = message.versionTable.data[selectedVersion];

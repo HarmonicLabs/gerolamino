@@ -1,7 +1,7 @@
 /**
  * Mempool XState machine tests — pure state transition logic.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, it, expect } from "@effect/vitest";
 import { createActor } from "xstate";
 import { mempoolMachine } from "../machines/mempool.ts";
 import type { MempoolTx } from "../types/Mempool.ts";
@@ -14,7 +14,7 @@ const makeTx = (id: number, size: number): MempoolTx => ({
 });
 
 describe("Mempool Machine", () => {
-  test("starts in accepting state with empty txs", () => {
+  it("starts in accepting state with empty txs", () => {
     const actor = createActor(mempoolMachine, { input: { maxBytes: 10000 } });
     actor.start();
     const snap = actor.getSnapshot();
@@ -24,7 +24,7 @@ describe("Mempool Machine", () => {
     actor.stop();
   });
 
-  test("accepts transactions when under capacity", () => {
+  it("accepts transactions when under capacity", () => {
     const actor = createActor(mempoolMachine, { input: { maxBytes: 10000 } });
     actor.start();
     actor.send({ type: "TX_SUBMITTED", tx: makeTx(1, 500) });
@@ -37,7 +37,7 @@ describe("Mempool Machine", () => {
     actor.stop();
   });
 
-  test("rejects transactions when at capacity", () => {
+  it("rejects transactions when at capacity", () => {
     const actor = createActor(mempoolMachine, { input: { maxBytes: 1000 } });
     actor.start();
     actor.send({ type: "TX_SUBMITTED", tx: makeTx(1, 800) });
@@ -50,7 +50,7 @@ describe("Mempool Machine", () => {
     actor.stop();
   });
 
-  test("removes transactions on BLOCK_APPLIED", () => {
+  it("removes transactions on BLOCK_APPLIED", () => {
     const actor = createActor(mempoolMachine, { input: { maxBytes: 10000 } });
     actor.start();
     actor.send({ type: "TX_SUBMITTED", tx: makeTx(1, 100) });
@@ -66,7 +66,7 @@ describe("Mempool Machine", () => {
     actor.stop();
   });
 
-  test("increments snapshotNo on each state change", () => {
+  it("increments snapshotNo on each state change", () => {
     const actor = createActor(mempoolMachine, { input: { maxBytes: 10000 } });
     actor.start();
     expect(actor.getSnapshot().context.snapshotNo).toBe(0);

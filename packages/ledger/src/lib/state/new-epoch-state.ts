@@ -7,7 +7,7 @@
  * Key encoding quirk: Credential tags are REVERSED in state CBOR vs block CBOR.
  * State: 0=Script, 1=Key. Block/CDDL: 0=Key, 1=Script.
  */
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { CborKinds, type CborSchemaType, parseSync } from "cbor-schema";
 import { Era } from "../core/era.ts";
 
@@ -15,11 +15,14 @@ import { Era } from "../core/era.ts";
 // Error type
 // ---------------------------------------------------------------------------
 
-export class StateDecodeError extends Data.TaggedError("StateDecodeError")<{
-  readonly context: string;
-  readonly expected: string;
-  readonly actual: string;
-}> {
+export class StateDecodeError extends Schema.TaggedErrorClass<StateDecodeError>()(
+  "StateDecodeError",
+  {
+    context: Schema.String,
+    expected: Schema.String,
+    actual: Schema.String,
+  },
+) {
   override get message() {
     return `${this.context}: expected ${this.expected}, got ${this.actual}`;
   }
@@ -198,7 +201,10 @@ export interface StateAnchor {
   readonly hash: Uint8Array;
 }
 
-function decodeAnchor(cbor: CborSchemaType, ctx: string): Effect.Effect<StateAnchor, StateDecodeError> {
+function decodeAnchor(
+  cbor: CborSchemaType,
+  ctx: string,
+): Effect.Effect<StateAnchor, StateDecodeError> {
   return Effect.gen(function* () {
     const items = yield* expectArray(cbor, ctx, 2);
     return {

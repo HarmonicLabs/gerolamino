@@ -7,12 +7,7 @@
     "declaration": true
   },
   "include": ["./src/**/*"],
-  "exclude": [
-    "**/__tests__/**/*",
-    "**/*.test.ts",
-    "**/*.spec.ts",
-    "**/*.bench.ts"
-  ],
+  "exclude": ["**/__tests__/**/*", "**/*.test.ts", "**/*.spec.ts", "**/*.bench.ts"],
   "references": [
     {
       "path": "../ledger/tsconfig.lib.json"

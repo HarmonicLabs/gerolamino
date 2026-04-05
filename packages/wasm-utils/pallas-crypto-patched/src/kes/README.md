@@ -39,6 +39,7 @@ fn main() {
 **Note** Cardano uses currently **Sum6Kes**.
 
 ## Compatibility with Cardano
+
 We provide two implementations of KES for compatibility with Cardano's blockchain. Cardano currently
 uses `Sum6Kes` which is supported here.
 As that implementation is not optimal in what concerns signature size,
@@ -53,10 +54,11 @@ Secret keys of this crate are not compatible with KES keys as they are used in t
 [cardano node](https://github.com/IntersectMBO/cardano-node). In this crate we include the
 period of the KES secret key as part of its structure, while the cardano implementation does not.
 This decision is motivated by two reasons:
-* It considerably simplifies the API and makes it more intuitive to use. Moreover, the period is
+
+- It considerably simplifies the API and makes it more intuitive to use. Moreover, the period is
   a required knowledge to sign/update a skey, and we concluded that a secret key should contain it's
   period.
-* Secret keys are not send through the wire, meaning that a node using this implementation will not
+- Secret keys are not send through the wire, meaning that a node using this implementation will not
   need to be compatible with cardano node's serialisation. However, if for some reason one needs to
   serialise a cardano node serialised key for usage in this application (or vice-versa), one simply
   needs to add the period as a 32 bit number represented in 4 big endian bytes (or, vice-versa,
@@ -64,15 +66,18 @@ This decision is motivated by two reasons:
   in the [interoperability](summed_kes_interoperability.rs) tests of this crate.
 
 ## Previous versions of the code
+
 This repo is an adapted copy of
 [txpipe/kes](https://github.com/txpipe/kes.git), which in turn is fork of
 [kes-mmm-sumed25519](https://github.com/IntersectMBO/kes-mmm-sumed25519). The old repo
 remains unchanged for historical purposes.
 
 ## Disclaimer
+
 This crate has not been audited. Use at your own risk.
 
 ## Contribution
+
 Unless you explicitly state otherwise, any contribution
 intentionally submitted for inclusion in the work by you,
 as defined in the Apache-2.0 license, shall be licensed

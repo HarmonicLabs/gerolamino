@@ -1,10 +1,10 @@
 {
   "name": "miniprotocols",
   "version": "0.0.5-dev7",
-  "main": "./dist/index.js",
   "license": "Apache-2.0",
   "author": "Harmonic Laboratories",
   "funding": "https://github.com/sponsors/HarmonicLabs",
+  "main": "./dist/index.js",
   "dependencies": {
     "@effect/opentelemetry": "^4.0.0-beta.43",
     "@harmoniclabs/cbor": "^2.0.1",
@@ -13,17 +13,14 @@
     "@harmoniclabs/uint8array-utils": "^1.0.4",
     "cbor-schema": "workspace:*",
     "effect": "^4.0.0-beta.43",
-    "lodash": "^4.18.0",
     "wasm-plexer": "workspace:*",
     "xstate": "^5.30.0"
   },
   "devDependencies": {
-    "@effect/language-service": "^0.80.0",
     "@effect/platform-bun": "^4.0.0-beta.43",
     "@effect/vitest": "^4.0.0-beta.43",
-    "@types/lodash": "^4.17.24",
     "tsc-alias": "^1.8.16",
-    "typescript": "^5.9.3",
-    "vitest": "^2.1.9"
+    "typescript": "~5.9.2",
+    "vitest": "^4.1.2"
   }
 }

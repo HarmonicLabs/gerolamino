@@ -24,9 +24,15 @@ const IMMUTABLE_DIR = pathNode.join(WORKSPACE, "apps/bootstrap/db/immutable");
 async function readChunkBlocks(chunkNo: number): Promise<ReadonlyArray<Uint8Array>> {
   const base = String(chunkNo).padStart(5, "0");
   const [primary, secondary, chunk] = await Promise.all([
-    Bun.file(`${IMMUTABLE_DIR}/${base}.primary`).arrayBuffer().then((b) => new Uint8Array(b)),
-    Bun.file(`${IMMUTABLE_DIR}/${base}.secondary`).arrayBuffer().then((b) => new Uint8Array(b)),
-    Bun.file(`${IMMUTABLE_DIR}/${base}.chunk`).arrayBuffer().then((b) => new Uint8Array(b)),
+    Bun.file(`${IMMUTABLE_DIR}/${base}.primary`)
+      .arrayBuffer()
+      .then((b) => new Uint8Array(b)),
+    Bun.file(`${IMMUTABLE_DIR}/${base}.secondary`)
+      .arrayBuffer()
+      .then((b) => new Uint8Array(b)),
+    Bun.file(`${IMMUTABLE_DIR}/${base}.chunk`)
+      .arrayBuffer()
+      .then((b) => new Uint8Array(b)),
   ]);
 
   if (primary.length < 5 || primary[0] !== 1) return [];
@@ -38,7 +44,9 @@ async function readChunkBlocks(chunkNo: number): Promise<ReadonlyArray<Uint8Arra
   const offsets: number[] = [];
   for (let i = 0; i < numSlots; i++) offsets.push(primaryDv.getUint32(1 + i * 4, false));
 
-  interface Entry { blockOff: bigint }
+  interface Entry {
+    blockOff: bigint;
+  }
   const entries: Entry[] = [];
   for (let i = 0; i + 1 < offsets.length; i++) {
     if (offsets[i] !== offsets[i + 1]) {
@@ -97,7 +105,9 @@ async function benchGerolamino(totalChunks: number) {
 
   console.log(`  Done: ${totalBlocks} blocks, ${totalTxs} txs, ${failures} failures`);
   console.log(`  Time: ${elapsed.toFixed(2)}s`);
-  console.log(`  RSS delta: ${memDelta.toFixed(1)} MB (start: ${(startMem.rss / 1024 / 1024).toFixed(0)} MB, end: ${(endMem.rss / 1024 / 1024).toFixed(0)} MB)`);
+  console.log(
+    `  RSS delta: ${memDelta.toFixed(1)} MB (start: ${(startMem.rss / 1024 / 1024).toFixed(0)} MB, end: ${(endMem.rss / 1024 / 1024).toFixed(0)} MB)`,
+  );
   console.log(`  Throughput: ${(totalBlocks / elapsed).toFixed(0)} blocks/s`);
 
   return { totalBlocks, totalTxs, failures, elapsed, memDelta };
@@ -147,7 +157,9 @@ async function benchLegacy(totalChunks: number) {
 
   console.log(`  Done: ${totalBlocks} blocks, ${totalTxs} txs, ${failures} failures`);
   console.log(`  Time: ${elapsed.toFixed(2)}s`);
-  console.log(`  RSS delta: ${memDelta.toFixed(1)} MB (start: ${(startMem.rss / 1024 / 1024).toFixed(0)} MB, end: ${(endMem.rss / 1024 / 1024).toFixed(0)} MB)`);
+  console.log(
+    `  RSS delta: ${memDelta.toFixed(1)} MB (start: ${(startMem.rss / 1024 / 1024).toFixed(0)} MB, end: ${(endMem.rss / 1024 / 1024).toFixed(0)} MB)`,
+  );
   console.log(`  Throughput: ${(totalBlocks / elapsed).toFixed(0)} blocks/s`);
 
   return { totalBlocks, totalTxs, failures, elapsed, memDelta };
@@ -178,11 +190,17 @@ async function main() {
 
   // Summary
   console.log("\n=== Comparison ===");
-  console.log(`  gerolamino: ${gero.elapsed.toFixed(2)}s, ${gero.memDelta.toFixed(1)} MB RSS delta, ${(gero.totalBlocks / gero.elapsed).toFixed(0)} blocks/s`);
+  console.log(
+    `  gerolamino: ${gero.elapsed.toFixed(2)}s, ${gero.memDelta.toFixed(1)} MB RSS delta, ${(gero.totalBlocks / gero.elapsed).toFixed(0)} blocks/s`,
+  );
   if (legacy) {
-    console.log(`  legacy:     ${legacy.elapsed.toFixed(2)}s, ${legacy.memDelta.toFixed(1)} MB RSS delta, ${(legacy.totalBlocks / legacy.elapsed).toFixed(0)} blocks/s`);
+    console.log(
+      `  legacy:     ${legacy.elapsed.toFixed(2)}s, ${legacy.memDelta.toFixed(1)} MB RSS delta, ${(legacy.totalBlocks / legacy.elapsed).toFixed(0)} blocks/s`,
+    );
     const speedup = legacy.elapsed / gero.elapsed;
-    console.log(`  Speedup: ${speedup.toFixed(2)}x ${speedup > 1 ? "(gerolamino faster)" : "(legacy faster)"}`);
+    console.log(
+      `  Speedup: ${speedup.toFixed(2)}x ${speedup > 1 ? "(gerolamino faster)" : "(legacy faster)"}`,
+    );
   }
 }
 

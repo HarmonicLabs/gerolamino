@@ -1,7 +1,12 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
 import { Network } from "../core/primitives.ts";
-import { Credential, CredentialKind, decodeCredential, encodeCredential } from "../core/credentials.ts";
+import {
+  Credential,
+  CredentialKind,
+  decodeCredential,
+  encodeCredential,
+} from "../core/credentials.ts";
 import { Bytes28 } from "../core/hashes.ts";
 
 // ────────────────────────────────────────────────────────────────────────────

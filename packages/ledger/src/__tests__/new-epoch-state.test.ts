@@ -7,7 +7,11 @@ import pathNode from "path";
 import { fileURLToPath } from "url";
 
 const __dir = pathNode.dirname(fileURLToPath(import.meta.url));
-const STATE_PATH = pathNode.resolve(__dir, "../../../..", "apps/bootstrap/db/ledger/119401006/state");
+const STATE_PATH = pathNode.resolve(
+  __dir,
+  "../../../..",
+  "apps/bootstrap/db/ledger/119401006/state",
+);
 
 const FsLayer = NodeFileSystem.layer;
 
@@ -116,7 +120,14 @@ describe("NewEpochState decoder", () => {
         Effect.sync(() => {
           assert.strictEqual(ext.pastEras.length, 6);
           const eras = ext.pastEras.map((e) => e.era);
-          assert.deepStrictEqual(eras, [Era.Byron, Era.Shelley, Era.Allegra, Era.Mary, Era.Alonzo, Era.Babbage]);
+          assert.deepStrictEqual(eras, [
+            Era.Byron,
+            Era.Shelley,
+            Era.Allegra,
+            Era.Mary,
+            Era.Alonzo,
+            Era.Babbage,
+          ]);
         }),
       ),
     ),

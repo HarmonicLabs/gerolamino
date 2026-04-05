@@ -32,7 +32,10 @@ export type Metadatum =
   | { readonly _tag: MetadatumKind.Bytes; readonly value: Uint8Array }
   | { readonly _tag: MetadatumKind.Text; readonly value: string }
   | { readonly _tag: MetadatumKind.List; readonly items: ReadonlyArray<Metadatum> }
-  | { readonly _tag: MetadatumKind.Map; readonly entries: ReadonlyArray<readonly [Metadatum, Metadatum]> };
+  | {
+      readonly _tag: MetadatumKind.Map;
+      readonly entries: ReadonlyArray<readonly [Metadatum, Metadatum]>;
+    };
 
 const MetadatumRef = Schema.suspend((): Schema.Schema<Metadatum> => Metadatum);
 
@@ -78,9 +81,7 @@ export type AuxiliaryData = Schema.Schema.Type<typeof AuxiliaryData>;
 // Metadatum CBOR decoder (recursive)
 // ---------------------------------------------------------------------------
 
-export function decodeMetadatum(
-  cbor: CborSchemaType,
-): Effect.Effect<Metadatum, SchemaIssue.Issue> {
+export function decodeMetadatum(cbor: CborSchemaType): Effect.Effect<Metadatum, SchemaIssue.Issue> {
   return Effect.gen(function* () {
     switch (cbor._tag) {
       case CborKinds.UInt:
@@ -99,7 +100,8 @@ export function decodeMetadatum(
         // Could be a chunked Bytes/Text array or a genuine List
         if (cbor.items.length > 0 && cbor.items.every((i) => i._tag === CborKinds.Bytes)) {
           const totalLen = cbor.items.reduce(
-            (sum, i) => sum + (i._tag === CborKinds.Bytes ? i.bytes.length : 0), 0,
+            (sum, i) => sum + (i._tag === CborKinds.Bytes ? i.bytes.length : 0),
+            0,
           );
           const result = new Uint8Array(totalLen);
           let offset = 0;
@@ -169,7 +171,10 @@ function extractScriptArray(
 ): ReadonlyArray<Uint8Array> | undefined {
   if (!cbor || cbor._tag !== CborKinds.Array) return undefined;
   return cbor.items
-    .filter((i): i is Extract<CborSchemaType, { _tag: typeof CborKinds.Bytes }> => i._tag === CborKinds.Bytes)
+    .filter(
+      (i): i is Extract<CborSchemaType, { _tag: typeof CborKinds.Bytes }> =>
+        i._tag === CborKinds.Bytes,
+    )
     .map((i) => i.bytes);
 }
 

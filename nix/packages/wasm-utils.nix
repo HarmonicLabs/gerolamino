@@ -17,6 +17,7 @@
             (utilsDir + "/Cargo.lock")
             (utilsDir + "/src")
             (utilsDir + "/pallas-crypto-patched")
+            (utilsDir + "/pallas-math")
             (utilsDir + "/.cargo")
           ];
         };

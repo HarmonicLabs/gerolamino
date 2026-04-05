@@ -34,8 +34,8 @@
         }:
         let
           toolchain = (if rustChannel == "nightly"
-            then pkgs.rust-bin.nightly.latest.default
-            else pkgs.rust-bin.stable.latest.default).override {
+          then pkgs.rust-bin.nightly.latest.default
+          else pkgs.rust-bin.stable.latest.default).override {
             targets = [ "wasm32-unknown-unknown" ];
           };
 

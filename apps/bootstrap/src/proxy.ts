@@ -15,10 +15,7 @@ export const bridgeSockets = (wsSocket: Socket.Socket, upstreamUrl: globalThis.U
       const tcpWrite = yield* tcpSocket.writer;
       const wsWrite = yield* wsSocket.writer;
       yield* Effect.all(
-        [
-          wsSocket.run((data) => tcpWrite(data)),
-          tcpSocket.run((data) => wsWrite(data)),
-        ],
+        [wsSocket.run((data) => tcpWrite(data)), tcpSocket.run((data) => wsWrite(data))],
         { concurrency: 2 },
       );
     }),

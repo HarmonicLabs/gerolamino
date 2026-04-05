@@ -109,7 +109,11 @@ export const ChainSyncMessageBytes = CborSchemaFromBytes.pipe(
           let headerBytes: Uint8Array;
           if (headerCbor?._tag === CborKinds.Bytes) {
             headerBytes = headerCbor.bytes;
-          } else if (headerCbor?._tag === CborKinds.Tag && headerCbor.tag === 24n && headerCbor.data._tag === CborKinds.Bytes) {
+          } else if (
+            headerCbor?._tag === CborKinds.Tag &&
+            headerCbor.tag === 24n &&
+            headerCbor.data._tag === CborKinds.Bytes
+          ) {
             headerBytes = headerCbor.data.bytes;
           } else {
             // Fallback: encode whatever CBOR we got as bytes

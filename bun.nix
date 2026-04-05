@@ -5,12 +5,11 @@
 # Consume this with `fetchBunDeps` (recommended)
 # or `pkgs.callPackage` if you wish to handle
 # it manually.
-{
-  copyPathToStore,
-  fetchFromGitHub,
-  fetchgit,
-  fetchurl,
-  ...
+{ copyPathToStore
+, fetchFromGitHub
+, fetchgit
+, fetchurl
+, ...
 }:
 {
   "@1natsu/wait-element@4.1.2" = fetchurl {

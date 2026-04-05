@@ -55,10 +55,10 @@ nix build .#bootstrap-app
 
 ## API
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/info` | GET | Snapshot metadata (protocol magic, slot, chunk count) |
-| `/bootstrap` | GET | WebSocket upgrade; streams TLV-framed snapshot data |
+| Endpoint     | Method | Description                                           |
+| ------------ | ------ | ----------------------------------------------------- |
+| `/info`      | GET    | Snapshot metadata (protocol magic, slot, chunk count) |
+| `/bootstrap` | GET    | WebSocket upgrade; streams TLV-framed snapshot data   |
 
 ### WebSocket protocol
 
@@ -68,9 +68,9 @@ Stream order: Init -> LedgerState -> LedgerMeta -> LmdbEntries... -> Blocks... -
 
 ## Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LIBLMDB_PATH` | (required) | Path to `liblmdb.so`. Set automatically in the Nix build. |
-| `PORT` | `3040` | HTTP/WebSocket listen port |
-| `SNAPSHOT_PATH` | `db` | Path to the Mithril snapshot directory |
-| `UPSTREAM_URL` | `tcp://preprod-node.play.dev.cardano.org:3001` | Upstream Cardano node for miniprotocol proxying |
+| Variable        | Default                                        | Description                                               |
+| --------------- | ---------------------------------------------- | --------------------------------------------------------- |
+| `LIBLMDB_PATH`  | (required)                                     | Path to `liblmdb.so`. Set automatically in the Nix build. |
+| `PORT`          | `3040`                                         | HTTP/WebSocket listen port                                |
+| `SNAPSHOT_PATH` | `db`                                           | Path to the Mithril snapshot directory                    |
+| `UPSTREAM_URL`  | `tcp://preprod-node.play.dev.cardano.org:3001` | Upstream Cardano node for miniprotocol proxying           |

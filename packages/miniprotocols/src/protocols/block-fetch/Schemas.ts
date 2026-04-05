@@ -88,7 +88,11 @@ export const BlockFetchMessageBytes = CborSchemaFromBytes.pipe(
           let blockBytes: Uint8Array;
           if (blockCbor?._tag === CborKinds.Bytes) {
             blockBytes = blockCbor.bytes;
-          } else if (blockCbor?._tag === CborKinds.Tag && blockCbor.tag === 24n && blockCbor.data._tag === CborKinds.Bytes) {
+          } else if (
+            blockCbor?._tag === CborKinds.Tag &&
+            blockCbor.tag === 24n &&
+            blockCbor.data._tag === CborKinds.Bytes
+          ) {
             blockBytes = blockCbor.data.bytes;
           } else {
             blockBytes = encodeSync(blockCbor!);

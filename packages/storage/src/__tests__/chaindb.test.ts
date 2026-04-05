@@ -1,7 +1,7 @@
 /**
  * ChainDB XState machine tests — pure state transition logic.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, it, expect } from "@effect/vitest";
 import { createActor } from "xstate";
 import { chainDBMachine } from "../machines/chaindb.ts";
 
@@ -15,7 +15,7 @@ const makeBlock = (slot: bigint, blockNo: bigint) => ({
 });
 
 describe("ChainDB Machine", () => {
-  test("starts in idle state with correct context", () => {
+  it("starts in idle state with correct context", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
     const snap = actor.getSnapshot();
@@ -30,7 +30,7 @@ describe("ChainDB Machine", () => {
     actor.stop();
   });
 
-  test("transitions to received on BLOCK_RECEIVED, increments volatileLength", () => {
+  it("transitions to received on BLOCK_RECEIVED, increments volatileLength", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
     actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
@@ -40,7 +40,7 @@ describe("ChainDB Machine", () => {
     actor.stop();
   });
 
-  test("transitions back to idle on CHAIN_SELECTED, updates tip", () => {
+  it("transitions back to idle on CHAIN_SELECTED, updates tip", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
     actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
@@ -52,13 +52,16 @@ describe("ChainDB Machine", () => {
     actor.stop();
   });
 
-  test("IMMUTABILITY_CHECK transitions to copying when volatileLength > k", () => {
+  it("IMMUTABILITY_CHECK transitions to copying when volatileLength > k", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 2 } });
     actor.start();
     // Add 3 blocks to exceed k=2
     for (let i = 1; i <= 3; i++) {
       actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(BigInt(i), BigInt(i)) });
-      actor.send({ type: "CHAIN_SELECTED", tip: { slot: BigInt(i), hash: new Uint8Array(32).fill(i) } });
+      actor.send({
+        type: "CHAIN_SELECTED",
+        tip: { slot: BigInt(i), hash: new Uint8Array(32).fill(i) },
+      });
     }
     expect(actor.getSnapshot().context.volatileLength).toBe(3);
     actor.send({ type: "IMMUTABILITY_CHECK" });
@@ -66,7 +69,7 @@ describe("ChainDB Machine", () => {
     actor.stop();
   });
 
-  test("IMMUTABILITY_CHECK stays idle when volatileLength <= k", () => {
+  it("IMMUTABILITY_CHECK stays idle when volatileLength <= k", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
     actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
@@ -76,7 +79,7 @@ describe("ChainDB Machine", () => {
     actor.stop();
   });
 
-  test("full immutability cycle: copying -> gc -> idle", () => {
+  it("full immutability cycle: copying -> gc -> idle", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 1 } });
     actor.start();
     actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
@@ -97,7 +100,7 @@ describe("ChainDB Machine", () => {
     actor.stop();
   });
 
-  test("ROLLBACK updates tip", () => {
+  it("ROLLBACK updates tip", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
     const rollbackPoint = { slot: 5n, hash: new Uint8Array(32).fill(5) };
@@ -106,7 +109,7 @@ describe("ChainDB Machine", () => {
     actor.stop();
   });
 
-  test("ERROR captures error in context", () => {
+  it("ERROR captures error in context", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
     actor.send({ type: "ERROR", error: "test error" });

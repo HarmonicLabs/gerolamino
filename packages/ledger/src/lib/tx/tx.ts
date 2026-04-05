@@ -1,12 +1,30 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { CborSchemaFromBytes, CborKinds, type CborSchemaType, encodeSync } from "cbor-schema";
-import { uint, cborBytes, negInt, mapEntry, getCborSet, expectArray, expectUint, expectInt, expectBytes, expectMap, expectText, getMapValue } from "../core/cbor-utils.ts";
+import {
+  uint,
+  cborBytes,
+  negInt,
+  mapEntry,
+  getCborSet,
+  expectArray,
+  expectUint,
+  expectInt,
+  expectBytes,
+  expectMap,
+  expectText,
+  getMapValue,
+} from "../core/cbor-utils.ts";
 import { Bytes28, Bytes32, Bytes64 } from "../core/hashes.ts";
 import { decodeValue, encodeValue, Value } from "../value/value.ts";
 import { decodeAddr, encodeAddr, Addr, decodeRwdAddr, encodeRwdAddr } from "../address/address.ts";
 import { decodeDCert, encodeDCert, DCert } from "../certs/certs.ts";
 import { decodeTimelock, encodeTimelock, ScriptKind, type TimelockType } from "../script/script.ts";
-import { CredentialKind, Credential, decodeCredential, encodeCredential } from "../core/credentials.ts";
+import {
+  CredentialKind,
+  Credential,
+  decodeCredential,
+  encodeCredential,
+} from "../core/credentials.ts";
 import { decodePlutusData, PlutusData } from "../script/plutus-data.ts";
 import { decodeAuxiliaryData, AuxiliaryData } from "./auxiliary-data.ts";
 import { Timelock } from "../script/script.ts";
@@ -87,7 +105,11 @@ function decodeDatumOption(cbor: CborSchemaType): Effect.Effect<DatumOption, Sch
       case 1: {
         const datum = items[1]!;
         // Inline datum is wrapped in Tag(24, bytes) — CBOR-encoded CBOR
-        if (datum._tag === CborKinds.Tag && datum.tag === 24n && datum.data._tag === CborKinds.Bytes)
+        if (
+          datum._tag === CborKinds.Tag &&
+          datum.tag === 24n &&
+          datum.data._tag === CborKinds.Bytes
+        )
           return { _tag: DatumOptionKind.InlineDatum as const, datum: datum.data.bytes };
         // Some encoders put raw bytes
         if (datum._tag === CborKinds.Bytes)
@@ -493,15 +515,14 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
       outputs,
       fee: feeCbor.num,
       ttl: ttlCbor?._tag === CborKinds.UInt ? ttlCbor.num : undefined,
-      certs: certItems
-        ? yield* Effect.all([...certItems].map(decodeDCert))
-        : undefined,
-      withdrawals: wdrlCbor?._tag === CborKinds.Map
-        ? wdrlCbor.entries.map((e) => ({
-            rewardAccount: e.k._tag === CborKinds.Bytes ? e.k.bytes : new Uint8Array(0),
-            coin: e.v._tag === CborKinds.UInt ? e.v.num : 0n,
-          }))
-        : undefined,
+      certs: certItems ? yield* Effect.all([...certItems].map(decodeDCert)) : undefined,
+      withdrawals:
+        wdrlCbor?._tag === CborKinds.Map
+          ? wdrlCbor.entries.map((e) => ({
+              rewardAccount: e.k._tag === CborKinds.Bytes ? e.k.bytes : new Uint8Array(0),
+              coin: e.v._tag === CborKinds.UInt ? e.v.num : 0n,
+            }))
+          : undefined,
       update: updateCbor ? encodeSync(updateCbor) : undefined,
       auxDataHash:
         auxHashCbor?._tag === CborKinds.Bytes && auxHashCbor.bytes.length === 32
@@ -517,9 +538,7 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
         ? yield* Effect.all([...collateralItems].map(decodeTxIn))
         : undefined,
       requiredSigners: reqSignerItems
-        ? yield* Effect.all(
-            [...reqSignerItems].map((i) => expectBytes(i, "requiredSigner", 28)),
-          )
+        ? yield* Effect.all([...reqSignerItems].map((i) => expectBytes(i, "requiredSigner", 28)))
         : undefined,
       networkId: networkIdCbor?._tag === CborKinds.UInt ? networkIdCbor.num : undefined,
       collateralReturn: collReturnCbor ? yield* decodeTxOut(collReturnCbor) : undefined,
@@ -529,9 +548,7 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
         : undefined,
       votingProcedures: votingCbor ? yield* decodeVotingProcedures(votingCbor) : undefined,
       proposalProcedures: proposalsCbor
-        ? yield* Effect.all(
-            (getCborSet(proposalsCbor) ?? []).map(decodeProposalProcedure),
-          )
+        ? yield* Effect.all((getCborSet(proposalsCbor) ?? []).map(decodeProposalProcedure))
         : undefined,
       currentTreasury: treasuryCbor?._tag === CborKinds.UInt ? treasuryCbor.num : undefined,
       donation: donationCbor?._tag === CborKinds.UInt ? donationCbor.num : undefined,

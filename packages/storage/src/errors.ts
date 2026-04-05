@@ -1,32 +1,35 @@
 /**
  * Storage error types — one per service component.
  */
-import { Data } from "effect";
+import { Schema } from "effect";
 
-export class ImmutableDBError extends Data.TaggedError("ImmutableDBError")<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+export class ImmutableDBError extends Schema.TaggedErrorClass<ImmutableDBError>()(
+  "ImmutableDBError",
+  {
+    operation: Schema.String,
+    cause: Schema.Defect,
+  },
+) {}
 
-export class VolatileDBError extends Data.TaggedError("VolatileDBError")<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+export class VolatileDBError extends Schema.TaggedErrorClass<VolatileDBError>()("VolatileDBError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
-export class LedgerDBError extends Data.TaggedError("LedgerDBError")<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+export class LedgerDBError extends Schema.TaggedErrorClass<LedgerDBError>()("LedgerDBError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
-export class MempoolError extends Data.TaggedError("MempoolError")<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+export class MempoolError extends Schema.TaggedErrorClass<MempoolError>()("MempoolError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
-export class ChainDBError extends Data.TaggedError("ChainDBError")<{
-  readonly operation: string;
-  readonly cause: unknown;
-}> {}
+export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()("ChainDBError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
 export type StorageError =
   | ImmutableDBError

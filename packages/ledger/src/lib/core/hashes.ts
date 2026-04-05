@@ -53,46 +53,85 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 export class HashObj28 extends Schema.TaggedClass<HashObj28>()("Hash28", {
   bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(28))),
 }) {
-  toHex(): string { return bytesToHex(this.bytes); }
-  equals(other: HashObj28): boolean { return bytesEqual(this.bytes, other.bytes); }
-  static fromHex(hex: string): HashObj28 { return new HashObj28({ bytes: hexToBytes(hex) }); }
+  toHex(): string {
+    return bytesToHex(this.bytes);
+  }
+  equals(other: HashObj28): boolean {
+    return bytesEqual(this.bytes, other.bytes);
+  }
+  static fromHex(hex: string): HashObj28 {
+    return new HashObj28({ bytes: hexToBytes(hex) });
+  }
 }
 
 export class HashObj32 extends Schema.TaggedClass<HashObj32>()("Hash32", {
   bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(32))),
 }) {
-  toHex(): string { return bytesToHex(this.bytes); }
-  equals(other: HashObj32): boolean { return bytesEqual(this.bytes, other.bytes); }
-  static fromHex(hex: string): HashObj32 { return new HashObj32({ bytes: hexToBytes(hex) }); }
+  toHex(): string {
+    return bytesToHex(this.bytes);
+  }
+  equals(other: HashObj32): boolean {
+    return bytesEqual(this.bytes, other.bytes);
+  }
+  static fromHex(hex: string): HashObj32 {
+    return new HashObj32({ bytes: hexToBytes(hex) });
+  }
 }
 
 export class SignatureObj extends Schema.TaggedClass<SignatureObj>()("Signature", {
   bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(64))),
 }) {
-  toHex(): string { return bytesToHex(this.bytes); }
-  equals(other: SignatureObj): boolean { return bytesEqual(this.bytes, other.bytes); }
-  static fromHex(hex: string): SignatureObj { return new SignatureObj({ bytes: hexToBytes(hex) }); }
+  toHex(): string {
+    return bytesToHex(this.bytes);
+  }
+  equals(other: SignatureObj): boolean {
+    return bytesEqual(this.bytes, other.bytes);
+  }
+  static fromHex(hex: string): SignatureObj {
+    return new SignatureObj({ bytes: hexToBytes(hex) });
+  }
 }
 
 // Conversion helpers — bridge raw Uint8Array ↔ TaggedClass
-export function wrapHash28(bytes: Uint8Array): HashObj28 { return new HashObj28({ bytes }); }
-export function unwrapHash28(h: HashObj28): Uint8Array { return h.bytes; }
-export function wrapHash32(bytes: Uint8Array): HashObj32 { return new HashObj32({ bytes }); }
-export function unwrapHash32(h: HashObj32): Uint8Array { return h.bytes; }
-export function wrapSignature(bytes: Uint8Array): SignatureObj { return new SignatureObj({ bytes }); }
-export function unwrapSignature(s: SignatureObj): Uint8Array { return s.bytes; }
+export function wrapHash28(bytes: Uint8Array): HashObj28 {
+  return new HashObj28({ bytes });
+}
+export function unwrapHash28(h: HashObj28): Uint8Array {
+  return h.bytes;
+}
+export function wrapHash32(bytes: Uint8Array): HashObj32 {
+  return new HashObj32({ bytes });
+}
+export function unwrapHash32(h: HashObj32): Uint8Array {
+  return h.bytes;
+}
+export function wrapSignature(bytes: Uint8Array): SignatureObj {
+  return new SignatureObj({ bytes });
+}
+export function unwrapSignature(s: SignatureObj): Uint8Array {
+  return s.bytes;
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Base hash types (branded Uint8Array with length checks)
 // ────────────────────────────────────────────────────────────────────────────
 
-export const Hash28 = Schema.Uint8Array.pipe(Schema.check(isByteLength(28)), Schema.brand("Hash28"));
+export const Hash28 = Schema.Uint8Array.pipe(
+  Schema.check(isByteLength(28)),
+  Schema.brand("Hash28"),
+);
 export type Hash28 = Schema.Schema.Type<typeof Hash28>;
 
-export const Hash32 = Schema.Uint8Array.pipe(Schema.check(isByteLength(32)), Schema.brand("Hash32"));
+export const Hash32 = Schema.Uint8Array.pipe(
+  Schema.check(isByteLength(32)),
+  Schema.brand("Hash32"),
+);
 export type Hash32 = Schema.Schema.Type<typeof Hash32>;
 
-export const Signature = Schema.Uint8Array.pipe(Schema.check(isByteLength(64)), Schema.brand("Signature"));
+export const Signature = Schema.Uint8Array.pipe(
+  Schema.check(isByteLength(64)),
+  Schema.brand("Signature"),
+);
 export type Signature = Schema.Schema.Type<typeof Signature>;
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -134,12 +173,22 @@ export type DocHash = Schema.Schema.Type<typeof DocHash>;
 // ────────────────────────────────────────────────────────────────────────────
 
 function decodeCborBytes(
-  cbor: CborSchemaType, context: string, expectedLength?: number,
+  cbor: CborSchemaType,
+  context: string,
+  expectedLength?: number,
 ): Effect.Effect<Uint8Array, SchemaIssue.Issue> {
   if (cbor._tag !== CborKinds.Bytes)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `${context}: expected CBOR bytes` }));
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: `${context}: expected CBOR bytes`,
+      }),
+    );
   if (expectedLength !== undefined && cbor.bytes.length !== expectedLength)
-    return Effect.fail(new SchemaIssue.InvalidValue(Option.some(cbor), { message: `${context}: expected ${expectedLength} bytes, got ${cbor.bytes.length}` }));
+    return Effect.fail(
+      new SchemaIssue.InvalidValue(Option.some(cbor), {
+        message: `${context}: expected ${expectedLength} bytes, got ${cbor.bytes.length}`,
+      }),
+    );
   return Effect.succeed(cbor.bytes);
 }
 
@@ -148,37 +197,82 @@ function encodeBytesToCbor(bytes: Uint8Array): CborSchemaType {
 }
 
 export const Hash28Bytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Hash28, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "Hash28", 28)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(Hash28, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "Hash28", 28),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const Hash32Bytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Hash32, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "Hash32", 32)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(Hash32, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "Hash32", 32),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const SignatureBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Signature, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "Signature", 64)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(Signature, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "Signature", 64),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const KeyHashBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(KeyHash, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "KeyHash", 28)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(KeyHash, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "KeyHash", 28),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const ScriptHashBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(ScriptHash, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "ScriptHash", 28)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(ScriptHash, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "ScriptHash", 28),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const PolicyIdBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(PolicyId, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "PolicyId", 28)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(PolicyId, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "PolicyId", 28),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const TxIdBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(TxId, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "TxId", 32)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(TxId, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "TxId", 32),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const DataHashBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(DataHash, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "DataHash", 32)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(DataHash, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "DataHash", 32),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );
 
 export const DocHashBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(DocHash, { decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => decodeCborBytes(cbor, "DocHash", 32)), encode: SchemaGetter.transform(encodeBytesToCbor) }),
+  Schema.decodeTo(DocHash, {
+    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
+      decodeCborBytes(cbor, "DocHash", 32),
+    ),
+    encode: SchemaGetter.transform(encodeBytesToCbor),
+  }),
 );

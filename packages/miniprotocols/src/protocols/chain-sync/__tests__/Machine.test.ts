@@ -1,19 +1,19 @@
 /**
  * ChainSync state machine tests — verify protocol state transitions and agency.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, it, expect } from "@effect/vitest";
 import { createActor } from "xstate";
 import { chainSyncMachine } from "../Machine.ts";
 
 describe("ChainSync Machine", () => {
-  test("starts in Idle (client agency)", () => {
+  it("starts in Idle (client agency)", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     expect(actor.getSnapshot().value).toBe("Idle");
     actor.stop();
   });
 
-  test("RequestNext: Idle → CanAwait", () => {
+  it("RequestNext: Idle → CanAwait", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_REQUEST_NEXT" });
@@ -21,7 +21,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("RollForward: CanAwait → Idle", () => {
+  it("RollForward: CanAwait → Idle", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_REQUEST_NEXT" });
@@ -30,7 +30,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("RollBackward: CanAwait → Idle", () => {
+  it("RollBackward: CanAwait → Idle", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_REQUEST_NEXT" });
@@ -39,7 +39,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("AwaitReply: CanAwait → MustReply", () => {
+  it("AwaitReply: CanAwait → MustReply", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_REQUEST_NEXT" });
@@ -48,7 +48,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("RollForward from MustReply: MustReply → Idle", () => {
+  it("RollForward from MustReply: MustReply → Idle", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_REQUEST_NEXT" });
@@ -58,7 +58,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("FindIntersect: Idle → Intersect", () => {
+  it("FindIntersect: Idle → Intersect", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_FIND_INTERSECT" });
@@ -66,7 +66,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("IntersectFound: Intersect → Idle", () => {
+  it("IntersectFound: Intersect → Idle", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_FIND_INTERSECT" });
@@ -75,7 +75,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("IntersectNotFound: Intersect → Idle", () => {
+  it("IntersectNotFound: Intersect → Idle", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_FIND_INTERSECT" });
@@ -84,7 +84,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("Done: Idle → Done (final)", () => {
+  it("Done: Idle → Done (final)", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_DONE" });
@@ -93,7 +93,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("agency enforcement: server events ignored in Idle", () => {
+  it("agency enforcement: server events ignored in Idle", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "SERVER_ROLL_FORWARD" }); // should be ignored
@@ -101,7 +101,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("agency enforcement: client events ignored in CanAwait", () => {
+  it("agency enforcement: client events ignored in CanAwait", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_REQUEST_NEXT" });
@@ -111,7 +111,7 @@ describe("ChainSync Machine", () => {
     actor.stop();
   });
 
-  test("full protocol cycle: FindIntersect → RequestNext → RollForward → Done", () => {
+  it("full protocol cycle: FindIntersect → RequestNext → RollForward → Done", () => {
     const actor = createActor(chainSyncMachine);
     actor.start();
     actor.send({ type: "CLIENT_FIND_INTERSECT" });

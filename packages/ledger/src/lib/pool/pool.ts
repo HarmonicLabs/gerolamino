@@ -1,6 +1,17 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { CborKinds, type CborSchemaType } from "cbor-schema";
-import { uint, cborBytes, cborText, nullVal, expectArray, expectUint, expectBytes, expectText, decodeCborNull, getCborSet } from "../core/cbor-utils.ts";
+import {
+  uint,
+  cborBytes,
+  cborText,
+  nullVal,
+  expectArray,
+  expectUint,
+  expectBytes,
+  expectText,
+  decodeCborNull,
+  getCborSet,
+} from "../core/cbor-utils.ts";
 import { Bytes28, Bytes32, isByteMaxLength } from "../core/hashes.ts";
 import { Rational } from "../core/primitives.ts";
 import { decodeRwdAddr, encodeRwdAddr, type RwdAddr } from "../address/address.ts";
@@ -72,8 +83,6 @@ export type PoolParams = Schema.Schema.Type<typeof PoolParams>;
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode helpers
 // ────────────────────────────────────────────────────────────────────────────
-
-
 
 function decodeRelay(cbor: CborSchemaType): Effect.Effect<Relay, SchemaIssue.Issue> {
   return Effect.gen(function* () {

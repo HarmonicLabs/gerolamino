@@ -78,7 +78,11 @@ pub fn ed25519_sign(message: &[u8], secret_key: &[u8]) -> Result<Vec<u8>, JsValu
 /// Verify an Ed25519 signature.
 /// Returns true if the signature is valid.
 #[wasm_bindgen]
-pub fn ed25519_verify(message: &[u8], signature: &[u8], public_key: &[u8]) -> Result<bool, JsValue> {
+pub fn ed25519_verify(
+    message: &[u8],
+    signature: &[u8],
+    public_key: &[u8],
+) -> Result<bool, JsValue> {
     if signature.len() != 64 {
         return Err(JsValue::from_str("signature must be 64 bytes"));
     }
@@ -118,7 +122,10 @@ pub fn ed25519_extended_public_key(extended_secret_key: &[u8]) -> Result<Vec<u8>
 
 /// Sign with an extended secret key (64 bytes).
 #[wasm_bindgen]
-pub fn ed25519_extended_sign(message: &[u8], extended_secret_key: &[u8]) -> Result<Vec<u8>, JsValue> {
+pub fn ed25519_extended_sign(
+    message: &[u8],
+    extended_secret_key: &[u8],
+) -> Result<Vec<u8>, JsValue> {
     if extended_secret_key.len() != 64 {
         return Err(JsValue::from_str("extended secret key must be 64 bytes"));
     }
@@ -192,6 +199,113 @@ pub fn address_type_id(bytes: &[u8]) -> Result<u8, JsValue> {
     let addr = pallas_addresses::Address::from_bytes(bytes)
         .map_err(|e| JsValue::from_str(&format!("invalid address: {}", e)))?;
     Ok(addr.typeid())
+}
+
+// ---------------------------------------------------------------------------
+// KES (Key Evolving Signatures) — for consensus block header verification
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// VRF Threshold Math — leader election via pallas-math
+// ---------------------------------------------------------------------------
+
+/// Check if a VRF output qualifies the pool as slot leader.
+///
+/// Implements the Ouroboros Praos leader election:
+///   isLeader ⟺ vrfOutput < 2^{ℓ_VRF} · ϕ_f(σ)
+///   where ϕ_f(σ) = 1 - (1-f)^σ
+///
+/// Uses the optimized exponential comparison:
+///   exp(σ · ln(1-f)) < 1/(1-vrfNormalized)
+///
+/// Parameters:
+/// - `vrf_output_hex`: hex-encoded VRF output (64 bytes = 512 bits)
+/// - `sigma_numerator`: pool active stake (numerator)
+/// - `sigma_denominator`: total active stake (denominator)
+/// - `active_slot_coeff_num`: active slot coefficient numerator (e.g., 5 for f=0.05)
+/// - `active_slot_coeff_den`: active slot coefficient denominator (e.g., 100)
+///
+/// Returns true if the pool is a slot leader for this VRF output.
+#[wasm_bindgen]
+pub fn check_vrf_leader(
+    vrf_output_hex: &str,
+    sigma_numerator: &str,
+    sigma_denominator: &str,
+    active_slot_coeff_num: &str,
+    active_slot_coeff_den: &str,
+) -> Result<bool, JsValue> {
+    use pallas_math::math::{DEFAULT_PRECISION, ExpOrdering, FixedDecimal, FixedPrecision};
+
+    let one = FixedDecimal::from(1u64);
+
+    // Parse sigma = stake_numerator / stake_denominator
+    let sigma_n = FixedDecimal::from_str(sigma_numerator, DEFAULT_PRECISION)
+        .map_err(|e| JsValue::from_str(&format!("invalid sigma_numerator: {}", e)))?;
+    let sigma_d = FixedDecimal::from_str(sigma_denominator, DEFAULT_PRECISION)
+        .map_err(|e| JsValue::from_str(&format!("invalid sigma_denominator: {}", e)))?;
+    let sigma = &sigma_n / &sigma_d;
+
+    // Parse f = active_slot_coeff_num / active_slot_coeff_den
+    let f_n = FixedDecimal::from_str(active_slot_coeff_num, DEFAULT_PRECISION)
+        .map_err(|e| JsValue::from_str(&format!("invalid coeff_num: {}", e)))?;
+    let f_d = FixedDecimal::from_str(active_slot_coeff_den, DEFAULT_PRECISION)
+        .map_err(|e| JsValue::from_str(&format!("invalid coeff_den: {}", e)))?;
+    let f = &f_n / &f_d;
+
+    // Parse VRF output as FixedDecimal (interpret raw hex bytes as big integer)
+    let vrf_normalized = FixedDecimal::from_str(vrf_output_hex, DEFAULT_PRECISION)
+        .map_err(|e| JsValue::from_str(&format!("invalid vrf_output_hex: {}", e)))?;
+
+    // Compute: exp(sigma * ln(1 - f)) < 1 / (1 - vrfNormalized)
+    let c = &one - &f; // 1 - f
+    let temp = c.ln(); // ln(1 - f)
+    let alpha = -(&sigma * &temp); // -sigma * ln(1-f) = sigma * (-ln(1-f))
+    let q_ = &one - &vrf_normalized; // 1 - vrfNormalized
+    let q = &one / &q_; // 1 / (1 - vrfNormalized)
+
+    let res = alpha.exp_cmp(1000, 3, &q);
+
+    // LT means exp(alpha) < q, so the pool IS a leader
+    Ok(res.estimation == ExpOrdering::LT)
+}
+
+/// Compute the VRF input for a given slot and epoch nonce.
+///
+/// VRF input = blake2b-256(slot_bytes || epoch_nonce || tag_bytes)
+/// where tag = "L" (0x4c) for leader election, "N" (0x4e) for nonce evolution.
+#[wasm_bindgen]
+pub fn vrf_derive_input(slot: u64, epoch_nonce: &[u8], tag: u8) -> Vec<u8> {
+    let mut input = Vec::with_capacity(8 + epoch_nonce.len() + 1);
+    input.extend_from_slice(&slot.to_be_bytes());
+    input.extend_from_slice(epoch_nonce);
+    input.push(tag);
+    let hash = pallas_crypto::hash::Hasher::<256>::hash(&input);
+    hash.as_ref().to_vec()
+}
+
+/// Evolve the nonce with a new VRF output.
+///
+/// nonce' = blake2b-256(current_nonce || blake2b-256(vrf_output))
+#[wasm_bindgen]
+pub fn evolve_nonce(current_nonce: &[u8], vrf_output: &[u8]) -> Vec<u8> {
+    let vrf_hash = pallas_crypto::hash::Hasher::<256>::hash(vrf_output);
+    let mut combined = Vec::with_capacity(current_nonce.len() + 32);
+    combined.extend_from_slice(current_nonce);
+    combined.extend_from_slice(vrf_hash.as_ref());
+    let result = pallas_crypto::hash::Hasher::<256>::hash(&combined);
+    result.as_ref().to_vec()
+}
+
+/// Derive epoch nonce from candidate nonce at epoch boundary.
+///
+/// epoch_nonce = blake2b-256(candidate_nonce || prev_epoch_last_block_hash)
+#[wasm_bindgen]
+pub fn derive_epoch_nonce(candidate_nonce: &[u8], prev_epoch_last_hash: &[u8]) -> Vec<u8> {
+    let mut combined = Vec::with_capacity(candidate_nonce.len() + prev_epoch_last_hash.len());
+    combined.extend_from_slice(candidate_nonce);
+    combined.extend_from_slice(prev_epoch_last_hash);
+    let result = pallas_crypto::hash::Hasher::<256>::hash(&combined);
+    result.as_ref().to_vec()
 }
 
 // ---------------------------------------------------------------------------

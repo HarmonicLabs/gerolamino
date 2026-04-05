@@ -1,7 +1,15 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
 import { Bytes28, Bytes32 } from "../core/hashes.ts";
-import { expectArray, expectUint, expectBytes, expectText, expectMap, isNull, getCborSet } from "../core/cbor-utils.ts";
+import {
+  expectArray,
+  expectUint,
+  expectBytes,
+  expectText,
+  expectMap,
+  isNull,
+  getCborSet,
+} from "../core/cbor-utils.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // GovRole — who can participate in governance
@@ -53,9 +61,15 @@ export function decodeDRep(cbor: CborSchemaType): Effect.Effect<DRep, SchemaIssu
     const tag = Number(yield* expectUint(items[0]!, "DRep.tag"));
     switch (tag) {
       case DRepKind.KeyHash:
-        return { _tag: DRepKind.KeyHash as const, hash: yield* expectBytes(items[1]!, "DRep.hash", 28) };
+        return {
+          _tag: DRepKind.KeyHash as const,
+          hash: yield* expectBytes(items[1]!, "DRep.hash", 28),
+        };
       case DRepKind.Script:
-        return { _tag: DRepKind.Script as const, hash: yield* expectBytes(items[1]!, "DRep.hash", 28) };
+        return {
+          _tag: DRepKind.Script as const,
+          hash: yield* expectBytes(items[1]!, "DRep.hash", 28),
+        };
       case DRepKind.AlwaysAbstain:
         return { _tag: DRepKind.AlwaysAbstain as const };
       case DRepKind.AlwaysNoConfidence:
@@ -128,7 +142,9 @@ export function decodeVoter(cbor: CborSchemaType): Effect.Effect<Voter, SchemaIs
     const kind = voterKindValues[kindNum];
     if (kind === undefined)
       return yield* Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Voter: unknown kind ${kindNum}` }),
+        new SchemaIssue.InvalidValue(Option.some(cbor), {
+          message: `Voter: unknown kind ${kindNum}`,
+        }),
       );
     const hash = yield* expectBytes(items[1]!, "Voter.hash", 28);
     return { kind, hash };
@@ -358,9 +374,7 @@ function decodeOptHash28(
   return expectBytes(cbor, "policyHash", 28);
 }
 
-export function decodeGovAction(
-  cbor: CborSchemaType,
-): Effect.Effect<GovAction, SchemaIssue.Issue> {
+export function decodeGovAction(cbor: CborSchemaType): Effect.Effect<GovAction, SchemaIssue.Issue> {
   return Effect.gen(function* () {
     const items = yield* expectArray(cbor, "GovAction");
     const tag = Number(yield* expectUint(items[0]!, "GovAction.tag"));
@@ -403,7 +417,10 @@ export function decodeGovAction(
         const prevActionId = yield* decodeOptGovActionId(items[1]!);
         const removeItems = getCborSet(items[2]!) ?? [];
         const membersToRemove = [...removeItems]
-          .filter((i): i is Extract<CborSchemaType, { _tag: typeof CborKinds.Bytes }> => i._tag === CborKinds.Bytes)
+          .filter(
+            (i): i is Extract<CborSchemaType, { _tag: typeof CborKinds.Bytes }> =>
+              i._tag === CborKinds.Bytes,
+          )
           .map((i) => i.bytes);
         const addMap = yield* expectMap(items[3]!, "UpdateCommittee.add");
         const membersToAdd = addMap.map((e) => ({
@@ -412,9 +429,10 @@ export function decodeGovAction(
         }));
         // Threshold is a rational: Tag(30, [num, den]) or bare [num, den]
         const threshCbor = items[4]!;
-        const threshInner = threshCbor._tag === CborKinds.Tag && threshCbor.tag === 30n
-          ? threshCbor.data
-          : threshCbor;
+        const threshInner =
+          threshCbor._tag === CborKinds.Tag && threshCbor.tag === 30n
+            ? threshCbor.data
+            : threshCbor;
         const threshArr = yield* expectArray(threshInner, "UpdateCommittee.threshold", 2);
         return {
           _tag: GovActionKind.UpdateCommittee as const,
@@ -442,7 +460,9 @@ export function decodeGovAction(
         return { _tag: GovActionKind.InfoAction as const };
       default:
         return yield* Effect.fail(
-          new SchemaIssue.InvalidValue(Option.some(cbor), { message: `GovAction: unknown tag ${tag}` }),
+          new SchemaIssue.InvalidValue(Option.some(cbor), {
+            message: `GovAction: unknown tag ${tag}`,
+          }),
         );
     }
   });

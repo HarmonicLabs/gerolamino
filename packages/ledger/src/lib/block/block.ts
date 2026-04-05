@@ -80,9 +80,7 @@ export const BlockHeader = Schema.Struct({
 });
 export type BlockHeader = Schema.Schema.Type<typeof BlockHeader>;
 
-function decodeBlockHeader(
-  cbor: CborSchemaType,
-): Effect.Effect<BlockHeader, SchemaIssue.Issue> {
+function decodeBlockHeader(cbor: CborSchemaType): Effect.Effect<BlockHeader, SchemaIssue.Issue> {
   return Effect.gen(function* () {
     // Header: [headerBody, kesSignature]
     const headerItems = yield* expectArray(cbor, "Header", 2);
@@ -97,7 +95,9 @@ function decodeBlockHeader(
       return {
         blockNo: yield* expectUint(bodyItems[0]!, "HeaderBody.blockNo"),
         slot: yield* expectUint(bodyItems[1]!, "HeaderBody.slot"),
-        prevHash: isNull(prevHashCbor) ? undefined : yield* expectBytes(prevHashCbor, "HeaderBody.prevHash", 32),
+        prevHash: isNull(prevHashCbor)
+          ? undefined
+          : yield* expectBytes(prevHashCbor, "HeaderBody.prevHash", 32),
         issuerVKey: yield* expectBytes(bodyItems[3]!, "HeaderBody.issuerVKey", 32),
         vrfVKey: yield* expectBytes(bodyItems[4]!, "HeaderBody.vrfVKey", 32),
         nonceVrf: yield* decodeVrfCert(bodyItems[5]!, "HeaderBody.nonceVrf"),
@@ -126,7 +126,9 @@ function decodeBlockHeader(
       return {
         blockNo: yield* expectUint(bodyItems[0]!, "HeaderBody.blockNo"),
         slot: yield* expectUint(bodyItems[1]!, "HeaderBody.slot"),
-        prevHash: isNull(prevHashCbor) ? undefined : yield* expectBytes(prevHashCbor, "HeaderBody.prevHash", 32),
+        prevHash: isNull(prevHashCbor)
+          ? undefined
+          : yield* expectBytes(prevHashCbor, "HeaderBody.prevHash", 32),
         issuerVKey: yield* expectBytes(bodyItems[3]!, "HeaderBody.issuerVKey", 32),
         vrfVKey: yield* expectBytes(bodyItems[4]!, "HeaderBody.vrfVKey", 32),
         nonceVrf: undefined, // Babbage+ merged into single vrfResult

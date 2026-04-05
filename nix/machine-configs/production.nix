@@ -72,7 +72,7 @@
         virtualisation.oci-containers = {
           backend = "podman";
           containers.bootstrap = {
-            image = "ghcr.io/harmoniclabs/gerolamino-bootstrap:latest";
+            image = "ghcr.io/harmoniclabs/bootstrap:latest";
             imageStream = self.packages.x86_64-linux.bootstrap-image;
             ports = [ "0.0.0.0:3040:3040" ];
             volumes = [ "/var/lib/gerolamino/snapshot:/data:ro" ];

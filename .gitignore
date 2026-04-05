@@ -50,6 +50,8 @@ Thumbs.db
 # Nix / devenv
 .direnv
 .devenv
+result
+result-*
 
 # Rust build artifacts
 target/

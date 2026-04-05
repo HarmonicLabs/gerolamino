@@ -44,7 +44,6 @@
 
           (root + "/packages/miniprotocols/package.json")
           (root + "/packages/storage/package.json")
-          (root + "/packages/chrome-ext/package.json")
         ];
       };
 
@@ -58,7 +57,7 @@
         nativeBuildInputs = [ pkgs.bun bun2nix.hook pkgs.makeWrapper ];
 
         inherit bunDeps;
-        bunInstallFlagsArray = [ "--backend=copyfile" ];
+        bunInstallFlags = [ "--backend=copyfile" ];
 
         dontUseBunBuild = true;
         dontRunLifecycleScripts = true;

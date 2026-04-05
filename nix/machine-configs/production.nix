@@ -26,7 +26,11 @@
           aggregatorEndpoint =
             "https://aggregator.release-preprod.api.mithril.network/aggregator";
 
-          mithril-client = inputs.mithril.packages.x86_64-linux.mithril-client-cli;
+          # Override mithril-client to skip tests (upstream tests fail in sandbox
+          # due to missing CA certs for reqwest HTTP tests)
+          mithril-client = inputs.mithril.packages.x86_64-linux.mithril-client-cli.overrideAttrs (old: {
+            doCheck = false;
+          });
         in
         {
 
@@ -111,6 +115,9 @@
           };
 
           # --- Mithril Snapshot Download ---
+          # Pre-built mithril-client-cli is part of the NixOS closure (tests skipped).
+          # This service downloads the latest preprod snapshot, converts to LMDB,
+          # and restarts the bootstrap container.
           systemd.services.download-mithril-snapshot = {
             description = "Download latest Mithril preprod snapshot";
             after = [ "network-online.target" ];
@@ -124,16 +131,12 @@
             serviceConfig = {
               Type = "oneshot";
               TimeoutStartSec = "2h";
-              # Download to temp, then atomically move to snapshot dir
               ExecStart = pkgs.writeShellScript "download-snapshot" ''
                 set -euo pipefail
                 WORK="$(mktemp -d)"
                 trap 'rm -rf "$WORK"' EXIT
 
-                echo "==> Listing available Cardano DB snapshots..."
-                mithril-client cardano-db snapshot list --json | jq '.[0]'
-
-                echo "==> Downloading latest Cardano DB snapshot to $WORK..."
+                echo "==> Downloading latest Cardano DB snapshot..."
                 mithril-client cardano-db download latest --download-dir "$WORK"
 
                 SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"

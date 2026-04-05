@@ -12,6 +12,7 @@
     specialArgs = { inherit inputs; self = inputs.self; };
     modules = [
       ./hardware-configuration.nix
+      inputs.determinate.nixosModules.default
       ({ config, pkgs, lib, self, ... }: {
 
         # --- Boot (systemd-boot on EFI) ---
@@ -89,18 +90,8 @@
           "d /var/lib/gerolamino/snapshot 0755 root root -"
         ];
 
-        # --- Nix Settings ---
-        nix = {
-          gc = {
-            automatic = true;
-            dates = "03:00";
-            options = "--delete-older-than 7d";
-          };
-          settings = {
-            auto-optimise-store = true;
-            experimental-features = [ "nix-command" "flakes" ];
-          };
-        };
+        # Nix daemon, GC, experimental-features, and store optimization
+        # are all managed by Determinate Nix (inputs.determinate.nixosModules.default).
 
         # --- System Packages ---
         environment.systemPackages = with pkgs; [ btop helix ];

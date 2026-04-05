@@ -164,13 +164,16 @@
             };
           };
 
-          # Run snapshot download daily at 04:00 UTC
+          # Run snapshot download daily at 04:00 UTC.
+          # OnActiveSec=0 triggers immediately on first activation (fresh deploy).
+          # Persistent=true catches up on missed daily runs (e.g., reboot).
           systemd.timers.download-mithril-snapshot = {
             description = "Daily Mithril snapshot download";
             wantedBy = [ "timers.target" ];
             timerConfig = {
+              OnActiveSec = "0";
               OnCalendar = "*-*-* 04:00:00";
-              Persistent = true; # Run immediately if missed (e.g., server was off)
+              Persistent = true;
               RandomizedDelaySec = "30min";
             };
           };

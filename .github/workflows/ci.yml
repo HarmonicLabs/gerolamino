@@ -3,13 +3,15 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     container: ghcr.io/harmoniclabs/gerolamino-ci:latest
     steps:
@@ -17,16 +19,52 @@ jobs:
 
       - uses: DeterminateSystems/flakehub-cache-action@v3
 
-      - name: Build bootstrap server and dependencies
+      - name: Flake check (formatter, deploy schema, NixOS config)
+        run: nix flake check --no-build
+
+  test:
+    runs-on: ubuntu-latest
+    container: ghcr.io/harmoniclabs/gerolamino-ci:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/flakehub-cache-action@v3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run unit tests
+        run: bunx --bun vitest run
+
+  build:
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    container: ghcr.io/harmoniclabs/gerolamino-ci:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/flakehub-cache-action@v3
+
+      - name: Build WASM packages
+        run: |
+          nix build -L .#wasm-plexer
+          nix build -L .#wasm-utils
+
+      - name: Build TypeScript packages
+        run: nix build -L .#ts-packages
+
+      - name: Build bootstrap server
         run: nix build -L .#bootstrap-app
 
       - name: Build bootstrap container image
         run: nix build -L .#bootstrap-image
 
   deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     container: ghcr.io/harmoniclabs/gerolamino-ci:latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -47,3 +85,9 @@ jobs:
             --skip-checks \
             --ssh-opts="-p 2222 -i /root/.ssh/deploy_key -o StrictHostKeyChecking=accept-new" \
             .#production
+
+      - name: Verify deployment
+        run: |
+          ssh -p 2222 -i /root/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            root@decentralizationmaxi.io \
+            "nixos-version && systemctl status podman-bootstrap.service --no-pager || true"

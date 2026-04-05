@@ -3,42 +3,16 @@
 #
 # Deploy: nix run .#deploy
 # SSH:    ssh -p 2222 root@decentralizationmaxi.io
+#
+# Note: SSH port 2222 is handled by the VM hosting platform (port forwarding).
+# The NixOS SSH daemon listens on default port 22 internally.
 { inputs, ... }: {
   flake.nixosConfigurations.production = inputs.nixpkgs.lib.nixosSystem {
     system = "x86_64-linux";
     specialArgs = { inherit inputs; self = inputs.self; };
     modules = [
-      inputs.disko.nixosModules.disko
+      ./hardware-configuration.nix
       ({ config, pkgs, lib, self, ... }: {
-
-        # --- Disk Layout (disko) ---
-        disko.devices.disk.main = {
-          device = "/dev/sda";
-          type = "disk";
-          content = {
-            type = "gpt";
-            partitions = {
-              ESP = {
-                type = "EF00";
-                size = "512M";
-                content = {
-                  type = "filesystem";
-                  format = "vfat";
-                  mountpoint = "/boot";
-                  mountOptions = [ "umask=0077" ];
-                };
-              };
-              root = {
-                size = "100%";
-                content = {
-                  type = "filesystem";
-                  format = "ext4";
-                  mountpoint = "/";
-                };
-              };
-            };
-          };
-        };
 
         # --- Boot (systemd-boot on EFI) ---
         boot.loader.systemd-boot = {
@@ -53,7 +27,7 @@
           hostName = "bootstrap";
           firewall = {
             enable = true;
-            allowedTCPPorts = [ 3040 ];
+            allowedTCPPorts = [ 22 3040 ];
           };
         };
 
@@ -61,11 +35,9 @@
         time.timeZone = "UTC";
         i18n.defaultLocale = "en_US.UTF-8";
 
-        # --- SSH Hardening ---
+        # --- SSH (default port 22 — VM host maps 2222→22) ---
         services.openssh = {
           enable = true;
-          ports = [ 2222 ];
-          openFirewall = true;
           settings = {
             PermitRootLogin = "prohibit-password";
             PasswordAuthentication = false;

@@ -1,17 +1,21 @@
 FROM docker.io/archlinux/archlinux:latest
 
-# Install minimal dependencies for Determinate Nix + CI
-RUN pacman -Sy --noconfirm curl ca-certificates git openssh bash coreutils && \
-    pacman -Scc --noconfirm
+# Only curl needed from pacman — everything else via Nix
+RUN pacman -Sy --noconfirm curl && pacman -Scc --noconfirm
 
-# Install Determinate Nix (root-only mode for containers, sandbox disabled)
+# Install Determinate Nix (root-only, sandbox disabled for containers)
 RUN curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | \
     sh -s -- install linux --init none --extra-conf "sandbox = false" --no-confirm
 
-# Make Nix available in PATH
-ENV PATH="/nix/var/nix/profiles/default/bin:${PATH}"
+ENV PATH="/nix/var/nix/profiles/default/bin:/root/.nix-profile/bin:${PATH}"
 
-# Verify installation
-RUN nix --version && nix flake --help > /dev/null 2>&1
+# Point default nixpkgs to unstable
+RUN nix registry add nixpkgs github:NixOS/nixpkgs/nixos-unstable
+
+# All CI tools from Nix (nixpkgs-unstable)
+RUN nix profile install nixpkgs#nodejs nixpkgs#bun nixpkgs#git nixpkgs#openssh nixpkgs#coreutils nixpkgs#bash
+
+# Verify
+RUN nix --version && node --version && bun --version && git --version && ssh -V
 
 WORKDIR /workspace

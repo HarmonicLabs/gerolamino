@@ -13,91 +13,179 @@
     modules = [
       ./hardware-configuration.nix
       inputs.determinate.nixosModules.default
-      ({ config, pkgs, lib, self, ... }: {
+      ({ config, pkgs, lib, self, ... }:
+        let
+          snapshotDir = "/var/lib/gerolamino/snapshot";
 
-        # --- Boot (systemd-boot on EFI) ---
-        boot.loader.systemd-boot = {
-          enable = true;
-          editor = false;
-          configurationLimit = 20;
-        };
-        boot.loader.efi.canTouchEfiVariables = true;
+          # Mithril verification keys from flake-pinned source
+          mithrilSrc = inputs.mithril;
+          genesisVkey = builtins.readFile
+            "${mithrilSrc}/mithril-infra/configuration/release-preprod/genesis.vkey";
+          ancillaryVkey = builtins.readFile
+            "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
+          aggregatorEndpoint =
+            "https://aggregator.release-preprod.api.mithril.network/aggregator";
 
-        # --- Networking ---
-        networking = {
-          hostName = "bootstrap";
-          firewall = {
+          mithril-client = inputs.mithril.packages.x86_64-linux.mithril-client-cli;
+        in
+        {
+
+          # --- Boot (systemd-boot on EFI) ---
+          boot.loader.systemd-boot = {
             enable = true;
-            allowedTCPPorts = [ 22 3040 ];
+            editor = false;
+            configurationLimit = 20;
           };
-        };
+          boot.loader.efi.canTouchEfiVariables = true;
 
-        # --- Time & Locale ---
-        time.timeZone = "UTC";
-        i18n.defaultLocale = "en_US.UTF-8";
-
-        # --- SSH (default port 22 — VM host maps 2222→22) ---
-        services.openssh = {
-          enable = true;
-          settings = {
-            PermitRootLogin = "prohibit-password";
-            PasswordAuthentication = false;
-            KbdInteractiveAuthentication = false;
-            X11Forwarding = false;
-            MaxAuthTries = 3;
-          };
-        };
-
-        users.users.root.openssh.authorizedKeys.keys = [
-          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPgKXHWP3afDB8/kmT4EbLDHfePQCc4LdBTi1jg1RuO2 hariamoor@framework"
-        ];
-
-        # --- Fail2Ban ---
-        services.fail2ban = {
-          enable = true;
-          maxretry = 3;
-          bantime = "1h";
-        };
-
-        # --- Podman ---
-        virtualisation.podman = {
-          enable = true;
-          autoPrune = {
-            enable = true;
-            dates = "weekly";
-          };
-        };
-
-        # --- Bootstrap Server Container ---
-        virtualisation.oci-containers = {
-          backend = "podman";
-          containers.bootstrap = {
-            image = "ghcr.io/harmoniclabs/bootstrap:latest";
-            imageStream = self.packages.x86_64-linux.bootstrap-image;
-            ports = [ "0.0.0.0:3040:3040" ];
-            volumes = [ "/var/lib/gerolamino/snapshot:/data:ro" ];
-            environment = {
-              PORT = "3040";
-              SNAPSHOT_PATH = "/data";
-              UPSTREAM_URL = "tcp://preprod-node.play.dev.cardano.org:3001";
+          # --- Networking ---
+          networking = {
+            hostName = "bootstrap";
+            firewall = {
+              enable = true;
+              allowedTCPPorts = [ 22 3040 ];
             };
           };
-        };
 
-        # --- Snapshot Data Directory ---
-        systemd.tmpfiles.rules = [
-          "d /var/lib/gerolamino 0755 root root -"
-          "d /var/lib/gerolamino/snapshot 0755 root root -"
-        ];
+          # --- Time & Locale ---
+          time.timeZone = "UTC";
+          i18n.defaultLocale = "en_US.UTF-8";
 
-        # Nix daemon, GC, experimental-features, and store optimization
-        # are all managed by Determinate Nix (inputs.determinate.nixosModules.default).
+          # --- SSH (default port 22 — VM host maps 2222→22) ---
+          services.openssh = {
+            enable = true;
+            settings = {
+              PermitRootLogin = "prohibit-password";
+              PasswordAuthentication = false;
+              KbdInteractiveAuthentication = false;
+              X11Forwarding = false;
+              MaxAuthTries = 3;
+            };
+          };
 
-        # --- System Packages ---
-        environment.systemPackages = with pkgs; [ btop helix ];
+          users.users.root.openssh.authorizedKeys.keys = [
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPgKXHWP3afDB8/kmT4EbLDHfePQCc4LdBTi1jg1RuO2 hariamoor@framework"
+          ];
 
-        system.stateVersion = "26.05";
-      })
+          # --- Fail2Ban ---
+          services.fail2ban = {
+            enable = true;
+            maxretry = 3;
+            bantime = "1h";
+          };
+
+          # --- Podman ---
+          virtualisation.podman = {
+            enable = true;
+            autoPrune = {
+              enable = true;
+              dates = "weekly";
+            };
+          };
+
+          # --- Bootstrap Server Container ---
+          virtualisation.oci-containers = {
+            backend = "podman";
+            containers.bootstrap = {
+              image = "ghcr.io/harmoniclabs/bootstrap:latest";
+              imageStream = self.packages.x86_64-linux.bootstrap-image;
+              ports = [ "0.0.0.0:3040:3040" ];
+              volumes = [ "${snapshotDir}:/data:ro" ];
+              environment = {
+                PORT = "3040";
+                SNAPSHOT_PATH = "/data";
+                UPSTREAM_URL = "tcp://preprod-node.play.dev.cardano.org:3001";
+              };
+            };
+          };
+
+          # Don't start the bootstrap container until snapshot data exists.
+          # The download-mithril-snapshot timer will trigger the download,
+          # then the bootstrap container will start after the first download completes.
+          systemd.services.podman-bootstrap = {
+            after = [ "download-mithril-snapshot.service" ];
+            unitConfig = {
+              # Only start if snapshot has ledger data
+              ConditionPathIsDirectory = "${snapshotDir}/ledger";
+            };
+          };
+
+          # --- Mithril Snapshot Download ---
+          systemd.services.download-mithril-snapshot = {
+            description = "Download latest Mithril preprod snapshot";
+            after = [ "network-online.target" ];
+            wants = [ "network-online.target" ];
+            path = [ mithril-client pkgs.coreutils pkgs.jq pkgs.findutils ];
+            environment = {
+              AGGREGATOR_ENDPOINT = aggregatorEndpoint;
+              GENESIS_VERIFICATION_KEY = genesisVkey;
+              ANCILLARY_VERIFICATION_KEY = ancillaryVkey;
+            };
+            serviceConfig = {
+              Type = "oneshot";
+              TimeoutStartSec = "2h";
+              # Download to temp, then atomically move to snapshot dir
+              ExecStart = pkgs.writeShellScript "download-snapshot" ''
+                set -euo pipefail
+                WORK="$(mktemp -d)"
+                trap 'rm -rf "$WORK"' EXIT
+
+                echo "==> Listing available Cardano DB snapshots..."
+                mithril-client cardano-db snapshot list --json | jq '.[0]'
+
+                echo "==> Downloading latest Cardano DB snapshot to $WORK..."
+                mithril-client cardano-db download latest --download-dir "$WORK"
+
+                SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
+                if [ -z "$SNAP_DIR" ]; then
+                  echo "ERROR: No snapshot directory found" >&2
+                  exit 1
+                fi
+
+                LEDGER_DIR="$(find "$SNAP_DIR/ledger" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
+                if [ -d "$LEDGER_DIR" ]; then
+                  echo "==> Converting snapshot to LMDB format..."
+                  mithril-client tools utxo-hd snapshot-converter \
+                    --input-dir "$LEDGER_DIR" \
+                    --output-dir "$LEDGER_DIR"
+                fi
+
+                echo "==> Installing snapshot to ${snapshotDir}..."
+                mkdir -p "${snapshotDir}"
+                rm -rf "${snapshotDir}"/*
+                cp -r "$SNAP_DIR"/* "${snapshotDir}/"
+
+                echo "==> Done. Restarting bootstrap container..."
+                systemctl restart podman-bootstrap.service || true
+              '';
+            };
+          };
+
+          # Run snapshot download daily at 04:00 UTC
+          systemd.timers.download-mithril-snapshot = {
+            description = "Daily Mithril snapshot download";
+            wantedBy = [ "timers.target" ];
+            timerConfig = {
+              OnCalendar = "*-*-* 04:00:00";
+              Persistent = true; # Run immediately if missed (e.g., server was off)
+              RandomizedDelaySec = "30min";
+            };
+          };
+
+          # --- Snapshot Data Directory ---
+          systemd.tmpfiles.rules = [
+            "d /var/lib/gerolamino 0755 root root -"
+            "d ${snapshotDir} 0755 root root -"
+          ];
+
+          # Nix daemon, GC, experimental-features, and store optimization
+          # are all managed by Determinate Nix (inputs.determinate.nixosModules.default).
+
+          # --- System Packages ---
+          environment.systemPackages = with pkgs; [ btop helix ];
+
+          system.stateVersion = "26.05";
+        })
     ];
   };
 

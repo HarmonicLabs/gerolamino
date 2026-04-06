@@ -45,7 +45,7 @@ const serve = Command.make(
       );
 
       // Provide LSM BlobStore layer
-      const lsmLayer = layerLsm(config.lsmLibPath, meta.lsmDir);
+      const lsmLayer = layerLsm(meta.lsmDir);
 
       yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(
         Effect.provide(lsmLayer),

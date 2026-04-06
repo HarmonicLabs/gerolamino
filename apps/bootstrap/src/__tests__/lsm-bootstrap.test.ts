@@ -20,10 +20,10 @@ const LIBLSM_BRIDGE_PATH = process.env["LIBLSM_BRIDGE_PATH"];
 const skip = !SNAPSHOT_PATH || !LIBLSM_BRIDGE_PATH;
 
 describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
-  let lsmLayer: Layer.Layer<BlobStore, BlobStoreError>;
+  let lsmLayer: ReturnType<typeof layerLsm>;
 
   beforeAll(() => {
-    lsmLayer = layerLsm(LIBLSM_BRIDGE_PATH!, `${SNAPSHOT_PATH!}/lsm`);
+    lsmLayer = layerLsm(`${SNAPSHOT_PATH!}/lsm`);
   });
 
   const testLayers = () =>

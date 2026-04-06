@@ -40,7 +40,9 @@
       "wasm-utils": ["packages/wasm-utils/pkg/wasm_utils.js"],
       "wasm-plexer": ["packages/wasm-plexer/result/wasm_plexer_bun.js"],
       "lsm-tree": ["packages/lsm-tree/src/index.ts"],
-      "lsm-tree/*": ["packages/lsm-tree/src/*"]
+      "lsm-tree/*": ["packages/lsm-tree/src/*"],
+      "consensus": ["packages/consensus/src/index.ts"],
+      "consensus/*": ["packages/consensus/src/*"]
     }
   }
 }

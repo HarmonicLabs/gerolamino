@@ -53,6 +53,8 @@ export default defineConfig({
       "storage/blob-store/service": path.resolve(__dirname, "packages/storage/src/blob-store/service.ts"),
       "storage/blob-store/keys": path.resolve(__dirname, "packages/storage/src/blob-store/keys.ts"),
       "storage/blob-store/index": path.resolve(__dirname, "packages/storage/src/blob-store/index.ts"),
+      "storage/blob-store/index.ts": path.resolve(__dirname, "packages/storage/src/blob-store/index.ts"),
+      "lsm-tree": path.resolve(__dirname, "packages/lsm-tree/src/index.ts"),
     },
   },
   server: {

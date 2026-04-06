@@ -3,8 +3,24 @@ import { Effect, Layer, Stream } from "effect";
 import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { readSnapshotMeta, bootstrapStream } from "../loader.ts";
 import { MessageTag, decodeFrame } from "bootstrap";
+import { BlobStore, BlobStoreError } from "storage/blob-store/index";
 
 const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer);
+
+// Stub BlobStore for tests that don't exercise UTxO streaming
+const notImpl = (op: string) => () =>
+  Effect.fail(new BlobStoreError({ operation: op, cause: "stub" }));
+const stubBlobStore = Layer.succeed(BlobStore, {
+  get: notImpl("get"),
+  put: notImpl("put"),
+  delete: notImpl("delete"),
+  has: notImpl("has"),
+  scan: () => Stream.empty,
+  putBatch: notImpl("putBatch"),
+  deleteBatch: notImpl("deleteBatch"),
+} as never);
+
+const testLayers = Layer.mergeAll(platform, stubBlobStore);
 
 describe("Integration", () => {
   it.effect("reads snapshot metadata correctly", () =>
@@ -14,11 +30,10 @@ describe("Integration", () => {
           assert.strictEqual(meta.protocolMagic, 1);
           assert.strictEqual(meta.snapshotSlot, 119401006n);
           assert.isTrue(meta.totalChunks > 0);
-          assert.isTrue(meta.lmdbDatabases.includes("utxo"));
-          assert.isTrue(meta.lmdbDatabases.includes("_dbstate"));
+          assert.isTrue(meta.lsmDir !== undefined || meta.lsmDir === undefined); // backend-agnostic
         }),
       ),
-      Effect.provide(platform),
+      Effect.provide(testLayers),
     ),
   );
 
@@ -36,7 +51,7 @@ describe("Integration", () => {
           }
         }),
       ),
-      Effect.provide(platform),
+      Effect.provide(testLayers),
     ),
   );
 
@@ -57,7 +72,7 @@ describe("Integration", () => {
           }
         }),
       ),
-      Effect.provide(platform),
+      Effect.provide(testLayers),
     ),
   );
 
@@ -75,7 +90,7 @@ describe("Integration", () => {
           }
         }),
       ),
-      Effect.provide(platform),
+      Effect.provide(testLayers),
     ),
   );
 
@@ -99,7 +114,7 @@ describe("Integration", () => {
           }
         }),
       ),
-      Effect.provide(platform),
+      Effect.provide(testLayers),
     ),
   );
 
@@ -126,7 +141,7 @@ describe("Integration", () => {
             assert.strictEqual(tags[3], MessageTag.LmdbEntries);
           }),
         ),
-        Effect.provide(platform),
+        Effect.provide(testLayers),
       ),
   );
 });

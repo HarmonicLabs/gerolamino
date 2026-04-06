@@ -1,21 +1,21 @@
 /**
  * Bootstrap data streaming.
- * Streams all Mithril snapshot data directly from disk in the correct order.
+ * Streams Mithril snapshot data in the correct order.
+ * Reads UTxO entries from BlobStore (LSM backend).
  */
 import { Effect, FileSystem, Path, Schema, Stream } from "effect";
 import type { BootstrapError } from "./errors.ts";
 import { ChunkReadError } from "./errors.ts";
 import { readAllChunks } from "./chunk-reader.ts";
-import { iterateEntries, discoverLmdbDatabases, UtxoKeySchema } from "./lmdb-kv.ts";
 import { MessageTag, encodeFrame, encodeInit, encodeBlock, encodeLmdbBatch } from "bootstrap";
+import { BlobStore, PREFIX_UTXO } from "storage/blob-store/index";
 
 export class SnapshotMeta extends Schema.Class<SnapshotMeta>("SnapshotMeta")({
   protocolMagic: Schema.Number,
   snapshotSlot: Schema.BigInt,
   ledgerDir: Schema.String,
   immutableDir: Schema.String,
-  tablesDir: Schema.String,
-  lmdbDatabases: Schema.Array(Schema.String),
+  lsmDir: Schema.String,
   totalChunks: Schema.Number,
 }) {}
 
@@ -24,22 +24,23 @@ export const readSnapshotMeta = (snapshotPath: string) =>
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    // Discover the ledger snapshot directory (first subdirectory under ledger/)
     const ledgerBase = path.join(snapshotPath, "ledger");
     const ledgerEntries = yield* fs
       .readDirectory(ledgerBase)
       .pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause })));
-    const snapshotSlotStr = ledgerEntries[0]!;
+
+    // Find the primary snapshot slot directory (skip *_lsm suffixed dirs)
+    const snapshotSlotStr = ledgerEntries.find((e) => !e.includes("_"))!;
     const snapshotSlot = BigInt(snapshotSlotStr);
 
     const ledgerDir = path.join(ledgerBase, snapshotSlotStr);
     const immutableDir = path.join(snapshotPath, "immutable");
-    const tablesDir = path.join(ledgerDir, "tables");
+    const lsmDir = path.join(snapshotPath, "lsm");
 
     const protocolMagic = parseInt(
       new TextDecoder().decode(yield* fs.readFile(path.join(snapshotPath, "protocolMagicId"))),
     );
-    const lmdbDatabases = yield* discoverLmdbDatabases(tablesDir);
+
     const chunkFiles = yield* fs
       .readDirectory(immutableDir)
       .pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause })));
@@ -50,19 +51,14 @@ export const readSnapshotMeta = (snapshotPath: string) =>
       snapshotSlot,
       ledgerDir,
       immutableDir,
-      tablesDir,
-      lmdbDatabases: [...lmdbDatabases],
+      lsmDir,
       totalChunks,
     });
   });
 
 export const bootstrapStream = (
   meta: SnapshotMeta,
-): Stream.Stream<
-  Uint8Array,
-  BootstrapError | Schema.SchemaError,
-  FileSystem.FileSystem | Path.Path
-> => {
+): Stream.Stream<Uint8Array, BootstrapError | Schema.SchemaError, FileSystem.FileSystem | Path.Path | BlobStore> => {
   const initStream = Stream.succeed(
     encodeFrame(
       MessageTag.Init,
@@ -72,7 +68,7 @@ export const bootstrapStream = (
         totalChunks: meta.totalChunks,
         totalBlocks: 0,
         totalLmdbEntries: 0,
-        lmdbDatabases: meta.lmdbDatabases,
+        lmdbDatabases: ["utxo"],
       }),
     ),
   );
@@ -95,16 +91,29 @@ export const bootstrapStream = (
     }).pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause }))),
   );
 
-  const lmdbStream = Stream.fromIterable(meta.lmdbDatabases).pipe(
-    Stream.flatMap((dbName) =>
-      iterateEntries(meta.tablesDir, dbName).pipe(
-        Stream.mapEffect((entry) =>
-          dbName === "utxo" && entry.key.length === 34
-            ? Schema.decodeEffect(UtxoKeySchema)(entry.key).pipe(Effect.as(entry))
-            : Effect.succeed(entry),
-        ),
+  // Stream UTxO entries from BlobStore (LSM backend) via scan(prefix)
+  const utxoStream = Stream.fromEffect(
+    Effect.gen(function* () {
+      const store = yield* BlobStore;
+      return store;
+    }),
+  ).pipe(
+    Stream.flatMap((store) =>
+      store.scan(PREFIX_UTXO).pipe(
         Stream.grouped(500),
-        Stream.map((batch) => encodeFrame(MessageTag.LmdbEntries, encodeLmdbBatch(dbName, batch))),
+        Stream.map((batch) =>
+          encodeFrame(
+            MessageTag.LmdbEntries,
+            encodeLmdbBatch(
+              "utxo",
+              batch.map((e: { readonly key: Uint8Array; readonly value: Uint8Array }) => ({
+                // Strip "utxo" prefix (4 bytes) — wire format expects raw MemPack keys
+                key: e.key.slice(4),
+                value: e.value,
+              })),
+            ),
+          ),
+        ),
       ),
     ),
   );
@@ -118,7 +127,7 @@ export const bootstrapStream = (
   return initStream.pipe(
     Stream.concat(stateStream),
     Stream.concat(metaStream),
-    Stream.concat(lmdbStream),
+    Stream.concat(utxoStream),
     Stream.concat(blockStream),
     Stream.concat(completeStream),
   );

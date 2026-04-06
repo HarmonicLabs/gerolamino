@@ -82,7 +82,13 @@
     # Ouroboros consensus — provides snapshot-converter for V1LMDB → V2LSM
     ouroboros-consensus = {
       url = "github:IntersectMBO/ouroboros-consensus";
-      # Don't follow nixpkgs — ouroboros-consensus pins its own compatible set
+    };
+
+    # Cardano network configs (preprod, mainnet genesis files)
+    # Using flake = false to avoid pulling in bitte/tullia/std dependency tree
+    cardano-world = {
+      url = "github:IntersectMBO/cardano-world";
+      flake = false;
     };
   };
 
@@ -210,6 +216,7 @@
                 exec = ''
                   DEST="$DEVENV_STATE/snapshot"
                   WORK="$(mktemp -d)"
+                  CONF_DIR="${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node"
                   trap 'rm -rf "$WORK"' EXIT
 
                   echo "==> Downloading Mithril preprod snapshot..."
@@ -219,24 +226,17 @@
                   SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
                   [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
 
-                  echo "==> Step 1: Converting to LMDB via Mithril..."
-                  mithril-client tools utxo-hd snapshot-converter \
-                    --db-directory "$SNAP_DIR" \
-                    --cardano-node-version latest \
-                    --utxo-hd-flavor LMDB \
-                    --commit
-
                   # Find the ledger snapshot directory (e.g., ledger/119401006)
                   LEDGER_SLOT_DIR="$(find "$SNAP_DIR/ledger" -mindepth 1 -maxdepth 1 -type d | head -1)"
                   SLOT_NAME="$(basename "$LEDGER_SLOT_DIR")"
 
-                  echo "==> Step 2: Converting LMDB to V2LSM via snapshot-converter..."
+                  echo "==> Converting TVar snapshot directly to V2LSM..."
                   mkdir -p "$SNAP_DIR/lsm"
                   snapshot-converter \
-                    --input-lmdb "$LEDGER_SLOT_DIR" \
+                    --input-mem "$LEDGER_SLOT_DIR" \
                     --output-lsm-snapshot "$SNAP_DIR/ledger/''${SLOT_NAME}_lsm" \
                     --output-lsm-database "$SNAP_DIR/lsm" \
-                    --config "$SNAP_DIR/config.json"
+                    --config "$CONF_DIR/config.json"
 
                   mkdir -p "$DEST"
                   rm -rf "''${DEST:?}"/*

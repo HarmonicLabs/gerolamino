@@ -331,6 +331,22 @@
         "type": "github"
       }
     },
+    "cardano-world": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1725396440,
+        "narHash": "sha256-9gdiobR27O+GejtCXgzfVuq8ENQY1vfLG3S0BBO3U2s=",
+        "owner": "IntersectMBO",
+        "repo": "cardano-world",
+        "rev": "51f271a3d6fb1142b167868c506048226ab2021c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "IntersectMBO",
+        "repo": "cardano-world",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1775236976,
@@ -2664,6 +2680,7 @@
     "root": {
       "inputs": {
         "bun2nix": "bun2nix",
+        "cardano-world": "cardano-world",
         "crane": "crane",
         "deploy-rs": "deploy-rs",
         "determinate": "determinate",

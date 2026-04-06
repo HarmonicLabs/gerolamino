@@ -15,11 +15,14 @@ import Foreign
 import Foreign.C.Types
 import Foreign.C.String
 import Foreign.StablePtr
+import Foreign.Marshal.Alloc (mallocBytes)
+import Foreign.Marshal.Utils (copyBytes)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
 import qualified Database.LSMTree.Simple as LSM
 import System.IO (hPutStrLn, stderr)
 import Control.Exception (try, SomeException, displayException)
+import qualified Data.Vector as Data.Vector
 
 type SessionHandle = StablePtr LSM.Session
 type TableHandle   = StablePtr (LSM.Table BS.ByteString BS.ByteString)
@@ -95,6 +98,48 @@ lsm_delete tableSp keyPtr keyLen = wrap "delete" $ do
   table <- deRefStablePtr tableSp
   key <- BS.packCStringLen (castPtr keyPtr, fromIntegral keyLen)
   LSM.delete table key
+
+-- Range lookup (for prefix scan) -------------------------------------------
+
+-- | Range lookup: all entries with key in [lo, hi).
+-- Returns count of entries written. Caller provides callback for each entry.
+-- For simplicity, we return all results as a flat buffer:
+--   [count:u32][key1_len:u32][key1][val1_len:u32][val1][key2_len:u32]...
+-- Returns 0 on success, -1 on error. Count written to outCount.
+foreign export ccall lsm_range_lookup
+  :: TableHandle -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize
+  -> Ptr (Ptr Word8) -> Ptr CSize -> Ptr CSize -> IO CInt
+lsm_range_lookup :: TableHandle -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize
+  -> Ptr (Ptr Word8) -> Ptr CSize -> Ptr CSize -> IO CInt
+lsm_range_lookup tableSp loPtr loLen hiPtr hiLen outBufPtr outBufLen outCount = do
+  table <- deRefStablePtr tableSp
+  lo <- BS.packCStringLen (castPtr loPtr, fromIntegral loLen)
+  hi <- BS.packCStringLen (castPtr hiPtr, fromIntegral hiLen)
+  result <- try $ LSM.rangeLookup table (LSM.FromToExcluding lo hi)
+  case result of
+    Left (e :: SomeException) -> do
+      hPutStrLn stderr $ "lsm_range_lookup: " ++ displayException e
+      return (-1)
+    Right vec -> do
+      let entries = Data.Vector.toList vec
+          totalSize = sum [4 + BS.length k + 4 + BS.length v | (k, v) <- entries]
+          count = length entries
+      buf <- mallocBytes totalSize
+      let go _ [] = return ()
+          go off ((k, v):rest) = do
+            pokeByteOff buf off (fromIntegral (BS.length k) :: Word32)
+            BSU.unsafeUseAsCStringLen k $ \(kp, kl) ->
+              copyBytes (plusPtr buf (off + 4)) kp kl
+            let off2 = off + 4 + BS.length k
+            pokeByteOff buf off2 (fromIntegral (BS.length v) :: Word32)
+            BSU.unsafeUseAsCStringLen v $ \(vp, vl) ->
+              copyBytes (plusPtr buf (off2 + 4)) vp vl
+            go (off2 + 4 + BS.length v) rest
+      go 0 entries
+      poke outBufPtr (castPtr buf)
+      poke outBufLen (fromIntegral totalSize)
+      poke outCount (fromIntegral count)
+      return 0
 
 -- Snapshot -----------------------------------------------------------------
 

@@ -15,5 +15,6 @@ foreign-library lsm-ffi
     , bytestring
     , lsm-tree
     , text
+    , vector
   -- Zig-compiled init .o is linked via haskell.nix module (absolute path injected by Nix)
   ghc-options:         -Wall -O2

@@ -5,7 +5,7 @@
  * Skip with: LIBLSM_PATH="" bunx --bun vitest
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Stream } from "effect";
 import { BlobStore } from "../../../storage/src/blob-store/service";
 import { layerLsm } from "../layer-lsm";
 import { utxoKey } from "../../../storage/src/blob-store/keys";
@@ -142,6 +142,29 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
       }),
     );
     expect(result).toEqual(new Uint8Array([0xbb, 0xcc]));
+  });
+
+  it("scan returns entries matching prefix", async () => {
+    const result = await run(
+      Effect.gen(function* () {
+        const store = yield* BlobStore;
+        // Insert entries with different prefixes
+        yield* store.putBatch([
+          { key: new Uint8Array([0x01, 0x00]), value: new Uint8Array([10]) },
+          { key: new Uint8Array([0x01, 0x01]), value: new Uint8Array([11]) },
+          { key: new Uint8Array([0x01, 0x02]), value: new Uint8Array([12]) },
+          { key: new Uint8Array([0x02, 0x00]), value: new Uint8Array([20]) },
+        ]);
+        // Scan for prefix 0x01
+        const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+        yield* Stream.runForEach(
+          store.scan(new Uint8Array([0x01])),
+          (e) => Effect.sync(() => { entries.push(e); }),
+        );
+        return entries.length;
+      }),
+    );
+    expect(result).toBe(3);
   });
 
   it("handles large values", async () => {

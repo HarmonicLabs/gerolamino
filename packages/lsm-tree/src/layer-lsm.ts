@@ -10,6 +10,7 @@ import { dlopen, FFIType, ptr, toArrayBuffer, type Pointer } from "bun:ffi";
 import { Effect, Layer, Stream } from "effect";
 import { BlobStore, BlobStoreError } from "storage/blob-store/service";
 import type { BlobStoreShape } from "storage/blob-store/service";
+import { prefixEnd } from "storage/blob-store/keys";
 
 // ---------------------------------------------------------------------------
 // FFI pointer helpers
@@ -63,6 +64,17 @@ const FFI_SYMBOLS = {
   },
   lsm_delete: {
     args: [FFIType.ptr, FFIType.ptr, FFIType.u64],
+    returns: FFIType.int,
+  },
+  lsm_range_lookup: {
+    args: [
+      FFIType.ptr, // table
+      FFIType.ptr, FFIType.u64, // lo key + len
+      FFIType.ptr, FFIType.u64, // hi key + len
+      FFIType.ptr, // out buf ptr
+      FFIType.ptr, // out buf len
+      FFIType.ptr, // out count
+    ],
     returns: FFIType.int,
   },
   lsm_snapshot_save: {
@@ -155,9 +167,51 @@ const makeShape = (
       catch: (cause) => fail("has", cause),
     }),
 
-  scan: (_prefix) =>
-    // TODO: cursor-based range scan via lsm_cursor_open/next FFI
-    Stream.fail(fail("scan", "cursor FFI not yet implemented")),
+  scan: (prefix) => {
+    const hi = prefixEnd(prefix);
+    return Stream.fromEffect(
+      Effect.try({
+        try: () => {
+          const outBufPtr = new BigUint64Array(1);
+          const outBufLen = new BigUint64Array(1);
+          const outCount = new BigUint64Array(1);
+          const result = ffi.lsm_range_lookup(
+            tableHandle,
+            ptr(prefix),
+            prefix.byteLength,
+            ptr(hi.byteLength > 0 ? hi : prefix), // if no upper bound, use prefix
+            hi.byteLength > 0 ? hi.byteLength : prefix.byteLength,
+            outBufPtr,
+            outBufLen,
+            outCount,
+          );
+          if (result !== 0) throw `lsm_range_lookup returned ${result}`;
+          const count = Number(outCount[0]);
+          if (count === 0) return [] as Array<{ key: Uint8Array; value: Uint8Array }>;
+          const bufPtr = readHandle(outBufPtr);
+          const totalLen = Number(outBufLen[0]);
+          const raw = new Uint8Array(toArrayBuffer(bufPtr, 0, totalLen)).slice();
+          // Parse flat buffer: [key_len:u32][key][val_len:u32][val]...
+          const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+          const view = new DataView(raw.buffer, raw.byteOffset);
+          let off = 0;
+          for (let i = 0; i < count; i++) {
+            const kLen = view.getUint32(off, true); // little-endian (Haskell Word32)
+            off += 4;
+            const key = raw.slice(off, off + kLen);
+            off += kLen;
+            const vLen = view.getUint32(off, true);
+            off += 4;
+            const value = raw.slice(off, off + vLen);
+            off += vLen;
+            entries.push({ key, value });
+          }
+          return entries;
+        },
+        catch: (cause) => fail("scan", cause),
+      }),
+    ).pipe(Stream.flatMap((entries) => Stream.fromIterable(entries)));
+  },
 
   putBatch: (entries) =>
     Effect.try({

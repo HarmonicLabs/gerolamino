@@ -1,0 +1,85 @@
+/**
+ * Node orchestrator — ties consensus services together into a running node.
+ *
+ * Architecture (Amaru-inspired 5-stage pipeline as Effect composition):
+ * 1. Bootstrap: load snapshot, initialize ledger state
+ * 2. Connect: establish N2N connections to relay peers
+ * 3. Sync: ChainSync headers → validate → store → evolve nonces
+ * 4. Monitor: track GSM state, detect stalls, log progress
+ *
+ * The node is a single Effect program that composes services via layers.
+ * No XState needed — Effect's structured concurrency handles lifecycle.
+ */
+import { Effect, Schedule, Stream, Duration } from "effect";
+import { SlotClock } from "./clock";
+import { ConsensusEngine } from "./consensus-engine";
+import { PeerManager } from "./peer-manager";
+import { getSyncState } from "./sync";
+import { ImmutableDB } from "storage/services/immutable-db";
+import type { GsmState } from "./chain-selection";
+
+export interface NodeStatus {
+  readonly tipSlot: bigint;
+  readonly tipBlockNo: bigint;
+  readonly currentSlot: bigint;
+  readonly epochNumber: bigint;
+  readonly gsmState: GsmState;
+  readonly peerCount: number;
+  readonly blocksProcessed: number;
+  readonly syncPercent: number;
+}
+
+/**
+ * Get the current node status by reading from all services.
+ */
+export const getNodeStatus = Effect.gen(function* () {
+  const slotClock = yield* SlotClock;
+  const peerManager = yield* PeerManager;
+  const immutableDb = yield* ImmutableDB;
+
+  const tip = yield* immutableDb.getTip;
+  const currentSlot = yield* slotClock.currentSlot;
+  const epoch = yield* slotClock.currentEpoch;
+  const peers = yield* peerManager.getPeers;
+  const activePeers = peers.filter((p) => p.status !== "disconnected").length;
+
+  const tipSlot = tip?.slot ?? 0n;
+  const syncPercent =
+    currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
+
+  return {
+    tipSlot,
+    tipBlockNo: 0n, // TODO: track from ImmutableDB
+    currentSlot,
+    epochNumber: epoch,
+    gsmState: currentSlot - tipSlot <= slotClock.stabilityWindow ? "CaughtUp" : "Syncing",
+    peerCount: activePeers,
+    blocksProcessed: 0,
+    syncPercent: Math.min(syncPercent, 100),
+  } satisfies NodeStatus;
+});
+
+/**
+ * Run the node's monitoring loop — periodic status logging and stall detection.
+ * Runs forever until interrupted.
+ */
+export const monitorLoop = Effect.gen(function* () {
+  const peerManager = yield* PeerManager;
+
+  yield* Effect.repeat(
+    Effect.gen(function* () {
+      const status = yield* getNodeStatus;
+      const stalled = yield* peerManager.detectStalls;
+
+      if (stalled.length > 0) {
+        yield* Effect.log(`Detected ${stalled.length} stalled peers: ${stalled.join(", ")}`);
+      }
+
+      yield* Effect.log(
+        `[${status.gsmState}] slot ${status.tipSlot}/${status.currentSlot} ` +
+          `(${status.syncPercent}%) epoch ${status.epochNumber} peers ${status.peerCount}`,
+      );
+    }),
+    Schedule.fixed("10 seconds"),
+  );
+});

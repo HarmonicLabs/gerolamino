@@ -143,11 +143,12 @@
               # --- Devenv Tasks ---
 
               # Download and convert Mithril preprod snapshot to LMDB format.
-              # Run manually: devenv tasks run mithril:download-snapshot
+              # Runs on devshell entry if snapshot is missing (gated by status check).
               tasks."mithril:download-snapshot" = {
                 description = "Download latest Mithril preprod snapshot and convert to LMDB";
                 exec = "nix run .#download-snapshot -- \"$DEVENV_STATE/snapshot\"";
                 status = ''[ -d "$DEVENV_STATE/snapshot/ledger" ]'';
+                before = [ "devenv:enterShell" ];
                 showOutput = true;
               };
 

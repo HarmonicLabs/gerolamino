@@ -53,14 +53,21 @@ jobs:
       - name: Build bootstrap container image
         run: nix build -L .#bootstrap-image
 
-      - name: Push container to GHCR
+      - name: Install Podman and Skopeo
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: nix profile install nixpkgs#podman nixpkgs#skopeo
+
+      - name: Load and push container to GHCR
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE_STREAM=$(nix build .#bootstrap-image --print-out-paths --no-link)
-          "$IMAGE_STREAM" | skopeo copy \
-            docker-archive:/dev/stdin \
-            docker://ghcr.io/harmoniclabs/bootstrap:latest
+
+          # Load streamed image into local Podman store
+          "$IMAGE_STREAM" | podman load
+
+          # Login and push to GHCR via Podman
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/harmoniclabs/bootstrap:latest
 
   # --- Deploy to production (disabled until server is rebuilt) ---
   # deploy:

@@ -92,7 +92,8 @@
             backend = "podman";
             containers.bootstrap = {
               image = "ghcr.io/harmoniclabs/bootstrap:latest";
-              imageStream = self.packages.x86_64-linux.bootstrap-image;
+              # nix2container image loaded into podman via copyToPodman
+              imageStream = self.packages.x86_64-linux.bootstrap-image.copyToPodman;
               ports = [ "0.0.0.0:3040:3040" ];
               volumes = [ "${snapshotDir}:/data:ro" ];
               environment = {

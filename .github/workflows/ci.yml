@@ -56,11 +56,8 @@ jobs:
       - name: Push bootstrap container to GHCR
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          nix profile install nixpkgs#skopeo
-          IMAGE=$(nix build .#bootstrap-image --print-out-paths --no-link)
-          "$IMAGE" | skopeo copy \
+          nix run .#bootstrap-image.copyToRegistry -- \
             --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-            docker-archive:/dev/stdin \
             docker://ghcr.io/harmoniclabs/bootstrap:latest
 
   # --- Deploy to production (disabled until server is rebuilt) ---

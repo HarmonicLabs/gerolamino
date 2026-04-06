@@ -1,10 +1,18 @@
 # OCI container image for the Gerolamo bootstrap server.
-# Uses bun2nix hook + dockerTools.streamLayeredImage.
+#
+# Built with nix2container for fast rebuilds (~1.8s), layer deduplication,
+# and direct registry push without tarball I/O.
 #
 # The Mithril snapshot (16GB) is NOT baked in — mount it as a volume at /data.
+#
+# Build:  nix build .#bootstrap-image
+# Push:   nix run .#bootstrap-image.copyToRegistry -- docker://ghcr.io/harmoniclabs/bootstrap:latest
+# Run:    nix run .#bootstrap-image.copyToDockerDaemon && docker run -p 3040:3040 -v /path:/data:ro bootstrap:latest
 { inputs, root, ... }: {
   perSystem = { system, lib, self', pkgs, ... }:
     let
+      nix2container = inputs.nix2container.packages.${system}.nix2container;
+
       bun2nix = inputs.bun2nix.packages.${system}.bun2nix;
 
       bunDeps = bun2nix.fetchBunDeps {
@@ -85,27 +93,50 @@
             --set LIBLMDB_PATH "${lmdbLib}/lib/liblmdb.so"
         '';
       };
+
+      # Layer 1: Stable runtime — bun, LMDB, CA certs, bash, coreutils.
+      # Rarely changes, cached across rebuilds.
+      runtimeLayer = nix2container.buildLayer {
+        deps = [
+          pkgs.bun
+          pkgs.lmdb
+          pkgs.cacert
+          pkgs.bashInteractive
+          pkgs.coreutils
+        ];
+      };
+
+      # Layer 2: Application code + node_modules.
+      # Changes when source or deps change.
+      appLayer = nix2container.buildLayer {
+        deps = [ bootstrapApp ];
+        layers = [ runtimeLayer ];
+      };
+
+      # Writable directories for runtime
+      dataDir = pkgs.runCommand "data-dir" { } ''
+        mkdir -p $out/tmp $out/data
+      '';
     in
     {
       packages.bootstrap-app = bootstrapApp;
 
-      packages.bootstrap-image = pkgs.dockerTools.streamLayeredImage {
+      packages.bootstrap-image = nix2container.buildImage {
         name = "ghcr.io/harmoniclabs/bootstrap";
         tag = "latest";
-        maxLayers = 80;
 
-        contents = [
-          pkgs.bashInteractive
-          pkgs.coreutils
-          pkgs.cacert
-          pkgs.bun
-          pkgs.lmdb
-          bootstrapApp
+        layers = [
+          runtimeLayer
+          appLayer
         ];
 
-        extraCommands = ''
-          mkdir -p tmp data
-        '';
+        copyToRoot = [ dataDir ];
+
+        perms = [{
+          path = dataDir;
+          regex = ".*";
+          mode = "0777";
+        }];
 
         config = {
           Cmd = [

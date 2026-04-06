@@ -83,7 +83,10 @@
           };
 
           # Mithril client + verification keys (for snapshot download task)
-          mithril-client = inputs.mithril.packages.${system}.mithril-client-cli;
+          # Tests skipped: upstream reqwest HTTP tests fail in Nix sandbox (no CA certs)
+          mithril-client = inputs.mithril.packages.${system}.mithril-client-cli.overrideAttrs (_: {
+            doCheck = false;
+          });
           mithrilSrc = inputs.mithril;
           mithrilEnv = {
             AGGREGATOR_ENDPOINT = "https://aggregator.release-preprod.api.mithril.network/aggregator";

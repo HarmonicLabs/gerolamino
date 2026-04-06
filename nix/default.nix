@@ -1,9 +1,8 @@
 # Top-level Nix module.
-# Imports package derivations from ./packages/.
+# Imports package derivations and machine configs.
 {
   imports = [
     ./packages
-    ./apps
     ./machine-configs
   ];
 }

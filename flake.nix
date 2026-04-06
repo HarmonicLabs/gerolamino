@@ -81,6 +81,17 @@
             inherit system;
             overlays = [ inputs.rust-overlay.overlays.default ];
           };
+
+          # Mithril client + verification keys (for snapshot download task)
+          mithril-client = inputs.mithril.packages.${system}.mithril-client-cli;
+          mithrilSrc = inputs.mithril;
+          mithrilEnv = {
+            AGGREGATOR_ENDPOINT = "https://aggregator.release-preprod.api.mithril.network/aggregator";
+            GENESIS_VERIFICATION_KEY = builtins.readFile
+              "${mithrilSrc}/mithril-infra/configuration/release-preprod/genesis.vkey";
+            ANCILLARY_VERIFICATION_KEY = builtins.readFile
+              "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
+          };
         in
         {
           flake-root.projectRootFile = "flake.nix";
@@ -150,10 +161,49 @@
 
               tasks."mithril:download-snapshot" = {
                 description = "Download latest Mithril preprod snapshot and convert to LMDB";
-                exec = "nix run .#download-snapshot -- \"$DEVENV_STATE/snapshot\"";
                 status = ''[ -d "$DEVENV_STATE/snapshot/ledger" ]'';
                 before = [ "devenv:enterShell" ];
                 showOutput = true;
+                exec = ''
+                  set -euo pipefail
+                  DEST="$DEVENV_STATE/snapshot"
+                  WORK="$(mktemp -d)"
+                  trap 'rm -rf "$WORK"' EXIT
+
+                  export AGGREGATOR_ENDPOINT="${mithrilEnv.AGGREGATOR_ENDPOINT}"
+                  export GENESIS_VERIFICATION_KEY="${mithrilEnv.GENESIS_VERIFICATION_KEY}"
+                  export ANCILLARY_VERIFICATION_KEY="${mithrilEnv.ANCILLARY_VERIFICATION_KEY}"
+                  export PATH="${mithril-client}/bin:${pkgs.coreutils}/bin:${pkgs.jq}/bin:${pkgs.findutils}/bin:$PATH"
+
+                  echo "==> Listing available Cardano DB snapshots..."
+                  mithril-client cardano-db snapshot list --json | jq '.[0]'
+
+                  echo "==> Downloading latest Cardano DB snapshot to $WORK..."
+                  mithril-client cardano-db download latest --download-dir "$WORK"
+
+                  SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
+                  if [ -z "$SNAP_DIR" ]; then
+                    echo "ERROR: No snapshot directory found" >&2
+                    exit 1
+                  fi
+
+                  LEDGER_DIR="$(find "$SNAP_DIR/ledger" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
+                  if [ -d "$LEDGER_DIR" ]; then
+                    echo "==> Converting snapshot to LMDB format..."
+                    mithril-client tools utxo-hd snapshot-converter \
+                      --input-dir "$LEDGER_DIR" \
+                      --output-dir "$LEDGER_DIR"
+                    echo "==> LMDB conversion complete"
+                  fi
+
+                  echo "==> Installing snapshot to $DEST..."
+                  mkdir -p "$DEST"
+                  rm -rf "''${DEST:?}"/*
+                  cp -r "$SNAP_DIR"/* "$DEST/"
+
+                  echo "==> Done. Snapshot installed at $DEST"
+                  ls -la "$DEST"
+                '';
               };
 
               # --- Processes (managed by process-compose TUI via `devenv up`) ---

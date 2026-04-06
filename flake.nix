@@ -200,14 +200,13 @@
               # --- Tasks ---
 
               tasks."mithril:download-snapshot" = {
-                description = "Download Mithril preprod snapshot and convert to V2LSM";
-                status = ''[ -d "$DEVENV_STATE/snapshot/lsm" ]'';
+                description = "Download Mithril preprod snapshot and convert to LMDB";
+                status = ''[ -d "$DEVENV_STATE/snapshot/ledger" ]'';
                 before = [ "devenv:enterShell" ];
                 showOutput = true;
                 env = mithrilEnv // {
                   PATH = pkgs.lib.makeBinPath [
                     mithril-client
-                    config.packages.snapshot-converter
                     pkgs.coreutils
                     pkgs.jq
                     pkgs.findutils
@@ -216,7 +215,6 @@
                 exec = ''
                   DEST="$DEVENV_STATE/snapshot"
                   WORK="$(mktemp -d)"
-                  CONF_DIR="${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node"
                   trap 'rm -rf "$WORK"' EXIT
 
                   echo "==> Downloading Mithril preprod snapshot..."
@@ -226,22 +224,17 @@
                   SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
                   [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
 
-                  # Find the ledger snapshot directory (e.g., ledger/119401006)
-                  LEDGER_SLOT_DIR="$(find "$SNAP_DIR/ledger" -mindepth 1 -maxdepth 1 -type d | head -1)"
-                  SLOT_NAME="$(basename "$LEDGER_SLOT_DIR")"
-
-                  echo "==> Converting TVar snapshot directly to V2LSM..."
-                  mkdir -p "$SNAP_DIR/lsm"
-                  snapshot-converter \
-                    --input-mem "$LEDGER_SLOT_DIR" \
-                    --output-lsm-snapshot "$SNAP_DIR/ledger/''${SLOT_NAME}_lsm" \
-                    --output-lsm-database "$SNAP_DIR/lsm" \
-                    --config "$CONF_DIR/config.json"
+                  echo "==> Converting to LMDB via Mithril snapshot-converter..."
+                  mithril-client tools utxo-hd snapshot-converter \
+                    --db-directory "$SNAP_DIR" \
+                    --cardano-node-version latest \
+                    --utxo-hd-flavor LMDB \
+                    --commit
 
                   mkdir -p "$DEST"
                   rm -rf "''${DEST:?}"/*
                   cp -r "$SNAP_DIR"/* "$DEST/"
-                  echo "==> V2LSM snapshot installed at $DEST"
+                  echo "==> LMDB snapshot installed at $DEST"
                 '';
               };
 

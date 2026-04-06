@@ -131,6 +131,11 @@
             serviceConfig = {
               Type = "oneshot";
               TimeoutStartSec = "2h";
+              # Prevent OOM from killing the whole system — let the download
+              # use swap rather than consuming all physical RAM.
+              MemoryMax = "4G";
+              MemorySwapMax = "8G";
+              OOMPolicy = "stop";
               ExecStart = pkgs.writeShellScript "download-snapshot" ''
                 set -euo pipefail
                 WORK="$(mktemp -d)"
@@ -177,6 +182,12 @@
               RandomizedDelaySec = "30min";
             };
           };
+
+          # --- Swap (prevents OOM during Mithril snapshot download) ---
+          swapDevices = [{
+            device = "/var/lib/swapfile";
+            size = 8192; # 8GB
+          }];
 
           # --- Snapshot Data Directory ---
           systemd.tmpfiles.rules = [

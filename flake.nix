@@ -164,45 +164,32 @@
                 status = ''[ -d "$DEVENV_STATE/snapshot/ledger" ]'';
                 before = [ "devenv:enterShell" ];
                 showOutput = true;
+                env = mithrilEnv // {
+                  PATH = pkgs.lib.makeBinPath [ mithril-client pkgs.coreutils pkgs.jq pkgs.findutils ];
+                };
                 exec = ''
-                  set -euo pipefail
                   DEST="$DEVENV_STATE/snapshot"
                   WORK="$(mktemp -d)"
                   trap 'rm -rf "$WORK"' EXIT
 
-                  export AGGREGATOR_ENDPOINT="${mithrilEnv.AGGREGATOR_ENDPOINT}"
-                  export GENESIS_VERIFICATION_KEY="${mithrilEnv.GENESIS_VERIFICATION_KEY}"
-                  export ANCILLARY_VERIFICATION_KEY="${mithrilEnv.ANCILLARY_VERIFICATION_KEY}"
-                  export PATH="${mithril-client}/bin:${pkgs.coreutils}/bin:${pkgs.jq}/bin:${pkgs.findutils}/bin:$PATH"
-
-                  echo "==> Listing available Cardano DB snapshots..."
+                  echo "==> Downloading latest Cardano DB snapshot..."
                   mithril-client cardano-db snapshot list --json | jq '.[0]'
-
-                  echo "==> Downloading latest Cardano DB snapshot to $WORK..."
                   mithril-client cardano-db download latest --download-dir "$WORK"
 
                   SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
-                  if [ -z "$SNAP_DIR" ]; then
-                    echo "ERROR: No snapshot directory found" >&2
-                    exit 1
-                  fi
+                  [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
 
                   LEDGER_DIR="$(find "$SNAP_DIR/ledger" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
                   if [ -d "$LEDGER_DIR" ]; then
-                    echo "==> Converting snapshot to LMDB format..."
+                    echo "==> Converting to LMDB format..."
                     mithril-client tools utxo-hd snapshot-converter \
-                      --input-dir "$LEDGER_DIR" \
-                      --output-dir "$LEDGER_DIR"
-                    echo "==> LMDB conversion complete"
+                      --input-dir "$LEDGER_DIR" --output-dir "$LEDGER_DIR"
                   fi
 
-                  echo "==> Installing snapshot to $DEST..."
                   mkdir -p "$DEST"
                   rm -rf "''${DEST:?}"/*
                   cp -r "$SNAP_DIR"/* "$DEST/"
-
-                  echo "==> Done. Snapshot installed at $DEST"
-                  ls -la "$DEST"
+                  echo "==> Snapshot installed at $DEST"
                 '';
               };
 

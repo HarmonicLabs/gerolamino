@@ -177,7 +177,7 @@
 
                   echo "==> Downloading latest Cardano DB snapshot..."
                   mithril-client cardano-db snapshot list --json | jq '.[0]'
-                  mithril-client cardano-db download latest --download-dir "$WORK"
+                  mithril-client cardano-db download latest --include-ancillary --download-dir "$WORK"
 
                   SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
                   [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1

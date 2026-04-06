@@ -138,7 +138,7 @@
                 trap 'rm -rf "$WORK"' EXIT
 
                 echo "==> Downloading latest Cardano DB snapshot..."
-                mithril-client cardano-db download latest --download-dir "$WORK"
+                mithril-client cardano-db download latest --include-ancillary --download-dir "$WORK"
 
                 SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
                 if [ -z "$SNAP_DIR" ]; then

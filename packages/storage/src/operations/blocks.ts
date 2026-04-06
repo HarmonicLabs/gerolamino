@@ -1,14 +1,18 @@
 /**
- * Block storage operations — using Drizzle ORM query builder.
+ * Block storage operations — dual-layer architecture.
  *
- * All operations use the SqliteDrizzle service and the `query` helper
- * to bridge Drizzle's Promise API into Effect.
+ * Metadata (slot, hash, blockNo, epoch, size) stays in SQL (Drizzle ORM).
+ * Block CBOR blobs move to BlobStore (LSM in Bun, IndexedDB in browser).
+ *
+ * Both layers are accessed via Effect services — consumer code never
+ * imports platform-specific modules.
  */
 import { Effect } from "effect";
 import { eq, and, lt, desc } from "drizzle-orm";
-import { SqliteDrizzle, query, schema } from "../db/client.ts";
-import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
-import { ImmutableDBError, VolatileDBError } from "../errors.ts";
+import { SqliteDrizzle, query, schema } from "../db/client";
+import type { StoredBlock, RealPoint } from "../types/StoredBlock";
+import { ImmutableDBError, VolatileDBError } from "../errors";
+import { BlobStore, blockKey } from "../blob-store/index.ts";
 
 // ---------------------------------------------------------------------------
 // Immutable block operations
@@ -17,6 +21,15 @@ import { ImmutableDBError, VolatileDBError } from "../errors.ts";
 export const writeImmutableBlock = (block: StoredBlock) =>
   Effect.gen(function* () {
     const db = yield* SqliteDrizzle;
+    const store = yield* BlobStore;
+
+    // Write CBOR blob to BlobStore
+    yield* store.put(
+      blockKey(block.slot, block.hash),
+      block.blockCbor,
+    );
+
+    // Write metadata to SQL (no blockCbor column)
     yield* query(
       db
         .insert(schema.immutableBlocks)
@@ -31,7 +44,6 @@ export const writeImmutableBlock = (block: StoredBlock) =>
           slotLeaderId: 0,
           protoMajor: 0,
           protoMinor: 0,
-          blockCbor: block.blockCbor,
         })
         .onConflictDoUpdate({
           target: schema.immutableBlocks.slot,
@@ -43,6 +55,9 @@ export const writeImmutableBlock = (block: StoredBlock) =>
 export const readImmutableBlock = (point: RealPoint) =>
   Effect.gen(function* () {
     const db = yield* SqliteDrizzle;
+    const store = yield* BlobStore;
+
+    // Read metadata from SQL
     const rows = yield* query(
       db
         .select()
@@ -57,13 +72,18 @@ export const readImmutableBlock = (point: RealPoint) =>
     );
     if (rows.length === 0) return undefined;
     const r = rows[0]!;
+
+    // Read CBOR blob from BlobStore
+    const blockCbor = yield* store.get(blockKey(point.slot, point.hash));
+    if (blockCbor === undefined) return undefined;
+
     return {
       slot: BigInt(r.slot),
       hash: r.hash,
       prevHash: r.prevHash ?? undefined,
       blockNo: BigInt(r.blockNo),
       blockSizeBytes: r.size,
-      blockCbor: r.blockCbor,
+      blockCbor,
     } satisfies StoredBlock;
   }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "readBlock", cause })));
 
@@ -93,6 +113,15 @@ export const getImmutableTip = Effect.gen(function* () {
 export const writeVolatileBlock = (block: StoredBlock) =>
   Effect.gen(function* () {
     const db = yield* SqliteDrizzle;
+    const store = yield* BlobStore;
+
+    // Write CBOR blob to BlobStore
+    yield* store.put(
+      blockKey(block.slot, block.hash),
+      block.blockCbor,
+    );
+
+    // Write metadata to SQL (no blockCbor column)
     yield* query(
       db
         .insert(schema.volatileBlocks)
@@ -102,7 +131,6 @@ export const writeVolatileBlock = (block: StoredBlock) =>
           prevHash: block.prevHash ?? null,
           blockNo: Number(block.blockNo),
           blockSizeBytes: block.blockSizeBytes,
-          blockCbor: block.blockCbor,
         })
         .onConflictDoNothing({ target: schema.volatileBlocks.hash }),
     );
@@ -111,18 +139,25 @@ export const writeVolatileBlock = (block: StoredBlock) =>
 export const readVolatileBlock = (hash: Uint8Array) =>
   Effect.gen(function* () {
     const db = yield* SqliteDrizzle;
+    const store = yield* BlobStore;
+
     const rows = yield* query(
       db.select().from(schema.volatileBlocks).where(eq(schema.volatileBlocks.hash, hash)).limit(1),
     );
     if (rows.length === 0) return undefined;
     const r = rows[0]!;
+
+    // Read CBOR blob from BlobStore
+    const blockCbor = yield* store.get(blockKey(BigInt(r.slot), r.hash));
+    if (blockCbor === undefined) return undefined;
+
     return {
       slot: BigInt(r.slot),
       hash: r.hash,
       prevHash: r.prevHash ?? undefined,
       blockNo: BigInt(r.blockNo),
       blockSizeBytes: r.blockSizeBytes,
-      blockCbor: r.blockCbor,
+      blockCbor,
     } satisfies StoredBlock;
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "readBlock", cause })));
 
@@ -142,4 +177,5 @@ export const garbageCollectVolatile = (belowSlot: number) =>
   Effect.gen(function* () {
     const db = yield* SqliteDrizzle;
     yield* query(db.delete(schema.volatileBlocks).where(lt(schema.volatileBlocks.slot, belowSlot)));
+    // TODO: also delete corresponding BlobStore entries for GC'd blocks
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "garbageCollect", cause })));

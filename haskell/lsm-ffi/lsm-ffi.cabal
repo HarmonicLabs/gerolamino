@@ -1,0 +1,19 @@
+cabal-version: 3.0
+name:          lsm-ffi
+version:       0.1.0.0
+synopsis:      C-callable FFI wrapper for lsm-tree
+license:       Apache-2.0
+
+foreign-library lsm-ffi
+  type:                native-shared
+  lib-version-info:    0:1:0
+  hs-source-dirs:      src
+  other-modules:       LsmFFI
+  default-language:    GHC2021
+  build-depends:
+    , base         >=4.16 && <4.22
+    , bytestring
+    , lsm-tree
+    , text
+  -- Zig-compiled init .o is linked via haskell.nix module (absolute path injected by Nix)
+  ghc-options:         -Wall -O2

@@ -1,0 +1,17 @@
+{
+  "name": "lmdb-to-lsm",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@effect/platform-bun": "^4.0.0-beta.43",
+    "effect": "^4.0.0-beta.43"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "typescript": "~5.9.2"
+  },
+  "scripts": {
+    "convert": "bun run index.ts convert"
+  }
+}

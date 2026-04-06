@@ -49,6 +49,10 @@ export default defineConfig({
     alias: {
       // miniprotocols internal alias
       "@": path.resolve(__dirname, "packages/miniprotocols/src"),
+      // workspace package aliases for cross-package imports
+      "storage/blob-store/service": path.resolve(__dirname, "packages/storage/src/blob-store/service.ts"),
+      "storage/blob-store/keys": path.resolve(__dirname, "packages/storage/src/blob-store/keys.ts"),
+      "storage/blob-store/index": path.resolve(__dirname, "packages/storage/src/blob-store/index.ts"),
     },
   },
   server: {

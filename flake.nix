@@ -1,6 +1,11 @@
 {
   description = "Gerolamino: In-browser Cardano node";
 
+  nixConfig = {
+    extra-substituters = [ "https://cache.iog.io" ];
+    extra-trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" ];
+  };
+
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -61,6 +66,24 @@
       url = "https://flakehub.com/f/DeterminateSystems/determinate/3";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # IOG's Haskell.nix — handles IOG's tightly coupled dep cluster (CHaP, index-state)
+    haskellNix = {
+      url = "github:input-output-hk/haskell.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # IOG's LSM tree library
+    lsm-tree-src = {
+      url = "github:IntersectMBO/lsm-tree";
+      flake = false;
+    };
+
+    # Ouroboros consensus — provides snapshot-converter for V1LMDB → V2LSM
+    ouroboros-consensus = {
+      url = "github:IntersectMBO/ouroboros-consensus";
+      # Don't follow nixpkgs — ouroboros-consensus pins its own compatible set
+    };
   };
 
   outputs = inputs@{ flake-parts, ... }:
@@ -69,6 +92,7 @@
         inputs.devenv.flakeModule
         inputs.treefmt-nix.flakeModule
         inputs.flake-root.flakeModule
+        # inputs.haskell-flake.flakeModule  # not used — haskell.nix handles IOG deps
         ./nix
       ];
 
@@ -122,6 +146,7 @@
                 pkgs.poppler-utils
                 pkgs.wasm-pack
                 pkgs.binaryen
+                mithril-client
                 config.flake-root.package
               ];
 
@@ -149,6 +174,12 @@
                   npm.enable = true;
                   bun.enable = true;
                 };
+                haskell = {
+                  enable = true;
+                  cabal.enable = true;
+                  stack.enable = true;
+                  lsp.enable = true;
+                };
               };
 
               # --- Process Manager: process-compose with TUI ---
@@ -163,36 +194,54 @@
               # --- Tasks ---
 
               tasks."mithril:download-snapshot" = {
-                description = "Download latest Mithril preprod snapshot and convert to LMDB";
-                status = ''[ -d "$DEVENV_STATE/snapshot/ledger" ]'';
+                description = "Download Mithril preprod snapshot and convert to V2LSM";
+                status = ''[ -d "$DEVENV_STATE/snapshot/lsm" ]'';
                 before = [ "devenv:enterShell" ];
                 showOutput = true;
                 env = mithrilEnv // {
-                  PATH = pkgs.lib.makeBinPath [ mithril-client pkgs.coreutils pkgs.jq pkgs.findutils ];
+                  PATH = pkgs.lib.makeBinPath [
+                    mithril-client
+                    config.packages.snapshot-converter
+                    pkgs.coreutils
+                    pkgs.jq
+                    pkgs.findutils
+                  ];
                 };
                 exec = ''
                   DEST="$DEVENV_STATE/snapshot"
                   WORK="$(mktemp -d)"
                   trap 'rm -rf "$WORK"' EXIT
 
-                  echo "==> Downloading latest Cardano DB snapshot..."
+                  echo "==> Downloading Mithril preprod snapshot..."
                   mithril-client cardano-db snapshot list --json | jq '.[0]'
                   mithril-client cardano-db download latest --include-ancillary --download-dir "$WORK"
 
                   SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
                   [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
 
-                  LEDGER_DIR="$(find "$SNAP_DIR/ledger" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)"
-                  if [ -d "$LEDGER_DIR" ]; then
-                    echo "==> Converting to LMDB format..."
-                    mithril-client tools utxo-hd snapshot-converter \
-                      --input-dir "$LEDGER_DIR" --output-dir "$LEDGER_DIR"
-                  fi
+                  echo "==> Step 1: Converting to LMDB via Mithril..."
+                  mithril-client tools utxo-hd snapshot-converter \
+                    --db-directory "$SNAP_DIR" \
+                    --cardano-node-version latest \
+                    --utxo-hd-flavor LMDB \
+                    --commit
+
+                  # Find the ledger snapshot directory (e.g., ledger/119401006)
+                  LEDGER_SLOT_DIR="$(find "$SNAP_DIR/ledger" -mindepth 1 -maxdepth 1 -type d | head -1)"
+                  SLOT_NAME="$(basename "$LEDGER_SLOT_DIR")"
+
+                  echo "==> Step 2: Converting LMDB to V2LSM via snapshot-converter..."
+                  mkdir -p "$SNAP_DIR/lsm"
+                  snapshot-converter \
+                    --input-lmdb "$LEDGER_SLOT_DIR" \
+                    --output-lsm-snapshot "$SNAP_DIR/ledger/''${SLOT_NAME}_lsm" \
+                    --output-lsm-database "$SNAP_DIR/lsm" \
+                    --config "$SNAP_DIR/config.json"
 
                   mkdir -p "$DEST"
                   rm -rf "''${DEST:?}"/*
                   cp -r "$SNAP_DIR"/* "$DEST/"
-                  echo "==> Snapshot installed at $DEST"
+                  echo "==> V2LSM snapshot installed at $DEST"
                 '';
               };
 

@@ -49,7 +49,7 @@ export const immutableBlocks = sqliteTable(
     opCert: blob("op_cert", { mode: "buffer" }),
     opCertCounter: integer("op_cert_counter"),
     crc32: integer("crc32"),
-    blockCbor: blob("block_cbor", { mode: "buffer" }).notNull(),
+    // blockCbor moved to BlobStore (LSM / IndexedDB) under blk: prefix key
   },
   (t) => ({
     blockNoIdx: index("idx_immutable_block_no").on(t.blockNo),
@@ -65,7 +65,7 @@ export const volatileBlocks = sqliteTable(
     prevHash: blob("prev_hash", { mode: "buffer" }),
     blockNo: integer("block_no").notNull(),
     blockSizeBytes: integer("block_size_bytes").notNull(),
-    blockCbor: blob("block_cbor", { mode: "buffer" }).notNull(),
+    // blockCbor moved to BlobStore (LSM / IndexedDB) under blk: prefix key
   },
   (t) => ({
     prevHashIdx: index("idx_volatile_prev_hash").on(t.prevHash),
@@ -76,7 +76,7 @@ export const ledgerSnapshots = sqliteTable("ledger_snapshots", {
   slot: integer("slot").primaryKey(),
   hash: blob("hash", { mode: "buffer" }).notNull(),
   epoch: integer("epoch").notNull(),
-  stateBytes: blob("state_bytes", { mode: "buffer" }).notNull(),
+  // stateBytes moved to BlobStore under "snap" prefix key
 });
 
 // =============================================================================

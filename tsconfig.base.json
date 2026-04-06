@@ -38,7 +38,9 @@
       "bootstrap": ["packages/bootstrap/src/index.ts"],
       "bootstrap/*": ["packages/bootstrap/src/*"],
       "wasm-utils": ["packages/wasm-utils/pkg/wasm_utils.js"],
-      "wasm-plexer": ["packages/wasm-plexer/result/wasm_plexer_bun.js"]
+      "wasm-plexer": ["packages/wasm-plexer/result/wasm_plexer_bun.js"],
+      "lsm-tree": ["packages/lsm-tree/src/index.ts"],
+      "lsm-tree/*": ["packages/lsm-tree/src/*"]
     }
   }
 }

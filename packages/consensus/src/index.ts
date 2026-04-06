@@ -6,3 +6,5 @@ export {
   HeaderValidationError,
 } from "./validate-header";
 export type { BlockHeader, LedgerView } from "./validate-header";
+export { ConsensusEngine, ConsensusEngineLive } from "./consensus-engine";
+export type { ConsensusEngineShape } from "./consensus-engine";

@@ -1,5 +1,4 @@
 export { BlobStore, BlobStoreError } from "./service";
-export type { BlobStoreShape } from "./service";
 export {
   utxoKey,
   blockKey,

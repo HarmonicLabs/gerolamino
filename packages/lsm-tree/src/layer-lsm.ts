@@ -9,7 +9,6 @@
 import { dlopen, FFIType, ptr, toArrayBuffer, type Pointer } from "bun:ffi";
 import { Effect, Layer, Stream } from "effect";
 import { BlobStore, BlobStoreError } from "storage/blob-store/service";
-import type { BlobStoreShape } from "storage/blob-store/service";
 import { prefixEnd } from "storage/blob-store/keys";
 
 // ---------------------------------------------------------------------------
@@ -103,8 +102,8 @@ const cstr = (s: string): Uint8Array => {
 const makeShape = (
   ffi: LsmLib,
   tableHandle: Pointer,
-): BlobStoreShape => ({
-  get: (key) =>
+) => ({
+  get: (key: Uint8Array) =>
     Effect.try({
       try: () => {
         const outBufPtr = new BigUint64Array(1);
@@ -126,7 +125,7 @@ const makeShape = (
       catch: (cause) => fail("get", cause),
     }),
 
-  put: (key, value) =>
+  put: (key: Uint8Array, value: Uint8Array) =>
     Effect.try({
       try: () => {
         const result = ffi.lsm_insert(
@@ -141,7 +140,7 @@ const makeShape = (
       catch: (cause) => fail("put", cause),
     }),
 
-  delete: (key) =>
+  delete: (key: Uint8Array) =>
     Effect.try({
       try: () => {
         const result = ffi.lsm_delete(tableHandle, ptr(key), key.byteLength);
@@ -150,7 +149,7 @@ const makeShape = (
       catch: (cause) => fail("delete", cause),
     }),
 
-  has: (key) =>
+  has: (key: Uint8Array) =>
     Effect.try({
       try: () => {
         const outBufPtr = new BigUint64Array(1);
@@ -167,7 +166,7 @@ const makeShape = (
       catch: (cause) => fail("has", cause),
     }),
 
-  scan: (prefix) => {
+  scan: (prefix: Uint8Array) => {
     const hi = prefixEnd(prefix);
     return Stream.fromEffect(
       Effect.try({
@@ -187,7 +186,10 @@ const makeShape = (
           );
           if (result !== 0) throw `lsm_range_lookup returned ${result}`;
           const count = Number(outCount[0]);
-          if (count === 0) return [] as Array<{ key: Uint8Array; value: Uint8Array }>;
+          if (count === 0) {
+            const empty: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+            return empty;
+          }
           const bufPtr = readHandle(outBufPtr);
           const totalLen = Number(outBufLen[0]);
           const raw = new Uint8Array(toArrayBuffer(bufPtr, 0, totalLen)).slice();
@@ -213,7 +215,7 @@ const makeShape = (
     ).pipe(Stream.flatMap((entries) => Stream.fromIterable(entries)));
   },
 
-  putBatch: (entries) =>
+  putBatch: (entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>) =>
     Effect.try({
       try: () => {
         for (const { key, value } of entries) {
@@ -230,7 +232,7 @@ const makeShape = (
       catch: (cause) => fail("putBatch", cause),
     }),
 
-  deleteBatch: (keys) =>
+  deleteBatch: (keys: ReadonlyArray<Uint8Array>) =>
     Effect.try({
       try: () => {
         for (const key of keys) {

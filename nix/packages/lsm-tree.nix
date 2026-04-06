@@ -19,6 +19,9 @@
       # This .o gets linked into the Haskell foreign-library .so.
       # Compile the C init code using Zig's C compiler (no system GCC needed).
       # Produces a .o with __attribute__((constructor)) that calls hs_init().
+      # Compile RTS init using Zig's C compiler — no system GCC needed.
+      # Pure Zig linksection(".init_array") doesn't work (GHC RTS hangs on exit).
+      # C __attribute__((constructor)) via zig cc is the reliable approach.
       zigInitObj = pkgs.runCommand "zig-init-obj" {
         nativeBuildInputs = [ pkgs.zig ];
       } ''

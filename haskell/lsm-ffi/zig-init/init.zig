@@ -1,13 +1,8 @@
-/// GHC RTS initialization for the lsm-ffi foreign library.
-/// Uses Zig to compile C code that registers GHC RTS init as an ELF constructor.
+/// GHC RTS initialization — see init.c (compiled by zig cc).
 ///
-/// Why C via Zig instead of pure Zig: GCC's __attribute__((constructor)) has
-/// specific ordering guarantees with the GHC RTS that Zig's linksection(".init_array")
-/// doesn't replicate — the RTS threads interfere with Vitest's fork model when
-/// initialized via raw .init_array entries.
+/// Pure Zig linksection(".init_array") doesn't work reliably with GHC RTS:
+/// the RTS threads prevent clean process exit in Vitest's fork model.
+/// Using C __attribute__((constructor)) via zig cc is the proven approach.
 ///
-/// This file is compiled with: zig cc -c init.c -o zig-init.o
-/// (See the companion init.c file)
-///
-/// Placeholder — actual init is in init.c, compiled by Zig's C compiler.
+/// This file documents the intent; init.c is the actual implementation.
 comptime {}

@@ -17,4 +17,3 @@ export {
   PREFIX_COFF,
 } from "storage/blob-store/keys";
 export { layerLsm } from "./layer-lsm";
-export { importLmdbToBlob } from "./import-lmdb";

@@ -2,10 +2,10 @@
  * E2E test: bootstrap server reads V2LSM snapshot via BlobStore.
  *
  * Requires:
- *   - LIBLSM_PATH pointing to liblsm-ffi.so
+ *   - LIBLSM_BRIDGE_PATH pointing to liblsm-ffi.so
  *   - SNAPSHOT_PATH pointing to a V2LSM-converted Mithril snapshot
  *
- * Run: LIBLSM_PATH=... SNAPSHOT_PATH=... bunx --bun vitest run apps/bootstrap/src/__tests__/lsm-bootstrap.test.ts
+ * Run: LIBLSM_BRIDGE_PATH=... SNAPSHOT_PATH=... bunx --bun vitest run apps/bootstrap/src/__tests__/lsm-bootstrap.test.ts
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { Effect, Layer, Stream } from "effect";
@@ -16,14 +16,14 @@ import { BlobStore, BlobStoreError } from "storage/blob-store/index";
 import { layerLsm } from "lsm-tree";
 
 const SNAPSHOT_PATH = process.env["SNAPSHOT_PATH"];
-const LIBLSM_PATH = process.env["LIBLSM_PATH"];
-const skip = !SNAPSHOT_PATH || !LIBLSM_PATH;
+const LIBLSM_BRIDGE_PATH = process.env["LIBLSM_BRIDGE_PATH"];
+const skip = !SNAPSHOT_PATH || !LIBLSM_BRIDGE_PATH;
 
 describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
   let lsmLayer: Layer.Layer<BlobStore, BlobStoreError>;
 
   beforeAll(() => {
-    lsmLayer = layerLsm(LIBLSM_PATH!, `${SNAPSHOT_PATH!}/lsm`);
+    lsmLayer = layerLsm(LIBLSM_BRIDGE_PATH!, `${SNAPSHOT_PATH!}/lsm`);
   });
 
   const testLayers = () =>

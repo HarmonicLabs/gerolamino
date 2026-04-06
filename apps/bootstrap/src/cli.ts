@@ -27,7 +27,7 @@ const serve = Command.make(
     ),
     lsmLibPath: Flag.file("lsm-lib").pipe(
       Flag.withDescription("Path to liblsm-ffi.so"),
-      Flag.withFallbackConfig(Config.string("LIBLSM_PATH")),
+      Flag.withFallbackConfig(Config.string("LIBLSM_BRIDGE_PATH")),
     ),
     upstreamUrl: Flag.string("upstream-url").pipe(
       Flag.withDescription("Upstream Cardano node URL (e.g., tcp://host:port)"),

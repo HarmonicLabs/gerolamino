@@ -1,11 +1,10 @@
 /**
- * Integration tests for the LSM BlobStore layer.
+ * Integration tests for the LSM BlobStore layer via Zig bridge.
  *
- * Requires LIBLSM_PATH env var pointing to liblsm-ffi.so.
- * Skip with: LIBLSM_PATH="" bunx --bun vitest
+ * Requires LIBLSM_BRIDGE_PATH env var pointing to liblsm-bridge.so.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { Effect, Exit, Stream } from "effect";
+import { Effect, Stream } from "effect";
 import { BlobStore } from "../../../storage/src/blob-store/service";
 import { layerLsm } from "../layer-lsm";
 import { utxoKey } from "../../../storage/src/blob-store/keys";
@@ -13,14 +12,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-const LIBLSM_PATH = process.env["LIBLSM_PATH"];
-const skip = !LIBLSM_PATH;
+const LIBLSM_BRIDGE_PATH = process.env["LIBLSM_BRIDGE_PATH"];
+const skip = !LIBLSM_BRIDGE_PATH;
 
 describe.skipIf(skip)("BlobStore LSM layer", () => {
   let tmpDir: string;
 
   const run = <A>(effect: Effect.Effect<A, unknown, BlobStore>) => {
-    const layer = layerLsm(LIBLSM_PATH!, tmpDir);
+    const layer = layerLsm(tmpDir);
     return Effect.runPromise(Effect.provide(effect, layer));
   };
 
@@ -90,7 +89,7 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
     expect(result).toBe(false);
   });
 
-  it("putBatch writes multiple entries atomically", async () => {
+  it("putBatch writes multiple entries", async () => {
     const result = await run(
       Effect.gen(function* () {
         const store = yield* BlobStore;
@@ -133,7 +132,7 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
     const result = await run(
       Effect.gen(function* () {
         const store = yield* BlobStore;
-        const txIn = new Uint8Array(34); // 32B txId + 2B index
+        const txIn = new Uint8Array(34);
         txIn[0] = 0xaa;
         const key = utxoKey(txIn);
         const value = new Uint8Array([0xbb, 0xcc]);
@@ -144,31 +143,8 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
     expect(result).toEqual(new Uint8Array([0xbb, 0xcc]));
   });
 
-  it("scan returns entries matching prefix", async () => {
-    const result = await run(
-      Effect.gen(function* () {
-        const store = yield* BlobStore;
-        // Insert entries with different prefixes
-        yield* store.putBatch([
-          { key: new Uint8Array([0x01, 0x00]), value: new Uint8Array([10]) },
-          { key: new Uint8Array([0x01, 0x01]), value: new Uint8Array([11]) },
-          { key: new Uint8Array([0x01, 0x02]), value: new Uint8Array([12]) },
-          { key: new Uint8Array([0x02, 0x00]), value: new Uint8Array([20]) },
-        ]);
-        // Scan for prefix 0x01
-        const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
-        yield* Stream.runForEach(
-          store.scan(new Uint8Array([0x01])),
-          (e) => Effect.sync(() => { entries.push(e); }),
-        );
-        return entries.length;
-      }),
-    );
-    expect(result).toBe(3);
-  });
-
   it("handles large values", async () => {
-    const largeValue = new Uint8Array(1024 * 100); // 100KB
+    const largeValue = new Uint8Array(1024 * 100);
     for (let i = 0; i < largeValue.length; i++) largeValue[i] = i & 0xff;
 
     const result = await run(

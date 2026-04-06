@@ -11,14 +11,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-const LIBLSM_PATH = process.env["LIBLSM_PATH"];
-const skip = !LIBLSM_PATH;
+const LIBLSM_BRIDGE_PATH = process.env["LIBLSM_BRIDGE_PATH"];
+const skip = !LIBLSM_BRIDGE_PATH;
 
 describe.skipIf(skip)("LSM scan integration (UTxO simulation)", () => {
   let tmpDir: string;
 
   const run = <A>(effect: Effect.Effect<A, unknown, BlobStore>) => {
-    const layer = layerLsm(LIBLSM_PATH!, tmpDir);
+    const layer = layerLsm(tmpDir);
     return Effect.runPromise(Effect.provide(effect, layer));
   };
 

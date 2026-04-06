@@ -87,10 +87,47 @@ export fn lsm_bridge_delete(key_ptr: [*]const u8, key_len: usize) callconv(std.b
     return lsm_delete(table.?, key_ptr, key_len);
 }
 
-/// Range lookup. Returns entries as a flat buffer.
-/// Caller must free the result buffer via lsm_bridge_free.
-export fn lsm_bridge_scan(lo_ptr: [*]const u8, lo_len: usize, hi_ptr: [*]const u8, hi_len: usize, out_ptr: *?[*]u8, out_len: *usize, out_count: *usize) callconv(std.builtin.CallingConvention.c) c_int {
-    return lsm_range_lookup(table.?, lo_ptr, lo_len, hi_ptr, hi_len, out_ptr, out_len, out_count);
+/// Range lookup. Two-phase like get:
+/// Phase 1: call with out_buf=null to get needed size in out_len and count in out_count.
+/// Phase 2: call with out_buf pointing to a buffer of out_len size.
+/// The flat buffer format is: [key_len:u32 LE][key][val_len:u32 LE][val]...
+export fn lsm_bridge_scan(
+    lo_ptr: [*]const u8,
+    lo_len: usize,
+    hi_ptr: [*]const u8,
+    hi_len: usize,
+    out_buf: ?[*]u8,
+    out_len: *usize,
+    out_count: *usize,
+) callconv(std.builtin.CallingConvention.c) c_int {
+    // Call Haskell range_lookup — it allocates and returns a flat buffer
+    var haskell_buf: ?[*]u8 = null;
+    var haskell_len: usize = 0;
+    var count: usize = 0;
+    const rc = lsm_range_lookup(
+        table.?,
+        lo_ptr,
+        lo_len,
+        hi_ptr,
+        hi_len,
+        &haskell_buf,
+        &haskell_len,
+        &count,
+    );
+    if (rc != 0) return rc;
+
+    out_len.* = haskell_len;
+    out_count.* = count;
+
+    if (out_buf) |buf| {
+        // Phase 2: copy Haskell buffer into caller-provided buffer
+        const copy_len = @min(haskell_len, out_len.*);
+        if (haskell_buf) |hbuf| {
+            @memcpy(buf[0..copy_len], hbuf[0..copy_len]);
+        }
+    }
+    // Note: Haskell-allocated buffer is freed by Haskell GC
+    return 0;
 }
 
 /// Save a snapshot.

@@ -7,3 +7,12 @@ export { CryptoService, CryptoServiceBunNative } from "./crypto";
 export { ConsensusEngine, ConsensusEngineLive, ConsensusEngineWithBunCrypto } from "./consensus-engine";
 export { processBlock, getSyncState, syncFromStream, SyncError } from "./sync";
 export type { SyncState } from "./sync";
+export {
+  SlotClock,
+  SlotClockLive,
+  SlotClockLayerFromConfig,
+  SlotConfig,
+  SlotConfigFromEnv,
+  PREPROD_CONFIG,
+  MAINNET_CONFIG,
+} from "./clock";

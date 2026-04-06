@@ -51,23 +51,25 @@ describe("deriveEpochNonce", () => {
 });
 
 describe("isPastStabilizationWindow", () => {
-  // Mainnet: k=2160, f=0.05 → stabilization = ceil(4*2160/0.05) = 172800
+  // Praos spec: candidate collection = 16k/f, quiet period = 8k/f, epoch = 24k/f
+  // Mainnet: k=2160, f=0.05 → candidate end = ceil(16*2160/0.05) = 691200
   const k = 2160;
   const f = 0.05;
+  const candidateEnd = 691200n; // 16k/f
 
   it("returns false for slot 0", () => {
     expect(isPastStabilizationWindow(0n, k, f)).toBe(false);
   });
 
   it("returns false just before the window", () => {
-    expect(isPastStabilizationWindow(172799n, k, f)).toBe(false);
+    expect(isPastStabilizationWindow(candidateEnd - 1n, k, f)).toBe(false);
   });
 
   it("returns true at the window boundary", () => {
-    expect(isPastStabilizationWindow(172800n, k, f)).toBe(true);
+    expect(isPastStabilizationWindow(candidateEnd, k, f)).toBe(true);
   });
 
   it("returns true well past the window", () => {
-    expect(isPastStabilizationWindow(200000n, k, f)).toBe(true);
+    expect(isPastStabilizationWindow(800000n, k, f)).toBe(true);
   });
 });

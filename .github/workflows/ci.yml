@@ -9,6 +9,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  packages: write
 
 jobs:
   check:
@@ -31,47 +32,56 @@ jobs:
       - name: Run unit tests
         run: bunx --bun vitest run
 
-  build:
+  build-and-push:
     needs: [check, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/determinate-nix-action@v3
+
       - name: Build WASM packages
         run: |
           nix build -L .#wasm-plexer
           nix build -L .#wasm-utils
+
       - name: Build TypeScript packages
         run: nix build -L .#ts-packages
+
       - name: Build bootstrap server
         run: nix build -L .#bootstrap-app
+
       - name: Build bootstrap container image
         run: nix build -L .#bootstrap-image
 
-  deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: build
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/determinate-nix-action@v3
-      - name: Setup SSH key
+      - name: Push container to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.PRODUCTION_SSH_PRIVKEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 2222 decentralizationmaxi.io >> ~/.ssh/known_hosts 2>/dev/null || true
-      - name: Deploy with deploy-rs
-        env:
-          NIX_SSHOPTS: "-p 2222 -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
-        run: |
-          nix run github:serokell/deploy-rs -- \
-            --skip-checks \
-            --ssh-opts="-p 2222 -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new" \
-            .#production
-      - name: Verify deployment
-        run: |
-          ssh -p 2222 -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
-            root@decentralizationmaxi.io \
-            "nixos-version && systemctl status podman-bootstrap.service --no-pager || true"
+          echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE_STREAM=$(nix build .#bootstrap-image --print-out-paths --no-link)
+          "$IMAGE_STREAM" | skopeo copy \
+            docker-archive:/dev/stdin \
+            docker://ghcr.io/harmoniclabs/bootstrap:latest
+
+  # --- Deploy to production (disabled until server is rebuilt) ---
+  # deploy:
+  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  #   needs: build-and-push
+  #   runs-on: ubuntu-latest
+  #   environment: production
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: DeterminateSystems/determinate-nix-action@v3
+  #     - name: Setup SSH key
+  #       run: |
+  #         mkdir -p ~/.ssh
+  #         echo "${{ secrets.PRODUCTION_SSH_PRIVKEY }}" > ~/.ssh/deploy_key
+  #         chmod 600 ~/.ssh/deploy_key
+  #         ssh-keyscan -p 2222 decentralizationmaxi.io >> ~/.ssh/known_hosts 2>/dev/null || true
+  #     - name: Deploy with deploy-rs
+  #       env:
+  #         NIX_SSHOPTS: "-p 2222 -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
+  #       run: |
+  #         nix run github:serokell/deploy-rs -- \
+  #           --skip-checks \
+  #           --ssh-opts="-p 2222 -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new" \
+  #           .#production

@@ -56,6 +56,11 @@
     };
 
     flake-root.url = "github:srid/flake-root";
+
+    determinate = {
+      url = "https://flakehub.com/f/DeterminateSystems/determinate/3";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs@{ flake-parts, ... }:
@@ -131,6 +136,78 @@
                   bun.enable = true;
                 };
               };
+
+              # --- Process Manager: process-compose with TUI ---
+              process.manager.implementation = "process-compose";
+
+              # --- Devenv Tasks ---
+
+              # Download and convert Mithril preprod snapshot to LMDB format.
+              # Run manually: devenv tasks run mithril:download-snapshot
+              tasks."mithril:download-snapshot" = {
+                description = "Download latest Mithril preprod snapshot and convert to LMDB";
+                exec = "nix run .#download-snapshot -- \"$DEVENV_STATE/snapshot\"";
+                status = ''[ -d "$DEVENV_STATE/snapshot/ledger" ]'';
+                showOutput = true;
+              };
+
+              # --- Devenv Processes (managed by process-compose TUI) ---
+
+              # Bootstrap server: pull container from GHCR, mount snapshot, serve on :3040.
+              # Starts automatically with `devenv up` if snapshot exists.
+              processes.bootstrap = {
+                exec = ''
+                  set -euo pipefail
+                  SNAPSHOT_PATH="$DEVENV_STATE/snapshot"
+
+                  if [ ! -d "$SNAPSHOT_PATH/ledger" ]; then
+                    echo "No snapshot at $SNAPSHOT_PATH — run: devenv tasks run mithril:download-snapshot"
+                    exit 1
+                  fi
+
+                  # Pull pre-built container from GHCR (pushed by CI)
+                  podman pull ghcr.io/harmoniclabs/bootstrap:latest 2>/dev/null || true
+
+                  # Remove old container if it exists
+                  podman rm -f gerolamino-bootstrap 2>/dev/null || true
+
+                  exec podman run \
+                    --rm \
+                    -p 3040:3040 \
+                    -v "$SNAPSHOT_PATH:/data:ro" \
+                    --name gerolamino-bootstrap \
+                    ghcr.io/harmoniclabs/bootstrap:latest
+                '';
+                process-compose = {
+                  availability = {
+                    restart = "on_failure";
+                    max_restarts = 3;
+                  };
+                  readiness_probe = {
+                    http_get = {
+                      host = "127.0.0.1";
+                      port = 3040;
+                      path = "/";
+                      scheme = "http";
+                    };
+                    initial_delay_seconds = 5;
+                    period_seconds = 10;
+                    timeout_seconds = 3;
+                    failure_threshold = 5;
+                  };
+                };
+              };
+
+              # --- Helpful Scripts ---
+              scripts.download-snapshot = {
+                exec = ''
+                  devenv tasks run mithril:download-snapshot
+                '';
+                description = "Download Mithril preprod snapshot (alias)";
+              };
+
+              # --- Environment ---
+              env.BOOTSTRAP_SERVER_URL = "http://decentralizationmaxi.io:3040";
             };
           };
         };

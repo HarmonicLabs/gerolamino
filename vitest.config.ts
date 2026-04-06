@@ -61,6 +61,7 @@ export default defineConfig({
       "storage/services/ledger-db": path.resolve(__dirname, "packages/storage/src/services/ledger-db.ts"),
       "storage/types/StoredBlock": path.resolve(__dirname, "packages/storage/src/types/StoredBlock.ts"),
       "storage/db/client": path.resolve(__dirname, "packages/storage/src/db/client.ts"),
+      "storage/services/chain-db": path.resolve(__dirname, "packages/storage/src/services/chain-db.ts"),
       "lsm-tree": path.resolve(__dirname, "packages/lsm-tree/src/index.ts"),
     },
   },

@@ -16,7 +16,6 @@ import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { ChainTip, gsmState } from "./chain-selection";
 import { Nonces, evolveNonce, isPastStabilizationWindow } from "./nonce";
-import { ImmutableDB } from "storage/services/immutable-db";
 import type { BlockHeader, LedgerView } from "./validate-header";
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
@@ -62,7 +61,6 @@ export const handleRollForward = (
 ) =>
   Effect.gen(function* () {
     const engine = yield* ConsensusEngine;
-    const immutableDb = yield* ImmutableDB;
     const peerManager = yield* PeerManager;
     const slotClock = yield* SlotClock;
 
@@ -139,7 +137,7 @@ export const handleRollBackward = (
     );
 
     // For now, update tip to rollback point
-    // TODO: actually revert ImmutableDB/VolatileDB state
+    // TODO: call ChainDB.rollback(rollbackPoint) to revert volatile state
     return {
       ...state,
       tip: rollbackPoint,

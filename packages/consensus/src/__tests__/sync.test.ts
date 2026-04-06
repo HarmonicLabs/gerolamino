@@ -4,7 +4,7 @@ import { processBlock, getSyncState, syncFromStream } from "../sync";
 import { Nonces } from "../nonce";
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
-import { ImmutableDB, VolatileDB, LedgerDB } from "storage/services/index";
+import { ChainDB } from "storage/services/chain-db";
 import type { BlockHeader, LedgerView } from "../validate-header";
 import type { StoredBlock } from "storage/types/StoredBlock";
 
@@ -58,25 +58,20 @@ const makeLedgerView = (): LedgerView => {
   };
 };
 
-// For sync tests, provide stub ImmutableDB/VolatileDB/LedgerDB directly
-// (bypassing SQL, using only BlobStore)
-const stubImmutableDb = Layer.succeed(ImmutableDB, {
-  appendBlock: (_block: StoredBlock) => Effect.void,
-  readBlock: (_point: { slot: bigint; hash: Uint8Array }) => Effect.succeed(undefined),
+// Stub ChainDB for sync tests (in-memory, no SQL/BlobStore)
+const stubChainDb = Layer.succeed(ChainDB, {
+  getBlock: () => Effect.succeed(undefined),
+  getBlockAt: () => Effect.succeed(undefined),
   getTip: Effect.succeed(undefined),
-  streamBlocks: (_from: bigint, _to: bigint) => Stream.empty,
-});
-
-const stubVolatileDb = Layer.succeed(VolatileDB, {
-  addBlock: (_block: StoredBlock) => Effect.void,
-  getBlock: (_hash: Uint8Array) => Effect.succeed(undefined),
-  getSuccessors: (_hash: Uint8Array) => Effect.succeed([]),
-  garbageCollect: (_belowSlot: number) => Effect.void,
-});
-
-const stubLedgerDb = Layer.succeed(LedgerDB, {
-  writeSnapshot: () => Effect.void,
-  readLatestSnapshot: Effect.succeed(undefined),
+  getImmutableTip: Effect.succeed(undefined),
+  addBlock: () => Effect.void,
+  rollback: () => Effect.void,
+  getSuccessors: () => Effect.succeed([]),
+  streamFrom: () => Stream.empty,
+  promoteToImmutable: () => Effect.void,
+  garbageCollect: () => Effect.void,
+  writeLedgerSnapshot: () => Effect.void,
+  readLatestLedgerSnapshot: Effect.succeed(undefined),
 });
 
 // SlotClock with test config: system start at 0, 1s slots, 100 slots/epoch
@@ -101,10 +96,8 @@ const stubSlotClock = Layer.effect(
 
 const testLayers = Layer.mergeAll(
   ConsensusEngineWithBunCrypto,
-  stubImmutableDb,
-  stubVolatileDb,
+  stubChainDb,
   stubSlotClock,
-  stubLedgerDb,
 );
 
 describe("Sync pipeline", () => {

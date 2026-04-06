@@ -15,7 +15,7 @@ import { SlotClock } from "./clock";
 import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { getSyncState } from "./sync";
-import { ImmutableDB } from "storage/services/immutable-db";
+import { ChainDB } from "storage/services/chain-db";
 import type { GsmState } from "./chain-selection";
 
 export interface NodeStatus {
@@ -35,9 +35,9 @@ export interface NodeStatus {
 export const getNodeStatus = Effect.gen(function* () {
   const slotClock = yield* SlotClock;
   const peerManager = yield* PeerManager;
-  const immutableDb = yield* ImmutableDB;
+  const chainDb = yield* ChainDB;
 
-  const tip = yield* immutableDb.getTip;
+  const tip = yield* chainDb.getTip;
   const currentSlot = yield* slotClock.currentSlot;
   const epoch = yield* slotClock.currentEpoch;
   const peers = yield* peerManager.getPeers;

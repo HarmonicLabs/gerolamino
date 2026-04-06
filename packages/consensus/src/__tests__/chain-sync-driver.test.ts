@@ -8,9 +8,8 @@ import {
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { PeerManager, PeerManagerLive } from "../peer-manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
-import { ImmutableDB } from "storage/services/index";
+import { ChainDB } from "storage/services/chain-db";
 import { Nonces } from "../nonce";
-import type { StoredBlock } from "storage/types/StoredBlock";
 import type { LedgerView } from "../validate-header";
 
 const testConfig = new SlotConfig({
@@ -38,18 +37,26 @@ const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),
 );
 
-const stubImmutableDb = Layer.succeed(ImmutableDB, {
-  appendBlock: (_block: StoredBlock) => Effect.void,
-  readBlock: () => Effect.succeed(undefined),
+const stubChainDb = Layer.succeed(ChainDB, {
+  getBlock: () => Effect.succeed(undefined),
+  getBlockAt: () => Effect.succeed(undefined),
   getTip: Effect.succeed(undefined),
-  streamBlocks: () => Stream.empty,
+  getImmutableTip: Effect.succeed(undefined),
+  addBlock: () => Effect.void,
+  rollback: () => Effect.void,
+  getSuccessors: () => Effect.succeed([]),
+  streamFrom: () => Stream.empty,
+  promoteToImmutable: () => Effect.void,
+  garbageCollect: () => Effect.void,
+  writeLedgerSnapshot: () => Effect.void,
+  readLatestLedgerSnapshot: Effect.succeed(undefined),
 });
 
 const testLayers = Layer.mergeAll(
   ConsensusEngineWithBunCrypto,
   slotClockLayer,
   peerManagerLayer,
-  stubImmutableDb,
+  stubChainDb,
 );
 
 const hex = (bytes: Uint8Array): string =>

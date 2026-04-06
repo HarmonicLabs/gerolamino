@@ -3,9 +3,8 @@ import { Clock, Effect, Layer, Stream } from "effect";
 import { getNodeStatus } from "../node";
 import { PeerManager, PeerManagerLive } from "../peer-manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
-import { ImmutableDB } from "storage/services/index";
+import { ChainDB } from "storage/services/chain-db";
 import { ChainTip } from "../chain-selection";
-import type { StoredBlock } from "storage/types/StoredBlock";
 
 const testConfig = new SlotConfig({
   systemStartMs: 0,
@@ -32,20 +31,28 @@ const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),
 );
 
-const stubImmutableDb = Layer.succeed(ImmutableDB, {
-  appendBlock: (_block: StoredBlock) => Effect.void,
-  readBlock: () => Effect.succeed(undefined),
+const stubChainDb = Layer.succeed(ChainDB, {
+  getBlock: () => Effect.succeed(undefined),
+  getBlockAt: () => Effect.succeed(undefined),
   getTip: Effect.succeed({ slot: 450n, hash: new Uint8Array(32) }),
-  streamBlocks: () => Stream.empty,
+  getImmutableTip: Effect.succeed(undefined),
+  addBlock: () => Effect.void,
+  rollback: () => Effect.void,
+  getSuccessors: () => Effect.succeed([]),
+  streamFrom: () => Stream.empty,
+  promoteToImmutable: () => Effect.void,
+  garbageCollect: () => Effect.void,
+  writeLedgerSnapshot: () => Effect.void,
+  readLatestLedgerSnapshot: Effect.succeed(undefined),
 });
 
 const testLayers = Layer.mergeAll(
   slotClockLayer,
   peerManagerLayer,
-  stubImmutableDb,
+  stubChainDb,
 );
 
-const run = <A>(effect: Effect.Effect<A, unknown, SlotClock | PeerManager | ImmutableDB>) =>
+const run = <A>(effect: Effect.Effect<A, unknown, any>) =>
   Effect.runPromise(Effect.provide(effect, testLayers));
 
 describe("Node orchestrator", () => {

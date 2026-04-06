@@ -13,9 +13,7 @@
  */
 import { Effect, Stream, Schema } from "effect";
 import type { StoredBlock, RealPoint } from "storage/types/StoredBlock";
-import { ImmutableDB } from "storage/services/immutable-db";
-import { VolatileDB } from "storage/services/volatile-db";
-import { LedgerDB } from "storage/services/ledger-db";
+import { ChainDB } from "storage/services/chain-db";
 import { ConsensusEngine } from "./consensus-engine";
 import { Nonces, evolveNonce, isPastStabilizationWindow } from "./nonce";
 import { gsmState } from "./chain-selection";
@@ -47,14 +45,14 @@ export const processBlock = (
 ) =>
   Effect.gen(function* () {
     const engine = yield* ConsensusEngine;
-    const immutableDb = yield* ImmutableDB;
+    const chainDb = yield* ChainDB;
     const slotClock = yield* SlotClock;
 
     // 1. Validate block header
     yield* engine.validateHeader(header, ledgerView);
 
-    // 2. Store block
-    yield* immutableDb.appendBlock(block);
+    // 2. Store block in ChainDB (volatile)
+    yield* chainDb.addBlock(block);
 
     // 3. Evolve nonces using VRF nonce output
     const newEvolving = yield* Effect.promise(() =>
@@ -86,10 +84,10 @@ export const processBlock = (
  * Get the current sync state from storage + clock.
  */
 export const getSyncState = Effect.gen(function* () {
-  const immutableDb = yield* ImmutableDB;
+  const chainDb = yield* ChainDB;
   const slotClock = yield* SlotClock;
 
-  const tip = yield* immutableDb.getTip;
+  const tip = yield* chainDb.getTip;
 
   const nonces = new Nonces({
     active: new Uint8Array(32),

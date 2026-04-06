@@ -18,3 +18,5 @@ export {
 } from "./clock";
 export { PeerManager, PeerManagerLive, PeerManagerError } from "./peer-manager";
 export type { PeerState, PeerStatus } from "./peer-manager";
+export { getNodeStatus, monitorLoop } from "./node";
+export type { NodeStatus } from "./node";

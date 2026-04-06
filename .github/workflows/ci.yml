@@ -50,15 +50,15 @@ jobs:
       - name: Build bootstrap server
         run: nix build -L .#bootstrap-app
 
-      - name: Build bootstrap container image
+      - name: Build bootstrap container (nix2container)
         run: nix build -L .#bootstrap-image
 
-      - name: Push bootstrap container to GHCR
+      - name: Load into Podman and push to GHCR
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          nix run .#bootstrap-image.copyToRegistry -- \
-            --dest-creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-            docker://ghcr.io/harmoniclabs/bootstrap:latest
+          nix run .#bootstrap-image.copyToPodman
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push ghcr.io/harmoniclabs/bootstrap:latest
 
   # --- Deploy to production (disabled until server is rebuilt) ---
   # deploy:

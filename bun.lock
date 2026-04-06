@@ -52,10 +52,15 @@
     },
     "apps/tui": {
       "name": "tui",
+      "dependencies": {
+        "@effect/platform-bun": "^4.0.0-beta.43",
+        "consensus": "workspace:*",
+        "effect": "^4.0.0-beta.43",
+        "lsm-tree": "workspace:*",
+        "storage": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "^1.3.11",
-      },
-      "peerDependencies": {
         "typescript": "~5.9.2",
       },
     },

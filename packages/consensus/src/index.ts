@@ -5,3 +5,5 @@ export { validateHeader, HeaderValidationError } from "./validate-header";
 export type { BlockHeader, LedgerView } from "./validate-header";
 export { CryptoService, CryptoServiceBunNative } from "./crypto";
 export { ConsensusEngine, ConsensusEngineLive, ConsensusEngineWithBunCrypto } from "./consensus-engine";
+export { processBlock, getSyncState, syncFromStream, SyncError } from "./sync";
+export type { SyncState } from "./sync";

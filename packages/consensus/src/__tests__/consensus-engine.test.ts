@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { Effect } from "effect";
-import { ConsensusEngine, ConsensusEngineLive } from "../consensus-engine";
+import { Effect, Layer } from "effect";
+import { ConsensusEngine, ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { ChainTip } from "../chain-selection";
 import type { BlockHeader, LedgerView } from "../validate-header";
 
@@ -18,25 +18,14 @@ const poolIdFromVk = (vk: Uint8Array): string => {
   return hex(new Uint8Array(hasher.update(vk).digest().buffer));
 };
 
-const makeHeader = (overrides?: Partial<BlockHeader>): BlockHeader => {
+const makeHeader = (): BlockHeader => {
   const issuerVk = makeVk(1);
   return {
-    slot: 100n,
-    blockNo: 50n,
-    hash: new Uint8Array(32),
-    prevHash: new Uint8Array(32),
-    issuerVk,
-    vrfVk: makeVk(2),
-    vrfProof: new Uint8Array(80),
-    vrfOutput: new Uint8Array(32),
-    kesSig: new Uint8Array(448),
-    kesPeriod: 10,
-    opcertSig: new Uint8Array(64),
-    opcertVkHot: new Uint8Array(32),
-    opcertSeqNo: 5,
-    opcertKesPeriod: 5,
-    bodyHash: new Uint8Array(32),
-    ...overrides,
+    slot: 100n, blockNo: 50n, hash: new Uint8Array(32), prevHash: new Uint8Array(32),
+    issuerVk, vrfVk: makeVk(2), vrfProof: new Uint8Array(80), vrfOutput: new Uint8Array(32),
+    kesSig: new Uint8Array(448), kesPeriod: 10,
+    opcertSig: new Uint8Array(64), opcertVkHot: new Uint8Array(32),
+    opcertSeqNo: 5, opcertKesPeriod: 5, bodyHash: new Uint8Array(32),
   };
 };
 
@@ -46,25 +35,20 @@ const makeView = (header: BlockHeader): LedgerView => {
     epochNonce: new Uint8Array(32),
     poolVrfKeys: new Map([[poolId, header.vrfVk]]),
     poolStake: new Map([[poolId, 1_000_000n]]),
-    totalStake: 10_000_000n,
-    activeSlotsCoeff: 0.05,
-    maxKesEvolutions: 62,
+    totalStake: 10_000_000n, activeSlotsCoeff: 0.05, maxKesEvolutions: 62,
   };
 };
 
-describe("ConsensusEngine service", () => {
-  const run = <A>(effect: Effect.Effect<A, unknown, ConsensusEngine>) =>
-    Effect.runPromise(
-      effect.pipe(Effect.provideService(ConsensusEngine, ConsensusEngineLive.pipe(Effect.runSync))),
-    );
+const run = <A>(effect: Effect.Effect<A, unknown, ConsensusEngine>) =>
+  Effect.runPromise(Effect.provide(effect, ConsensusEngineWithBunCrypto));
 
+describe("ConsensusEngine service", () => {
   it("validateHeader passes for valid header", async () => {
     await run(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
         const header = makeHeader();
-        const view = makeView(header);
-        yield* engine.validateHeader(header, view);
+        yield* engine.validateHeader(header, makeView(header));
       }),
     );
   });
@@ -75,8 +59,7 @@ describe("ConsensusEngine service", () => {
         const engine = yield* ConsensusEngine;
         const ours = new ChainTip({ slot: 100n, blockNo: 50n, hash: new Uint8Array(32) });
         const candidate = new ChainTip({ slot: 101n, blockNo: 51n, hash: new Uint8Array(32) });
-        const result = engine.selectChain(ours, candidate, 1, 2160);
-        expect(result).toBe(true);
+        expect(engine.selectChain(ours, candidate, 1, 2160)).toBe(true);
       }),
     );
   });
@@ -87,8 +70,7 @@ describe("ConsensusEngine service", () => {
         const engine = yield* ConsensusEngine;
         const ours = new ChainTip({ slot: 100n, blockNo: 50n, hash: new Uint8Array(32) });
         const candidate = new ChainTip({ slot: 5000n, blockNo: 100n, hash: new Uint8Array(32) });
-        const result = engine.selectChain(ours, candidate, 2161, 2160);
-        expect(result).toBe(false);
+        expect(engine.selectChain(ours, candidate, 2161, 2160)).toBe(false);
       }),
     );
   });
@@ -97,8 +79,7 @@ describe("ConsensusEngine service", () => {
     await run(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
-        const state = engine.getGsmState(100000n, 100010n, 129600n);
-        expect(state).toBe("CaughtUp");
+        expect(engine.getGsmState(100000n, 100010n, 129600n)).toBe("CaughtUp");
       }),
     );
   });
@@ -107,8 +88,7 @@ describe("ConsensusEngine service", () => {
     await run(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
-        const state = engine.getGsmState(100000n, 300000n, 129600n);
-        expect(state).toBe("Syncing");
+        expect(engine.getGsmState(100000n, 300000n, 129600n)).toBe("Syncing");
       }),
     );
   });

@@ -1,6 +1,6 @@
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
-import { NodeFileSystem } from "@effect/platform-node";
+import { BunFileSystem } from "@effect/platform-bun";
 import { decodeExtLedgerState, type ExtLedgerState } from "../lib/state/new-epoch-state.ts";
 import { Era } from "../lib/core/era.ts";
 import pathNode from "path";
@@ -13,7 +13,7 @@ const STATE_PATH = pathNode.resolve(
   "apps/bootstrap/db/ledger/119401006/state",
 );
 
-const FsLayer = NodeFileSystem.layer;
+const FsLayer = BunFileSystem.layer;
 
 // Decode once, share across tests
 let cached: ExtLedgerState | undefined;

@@ -6,7 +6,7 @@
  */
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
-import { NodeFileSystem } from "@effect/platform-node";
+import { BunFileSystem } from "@effect/platform-bun";
 import { CborKinds } from "cbor-schema";
 import { decodeMultiEraBlock, type BlockHeader } from "../lib/block/block.ts";
 import { decodeExtLedgerState } from "../lib/state/new-epoch-state.ts";
@@ -18,7 +18,7 @@ const WORKSPACE = pathNode.resolve(__dir, "../../../..");
 const IMMUTABLE_DIR = pathNode.join(WORKSPACE, "apps/bootstrap/db/immutable");
 const STATE_PATH = pathNode.join(WORKSPACE, "apps/bootstrap/db/ledger/119401006/state");
 
-const FsLayer = NodeFileSystem.layer;
+const FsLayer = BunFileSystem.layer;
 
 // ---------------------------------------------------------------------------
 // Chunk parser using Effect FileSystem

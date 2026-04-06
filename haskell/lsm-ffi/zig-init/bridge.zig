@@ -29,7 +29,7 @@ var table: ?*anyopaque = null;
 /// Initialize the LSM session and table.
 /// Called from TypeScript before any operations.
 /// Returns 0 on success, negative on error.
-export fn lsm_bridge_init(path_ptr: [*]const u8, path_len: usize) callconv(.C) c_int {
+export fn lsm_bridge_init(path_ptr: [*]const u8, path_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
     // Initialize GHC RTS
     var argc: c_int = 0;
     var argv: ?[*][*:0]u8 = null;
@@ -57,48 +57,44 @@ export fn lsm_bridge_init(path_ptr: [*]const u8, path_len: usize) callconv(.C) c
 }
 
 /// Insert a key-value pair.
-export fn lsm_bridge_put(key_ptr: [*]const u8, key_len: usize, val_ptr: [*]const u8, val_len: usize) callconv(.C) c_int {
+export fn lsm_bridge_put(key_ptr: [*]const u8, key_len: usize, val_ptr: [*]const u8, val_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
     return lsm_insert(table.?, key_ptr, key_len, val_ptr, val_len);
 }
 
-/// Look up a key. Returns 0=found (writes to out), 1=not found, -1=error.
-/// The output buffer is allocated by Zig and must be freed by calling lsm_bridge_free.
-export fn lsm_bridge_get(key_ptr: [*]const u8, key_len: usize, out_ptr: *?[*]u8, out_len: *usize) callconv(.C) c_int {
+/// Look up a key. Caller provides output buffer; Zig copies data into it.
+/// First call with out_buf=null to get the needed size in out_len.
+/// Second call with out_buf pointing to a buffer of that size.
+/// Returns 0=found, 1=not found, -1=error.
+export fn lsm_bridge_get(key_ptr: [*]const u8, key_len: usize, out_buf: ?[*]u8, out_capacity: usize, out_len: *usize) callconv(std.builtin.CallingConvention.c) c_int {
     var haskell_buf: ?[*]const u8 = null;
     var haskell_len: usize = 0;
     const rc = lsm_lookup(table.?, key_ptr, key_len, &haskell_buf, &haskell_len);
     if (rc != 0) {
-        out_ptr.* = null;
         out_len.* = 0;
         return rc;
     }
 
-    // Copy from GHC-managed memory to Zig-allocated memory (safe from GC)
-    const buf = std.heap.c_allocator.alloc(u8, haskell_len) catch return -2;
-    @memcpy(buf, haskell_buf.?[0..haskell_len]);
-    out_ptr.* = buf.ptr;
     out_len.* = haskell_len;
+    if (out_buf) |buf| {
+        const copy_len = @min(haskell_len, out_capacity);
+        @memcpy(buf[0..copy_len], haskell_buf.?[0..copy_len]);
+    }
     return 0;
 }
 
-/// Free a buffer allocated by lsm_bridge_get.
-export fn lsm_bridge_free(buf_ptr: [*]u8, buf_len: usize) callconv(.C) void {
-    std.heap.c_allocator.free(buf_ptr[0..buf_len]);
-}
-
 /// Delete a key.
-export fn lsm_bridge_delete(key_ptr: [*]const u8, key_len: usize) callconv(.C) c_int {
+export fn lsm_bridge_delete(key_ptr: [*]const u8, key_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
     return lsm_delete(table.?, key_ptr, key_len);
 }
 
 /// Range lookup. Returns entries as a flat buffer.
 /// Caller must free the result buffer via lsm_bridge_free.
-export fn lsm_bridge_scan(lo_ptr: [*]const u8, lo_len: usize, hi_ptr: [*]const u8, hi_len: usize, out_ptr: *?[*]u8, out_len: *usize, out_count: *usize) callconv(.C) c_int {
+export fn lsm_bridge_scan(lo_ptr: [*]const u8, lo_len: usize, hi_ptr: [*]const u8, hi_len: usize, out_ptr: *?[*]u8, out_len: *usize, out_count: *usize) callconv(std.builtin.CallingConvention.c) c_int {
     return lsm_range_lookup(table.?, lo_ptr, lo_len, hi_ptr, hi_len, out_ptr, out_len, out_count);
 }
 
 /// Save a snapshot.
-export fn lsm_bridge_snapshot(name_ptr: [*]const u8, name_len: usize) callconv(.C) c_int {
+export fn lsm_bridge_snapshot(name_ptr: [*]const u8, name_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
     var name_buf: [256]u8 = undefined;
     if (name_len >= name_buf.len) return -1;
     @memcpy(name_buf[0..name_len], name_ptr[0..name_len]);

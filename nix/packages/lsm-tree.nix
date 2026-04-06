@@ -19,9 +19,7 @@
       # This .o gets linked into the Haskell foreign-library .so.
       # Compile the C init code using Zig's C compiler (no system GCC needed).
       # Produces a .o with __attribute__((constructor)) that calls hs_init().
-      # Compile RTS init using Zig's C compiler — no system GCC needed.
-      # Pure Zig linksection(".init_array") doesn't work (GHC RTS hangs on exit).
-      # C __attribute__((constructor)) via zig cc is the reliable approach.
+      # Compile RTS init using Zig's C compiler.
       zigInitObj = pkgs.runCommand "zig-init-obj" {
         nativeBuildInputs = [ pkgs.zig ];
       } ''
@@ -32,6 +30,26 @@
           -O2 \
           ${lsmFfiSrc}/zig-init/init.c \
           -o $out/zig-init.o
+      '';
+
+      # Zig bridge shared library — wraps Haskell lsm-ffi with buffer-based API.
+      # Links against liblsm-ffi.so and provides lsm_bridge_* functions.
+      lsmFfiLib = lsmProject.hsPkgs.lsm-ffi.components.foreignlibs.lsm-ffi;
+      zigBridge = pkgs.runCommand "zig-bridge" {
+        nativeBuildInputs = [ pkgs.zig ];
+      } ''
+        mkdir -p $out/lib
+        export ZIG_GLOBAL_CACHE_DIR=$(mktemp -d)
+        zig build-lib \
+          -target x86_64-linux-gnu \
+          -OReleaseSafe \
+          -dynamic \
+          -lc \
+          -rpath ${lsmFfiLib}/lib \
+          -L${lsmFfiLib}/lib \
+          -llsm-ffi \
+          ${lsmFfiSrc}/zig-init/bridge.zig \
+          -femit-bin=$out/lib/liblsm-bridge.so
       '';
 
       # Combine lsm-tree source with our lsm-ffi wrapper into one cabal project.
@@ -66,8 +84,11 @@
         # Native lsm-tree library
         lsm-tree-lib = lsmProject.hsPkgs.lsm-tree.components.library;
 
-        # C-callable FFI shared library for Bun FFI (with Zig RTS init)
-        lsm-ffi = lsmProject.hsPkgs.lsm-ffi.components.foreignlibs.lsm-ffi;
+        # Haskell FFI shared library (C-callable exports)
+        lsm-ffi = lsmFfiLib;
+
+        # Zig bridge — wraps lsm-ffi with buffer-based API for Bun
+        lsm-bridge = zigBridge;
       };
     };
 }

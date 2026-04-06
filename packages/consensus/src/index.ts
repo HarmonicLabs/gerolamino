@@ -16,3 +16,5 @@ export {
   PREPROD_CONFIG,
   MAINNET_CONFIG,
 } from "./clock";
+export { PeerManager, PeerManagerLive, PeerManagerError } from "./peer-manager";
+export type { PeerState, PeerStatus } from "./peer-manager";

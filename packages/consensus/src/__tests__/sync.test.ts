@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { Effect, Layer, Stream } from "effect";
+import { Clock, Effect, Layer, Stream } from "effect";
 import { processBlock, getSyncState, syncFromStream } from "../sync";
 import { Nonces } from "../nonce";
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
+import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
 import { ImmutableDB, VolatileDB, LedgerDB } from "storage/services/index";
 import type { BlockHeader, LedgerView } from "../validate-header";
 import type { StoredBlock } from "storage/types/StoredBlock";
@@ -78,10 +79,31 @@ const stubLedgerDb = Layer.succeed(LedgerDB, {
   readLatestSnapshot: Effect.succeed(undefined),
 });
 
+// SlotClock with test config: system start at 0, 1s slots, 100 slots/epoch
+const testConfig = new SlotConfig({
+  systemStartMs: 0,
+  slotLengthMs: 1000,
+  epochLength: 100n,
+  securityParam: 10,
+  activeSlotsCoeff: 0.5,
+});
+const fixedClock: Clock.Clock = {
+  currentTimeMillisUnsafe: () => 200_000, // slot 200
+  currentTimeMillis: Effect.sync(() => 200_000),
+  currentTimeNanosUnsafe: () => 200_000_000_000n,
+  currentTimeNanos: Effect.sync(() => 200_000_000_000n),
+  sleep: () => Effect.void,
+};
+const stubSlotClock = Layer.effect(
+  SlotClock,
+  SlotClockLive(testConfig).pipe(Effect.provideService(Clock.Clock, fixedClock)),
+);
+
 const testLayers = Layer.mergeAll(
   ConsensusEngineWithBunCrypto,
   stubImmutableDb,
   stubVolatileDb,
+  stubSlotClock,
   stubLedgerDb,
 );
 

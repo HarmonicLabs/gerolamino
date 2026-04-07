@@ -7,6 +7,7 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Config, Effect, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
+import path from "node:path";
 import {
   getNodeStatus,
   ConsensusEngineWithBunCrypto,
@@ -16,8 +17,8 @@ import {
   PeerManager,
   PeerManagerLive,
 } from "consensus";
-import { ImmutableDB, VolatileDB, LedgerDB, BlobStore } from "storage";
-import { layerLsm } from "lsm-tree";
+import { ChainDB, ChainDBLive, SqliteDrizzle } from "storage";
+import { layerLsmFromSnapshot } from "lsm-tree";
 
 const start = Command.make(
   "start",
@@ -26,6 +27,10 @@ const start = Command.make(
       Flag.withAlias("s"),
       Flag.withDescription("Path to Mithril V2LSM snapshot directory"),
       Flag.withFallbackConfig(Config.string("SNAPSHOT_PATH")),
+    ),
+    snapshotName: Flag.string("snapshot-name").pipe(
+      Flag.withDescription("LSM snapshot name to restore"),
+      Flag.withDefault("latest"),
     ),
   },
   (config) =>
@@ -51,41 +56,49 @@ const app = Command.make("gerolamino").pipe(
   Command.withSubcommands([start]),
 );
 
-// Stub layers for now — will be replaced with real implementations
-const stubImmutableDb = Layer.succeed(ImmutableDB, {
-  appendBlock: () => Effect.void,
-  readBlock: () => Effect.succeed(undefined),
-  getTip: Effect.succeed(undefined),
-  streamBlocks: () => {
-    const { Stream } = require("effect");
-    return Stream.empty;
-  },
-});
+// Build storage layers from snapshot path
+const makeStorageLayers = (snapshotPath: string, snapshotName: string) => {
+  const lsmDir = path.join(snapshotPath, "lsm");
+  const dbPath = path.join(snapshotPath, "chain.db");
 
-const stubVolatileDb = Layer.succeed(VolatileDB, {
-  addBlock: () => Effect.void,
-  getBlock: () => Effect.succeed(undefined),
-  getSuccessors: () => Effect.succeed([]),
-  garbageCollect: () => Effect.void,
-});
+  const blobStoreLayer = layerLsmFromSnapshot(lsmDir, snapshotName);
+  const sqlLayer = SqliteDrizzle.layerBun({ filename: dbPath, init: true });
 
-const stubLedgerDb = Layer.succeed(LedgerDB, {
-  writeSnapshot: () => Effect.void,
-  readLatestSnapshot: Effect.succeed(undefined),
-});
+  return ChainDBLive.pipe(
+    Layer.provide(Layer.merge(blobStoreLayer, sqlLayer)),
+  );
+};
 
 const slotClockLayer = Layer.effect(SlotClock, SlotClockLive(PREPROD_CONFIG));
 const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),
 );
 
+// For now, use stub storage until snapshot-converter produces V2LSM output.
+// Once V2LSM is available, replace with: makeStorageLayers(snapshotPath, snapshotName)
+const stubChainDb = Layer.succeed(ChainDB, {
+  getBlock: () => Effect.succeed(undefined),
+  getBlockAt: () => Effect.succeed(undefined),
+  getTip: Effect.succeed(undefined),
+  getImmutableTip: Effect.succeed(undefined),
+  addBlock: () => Effect.void,
+  rollback: () => Effect.void,
+  getSuccessors: () => Effect.succeed([]),
+  streamFrom: () => {
+    const { Stream } = require("effect");
+    return Stream.empty;
+  },
+  promoteToImmutable: () => Effect.void,
+  garbageCollect: () => Effect.void,
+  writeLedgerSnapshot: () => Effect.void,
+  readLatestLedgerSnapshot: Effect.succeed(undefined),
+});
+
 const nodeLayers = Layer.mergeAll(
   ConsensusEngineWithBunCrypto,
   slotClockLayer,
   peerManagerLayer,
-  stubImmutableDb,
-  stubVolatileDb,
-  stubLedgerDb,
+  stubChainDb,
 );
 
 app.pipe(

@@ -48,7 +48,7 @@ export class SqliteDrizzle extends ServiceMap.Service<SqliteDrizzle, DrizzleDB>(
    * Direct `bun:sqlite` layer — zero proxy overhead.
    * Use for TUI / server (Bun runtime only).
    */
-  static layerBun = (opts: { filename: string }): Layer.Layer<SqliteDrizzle> =>
+  static layerBun = (opts: { filename: string; init?: boolean }): Layer.Layer<SqliteDrizzle> =>
     Layer.effect(
       SqliteDrizzle,
       Effect.sync(() => {
@@ -56,6 +56,7 @@ export class SqliteDrizzle extends ServiceMap.Service<SqliteDrizzle, DrizzleDB>(
         sqlite.exec("PRAGMA journal_mode = WAL");
         sqlite.exec("PRAGMA synchronous = NORMAL");
         sqlite.exec("PRAGMA foreign_keys = ON");
+        if (opts.init) initCoreTables(sqlite);
         return drizzleBun({ client: sqlite, schema }) as unknown as DrizzleDB;
       }),
     );
@@ -144,3 +145,49 @@ export const query = <T>(drizzleQuery: Promise<T>): Effect.Effect<T> =>
     try: () => drizzleQuery,
     catch: (cause) => cause,
   });
+
+// ---------------------------------------------------------------------------
+// Core table DDL — used by layerBun({ init: true })
+// ---------------------------------------------------------------------------
+
+function initCoreTables(db: InstanceType<typeof Database>): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS slot_leader (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash BLOB NOT NULL UNIQUE,
+    pool_hash_id INTEGER,
+    description TEXT NOT NULL
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS immutable_blocks (
+    slot INTEGER PRIMARY KEY,
+    hash BLOB NOT NULL UNIQUE,
+    prev_hash BLOB,
+    block_no INTEGER NOT NULL,
+    epoch_no INTEGER,
+    epoch_slot_no INTEGER,
+    tx_count INTEGER NOT NULL DEFAULT 0,
+    size INTEGER NOT NULL,
+    time INTEGER NOT NULL,
+    slot_leader_id INTEGER NOT NULL DEFAULT 0,
+    proto_major INTEGER NOT NULL DEFAULT 0,
+    proto_minor INTEGER NOT NULL DEFAULT 0,
+    vrf_key TEXT,
+    op_cert BLOB,
+    op_cert_counter INTEGER,
+    crc32 INTEGER
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_immutable_block_no ON immutable_blocks(block_no)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_immutable_epoch ON immutable_blocks(epoch_no)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS volatile_blocks (
+    hash BLOB PRIMARY KEY,
+    slot INTEGER NOT NULL,
+    prev_hash BLOB,
+    block_no INTEGER NOT NULL,
+    block_size_bytes INTEGER NOT NULL
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_volatile_prev_hash ON volatile_blocks(prev_hash)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS ledger_snapshots (
+    slot INTEGER PRIMARY KEY,
+    hash BLOB NOT NULL,
+    epoch INTEGER NOT NULL
+  )`);
+}

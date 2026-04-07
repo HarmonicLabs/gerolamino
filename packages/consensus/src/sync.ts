@@ -55,9 +55,7 @@ export const processBlock = (
     yield* chainDb.addBlock(block);
 
     // 3. Evolve nonces using VRF nonce output
-    const newEvolving = yield* Effect.promise(() =>
-      evolveNonce(currentNonces.evolving, header.vrfOutput),
-    );
+    const newEvolving = evolveNonce(currentNonces.evolving, header.vrfOutput);
 
     // 4. Check if past candidate collection period (16k/f)
     const slotInEpoch = slotClock.slotWithinEpoch(header.slot);

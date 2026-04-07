@@ -80,7 +80,7 @@ export const validateHeader = (
     yield* Effect.all([
       assertKnownLeaderVrf(crypto, header, ledgerView),
       assertVrfProof(header),
-      assertLeaderStake(header),
+      assertLeaderStake(crypto, header, ledgerView),
       assertKesSignature(crypto, header, ledgerView),
       assertOperationalCertificate(crypto, header),
     ]);
@@ -102,15 +102,40 @@ const assertKnownLeaderVrf = (
     catch: (cause) => new HeaderValidationError({ assertion: "AssertKnownLeaderVrf", cause }),
   });
 
-// 2. VRF proof valid (needs vrf_verify WASM export — Phase 4)
+// 2. VRF proof valid (needs libsodium vrf_verify — not yet available)
 const assertVrfProof = (
   _header: BlockHeader,
 ): Effect.Effect<void, HeaderValidationError> => Effect.void;
 
-// 3. Leader stake threshold (needs check_vrf_leader WASM export — Phase 4)
+// 3. Leader stake threshold — check_vrf_leader via CryptoService
 const assertLeaderStake = (
-  _header: BlockHeader,
-): Effect.Effect<void, HeaderValidationError> => Effect.void;
+  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  header: BlockHeader,
+  view: LedgerView,
+): Effect.Effect<void, HeaderValidationError> =>
+  Effect.try({
+    try: () => {
+      const poolId = hex(crypto.blake2b256(header.issuerVk));
+      const poolStake = view.poolStake.get(poolId);
+      if (poolStake === undefined) throw `pool ${poolId} has no registered stake`;
+      if (view.totalStake === 0n) throw "total stake is zero";
+
+      // Decompose activeSlotsCoeff (e.g. 0.05 → 5/100)
+      // For Cardano mainnet/preprod, f = 1/20
+      const coeffDen = 100;
+      const coeffNum = Math.round(view.activeSlotsCoeff * coeffDen);
+
+      const isLeader = crypto.checkVrfLeader(
+        hex(header.vrfOutput),
+        poolStake.toString(),
+        view.totalStake.toString(),
+        coeffNum.toString(),
+        coeffDen.toString(),
+      );
+      if (!isLeader) throw `pool ${poolId} is not leader for this slot (VRF threshold not met)`;
+    },
+    catch: (cause) => new HeaderValidationError({ assertion: "AssertLeaderStake", cause }),
+  });
 
 // 4. KES signature verify + period bounds
 const assertKesSignature = (

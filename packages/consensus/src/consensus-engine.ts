@@ -6,7 +6,7 @@ import type { BlockHeader, LedgerView } from "./validate-header";
 import type { ChainTip, GsmState } from "./chain-selection";
 import { HeaderValidationError, validateHeader } from "./validate-header";
 import { preferCandidate, gsmState } from "./chain-selection";
-import { CryptoService, CryptoServiceBunNative } from "./crypto";
+import { CryptoService, CryptoServiceBunNative, CryptoServiceLive } from "./crypto";
 
 export class ConsensusEngine extends ServiceMap.Service<
   ConsensusEngine,
@@ -51,3 +51,7 @@ export const ConsensusEngineWithBunCrypto: Layer.Layer<ConsensusEngine> =
   ConsensusEngineLive.pipe(
     Layer.provide(Layer.succeed(CryptoService, CryptoServiceBunNative)),
   );
+
+/** Production: ConsensusEngine with real WASM crypto. */
+export const ConsensusEngineWithWasmCrypto: Layer.Layer<ConsensusEngine> =
+  ConsensusEngineLive.pipe(Layer.provide(CryptoServiceLive));

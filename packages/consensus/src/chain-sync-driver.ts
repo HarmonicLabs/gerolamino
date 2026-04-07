@@ -81,9 +81,7 @@ export const handleRollForward = (
     // Evolve nonces
     // TODO: extract VRF output from decoded header
     const vrfOutput = new Uint8Array(32); // placeholder
-    const newEvolving = yield* Effect.promise(() =>
-      evolveNonce(state.nonces.evolving, vrfOutput),
-    );
+    const newEvolving = evolveNonce(state.nonces.evolving, vrfOutput);
 
     const slotInEpoch = slotClock.slotWithinEpoch(serverTip.slot);
     const pastCollection = isPastStabilizationWindow(

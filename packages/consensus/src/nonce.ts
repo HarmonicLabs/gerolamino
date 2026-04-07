@@ -23,36 +23,49 @@ export class Nonces extends Schema.TaggedClass<Nonces>()("Nonces", {
   epoch: Schema.BigInt,
 }) {}
 
+const bunBlake2b256 = (data: Uint8Array): Uint8Array => {
+  const hasher = new Bun.CryptoHasher("blake2b256");
+  return new Uint8Array(hasher.update(data).digest().buffer);
+};
+
+const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
+  let total = 0;
+  for (const p of parts) total += p.byteLength;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.byteLength;
+  }
+  return out;
+};
+
 /**
  * Evolve the nonce with a new VRF nonce output.
  * evolve(η, y) = blake2b-256(η ∥ blake2b-256(y))
+ *
+ * Uses Bun.CryptoHasher for blake2b (native, fast).
  */
-export const evolveNonce = async (
+export const evolveNonce = (
   currentNonce: Uint8Array,
   vrfNonceOutput: Uint8Array,
-): Promise<Uint8Array> => {
-  // TODO: use wasm-utils blake2b once available
-  const hasher = new Bun.CryptoHasher("blake2b256");
-  const innerHash = hasher.update(vrfNonceOutput).digest();
-  const outerHasher = new Bun.CryptoHasher("blake2b256");
-  return new Uint8Array(
-    outerHasher.update(currentNonce).update(innerHash).digest().buffer,
-  );
+  blake2b256: (data: Uint8Array) => Uint8Array = bunBlake2b256,
+): Uint8Array => {
+  const innerHash = blake2b256(vrfNonceOutput);
+  return blake2b256(concat(currentNonce, innerHash));
 };
 
 /**
  * Derive epoch nonce from candidate nonce and epoch boundary block hash.
  * fromCandidate(candidate, parentHash) = blake2b-256(candidate ∥ parentHash)
+ *
+ * Uses Bun.CryptoHasher for blake2b (native, fast).
  */
-export const deriveEpochNonce = async (
+export const deriveEpochNonce = (
   candidateNonce: Uint8Array,
   parentHash: Uint8Array,
-): Promise<Uint8Array> => {
-  const hasher = new Bun.CryptoHasher("blake2b256");
-  return new Uint8Array(
-    hasher.update(candidateNonce).update(parentHash).digest().buffer,
-  );
-};
+  blake2b256: (data: Uint8Array) => Uint8Array = bunBlake2b256,
+): Uint8Array => blake2b256(concat(candidateNonce, parentHash));
 
 /**
  * Check if a slot is past the randomness stabilization window.

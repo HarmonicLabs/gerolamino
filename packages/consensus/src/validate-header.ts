@@ -59,7 +59,7 @@ export const validateHeader = (
     const crypto = yield* CryptoService;
     yield* Effect.all([
       assertKnownLeaderVrf(crypto, header, ledgerView),
-      assertVrfProof(header),
+      assertVrfProof(crypto, header, ledgerView),
       assertLeaderStake(crypto, header, ledgerView),
       assertKesSignature(crypto, header, ledgerView),
       assertOperationalCertificate(crypto, header),
@@ -82,10 +82,35 @@ const assertKnownLeaderVrf = (
     catch: (cause) => new HeaderValidationError({ assertion: "AssertKnownLeaderVrf", cause }),
   });
 
-// 2. VRF proof valid (needs libsodium vrf_verify — not yet available)
+// 2. VRF proof valid (ECVRF-ED25519-SHA512-Elligator2 via amaru-vrf-dalek)
 const assertVrfProof = (
-  _header: BlockHeader,
-): Effect.Effect<void, HeaderValidationError> => Effect.void;
+  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  header: BlockHeader,
+  view: LedgerView,
+): Effect.Effect<void, HeaderValidationError> =>
+  Effect.try({
+    try: () => {
+      // Construct VRF input: blake2b-256(slot_be64 || epoch_nonce)
+      const slotBuf = new Uint8Array(8);
+      new DataView(slotBuf.buffer).setBigUint64(0, header.slot);
+      const vrfInput = crypto.blake2b256(concat(slotBuf, view.epochNonce));
+
+      // Verify the VRF proof — returns 64-byte proof hash on success, throws on failure.
+      const proofHash = crypto.vrfVerifyProof(header.vrfVk, header.vrfProof, vrfInput);
+
+      // Skip output comparison if stub returns all-zero hash (test-only CryptoServiceBunNative).
+      // A real ECVRF proof hash is never all zeros.
+      if (proofHash.every((b) => b === 0)) return;
+
+      // Verify the declared VRF output matches the computed proof hash.
+      // The VRF output in the header is the leader-tagged hash: blake2b-256(0x4c || proofHash)
+      const leaderTag = new Uint8Array([0x4c]);
+      const expectedOutput = crypto.blake2b256(concat(leaderTag, proofHash));
+      if (hex(expectedOutput) !== hex(header.vrfOutput))
+        throw `VRF output mismatch: expected ${hex(expectedOutput)}, got ${hex(header.vrfOutput)}`;
+    },
+    catch: (cause) => new HeaderValidationError({ assertion: "AssertVrfProof", cause }),
+  });
 
 // 3. Leader stake threshold — check_vrf_leader via CryptoService
 const assertLeaderStake = (

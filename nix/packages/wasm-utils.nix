@@ -18,6 +18,8 @@
             (utilsDir + "/src")
             (utilsDir + "/pallas-crypto-patched")
             (utilsDir + "/pallas-math")
+            (utilsDir + "/amaru-vrf-dalek")
+            (utilsDir + "/amaru-curve25519-dalek")
             (utilsDir + "/.cargo")
           ];
         };

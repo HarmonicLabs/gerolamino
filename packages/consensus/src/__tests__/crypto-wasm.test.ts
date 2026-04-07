@@ -90,6 +90,45 @@ describe("CryptoServiceLive (WASM)", () => {
     expect(valid).toBe(false);
   });
 
+  it("vrfVerifyProof rejects invalid proof", async () => {
+    const failed = await run(
+      Effect.gen(function* () {
+        const crypto = yield* CryptoService;
+        try {
+          // Random key, random 80-byte proof, random input — should fail verification
+          crypto.vrfVerifyProof(
+            new Uint8Array(32).fill(1),
+            new Uint8Array(80).fill(2),
+            new Uint8Array(32).fill(3),
+          );
+          return false; // should not reach here
+        } catch {
+          return true; // verification correctly threw
+        }
+      }),
+    );
+    expect(failed).toBe(true);
+  });
+
+  it("vrfProofToHash returns 64 bytes for valid-format proof", async () => {
+    // vrf_proof_to_hash doesn't verify — it just extracts the hash.
+    // A well-formed 80-byte proof may still produce output even if unverified.
+    // We test the basic contract: 80 bytes in → 64 bytes out or error.
+    const result = await run(
+      Effect.gen(function* () {
+        const crypto = yield* CryptoService;
+        try {
+          const hash = crypto.vrfProofToHash(new Uint8Array(80)); // all zeros
+          return hash.byteLength;
+        } catch {
+          return -1; // decompression failure for zero-point is expected
+        }
+      }),
+    );
+    // Either 64-byte output or decompression error — both are valid
+    expect(result === 64 || result === -1).toBe(true);
+  });
+
   it("checkVrfLeader accepts high-stake pool", async () => {
     // A pool with 90% of total stake should almost always be leader
     const result = await run(

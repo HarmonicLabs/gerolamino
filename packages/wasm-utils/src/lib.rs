@@ -202,8 +202,71 @@ pub fn address_type_id(bytes: &[u8]) -> Result<u8, JsValue> {
 }
 
 // ---------------------------------------------------------------------------
-// KES (Key Evolving Signatures) — for consensus block header verification
+// VRF Proof Verification (ECVRF-ED25519-SHA512-Elligator2, from Amaru)
 // ---------------------------------------------------------------------------
+
+/// Verify a VRF proof (ECVRF-ED25519-SHA512-Elligator2, IETF draft-03).
+///
+/// This is the VRF scheme used by Cardano (pre-Conway era).
+///
+/// Parameters:
+/// - `vrf_vkey`: 32-byte VRF verification key
+/// - `vrf_proof`: 80-byte VRF proof (gamma + challenge + response)
+/// - `vrf_input`: 32-byte VRF input (blake2b-256 of slot || epoch_nonce)
+///
+/// Returns the 64-byte VRF proof hash on success, or an error string on failure.
+/// A non-error result means the proof is valid.
+#[wasm_bindgen]
+pub fn vrf_verify_proof(
+    vrf_vkey: &[u8],
+    vrf_proof: &[u8],
+    vrf_input: &[u8],
+) -> Result<Vec<u8>, JsValue> {
+    use vrf_dalek::vrf03::{PublicKey03, VrfProof03};
+
+    if vrf_vkey.len() != 32 {
+        return Err(JsValue::from_str("VRF verification key must be 32 bytes"));
+    }
+    if vrf_proof.len() != 80 {
+        return Err(JsValue::from_str("VRF proof must be 80 bytes"));
+    }
+
+    let pk = PublicKey03::from_bytes(
+        <&[u8; 32]>::try_from(vrf_vkey).unwrap(),
+    );
+
+    let proof = VrfProof03::from_bytes(
+        <&[u8; 80]>::try_from(vrf_proof).unwrap(),
+    ).map_err(|e| JsValue::from_str(&format!("invalid VRF proof: {:?}", e)))?;
+
+    let proof_hash = proof
+        .verify(&pk, vrf_input)
+        .map_err(|e| JsValue::from_str(&format!("VRF proof verification failed: {:?}", e)))?;
+
+    Ok(proof_hash.to_vec())
+}
+
+/// Compute the VRF proof-to-hash (SHA-512 output) without verifying.
+/// Useful for computing the leader VRF output from a known-good proof.
+///
+/// Parameters:
+/// - `vrf_proof`: 80-byte VRF proof
+///
+/// Returns the 64-byte hash.
+#[wasm_bindgen]
+pub fn vrf_proof_to_hash(vrf_proof: &[u8]) -> Result<Vec<u8>, JsValue> {
+    use vrf_dalek::vrf03::VrfProof03;
+
+    if vrf_proof.len() != 80 {
+        return Err(JsValue::from_str("VRF proof must be 80 bytes"));
+    }
+
+    let proof = VrfProof03::from_bytes(
+        <&[u8; 80]>::try_from(vrf_proof).unwrap(),
+    ).map_err(|e| JsValue::from_str(&format!("invalid VRF proof: {:?}", e)))?;
+
+    Ok(proof.proof_to_hash().to_vec())
+}
 
 // ---------------------------------------------------------------------------
 // VRF Threshold Math — leader election via pallas-math

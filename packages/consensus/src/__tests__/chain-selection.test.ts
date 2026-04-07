@@ -60,6 +60,51 @@ describe("preferCandidate", () => {
   it("sticks with current when no VRF outputs available", () => {
     expect(preferCandidate(makeTip(100n, 50n), makeTip(100n, 50n), 1, k)).toBe(false);
   });
+
+  // --- Full cascade priority (ported from Dingo chainselection/vrf_test.go) ---
+
+  // TestCompareChainsWithVRF: "higher block number wins regardless of VRF"
+  it("block number dominates VRF (higher blockNo wins even with worse VRF)", () => {
+    const vrfHigh = new Uint8Array(32).fill(0xff);
+    const vrfLow = new Uint8Array(32).fill(0x00);
+    // candidate has higher blockNo but worse VRF — should still win
+    expect(preferCandidate(makeTip(100n, 40n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(true);
+  });
+
+  // TestCompareChainsWithVRF: "equal block number - lower slot wins"
+  it("slot density dominates VRF at equal blockNo", () => {
+    const vrfHigh = new Uint8Array(32).fill(0xff);
+    const vrfLow = new Uint8Array(32).fill(0x00);
+    // candidate has lower slot (denser) but worse VRF — slot wins
+    expect(preferCandidate(makeTip(200n, 50n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(true);
+  });
+
+  // TestCompareVRFOutputs: equal VRF → falls to slot tiebreaker
+  it("equal VRF outputs fall back to slot comparison", () => {
+    const vrf = new Uint8Array(32).fill(0x50);
+    // Candidate has lower slot — preferred
+    expect(preferCandidate(makeTip(200n, 50n, vrf), makeTip(100n, 50n, vrf), 1, k)).toBe(true);
+    // Candidate has higher slot — not preferred
+    expect(preferCandidate(makeTip(100n, 50n, vrf), makeTip(200n, 50n, vrf), 1, k)).toBe(false);
+  });
+
+  // TestCompareVRFOutputs: byte-level lexicographic comparison
+  it("VRF comparison is lexicographic (first differing byte decides)", () => {
+    const vrfA = new Uint8Array(32).fill(0x00);
+    vrfA[0] = 0x01;
+    const vrfB = new Uint8Array(32).fill(0x00);
+    vrfB[0] = 0x02;
+    // Lower first byte wins
+    expect(preferCandidate(makeTip(100n, 50n, vrfB), makeTip(100n, 50n, vrfA), 1, k)).toBe(true);
+    expect(preferCandidate(makeTip(100n, 50n, vrfA), makeTip(100n, 50n, vrfB), 1, k)).toBe(false);
+  });
+
+  // Ported from Dingo: one-sided VRF availability
+  it("sticks with current when only one side has VRF", () => {
+    const vrf = new Uint8Array(32).fill(0x42);
+    expect(preferCandidate(makeTip(100n, 50n), makeTip(100n, 50n, vrf), 1, k)).toBe(false);
+    expect(preferCandidate(makeTip(100n, 50n, vrf), makeTip(100n, 50n), 1, k)).toBe(false);
+  });
 });
 
 describe("gsmState", () => {

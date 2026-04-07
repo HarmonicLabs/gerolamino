@@ -74,5 +74,15 @@
     in
     {
       _module.args.buildWasmPackage = buildWasmPackage;
+
+      # Script to symlink Nix-built WASM outputs into the source tree
+      # for NPM-style imports (package.json main → ./pkg/ or ./result/).
+      # Usage: nix run .#link-wasm   (or just `link-wasm` inside devenv shell)
+      packages.link-wasm = pkgs.writeShellScriptBin "link-wasm" ''
+        ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo .)"
+        ln -sfn "${config.packages.wasm-utils}" "$ROOT/packages/wasm-utils/pkg"
+        ln -sfn "${config.packages.wasm-plexer}" "$ROOT/packages/wasm-plexer/result"
+        echo "==> WASM packages linked"
+      '';
     };
 }

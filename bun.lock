@@ -43,9 +43,11 @@
       "name": "tui",
       "dependencies": {
         "@effect/platform-bun": "^4.0.0-beta.43",
+        "cbor-schema": "workspace:*",
         "consensus": "workspace:*",
         "effect": "^4.0.0-beta.43",
         "lsm-tree": "workspace:*",
+        "miniprotocols": "workspace:*",
         "storage": "workspace:*",
       },
       "devDependencies": {

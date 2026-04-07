@@ -136,26 +136,21 @@ export const decodeWrappedHeader = (
     if (parsed._tag !== CborKinds.Array || parsed.items.length < 2)
       return undefined;
 
-    // Try to decode as Shelley+ header [headerBody, kesSig]
-    // If the first element is a small uint (0-7), this is [era, wrappedData] — Byron format
+    // Determine if this is [era_tag, header] or bare [headerBody, kesSig]
     const first = parsed.items[0]!;
+
     if (first._tag === CborKinds.UInt && first.num <= 7n) {
-      // This is [era_tag, data] — could be a block wrapper or Byron
-      // era 0-1 = Byron, skip
+      // [era_tag, header] format — era 0-1 = Byron, skip
       if (first.num <= 1n) return undefined;
 
-      // era 2+ = Shelley+: the inner data is the block body [header, txBodies, ...]
-      // Extract the header from the inner block body
-      const blockBody = parsed.items[1]!;
-      if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 1)
+      // era 2+ = Shelley+: parsed.items[1] is the header [headerBody, kesSig]
+      const headerCbor = parsed.items[1]!;
+      if (headerCbor._tag !== CborKinds.Array || headerCbor.items.length < 2)
         return undefined;
 
-      const headerCbor = blockBody.items[0]!;
       const ledgerHeader = yield* decodeBlockHeader(headerCbor);
 
-      // Compute header hash from the header body
-      if (headerCbor._tag !== CborKinds.Array || headerCbor.items.length < 1)
-        return undefined;
+      // Header hash = blake2b-256(CBOR(headerBody))
       const headerBodyCbor = encodeSync(headerCbor.items[0]!);
       const hasher = new Bun.CryptoHasher("blake2b256");
       hasher.update(headerBodyCbor);
@@ -167,7 +162,7 @@ export const decodeWrappedHeader = (
       };
     }
 
-    // Try as direct [headerBody, kesSig] (no era wrapper)
+    // Bare [headerBody, kesSig] (no era wrapper)
     const ledgerHeader = yield* decodeBlockHeader(parsed);
     const headerBodyCbor = encodeSync(first);
     const hasher = new Bun.CryptoHasher("blake2b256");

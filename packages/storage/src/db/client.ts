@@ -1,28 +1,29 @@
 /**
  * Drizzle ORM ↔ Effect v4 beta SqlClient bridge.
  *
- * Two driver strategies for maximum performance:
+ * Two driver strategies:
  *
- * 1. **BunSqlite** (TUI/server): Uses `drizzle-orm/bun-sqlite` directly.
- *    Zero proxy overhead — Drizzle talks to `bun:sqlite` synchronously.
- *    Wrapped in an Effect Layer for service composition.
+ * 1. **SqlClient proxy** (preferred — TUI, Chrome, any platform): Routes
+ *    `drizzle-orm/sqlite-proxy` through Effect's abstract SqlClient.
+ *    `layerBunSqlClient` wraps bun:sqlite as a Connection; `layerProxy`
+ *    feeds it to Drizzle.  `runMigrations` shares the same SqlClient.
  *
- * 2. **SqlClient proxy** (Chrome extension / cross-platform): Uses
- *    `drizzle-orm/sqlite-proxy` routing through Effect's abstract SqlClient.
- *    Follows @effect/sql-drizzle v3 patterns (`.values`/`.withoutTransform`,
- *    `currentRuntime` capture, `Effect.either` + throw).
+ * 2. **Direct `bun:sqlite`** (`SqliteDrizzle.layerBun`): Zero proxy
+ *    overhead — Drizzle talks to `bun:sqlite` synchronously.
+ *    Does NOT provide SqlClient so cannot be used with runMigrations.
  *
- * Both share the same schema and Drizzle query API. The entry point
- * provides the appropriate layer:
+ * Recommended TUI composition:
  *
- *   // TUI: direct bun:sqlite (fastest)
- *   const StorageLayer = SqliteDrizzle.layerBun({ filename: "chain.db" });
- *
- *   // Chrome: proxy through Effect SqlClient
- *   const StorageLayer = Layer.provide(SqliteDrizzle.layerProxy, WasmSqliteLayer);
+ *   const sqlClient  = layerBunSqlClient({ filename: "chain.db" });
+ *   const drizzle    = SqliteDrizzle.layerProxy.pipe(Layer.provide(sqlClient));
+ *   // runMigrations consumes SqlClient; ChainDBLive consumes SqliteDrizzle + BlobStore
  */
-import { Effect, Layer, Runtime, ServiceMap } from "effect";
-import { SqlClient } from "effect/unstable/sql/SqlClient";
+import { Effect, Layer, Scope, ServiceMap, Stream } from "effect";
+import { SqlClient, make as makeSqlClient } from "effect/unstable/sql/SqlClient";
+import type { Connection } from "effect/unstable/sql/SqlConnection";
+import { SqlError, classifySqliteError } from "effect/unstable/sql/SqlError";
+import { makeCompilerSqlite } from "effect/unstable/sql/Statement";
+import { layer as ReactivityLayer } from "effect/unstable/reactivity/Reactivity";
 import type { DrizzleConfig } from "drizzle-orm";
 import { drizzle as drizzleProxy, type SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy";
 import { drizzle as drizzleBun } from "drizzle-orm/bun-sqlite";
@@ -32,6 +33,89 @@ import * as schema from "./schema.ts";
 export { schema };
 
 type DrizzleDB = SqliteRemoteDatabase<typeof schema>;
+
+// ---------------------------------------------------------------------------
+// SqlClient layer for bun:sqlite — wraps synchronous API in Effect
+// ---------------------------------------------------------------------------
+
+const makeBunSqliteConnection = (db: Database): Connection => {
+  const run = (sql: string, params: ReadonlyArray<unknown>) => {
+    const stmt = db.query(sql);
+    return (stmt.all(...params) ?? []) as ReadonlyArray<any>;
+  };
+
+  const runValues = (sql: string, params: ReadonlyArray<unknown>) => {
+    const stmt = db.query(sql);
+    return (stmt.values(...params) ?? []) as ReadonlyArray<ReadonlyArray<unknown>>;
+  };
+
+  return {
+    execute: (sql, params, transformRows) =>
+      Effect.try({
+        try: () => {
+          const rows = run(sql, params);
+          return transformRows ? transformRows(rows) : rows;
+        },
+        catch: (cause) =>
+          new SqlError({ reason: classifySqliteError(cause) }),
+      }),
+    executeRaw: (sql, params) =>
+      Effect.try({
+        try: () => run(sql, params),
+        catch: (cause) =>
+          new SqlError({ reason: classifySqliteError(cause) }),
+      }),
+    executeValues: (sql, params) =>
+      Effect.try({
+        try: () => runValues(sql, params),
+        catch: (cause) =>
+          new SqlError({ reason: classifySqliteError(cause) }),
+      }),
+    executeUnprepared: (sql, params, transformRows) =>
+      Effect.try({
+        try: () => {
+          const rows = run(sql, params);
+          return transformRows ? transformRows(rows) : rows;
+        },
+        catch: (cause) =>
+          new SqlError({ reason: classifySqliteError(cause) }),
+      }),
+    executeStream: (sql, params, transformRows) =>
+      Stream.fromEffect(
+        Effect.try({
+          try: () => {
+            const rows = run(sql, params);
+            return transformRows ? transformRows(rows) : rows;
+          },
+          catch: (cause) =>
+            new SqlError({ reason: classifySqliteError(cause) }),
+        }),
+      ).pipe(Stream.flatMap((rows) => Stream.fromIterable(rows))),
+  };
+};
+
+/**
+ * Create an Effect SqlClient layer backed by bun:sqlite.
+ * Provides SqlClient for use by runMigrations and SqliteDrizzle.layerProxy.
+ */
+export const layerBunSqlClient = (opts: { filename: string }): Layer.Layer<SqlClient> =>
+  Layer.effect(
+    SqlClient,
+    Effect.gen(function* () {
+      const db = new Database(opts.filename);
+      db.exec("PRAGMA journal_mode = WAL");
+      db.exec("PRAGMA synchronous = NORMAL");
+      db.exec("PRAGMA foreign_keys = ON");
+      yield* Scope.addFinalizer(yield* Effect.scope, Effect.sync(() => db.close()));
+      const connection = makeBunSqliteConnection(db);
+      const compiler = makeCompilerSqlite();
+      return yield* makeSqlClient({
+        acquirer: Effect.succeed(connection),
+        compiler,
+        spanAttributes: [["db.system", "sqlite"]],
+      });
+    }),
+  ).pipe(Layer.provide(ReactivityLayer));
 
 // ---------------------------------------------------------------------------
 // SqliteDrizzle service
@@ -48,7 +132,7 @@ export class SqliteDrizzle extends ServiceMap.Service<SqliteDrizzle, DrizzleDB>(
    * Direct `bun:sqlite` layer — zero proxy overhead.
    * Use for TUI / server (Bun runtime only).
    */
-  static layerBun = (opts: { filename: string; init?: boolean }): Layer.Layer<SqliteDrizzle> =>
+  static layerBun = (opts: { filename: string }): Layer.Layer<SqliteDrizzle> =>
     Layer.effect(
       SqliteDrizzle,
       Effect.sync(() => {
@@ -56,7 +140,6 @@ export class SqliteDrizzle extends ServiceMap.Service<SqliteDrizzle, DrizzleDB>(
         sqlite.exec("PRAGMA journal_mode = WAL");
         sqlite.exec("PRAGMA synchronous = NORMAL");
         sqlite.exec("PRAGMA foreign_keys = ON");
-        if (opts.init) initCoreTables(sqlite);
         return drizzleBun({ client: sqlite, schema }) as unknown as DrizzleDB;
       }),
     );
@@ -78,33 +161,21 @@ export const layer = SqliteDrizzle.layerProxy;
 
 // ---------------------------------------------------------------------------
 // Proxy bridge — routes Drizzle SQL through Effect's abstract SqlClient
-// (following @effect/sql-drizzle v3 internal/patch.ts patterns)
 // ---------------------------------------------------------------------------
-
-/**
- * Module-level runtime capture for fiber context optimization.
- * When a query executes inside an Effect fiber, we capture that fiber's
- * runtime so the proxy callback can reuse it (avoids creating new fibers).
- */
-let currentRuntime: Runtime.Runtime<never> | undefined = undefined;
 
 function makeProxyDrizzle(
   config?: Omit<DrizzleConfig<typeof schema>, "logger">,
 ): Effect.Effect<DrizzleDB, never, SqlClient> {
   return Effect.gen(function* () {
     const client = yield* SqlClient;
-    const constructionRuntime = yield* Effect.runtime<never>();
 
     const callback = (
       sql: string,
       params: unknown[],
       method: "all" | "run" | "get" | "values",
     ): Promise<{ rows: unknown[] | unknown[][] }> => {
-      const rt = currentRuntime ?? constructionRuntime;
-      const run = Runtime.runPromise(rt);
       const statement = client.unsafe(sql, params);
 
-      // Match @effect/sql-drizzle v3 behavior:
       // "all"/"values" → statement.values (raw arrays, Drizzle applies its own mapping)
       // "get"/"run"    → statement.withoutTransform (raw objects)
       const base =
@@ -118,11 +189,8 @@ function makeProxyDrizzle(
             }))
           : Effect.map(base, (rows) => ({ rows }));
 
-      // Use Effect.either to bridge typed errors to Promise rejections
-      return run(Effect.either(effect)).then((res) => {
-        if (res._tag === "Left") throw res.left;
-        return res.right as { rows: unknown[] | unknown[][] };
-      });
+      // Effect.runPromise rejects on error — matches Drizzle's Promise contract
+      return Effect.runPromise(effect) as Promise<{ rows: unknown[] | unknown[][] }>;
     };
 
     return drizzleProxy(callback, { schema, ...config });
@@ -145,49 +213,3 @@ export const query = <T>(drizzleQuery: Promise<T>): Effect.Effect<T> =>
     try: () => drizzleQuery,
     catch: (cause) => cause,
   });
-
-// ---------------------------------------------------------------------------
-// Core table DDL — used by layerBun({ init: true })
-// ---------------------------------------------------------------------------
-
-function initCoreTables(db: InstanceType<typeof Database>): void {
-  db.exec(`CREATE TABLE IF NOT EXISTS slot_leader (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    hash BLOB NOT NULL UNIQUE,
-    pool_hash_id INTEGER,
-    description TEXT NOT NULL
-  )`);
-  db.exec(`CREATE TABLE IF NOT EXISTS immutable_blocks (
-    slot INTEGER PRIMARY KEY,
-    hash BLOB NOT NULL UNIQUE,
-    prev_hash BLOB,
-    block_no INTEGER NOT NULL,
-    epoch_no INTEGER,
-    epoch_slot_no INTEGER,
-    tx_count INTEGER NOT NULL DEFAULT 0,
-    size INTEGER NOT NULL,
-    time INTEGER NOT NULL,
-    slot_leader_id INTEGER NOT NULL DEFAULT 0,
-    proto_major INTEGER NOT NULL DEFAULT 0,
-    proto_minor INTEGER NOT NULL DEFAULT 0,
-    vrf_key TEXT,
-    op_cert BLOB,
-    op_cert_counter INTEGER,
-    crc32 INTEGER
-  )`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_immutable_block_no ON immutable_blocks(block_no)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_immutable_epoch ON immutable_blocks(epoch_no)`);
-  db.exec(`CREATE TABLE IF NOT EXISTS volatile_blocks (
-    hash BLOB PRIMARY KEY,
-    slot INTEGER NOT NULL,
-    prev_hash BLOB,
-    block_no INTEGER NOT NULL,
-    block_size_bytes INTEGER NOT NULL
-  )`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_volatile_prev_hash ON volatile_blocks(prev_hash)`);
-  db.exec(`CREATE TABLE IF NOT EXISTS ledger_snapshots (
-    slot INTEGER PRIMARY KEY,
-    hash BLOB NOT NULL,
-    epoch INTEGER NOT NULL
-  )`);
-}

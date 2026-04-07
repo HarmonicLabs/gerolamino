@@ -16,4 +16,4 @@ export {
   PREFIX_ACCT,
   PREFIX_COFF,
 } from "storage/blob-store/keys";
-export { layerLsm } from "./layer-lsm";
+export { layerLsm, layerLsmFromSnapshot } from "./layer-lsm";

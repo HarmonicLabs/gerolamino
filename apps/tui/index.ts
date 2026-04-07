@@ -16,7 +16,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import path from "node:path";
 import {
   getNodeStatus,
-  ConsensusEngineWithBunCrypto,
+  ConsensusEngineWithWasmCrypto,
   SlotClock,
   SlotClockLive,
   PREPROD_CONFIG,
@@ -130,7 +130,7 @@ const stubStorageLayers = (() => {
 })();
 
 const nodeLayers = Layer.mergeAll(
-  ConsensusEngineWithBunCrypto,
+  ConsensusEngineWithWasmCrypto,
   slotClockLayer,
   peerManagerLayer,
   stubStorageLayers,

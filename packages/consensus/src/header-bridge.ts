@@ -8,14 +8,16 @@
  * Also computes the header hash (blake2b-256 of CBOR-encoded header body)
  * from raw block CBOR bytes.
  */
-import { Effect } from "effect";
+import { Config, Effect } from "effect";
 import { parseSync, encodeSync, CborKinds } from "cbor-schema";
 import type { BlockHeader as LedgerBlockHeader } from "ledger/lib/block/block";
 import { decodeMultiEraBlock } from "ledger/lib/block/block";
 import type { BlockHeader as ConsensusBlockHeader } from "./validate-header";
 
-/** Cardano constant: slots per KES period (universal across all networks). */
-const SLOTS_PER_KES_PERIOD = 129600;
+/** Slots per KES period — configurable via CARDANO_SLOTS_PER_KES_PERIOD, defaults to 129600. */
+const SlotsPerKesPeriod = Config.number("CARDANO_SLOTS_PER_KES_PERIOD").pipe(
+  Config.withDefault(129600),
+);
 
 /**
  * Extract the raw CBOR-encoded header body from block CBOR bytes
@@ -50,10 +52,12 @@ export const computeHeaderHash = (
  *
  * @param ledgerHeader - Decoded header from the ledger package
  * @param headerHash - 32-byte header hash (from computeHeaderHash or chunk index)
+ * @param slotsPerKesPeriod - Slots per KES period (default 129600)
  */
 export const bridgeHeader = (
   ledgerHeader: LedgerBlockHeader,
   headerHash: Uint8Array,
+  slotsPerKesPeriod = 129600,
 ): ConsensusBlockHeader => ({
   slot: ledgerHeader.slot,
   blockNo: ledgerHeader.blockNo,
@@ -64,7 +68,7 @@ export const bridgeHeader = (
   vrfProof: ledgerHeader.vrfResult.proof,
   vrfOutput: ledgerHeader.vrfResult.output,
   kesSig: ledgerHeader.kesSignature,
-  kesPeriod: Math.floor(Number(ledgerHeader.slot) / SLOTS_PER_KES_PERIOD),
+  kesPeriod: Math.floor(Number(ledgerHeader.slot) / slotsPerKesPeriod),
   opcertSig: ledgerHeader.opCert.sigma,
   opcertVkHot: ledgerHeader.opCert.hotVKey,
   opcertSeqNo: Number(ledgerHeader.opCert.seqNo),
@@ -75,18 +79,20 @@ export const bridgeHeader = (
 /**
  * Decode block CBOR and produce a consensus BlockHeader.
  * Returns undefined for Byron blocks (skip consensus validation).
+ * Reads CARDANO_SLOTS_PER_KES_PERIOD from Config (default 129600).
  */
 export const decodeAndBridge = (
   blockCbor: Uint8Array,
   headerHash: Uint8Array,
 ) =>
   Effect.gen(function* () {
+    const slotsPerKesPeriod = yield* SlotsPerKesPeriod;
     const block = yield* decodeMultiEraBlock(blockCbor);
     if (block._tag === "byron") {
       return undefined;
     }
     return {
-      header: bridgeHeader(block.header, headerHash),
+      header: bridgeHeader(block.header, headerHash, slotsPerKesPeriod),
       era: block.era,
       txCount: block.txBodies.length,
     };

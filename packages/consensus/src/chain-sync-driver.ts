@@ -16,6 +16,8 @@ import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { ChainTip, gsmState } from "./chain-selection";
 import { Nonces, evolveNonce, isPastStabilizationWindow } from "./nonce";
+import { decodeAndBridge } from "./header-bridge";
+import { ChainDB } from "storage/services/chain-db";
 import type { BlockHeader, LedgerView } from "./validate-header";
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
@@ -63,10 +65,14 @@ export const handleRollForward = (
     const engine = yield* ConsensusEngine;
     const peerManager = yield* PeerManager;
     const slotClock = yield* SlotClock;
+    const chainDb = yield* ChainDB;
 
-    // TODO: decode headerBytes via ledger package to extract BlockHeader
-    // For now, create a minimal header from the server tip
-    // In production, this would parse the CBOR header bytes
+    // Decode CBOR block bytes via ledger → consensus header bridge.
+    // If decode fails (Byron, invalid CBOR), treat as opaque block — store and skip validation.
+    const decoded = yield* Effect.orElseSucceed(
+      decodeAndBridge(headerBytes, serverTip.hash),
+      () => undefined,
+    );
 
     // Update peer tip
     yield* peerManager.updatePeerTip(
@@ -78,10 +84,39 @@ export const handleRollForward = (
       }),
     );
 
-    // Evolve nonces
-    // TODO: extract VRF output from decoded header
-    const vrfOutput = new Uint8Array(32); // placeholder
-    const newEvolving = evolveNonce(state.nonces.evolving, vrfOutput);
+    // Byron blocks skip consensus validation — just store and advance
+    if (decoded === undefined) {
+      yield* chainDb.addBlock({
+        slot: serverTip.slot,
+        hash: serverTip.hash,
+        prevHash: undefined,
+        blockNo: serverTip.blockNo,
+        blockSizeBytes: headerBytes.byteLength,
+        blockCbor: headerBytes,
+      });
+      return {
+        tip: { slot: serverTip.slot, hash: serverTip.hash },
+        nonces: state.nonces,
+        blocksProcessed: state.blocksProcessed + 1,
+        caughtUp: false,
+      } satisfies VolatileState;
+    }
+
+    // Validate the decoded Shelley+ header
+    yield* engine.validateHeader(decoded.header, ledgerView);
+
+    // Store block in ChainDB
+    yield* chainDb.addBlock({
+      slot: decoded.header.slot,
+      hash: decoded.header.hash,
+      prevHash: decoded.header.prevHash,
+      blockNo: decoded.header.blockNo,
+      blockSizeBytes: headerBytes.byteLength,
+      blockCbor: headerBytes,
+    });
+
+    // Evolve nonces using VRF output from decoded header
+    const newEvolving = evolveNonce(state.nonces.evolving, decoded.header.vrfOutput);
 
     const slotInEpoch = slotClock.slotWithinEpoch(serverTip.slot);
     const pastCollection = isPastStabilizationWindow(
@@ -120,6 +155,7 @@ export const handleRollBackward = (
 ) =>
   Effect.gen(function* () {
     const peerManager = yield* PeerManager;
+    const chainDb = yield* ChainDB;
 
     yield* peerManager.updatePeerTip(
       peerId,
@@ -134,8 +170,11 @@ export const handleRollBackward = (
       `RollBackward from peer ${peerId}: reverting to slot ${rollbackPoint?.slot ?? "origin"}`,
     );
 
-    // For now, update tip to rollback point
-    // TODO: call ChainDB.rollback(rollbackPoint) to revert volatile state
+    // Rollback ChainDB volatile state to the rollback point
+    if (rollbackPoint) {
+      yield* chainDb.rollback(rollbackPoint);
+    }
+
     return {
       ...state,
       tip: rollbackPoint,

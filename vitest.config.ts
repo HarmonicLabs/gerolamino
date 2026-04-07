@@ -48,6 +48,8 @@ export default defineConfig({
     alias: {
       // miniprotocols internal alias
       "@": path.resolve(__dirname, "packages/miniprotocols/src"),
+      // ledger package subpath alias (used by consensus/header-bridge)
+      "ledger/lib/block/block": path.resolve(__dirname, "packages/ledger/src/lib/block/block.ts"),
       // workspace package aliases for cross-package imports
       // storage package subpath aliases
       "storage/blob-store/service": path.resolve(__dirname, "packages/storage/src/blob-store/service.ts"),

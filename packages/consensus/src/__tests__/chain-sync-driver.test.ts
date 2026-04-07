@@ -10,6 +10,7 @@ import { PeerManager, PeerManagerLive } from "../peer-manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
 import { ChainDB } from "storage/services/chain-db";
 import { Nonces } from "../nonce";
+import { hex } from "../util";
 import type { LedgerView } from "../validate-header";
 
 const testConfig = new SlotConfig({
@@ -58,9 +59,6 @@ const testLayers = Layer.mergeAll(
   peerManagerLayer,
   stubChainDb,
 );
-
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
@@ -121,8 +119,8 @@ describe("ChainSync driver", () => {
     expect(newState.tip?.slot).toBe(42n);
     expect(newState.blocksProcessed).toBe(1);
     expect(newState.caughtUp).toBe(false);
-    // Nonces should have evolved
-    expect(newState.nonces.evolving).not.toEqual(nonces.evolving);
+    // With opaque (undecoded) block bytes, nonces are preserved (no VRF output available)
+    expect(newState.nonces.evolving).toEqual(nonces.evolving);
   });
 
   it("handleRollForward updates peer tip in PeerManager", async () => {

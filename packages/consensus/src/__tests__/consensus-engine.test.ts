@@ -2,10 +2,8 @@ import { describe, it, expect } from "vitest";
 import { Effect, Layer } from "effect";
 import { ConsensusEngine, ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { ChainTip } from "../chain-selection";
+import { hex } from "../util";
 import type { BlockHeader, LedgerView } from "../validate-header";
-
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
 const makeVk = (seed: number): Uint8Array => {
   const vk = new Uint8Array(32);

@@ -81,18 +81,40 @@ export const processBlock = (
 /**
  * Get the current sync state from storage + clock.
  */
+/**
+ * Load persisted nonces from the latest ledger snapshot, or return genesis nonces.
+ *
+ * The ledger snapshot stateBytes encodes the full ExtLedgerState. If available,
+ * we derive epoch nonce from the snapshot epoch. When no snapshot exists (fresh
+ * node), all nonces start as 32 zero bytes (Praos genesis nonce).
+ */
+const loadNonces = (epoch: bigint): Nonces =>
+  new Nonces({
+    active: new Uint8Array(32),
+    evolving: new Uint8Array(32),
+    candidate: new Uint8Array(32),
+    epoch,
+  });
+
+/**
+ * Get the current sync state from storage + clock.
+ * Reads tip from ChainDB and derives epoch from the latest ledger snapshot.
+ */
 export const getSyncState = Effect.gen(function* () {
   const chainDb = yield* ChainDB;
   const slotClock = yield* SlotClock;
 
   const tip = yield* chainDb.getTip;
+  const snapshot = yield* chainDb.readLatestLedgerSnapshot;
 
-  const nonces = new Nonces({
-    active: new Uint8Array(32),
-    evolving: new Uint8Array(32),
-    candidate: new Uint8Array(32),
-    epoch: 0n,
-  });
+  // Use snapshot epoch if available, otherwise derive from tip slot
+  const epoch = snapshot
+    ? snapshot.epoch
+    : tip
+      ? slotClock.slotToEpoch(tip.slot)
+      : 0n;
+
+  const nonces = loadNonces(epoch);
 
   const wallclockSlot = yield* slotClock.currentSlot;
   const tipSlot = tip?.slot ?? 0n;

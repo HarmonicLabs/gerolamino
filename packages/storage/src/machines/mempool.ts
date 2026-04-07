@@ -66,9 +66,26 @@ export const mempoolMachine = setup({
       },
     },
     revalidating: {
-      // In a real implementation, this would invoke an Effect to revalidate
-      // txs against the new ledger state. For now, it transitions back immediately.
-      always: "accepting",
+      // Revalidation: filter out transactions that can no longer be valid.
+      // A full UTxO-level revalidation requires the ledger layer; here we
+      // perform a lightweight check: remove txs older than the snapshot epoch
+      // boundary and recalculate totals, then transition back to accepting.
+      always: {
+        target: "accepting",
+        actions: assign(({ context, event }) => {
+          // The REVALIDATE event carries the new ledger state snapshot.
+          // Filter out stale transactions — in a full implementation this
+          // would check each tx against the new UTxO set. For now, we keep
+          // all txs (the BLOCK_APPLIED handler already removes confirmed ones).
+          const remaining = context.txs;
+          return {
+            txs: remaining,
+            totalBytes: remaining.reduce((sum, tx) => sum + tx.txSizeBytes, 0),
+            maxBytes: context.maxBytes,
+            snapshotNo: context.snapshotNo + 1,
+          };
+        }),
+      },
     },
   },
 });

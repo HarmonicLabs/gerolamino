@@ -5,11 +5,9 @@ import { Nonces } from "../nonce";
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
 import { ChainDB } from "storage/services/chain-db";
+import { hex } from "../util";
 import type { BlockHeader, LedgerView } from "../validate-header";
 import type { StoredBlock } from "storage/types/StoredBlock";
-
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");

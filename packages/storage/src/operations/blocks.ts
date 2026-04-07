@@ -176,6 +176,22 @@ export const getVolatileSuccessors = (hash: Uint8Array) =>
 export const garbageCollectVolatile = (belowSlot: number) =>
   Effect.gen(function* () {
     const db = yield* SqliteDrizzle;
+    const store = yield* BlobStore;
+
+    // Find blocks to delete so we can clean up BlobStore entries
+    const toDelete = yield* query(
+      db.select({ slot: schema.volatileBlocks.slot, hash: schema.volatileBlocks.hash })
+        .from(schema.volatileBlocks)
+        .where(lt(schema.volatileBlocks.slot, belowSlot)),
+    );
+
+    // Delete BlobStore entries for GC'd blocks
+    if (toDelete.length > 0) {
+      yield* store.deleteBatch(
+        toDelete.map((r) => blockKey(BigInt(r.slot), r.hash)),
+      );
+    }
+
+    // Delete SQL rows
     yield* query(db.delete(schema.volatileBlocks).where(lt(schema.volatileBlocks.slot, belowSlot)));
-    // TODO: also delete corresponding BlobStore entries for GC'd blocks
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "garbageCollect", cause })));

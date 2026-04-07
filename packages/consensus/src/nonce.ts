@@ -11,6 +11,7 @@
  * Nonce freezing: after 4k/f slots into an epoch, the candidate nonce is frozen.
  */
 import { Schema } from "effect";
+import { concat } from "./util";
 
 export class Nonces extends Schema.TaggedClass<Nonces>()("Nonces", {
   /** Active epoch nonce — for current epoch's leader schedule. */
@@ -26,18 +27,6 @@ export class Nonces extends Schema.TaggedClass<Nonces>()("Nonces", {
 const bunBlake2b256 = (data: Uint8Array): Uint8Array => {
   const hasher = new Bun.CryptoHasher("blake2b256");
   return new Uint8Array(hasher.update(data).digest().buffer);
-};
-
-const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
-  let total = 0;
-  for (const p of parts) total += p.byteLength;
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const p of parts) {
-    out.set(p, offset);
-    offset += p.byteLength;
-  }
-  return out;
 };
 
 /**

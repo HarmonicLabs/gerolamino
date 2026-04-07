@@ -21,3 +21,4 @@ export type { PeerState, PeerStatus } from "./peer-manager";
 export { getNodeStatus, monitorLoop } from "./node";
 export type { NodeStatus } from "./node";
 export { bridgeHeader, computeHeaderHash, decodeAndBridge } from "./header-bridge";
+export { hex, concat, be32 } from "./util";

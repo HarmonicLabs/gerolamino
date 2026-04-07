@@ -11,7 +11,7 @@
  *     → ChainDBLive (consumes BlobStore + SqliteDrizzle) → ChainDB
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Config, Effect, Layer } from "effect";
+import { Config, Effect, Layer, Stream } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import path from "node:path";
 import {
@@ -19,6 +19,7 @@ import {
   ConsensusEngineWithWasmCrypto,
   SlotClock,
   SlotClockLive,
+  SlotClockLayerFromConfig,
   PREPROD_CONFIG,
   PeerManager,
   PeerManagerLive,
@@ -101,33 +102,32 @@ const makeStorageLayers = (snapshotPath: string, snapshotName: string) => {
   return Layer.merge(chainDbLayer, sqlClientLayer);
 };
 
-const slotClockLayer = Layer.effect(SlotClock, SlotClockLive(PREPROD_CONFIG));
+// SlotClock from Config env vars, falling back to PREPROD_CONFIG defaults.
+const slotClockLayer = Layer.effect(SlotClock, SlotClockLayerFromConfig.pipe(
+  Effect.catchAll(() => SlotClockLive(PREPROD_CONFIG)),
+));
 const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),
 );
 
-// Stub ChainDB + SqlClient until V2LSM snapshot conversion is available.
+// Stub ChainDB + SqlClient until V2LSM snapshot data is provided.
 // Once V2LSM is ready, replace with: makeStorageLayers(snapshotPath, snapshotName)
-const stubStorageLayers = (() => {
-  const { Stream } = require("effect");
-  const stubChainDb = Layer.succeed(ChainDB, {
-    getBlock: () => Effect.succeed(undefined),
-    getBlockAt: () => Effect.succeed(undefined),
-    getTip: Effect.succeed(undefined),
-    getImmutableTip: Effect.succeed(undefined),
-    addBlock: () => Effect.void,
-    rollback: () => Effect.void,
-    getSuccessors: () => Effect.succeed([]),
-    streamFrom: () => Stream.empty,
-    promoteToImmutable: () => Effect.void,
-    garbageCollect: () => Effect.void,
-    writeLedgerSnapshot: () => Effect.void,
-    readLatestLedgerSnapshot: Effect.succeed(undefined),
-  });
-  // Stub SqlClient layer for runMigrations (uses in-memory DB)
-  const stubSqlClient = layerBunSqlClient({ filename: ":memory:" });
-  return Layer.merge(stubChainDb, stubSqlClient);
-})();
+const stubChainDb = Layer.succeed(ChainDB, {
+  getBlock: () => Effect.succeed(undefined),
+  getBlockAt: () => Effect.succeed(undefined),
+  getTip: Effect.succeed(undefined),
+  getImmutableTip: Effect.succeed(undefined),
+  addBlock: () => Effect.void,
+  rollback: () => Effect.void,
+  getSuccessors: () => Effect.succeed([]),
+  streamFrom: () => Stream.empty,
+  promoteToImmutable: () => Effect.void,
+  garbageCollect: () => Effect.void,
+  writeLedgerSnapshot: () => Effect.void,
+  readLatestLedgerSnapshot: Effect.succeed(undefined),
+});
+const stubSqlClient = layerBunSqlClient({ filename: ":memory:" });
+const stubStorageLayers = Layer.merge(stubChainDb, stubSqlClient);
 
 const nodeLayers = Layer.mergeAll(
   ConsensusEngineWithWasmCrypto,

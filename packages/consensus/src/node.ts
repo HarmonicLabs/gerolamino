@@ -44,12 +44,15 @@ export const getNodeStatus = Effect.gen(function* () {
   const activePeers = peers.filter((p) => p.status !== "disconnected").length;
 
   const tipSlot = tip?.slot ?? 0n;
+  // Read the actual block number from the tip block
+  const tipBlock = tip ? yield* chainDb.getBlockAt(tip) : undefined;
+  const tipBlockNo = tipBlock?.blockNo ?? 0n;
   const syncPercent =
     currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
 
   return {
     tipSlot,
-    tipBlockNo: 0n, // TODO: track from ImmutableDB
+    tipBlockNo,
     currentSlot,
     epochNumber: epoch,
     gsmState: currentSlot - tipSlot <= slotClock.stabilityWindow ? "CaughtUp" : "Syncing",

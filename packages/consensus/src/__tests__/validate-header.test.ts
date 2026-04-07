@@ -3,11 +3,9 @@ import { Effect, Exit, Layer } from "effect";
 import { validateHeader, HeaderValidationError } from "../validate-header";
 import type { BlockHeader, LedgerView } from "../validate-header";
 import { CryptoService, CryptoServiceBunNative } from "../crypto";
+import { hex } from "../util";
 
 const cryptoLayer = Layer.succeed(CryptoService, CryptoServiceBunNative);
-
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");

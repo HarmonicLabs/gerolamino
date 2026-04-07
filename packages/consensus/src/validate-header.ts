@@ -10,6 +10,7 @@
  */
 import { Effect, Schema } from "effect";
 import { CryptoService } from "./crypto";
+import { hex, concat, be32 } from "./util";
 
 export class HeaderValidationError extends Schema.TaggedErrorClass<HeaderValidationError>()(
   "HeaderValidationError",
@@ -45,27 +46,6 @@ export interface LedgerView {
   readonly activeSlotsCoeff: number;
   readonly maxKesEvolutions: number;
 }
-
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-
-const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
-  let total = 0;
-  for (const p of parts) total += p.byteLength;
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const p of parts) {
-    out.set(p, offset);
-    offset += p.byteLength;
-  }
-  return out;
-};
-
-const be32 = (n: number): Uint8Array => {
-  const buf = new Uint8Array(4);
-  new DataView(buf.buffer).setUint32(0, n);
-  return buf;
-};
 
 /**
  * Validate a block header. All five assertions run in parallel via Effect.all.

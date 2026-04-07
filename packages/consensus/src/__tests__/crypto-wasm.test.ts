@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { Effect, Layer } from "effect";
 import { CryptoService, CryptoServiceLive } from "../crypto";
+import { hex } from "../util";
 
 const run = <A>(effect: Effect.Effect<A, unknown, CryptoService>) =>
   Effect.runPromise(Effect.provide(effect, CryptoServiceLive));
@@ -102,6 +103,3 @@ describe("CryptoServiceLive (WASM)", () => {
     expect(result).toBe(true);
   });
 });
-
-const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");

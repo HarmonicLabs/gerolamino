@@ -47,7 +47,7 @@ describe("Integration", () => {
           assert.strictEqual(msg.tag, MessageTag.Init);
           if (msg.tag === MessageTag.Init) {
             assert.strictEqual(msg.protocolMagic, 1);
-            assert.isTrue(msg.lmdbDatabases.includes("utxo"));
+            assert.isTrue(msg.blobPrefixes.includes("utxo"));
           }
         }),
       ),
@@ -94,11 +94,11 @@ describe("Integration", () => {
     ),
   );
 
-  it.effect("bootstrap stream includes LMDB entries after metadata", () =>
+  it.effect("bootstrap stream includes blob entries after metadata", () =>
     readSnapshotMeta("./db").pipe(
       Effect.flatMap((meta) =>
         bootstrapStream(meta).pipe(
-          // Init + LedgerState + LedgerMeta + first LMDB batch
+          // Init + LedgerState + LedgerMeta + first blob batch
           Stream.take(4),
           Stream.runCollect,
         ),
@@ -106,8 +106,8 @@ describe("Integration", () => {
       Effect.tap((frames) =>
         Effect.sync(() => {
           const msg = decodeFrame(frames[3]!);
-          assert.strictEqual(msg.tag, MessageTag.LmdbEntries);
-          if (msg.tag === MessageTag.LmdbEntries) {
+          assert.strictEqual(msg.tag, MessageTag.BlobEntries);
+          if (msg.tag === MessageTag.BlobEntries) {
             assert.isTrue(msg.count > 0);
             // Should be from one of the known databases
             assert.isTrue(["_dbstate", "utxo"].includes(msg.dbName));
@@ -119,7 +119,7 @@ describe("Integration", () => {
   );
 
   it.effect(
-    "complete message stream ordering: Init, LedgerState, LedgerMeta, LMDB, Blocks, Complete",
+    "complete message stream ordering: Init, LedgerState, LedgerMeta, BlobEntries, Blocks, Complete",
     () =>
       readSnapshotMeta("./db").pipe(
         Effect.flatMap((meta) =>
@@ -137,8 +137,8 @@ describe("Integration", () => {
             assert.strictEqual(tags[0], MessageTag.Init);
             assert.strictEqual(tags[1], MessageTag.LedgerState);
             assert.strictEqual(tags[2], MessageTag.LedgerMeta);
-            // After that: LMDB entries (batched)
-            assert.strictEqual(tags[3], MessageTag.LmdbEntries);
+            // After that: blob entries (batched)
+            assert.strictEqual(tags[3], MessageTag.BlobEntries);
           }),
         ),
         Effect.provide(testLayers),

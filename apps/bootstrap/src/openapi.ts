@@ -49,7 +49,7 @@ export const asyncapiSpec = {
         Block: { $ref: "#/components/messages/Block" },
         LedgerState: { $ref: "#/components/messages/LedgerState" },
         LedgerMeta: { $ref: "#/components/messages/LedgerMeta" },
-        LmdbEntries: { $ref: "#/components/messages/LmdbEntries" },
+        BlobEntries: { $ref: "#/components/messages/BlobEntries" },
         Progress: { $ref: "#/components/messages/Progress" },
         Complete: { $ref: "#/components/messages/Complete" },
       },
@@ -67,9 +67,9 @@ export const asyncapiSpec = {
         name: "LedgerMeta",
         title: `Tag 0x${MessageTag.LedgerMeta.toString(16).padStart(2, "0")}`,
       },
-      LmdbEntries: {
-        name: "LmdbEntries",
-        title: `Tag 0x${MessageTag.LmdbEntries.toString(16).padStart(2, "0")}`,
+      BlobEntries: {
+        name: "BlobEntries",
+        title: `Tag 0x${MessageTag.BlobEntries.toString(16).padStart(2, "0")}`,
       },
       Progress: {
         name: "Progress",

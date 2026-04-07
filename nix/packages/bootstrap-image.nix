@@ -51,11 +51,21 @@
           (root + "/packages/wasm-utils/package.json")
 
           (root + "/packages/miniprotocols/package.json")
+
+          (root + "/packages/storage/src")
           (root + "/packages/storage/package.json")
+          (root + "/packages/storage/tsconfig.json")
+
+          (root + "/packages/lsm-tree/src")
+          (root + "/packages/lsm-tree/package.json")
+
+          (root + "/packages/consensus/src")
+          (root + "/packages/consensus/package.json")
+          (root + "/packages/consensus/tsconfig.json")
         ];
       };
 
-      lmdbLib = lib.getLib pkgs.lmdb;
+      lsmBridge = self'.packages.lsm-bridge;
 
       bootstrapApp = pkgs.stdenv.mkDerivation {
         pname = "bootstrap";
@@ -90,16 +100,16 @@
           makeWrapper ${lib.getExe pkgs.bun} $out/bin/bootstrap \
             --chdir "$out/app" \
             --add-flags "run apps/bootstrap/src/cli.ts serve" \
-            --set LIBLMDB_PATH "${lmdbLib}/lib/liblmdb.so"
+            --set LIBLSM_BRIDGE_PATH "${lsmBridge}/lib/liblsm-bridge.so"
         '';
       };
 
-      # Layer 1: Stable runtime — bun, LMDB, CA certs, bash, coreutils.
+      # Layer 1: Stable runtime — bun, LSM bridge, CA certs, bash, coreutils.
       # Rarely changes, cached across rebuilds.
       runtimeLayer = nix2container.buildLayer {
         deps = [
           pkgs.bun
-          pkgs.lmdb
+          lsmBridge
           pkgs.cacert
           pkgs.bashInteractive
           pkgs.coreutils
@@ -145,7 +155,7 @@
             "/data"
           ];
           Env = [
-            "LIBLMDB_PATH=${lmdbLib}/lib/liblmdb.so"
+            "LIBLSM_BRIDGE_PATH=${lsmBridge}/lib/liblsm-bridge.so"
             "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
           ];
           ExposedPorts = { "3040/tcp" = { }; };

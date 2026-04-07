@@ -82,9 +82,9 @@ describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
         Effect.provide(testLayers()),
       ),
     );
-    // After Init, LedgerState, LedgerMeta we should see LmdbEntries (UTxO batches)
+    // After Init, LedgerState, LedgerMeta we should see BlobEntries (UTxO batches)
     expect(tags.length).toBeGreaterThanOrEqual(4);
-    expect(tags[3]).toBe(MessageTag.LmdbEntries);
+    expect(tags[3]).toBe(MessageTag.BlobEntries);
   });
 
   it("complete stream ends with Complete frame", async () => {

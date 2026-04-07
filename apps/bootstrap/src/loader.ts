@@ -7,7 +7,7 @@ import { Effect, FileSystem, Path, Schema, Stream } from "effect";
 import type { BootstrapError } from "./errors.ts";
 import { ChunkReadError } from "./errors.ts";
 import { readAllChunks } from "./chunk-reader.ts";
-import { MessageTag, encodeFrame, encodeInit, encodeBlock, encodeLmdbBatch } from "bootstrap";
+import { MessageTag, encodeFrame, encodeInit, encodeBlock, encodeBlobBatch } from "bootstrap";
 import { BlobStore, PREFIX_UTXO } from "storage/blob-store/index";
 
 export class SnapshotMeta extends Schema.Class<SnapshotMeta>("SnapshotMeta")({
@@ -67,8 +67,8 @@ export const bootstrapStream = (
         snapshotSlot: meta.snapshotSlot,
         totalChunks: meta.totalChunks,
         totalBlocks: 0,
-        totalLmdbEntries: 0,
-        lmdbDatabases: ["utxo"],
+        totalBlobEntries: 0,
+        blobPrefixes: ["utxo"],
       }),
     ),
   );
@@ -103,8 +103,8 @@ export const bootstrapStream = (
         Stream.grouped(500),
         Stream.map((batch) =>
           encodeFrame(
-            MessageTag.LmdbEntries,
-            encodeLmdbBatch(
+            MessageTag.BlobEntries,
+            encodeBlobBatch(
               "utxo",
               batch.map((e: { readonly key: Uint8Array; readonly value: Uint8Array }) => ({
                 // Strip "utxo" prefix (4 bytes) — wire format expects raw MemPack keys

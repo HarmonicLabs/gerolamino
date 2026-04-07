@@ -13,7 +13,7 @@ export const MessageTag = {
   Block: 0x02,
   LedgerState: 0x03,
   LedgerMeta: 0x04,
-  LmdbEntries: 0x05,
+  BlobEntries: 0x05,
   Progress: 0x06,
   Complete: 0xff,
 } as const;
@@ -30,8 +30,8 @@ export type InitMessage = {
   readonly snapshotSlot: bigint;
   readonly totalChunks: number;
   readonly totalBlocks: number;
-  readonly totalLmdbEntries: number;
-  readonly lmdbDatabases: ReadonlyArray<string>;
+  readonly totalBlobEntries: number;
+  readonly blobPrefixes: ReadonlyArray<string>;
 };
 
 export type BlockMessage = {
@@ -55,8 +55,8 @@ export type LedgerMetaMessage = {
   readonly payload: Uint8Array;
 };
 
-export type LmdbEntriesMessage = {
-  readonly tag: typeof MessageTag.LmdbEntries;
+export type BlobEntriesMessage = {
+  readonly tag: typeof MessageTag.BlobEntries;
   readonly dbName: string;
   readonly count: number;
   readonly entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>;
@@ -78,7 +78,7 @@ export type BootstrapMessage =
   | BlockMessage
   | LedgerStateMessage
   | LedgerMetaMessage
-  | LmdbEntriesMessage
+  | BlobEntriesMessage
   | ProgressMessage
   | CompleteMessage;
 
@@ -179,7 +179,7 @@ export function decodeBlock(payload: Uint8Array): BlockMessage {
 }
 
 // ---------------------------------------------------------------------------
-// LmdbEntries Payload Encode/Decode
+// BlobEntries Payload Encode/Decode
 // [dbNameLen: u16 BE][dbName: utf8][count: u32 BE]
 // [entries: (keyLen: u16 BE, key, valLen: u32 BE, val)*]
 // ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ export function decodeBlock(payload: Uint8Array): BlockMessage {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export function encodeLmdbBatch(
+export function encodeBlobBatch(
   dbName: string,
   entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
 ): Uint8Array {
@@ -218,7 +218,7 @@ export function encodeLmdbBatch(
   return payload;
 }
 
-export function decodeLmdbBatch(payload: Uint8Array): LmdbEntriesMessage {
+export function decodeBlobBatch(payload: Uint8Array): BlobEntriesMessage {
   const dv = new DataView(payload.buffer, payload.byteOffset);
   let off = 0;
   const nameLen = dv.getUint16(off, false);
@@ -239,7 +239,7 @@ export function decodeLmdbBatch(payload: Uint8Array): LmdbEntriesMessage {
     off += valLen;
     entries.push({ key, value });
   }
-  return { tag: MessageTag.LmdbEntries, dbName, count, entries };
+  return { tag: MessageTag.BlobEntries, dbName, count, entries };
 }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +253,8 @@ export function encodeInit(init: Omit<InitMessage, "tag">): Uint8Array {
       snapshotSlot: init.snapshotSlot.toString(),
       totalChunks: init.totalChunks,
       totalBlocks: init.totalBlocks,
-      totalLmdbEntries: init.totalLmdbEntries,
-      lmdbDatabases: init.lmdbDatabases,
+      totalBlobEntries: init.totalBlobEntries,
+      blobPrefixes: init.blobPrefixes,
     }),
   );
 }
@@ -267,8 +267,8 @@ export function decodeInit(payload: Uint8Array): InitMessage {
     snapshotSlot: BigInt(json.snapshotSlot),
     totalChunks: json.totalChunks,
     totalBlocks: json.totalBlocks,
-    totalLmdbEntries: json.totalLmdbEntries,
-    lmdbDatabases: json.lmdbDatabases,
+    totalBlobEntries: json.totalBlobEntries,
+    blobPrefixes: json.blobPrefixes,
   };
 }
 
@@ -305,8 +305,8 @@ export function decodeFrame(frame: Uint8Array): BootstrapMessage {
       return { tag: MessageTag.LedgerState, payload: payload.slice() };
     case MessageTag.LedgerMeta:
       return { tag: MessageTag.LedgerMeta, payload: payload.slice() };
-    case MessageTag.LmdbEntries:
-      return decodeLmdbBatch(payload);
+    case MessageTag.BlobEntries:
+      return decodeBlobBatch(payload);
     case MessageTag.Progress:
       return decodeProgress(payload);
     case MessageTag.Complete:

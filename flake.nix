@@ -79,7 +79,7 @@
       flake = false;
     };
 
-    # Ouroboros consensus — provides snapshot-converter for V1LMDB → V2LSM
+    # Ouroboros consensus — provides snapshot-converter for Mem → V2LSM
     ouroboros-consensus = {
       url = "github:IntersectMBO/ouroboros-consensus";
     };
@@ -153,7 +153,6 @@
                 in
                 if envRoot != "" then envRoot else builtins.toString ./.;
               packages = [
-                pkgs.lmdb
                 pkgs.sqlite
                 pkgs.poppler-utils
                 pkgs.wasm-pack
@@ -200,7 +199,6 @@
 
               # --- Environment ---
               env = {
-                LIBLMDB_PATH = "${pkgs.lib.getLib pkgs.lmdb}/lib/liblmdb.so";
                 BOOTSTRAP_SERVER_URL = "http://decentralizationmaxi.io:3040";
               };
 

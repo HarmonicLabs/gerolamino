@@ -9,8 +9,8 @@ import {
   decodeBlock,
   encodeInit,
   decodeInit,
-  encodeLmdbBatch,
-  decodeLmdbBatch,
+  encodeBlobBatch,
+  decodeBlobBatch,
   encodeProgress,
   decodeProgress,
 } from "../protocol.ts";
@@ -88,8 +88,8 @@ describe("Protocol", () => {
         snapshotSlot: 119401006n,
         totalChunks: 5529,
         totalBlocks: 100000,
-        totalLmdbEntries: 2000000,
-        lmdbDatabases: ["_dbstate", "utxo"],
+        totalBlobEntries: 2000000,
+        blobPrefixes: ["_dbstate", "utxo"],
       };
       const frame = encodeFrame(MessageTag.Init, encodeInit(init));
       const decoded = decodeFrame(frame);
@@ -99,21 +99,21 @@ describe("Protocol", () => {
       assert.strictEqual(decoded.protocolMagic, 1);
       assert.strictEqual(decoded.snapshotSlot, 119401006n);
       assert.strictEqual(decoded.totalChunks, 5529);
-      assert.deepStrictEqual(decoded.lmdbDatabases, ["_dbstate", "utxo"]);
+      assert.deepStrictEqual(decoded.blobPrefixes, ["_dbstate", "utxo"]);
     });
   });
 
-  describe("LmdbEntries message", () => {
-    it("round-trips LMDB batch", () => {
+  describe("BlobEntries message", () => {
+    it("round-trips blob batch", () => {
       const entries = [
         { key: new Uint8Array(34).fill(0x01), value: new Uint8Array(100).fill(0x02) },
         { key: new Uint8Array(34).fill(0x03), value: new Uint8Array(50).fill(0x04) },
       ];
-      const frame = encodeFrame(MessageTag.LmdbEntries, encodeLmdbBatch("utxo", entries));
+      const frame = encodeFrame(MessageTag.BlobEntries, encodeBlobBatch("utxo", entries));
       const decoded = decodeFrame(frame);
 
-      assert.strictEqual(decoded.tag, MessageTag.LmdbEntries);
-      if (decoded.tag !== MessageTag.LmdbEntries) return;
+      assert.strictEqual(decoded.tag, MessageTag.BlobEntries);
+      if (decoded.tag !== MessageTag.BlobEntries) return;
       assert.strictEqual(decoded.dbName, "utxo");
       assert.strictEqual(decoded.count, 2);
       assert.deepStrictEqual(decoded.entries[0]!.key, entries[0]!.key);

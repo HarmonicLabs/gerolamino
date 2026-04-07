@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
 
-const hasLmdb = !!process.env["SNAPSHOT_PATH"];
+const hasSnapshot = !!process.env["SNAPSHOT_PATH"];
 const hasNetwork = !!process.env["CARDANO_NODE_HOST"];
 const hasWasm = !!process.env["WASM_BUILT"];
 
@@ -18,10 +18,9 @@ export default defineConfig({
       "**/old/**",
       "**/dist/**",
       // Skip snapshot-dependent tests unless SNAPSHOT_PATH is set
-      ...(!hasLmdb
+      ...(!hasSnapshot
         ? [
             "apps/bootstrap/src/__tests__/integration.test.ts",
-            "apps/bootstrap/src/__tests__/lmdb-kv.test.ts",
             "apps/bootstrap/src/__tests__/full-stream-decode.test.ts",
             "apps/bootstrap/src/__tests__/chunk-reader.test.ts",
             "packages/ledger/src/__tests__/new-epoch-state.test.ts",

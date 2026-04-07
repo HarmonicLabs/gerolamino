@@ -12,9 +12,10 @@
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import * as BunSocket from "@effect/platform-bun/BunSocket";
-import { Config, Effect, Layer } from "effect";
+import { Config, Effect, Layer, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import path from "node:path";
+import os from "node:os";
 import {
   getNodeStatus,
   monitorLoop,
@@ -35,6 +36,7 @@ import {
   SqliteDrizzle,
   layerBunSqlClient,
   runMigrations,
+  BlobStoreInMemory,
 } from "storage";
 import { layerLsmFromSnapshot } from "lsm-tree";
 
@@ -45,6 +47,7 @@ const start = Command.make(
       Flag.withAlias("s"),
       Flag.withDescription("Path to Mithril V2LSM snapshot directory"),
       Flag.withFallbackConfig(Config.string("SNAPSHOT_PATH")),
+      Flag.optional,
     ),
     snapshotName: Flag.string("snapshot-name").pipe(
       Flag.withDescription("LSM snapshot name to restore"),
@@ -57,7 +60,7 @@ const start = Command.make(
     ),
     relayPort: Flag.integer("relay-port").pipe(
       Flag.withDescription("Upstream relay port"),
-      Flag.withFallbackConfig(Config.integer("RELAY_PORT")),
+      Flag.withFallbackConfig(Config.int("RELAY_PORT")),
       Flag.withDefault(3001),
     ),
     network: Flag.string("network").pipe(
@@ -68,7 +71,13 @@ const start = Command.make(
   (config) =>
     Effect.gen(function* () {
       yield* Effect.log("Gerolamino TUI node starting...");
-      yield* Effect.log(`Snapshot: ${config.snapshotPath}`);
+
+      const snapshotPath = Option.getOrUndefined(config.snapshotPath);
+      if (snapshotPath) {
+        yield* Effect.log(`Snapshot: ${snapshotPath}`);
+      } else {
+        yield* Effect.log("No snapshot — using in-memory BlobStore (sync from origin)");
+      }
       yield* Effect.log(`Relay: ${config.relayHost}:${config.relayPort} (${config.network})`);
 
       // Run migrations via SqlClient before using ChainDB
@@ -109,7 +118,10 @@ const start = Command.make(
       );
     }).pipe(
       // Storage layers depend on CLI config — provide inside command handler
-      Effect.provide(makeStorageLayers(config.snapshotPath, config.snapshotName)),
+      Effect.provide(makeStorageLayers(
+        Option.getOrUndefined(config.snapshotPath),
+        config.snapshotName,
+      )),
     ),
 ).pipe(
   Command.withDescription("Start the Gerolamino data node"),
@@ -122,12 +134,17 @@ const app = Command.make("gerolamino").pipe(
 
 /**
  * Build storage layers from snapshot path using SqlClient↔Drizzle proxy pattern.
+ * When no snapshot is provided, uses in-memory BlobStore and a temp SQLite DB.
  */
-const makeStorageLayers = (snapshotPath: string, snapshotName: string) => {
-  const lsmDir = path.join(snapshotPath, "lsm");
-  const dbPath = path.join(snapshotPath, "chain.db");
+const makeStorageLayers = (snapshotPath: string | undefined, snapshotName: string) => {
+  const dbPath = snapshotPath
+    ? path.join(snapshotPath, "chain.db")
+    : path.join(os.tmpdir(), `gerolamino-${process.pid}.db`);
 
-  const blobStoreLayer = layerLsmFromSnapshot(lsmDir, snapshotName);
+  const blobStoreLayer = snapshotPath
+    ? layerLsmFromSnapshot(path.join(snapshotPath, "lsm"), snapshotName)
+    : BlobStoreInMemory;
+
   const sqlClientLayer = layerBunSqlClient({ filename: dbPath });
   const drizzleLayer = SqliteDrizzle.layerProxy.pipe(Layer.provide(sqlClientLayer));
 
@@ -140,7 +157,7 @@ const makeStorageLayers = (snapshotPath: string, snapshotName: string) => {
 
 // SlotClock from Config env vars, falling back to PREPROD_CONFIG defaults.
 const slotClockLayer = Layer.effect(SlotClock, SlotClockLayerFromConfig.pipe(
-  Effect.catchAll(() => SlotClockLive(PREPROD_CONFIG)),
+  Effect.catch(() => SlotClockLive(PREPROD_CONFIG)),
 ));
 const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),

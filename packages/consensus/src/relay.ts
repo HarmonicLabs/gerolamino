@@ -14,10 +14,12 @@
 import { Config, Effect, Layer, Schedule, Schema, Scope } from "effect";
 import {
   Multiplexer,
+  MultiplexerBuffer,
   HandshakeClient,
   ChainSyncClient,
   KeepAliveClient,
   ChainPointType,
+  HandshakeMessageType,
 } from "miniprotocols";
 import type { ChainPoint } from "miniprotocols";
 import { ChainDB } from "storage/services/chain-db";
@@ -36,8 +38,8 @@ import type { LedgerView } from "./validate-header";
 export const PREPROD_MAGIC = 1;
 export const MAINNET_MAGIC = 764824073;
 
-/** N2N protocol version to negotiate. */
-const N2N_VERSION = 13;
+/** N2N protocol version to negotiate (preprod/mainnet accept 14+). */
+const N2N_VERSION = 14;
 
 export class RelayError extends Schema.TaggedErrorClass<RelayError>()(
   "RelayError",
@@ -64,14 +66,14 @@ const runHandshake = (networkMagic: number) =>
       },
     });
 
-    if (result._tag === "MsgAcceptVersion") {
-      yield* Effect.log(`Handshake accepted: version ${result.versionNumber}`);
-      return result.versionNumber;
+    if (result._tag === HandshakeMessageType.MsgAcceptVersion) {
+      yield* Effect.log(`Handshake accepted: version ${result.version}`);
+      return result.version;
     }
 
-    if (result._tag === "MsgRefuse") {
+    if (result._tag === HandshakeMessageType.MsgRefuse) {
       return yield* Effect.fail(
-        new RelayError({ message: `Handshake refused: ${result.reason}`, cause: result }),
+        new RelayError({ message: `Handshake refused: ${JSON.stringify(result.reason)}`, cause: result }),
       );
     }
 
@@ -223,6 +225,6 @@ export const connectToRelay = (
       ChainSyncClient.layer,
       KeepAliveClient.layer,
     )),
-    // Provide Multiplexer layer (requires Socket in environment)
-    Effect.provide(Multiplexer.layer),
+    // Provide Multiplexer + Buffer layers (requires Socket in environment)
+    Effect.provide(Multiplexer.layer.pipe(Layer.provide(MultiplexerBuffer.layer))),
   );

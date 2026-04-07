@@ -52,8 +52,7 @@ export const runMigrations = Effect.gen(function* () {
       vrf_key TEXT,
       op_cert BLOB,
       op_cert_counter INTEGER,
-      crc32 INTEGER,
-      block_cbor BLOB NOT NULL
+      crc32 INTEGER
     )
   `.unprepared;
 
@@ -68,8 +67,7 @@ export const runMigrations = Effect.gen(function* () {
       slot INTEGER NOT NULL,
       prev_hash BLOB,
       block_no INTEGER NOT NULL,
-      block_size_bytes INTEGER NOT NULL,
-      block_cbor BLOB NOT NULL
+      block_size_bytes INTEGER NOT NULL
     )
   `.unprepared;
 

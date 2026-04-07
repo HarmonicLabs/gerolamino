@@ -14,6 +14,7 @@ import { parseSync, encodeSync, CborKinds } from "cbor-schema";
 import type { BlockHeader as LedgerBlockHeader } from "ledger/lib/block/block";
 import { decodeMultiEraBlock, decodeBlockHeader } from "ledger/lib/block/block";
 import type { BlockHeader as ConsensusBlockHeader } from "./validate-header";
+import { CryptoService } from "./crypto";
 
 /** Slots per KES period — configurable via CARDANO_SLOTS_PER_KES_PERIOD, defaults to 129600. */
 const SlotsPerKesPeriod = Config.number("CARDANO_SLOTS_PER_KES_PERIOD").pipe(
@@ -131,6 +132,7 @@ export const decodeWrappedHeader = (
 ) =>
   Effect.gen(function* () {
     const slotsPerKesPeriod = yield* SlotsPerKesPeriod;
+    const crypto = yield* CryptoService;
     const parsed = parseSync(headerBytes);
 
     if (parsed._tag !== CborKinds.Array || parsed.items.length < 2)
@@ -152,9 +154,7 @@ export const decodeWrappedHeader = (
 
       // Header hash = blake2b-256(CBOR(headerBody))
       const headerBodyCbor = encodeSync(headerCbor.items[0]!);
-      const hasher = new Bun.CryptoHasher("blake2b256");
-      hasher.update(headerBodyCbor);
-      const headerHash = new Uint8Array(hasher.digest());
+      const headerHash = crypto.blake2b256(headerBodyCbor);
 
       return {
         header: bridgeHeader(ledgerHeader, headerHash, slotsPerKesPeriod),
@@ -165,9 +165,7 @@ export const decodeWrappedHeader = (
     // Bare [headerBody, kesSig] (no era wrapper)
     const ledgerHeader = yield* decodeBlockHeader(parsed);
     const headerBodyCbor = encodeSync(first);
-    const hasher = new Bun.CryptoHasher("blake2b256");
-    hasher.update(headerBodyCbor);
-    const headerHash = new Uint8Array(hasher.digest());
+    const headerHash = yield* crypto.blake2b256(headerBodyCbor);
 
     return {
       header: bridgeHeader(ledgerHeader, headerHash, slotsPerKesPeriod),

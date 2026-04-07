@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import { verifyBodyHash, validateBlock, BlockValidationError } from "../validate-block";
+import { CryptoService, CryptoServiceBunNative } from "../crypto";
 import { encodeSync, CborKinds } from "cbor-schema";
 import type { CborSchemaType } from "cbor-schema";
 
-const run = <A>(effect: Effect.Effect<A, BlockValidationError>) =>
-  Effect.runPromiseExit(effect);
+const cryptoLayer = Layer.succeed(CryptoService, CryptoServiceBunNative);
+
+const run = <A>(effect: Effect.Effect<A, BlockValidationError, CryptoService>) =>
+  Effect.runPromiseExit(effect.pipe(Effect.provide(cryptoLayer)));
 
 /** Build a minimal Shelley+ block CBOR with known body components. */
 const makeBlockCbor = (

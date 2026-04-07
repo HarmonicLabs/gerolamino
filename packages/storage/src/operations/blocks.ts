@@ -7,7 +7,7 @@
  * Both layers are accessed via Effect services — consumer code never
  * imports platform-specific modules.
  */
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
 import { eq, and, lt, desc } from "drizzle-orm";
 import { SqliteDrizzle, query, schema } from "../db/client";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock";
@@ -22,6 +22,7 @@ export const writeImmutableBlock = (block: StoredBlock) =>
   Effect.gen(function* () {
     const db = yield* SqliteDrizzle;
     const store = yield* BlobStore;
+    const now = yield* Clock.currentTimeMillis;
 
     // Write CBOR blob to BlobStore
     yield* store.put(
@@ -40,7 +41,7 @@ export const writeImmutableBlock = (block: StoredBlock) =>
           blockNo: Number(block.blockNo),
           epochNo: 0,
           size: block.blockSizeBytes,
-          time: Math.floor(Date.now() / 1000),
+          time: Math.floor(Number(now) / 1000),
           slotLeaderId: 0,
           protoMajor: 0,
           protoMinor: 0,

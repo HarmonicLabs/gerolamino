@@ -9,7 +9,7 @@
  * Rollback removes volatile blocks after the rollback point.
  * GC deletes both SQL rows and BlobStore entries.
  */
-import { Effect, Layer, Stream } from "effect";
+import { Clock, Effect, Layer, Stream } from "effect";
 import { eq, and, lt, gt, desc, asc } from "drizzle-orm";
 import { ChainDB, ChainDBError } from "./chain-db.ts";
 import { BlobStore } from "../blob-store/service.ts";
@@ -254,6 +254,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
         // --- Immutable promotion ---
         promoteToImmutable: (upTo: RealPoint) =>
           Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis;
             // Move volatile blocks with slot <= upTo.slot to immutable
             const rows = yield* query(
               db.select().from(schema.volatileBlocks)
@@ -266,7 +267,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
                   slot: r.slot, hash: r.hash,
                   prevHash: r.prevHash, blockNo: r.blockNo,
                   epochNo: 0, size: r.blockSizeBytes,
-                  time: Math.floor(Date.now() / 1000),
+                  time: Math.floor(Number(now) / 1000),
                   slotLeaderId: 0, protoMajor: 0, protoMinor: 0,
                 }).onConflictDoUpdate({
                   target: schema.immutableBlocks.slot,

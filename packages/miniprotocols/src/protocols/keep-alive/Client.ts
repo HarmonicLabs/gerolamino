@@ -4,6 +4,7 @@ import {
   Effect,
   Layer,
   Option,
+  Ref,
   Schedule,
   Schema,
   Scope,
@@ -95,16 +96,20 @@ export class KeepAliveClient extends ServiceMap.Service<
             ),
           ),
         done: () => sendMessage({ _tag: Schemas.KeepAliveMessageType.Done }),
-        run: () => {
-          let cookie = 0;
-          return sendMessage({
-            _tag: Schemas.KeepAliveMessageType.KeepAlive,
-            cookie: cookie++,
-          }).pipe(
-            Effect.andThen(messages.pipe(Stream.runHead)),
-            Effect.repeat(Schedule.spaced(Duration.seconds(30))),
-          );
-        },
+        run: () =>
+          Effect.gen(function* () {
+            const cookie = yield* Ref.make(0);
+            yield* Ref.getAndUpdate(cookie, (n) => n + 1).pipe(
+              Effect.flatMap((c) =>
+                sendMessage({
+                  _tag: Schemas.KeepAliveMessageType.KeepAlive,
+                  cookie: c,
+                }),
+              ),
+              Effect.andThen(messages.pipe(Stream.runHead)),
+              Effect.repeat(Schedule.spaced(Duration.seconds(30))),
+            );
+          }),
       });
     }),
   );

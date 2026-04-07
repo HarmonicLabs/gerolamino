@@ -46,12 +46,12 @@ export const ConsensusEngineLive: Layer.Layer<ConsensusEngine, never, CryptoServ
     }),
   );
 
-/** Convenience: ConsensusEngine with Bun-native crypto (for testing). */
-export const ConsensusEngineWithBunCrypto: Layer.Layer<ConsensusEngine> =
+/** Convenience: ConsensusEngine + CryptoService with Bun-native crypto (for testing). */
+export const ConsensusEngineWithBunCrypto: Layer.Layer<ConsensusEngine | CryptoService> =
   ConsensusEngineLive.pipe(
-    Layer.provide(Layer.succeed(CryptoService, CryptoServiceBunNative)),
+    Layer.provideMerge(Layer.succeed(CryptoService, CryptoServiceBunNative)),
   );
 
-/** Production: ConsensusEngine with real WASM crypto. */
-export const ConsensusEngineWithWasmCrypto: Layer.Layer<ConsensusEngine> =
-  ConsensusEngineLive.pipe(Layer.provide(CryptoServiceLive));
+/** Production: ConsensusEngine + CryptoService with real WASM crypto. */
+export const ConsensusEngineWithWasmCrypto: Layer.Layer<ConsensusEngine | CryptoService> =
+  ConsensusEngineLive.pipe(Layer.provideMerge(CryptoServiceLive));

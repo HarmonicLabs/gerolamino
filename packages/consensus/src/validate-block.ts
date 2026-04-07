@@ -2,16 +2,17 @@
  * Block body validation — integrity checks on block contents.
  *
  * Shelley/Allegra/Mary:
- *   bodyHash = blake2b-256(CBOR(txBodies) ∥ CBOR(witnesses) ∥ CBOR(auxData))
+ *   bodyHash = blake2b-256(CBOR(txBodies) || CBOR(witnesses) || CBOR(auxData))
  * Alonzo/Babbage/Conway:
- *   bodyHash = blake2b-256(CBOR(txBodies) ∥ CBOR(witnesses) ∥ CBOR(auxData) ∥ CBOR(invalidTxs))
+ *   bodyHash = blake2b-256(CBOR(txBodies) || CBOR(witnesses) || CBOR(auxData) || CBOR(invalidTxs))
  *
- * Uses Bun.CryptoHasher for blake2b (no CryptoService needed — only hashing).
+ * Uses CryptoService for blake2b (abstracted, testable, platform-independent).
  * Assumes canonical CBOR encoding (per Cardano spec).
  */
 import { Effect, Schema } from "effect";
 import { parseSync, encodeSync, CborKinds } from "cbor-schema";
 import { hex, concat } from "./util";
+import { CryptoService } from "./crypto";
 
 export class BlockValidationError extends Schema.TaggedErrorClass<BlockValidationError>()(
   "BlockValidationError",
@@ -20,11 +21,6 @@ export class BlockValidationError extends Schema.TaggedErrorClass<BlockValidatio
     cause: Schema.Defect,
   },
 ) {}
-
-const bunBlake2b256 = (data: Uint8Array): Uint8Array => {
-  const hasher = new Bun.CryptoHasher("blake2b256");
-  return new Uint8Array(hasher.update(data).digest().buffer);
-};
 
 /**
  * Verify the block body hash matches the header's declared bodyHash.
@@ -35,38 +31,46 @@ const bunBlake2b256 = (data: Uint8Array): Uint8Array => {
 export const verifyBodyHash = (
   blockCbor: Uint8Array,
   declaredBodyHash: Uint8Array,
-): Effect.Effect<void, BlockValidationError> =>
-  Effect.try({
-    try: () => {
-      const top = parseSync(blockCbor);
-      if (top._tag !== CborKinds.Array || top.items.length < 2)
-        throw "Invalid block CBOR: expected [era, blockBody]";
+): Effect.Effect<void, BlockValidationError, CryptoService> =>
+  Effect.gen(function* () {
+    const crypto = yield* CryptoService;
 
-      const eraNum = top.items[0]!;
-      if (eraNum._tag !== CborKinds.UInt || eraNum.num <= 1n)
-        return; // Byron — no body hash to verify
+    const top = parseSync(blockCbor);
+    if (top._tag !== CborKinds.Array || top.items.length < 2)
+      return yield* Effect.fail(new BlockValidationError({
+        assertion: "VerifyBodyHash",
+        cause: "Invalid block CBOR: expected [era, blockBody]",
+      }));
 
-      const blockBody = top.items[1]!;
-      if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 4)
-        throw `Invalid block body: expected ≥4 elements, got ${
+    const eraNum = top.items[0]!;
+    if (eraNum._tag !== CborKinds.UInt || eraNum.num <= 1n)
+      return; // Byron — no body hash to verify
+
+    const blockBody = top.items[1]!;
+    if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 4)
+      return yield* Effect.fail(new BlockValidationError({
+        assertion: "VerifyBodyHash",
+        cause: `Invalid block body: expected >= 4 elements, got ${
           blockBody._tag === CborKinds.Array ? blockBody.items.length : "non-array"
-        }`;
+        }`,
+      }));
 
-      // Body = [header, txBodies, witnesses, auxData, invalidTxs?]
-      const txBodiesBytes = encodeSync(blockBody.items[1]!);
-      const witnessesBytes = encodeSync(blockBody.items[2]!);
-      const auxDataBytes = encodeSync(blockBody.items[3]!);
+    // Body = [header, txBodies, witnesses, auxData, invalidTxs?]
+    const txBodiesBytes = encodeSync(blockBody.items[1]!);
+    const witnessesBytes = encodeSync(blockBody.items[2]!);
+    const auxDataBytes = encodeSync(blockBody.items[3]!);
 
-      // Alonzo+ (era ≥ 4) includes invalidTxs as 5th element
-      const bodyBytes = blockBody.items.length >= 5
-        ? concat(txBodiesBytes, witnessesBytes, auxDataBytes, encodeSync(blockBody.items[4]!))
-        : concat(txBodiesBytes, witnessesBytes, auxDataBytes);
+    // Alonzo+ (era >= 4) includes invalidTxs as 5th element
+    const bodyBytes = blockBody.items.length >= 5
+      ? concat(txBodiesBytes, witnessesBytes, auxDataBytes, encodeSync(blockBody.items[4]!))
+      : concat(txBodiesBytes, witnessesBytes, auxDataBytes);
 
-      const computedHash = bunBlake2b256(bodyBytes);
-      if (hex(computedHash) !== hex(declaredBodyHash))
-        throw `Body hash mismatch: expected ${hex(declaredBodyHash)}, got ${hex(computedHash)}`;
-    },
-    catch: (cause) => new BlockValidationError({ assertion: "VerifyBodyHash", cause }),
+    const computedHash = crypto.blake2b256(bodyBytes);
+    if (hex(computedHash) !== hex(declaredBodyHash))
+      return yield* Effect.fail(new BlockValidationError({
+        assertion: "VerifyBodyHash",
+        cause: `Body hash mismatch: expected ${hex(declaredBodyHash)}, got ${hex(computedHash)}`,
+      }));
   });
 
 /**
@@ -78,7 +82,7 @@ export const validateBlock = (
   blockCbor: Uint8Array,
   declaredBodyHash: Uint8Array,
   maxBlockBodySize = 0,
-): Effect.Effect<void, BlockValidationError> =>
+): Effect.Effect<void, BlockValidationError, CryptoService> =>
   Effect.gen(function* () {
     yield* verifyBodyHash(blockCbor, declaredBodyHash);
 

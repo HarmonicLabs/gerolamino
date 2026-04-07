@@ -152,6 +152,39 @@ lsm_snapshot_save _sessionSp tableSp namePtr = wrap "snapshot_save" $ do
   let sn = LSM.toSnapshotName name
   LSM.saveSnapshot sn (LSM.SnapshotLabel "lsm-ffi") table
 
+foreign export ccall lsm_snapshot_restore
+  :: SessionHandle -> CString -> Ptr TableHandle -> IO CInt
+lsm_snapshot_restore :: SessionHandle -> CString -> Ptr TableHandle -> IO CInt
+lsm_snapshot_restore sessionSp namePtr outPtr = wrap "snapshot_restore" $ do
+  session <- deRefStablePtr sessionSp
+  name <- peekCString namePtr
+  let sn = LSM.toSnapshotName name
+  table <- LSM.openTableFromSnapshot session sn (LSM.SnapshotLabel "lsm-ffi")
+  sp <- newStablePtr table
+  poke outPtr sp
+
+foreign export ccall lsm_snapshot_list
+  :: SessionHandle -> Ptr (Ptr Word8) -> Ptr CSize -> IO CInt
+lsm_snapshot_list :: SessionHandle -> Ptr (Ptr Word8) -> Ptr CSize -> IO CInt
+lsm_snapshot_list sessionSp outBufPtr outLenPtr = do
+  session <- deRefStablePtr sessionSp
+  result <- try $ LSM.listSnapshots session
+  case result of
+    Left (e :: SomeException) -> do
+      hPutStrLn stderr $ "lsm_snapshot_list: " ++ displayException e
+      return (-1)
+    Right names -> do
+      -- Encode as newline-separated snapshot names
+      let nameStrs = map show names
+          joined = BS.intercalate "\n" (map (BS.pack . map (fromIntegral . fromEnum)) nameStrs)
+          len = BS.length joined
+      buf <- mallocBytes len
+      BSU.unsafeUseAsCStringLen joined $ \(srcPtr, srcLen) ->
+        copyBytes buf srcPtr srcLen
+      poke outBufPtr (castPtr buf)
+      poke outLenPtr (fromIntegral len)
+      return 0
+
 -- Helpers ------------------------------------------------------------------
 
 wrap :: String -> IO () -> IO CInt

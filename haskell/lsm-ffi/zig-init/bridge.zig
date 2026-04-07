@@ -21,6 +21,7 @@ extern fn lsm_lookup(table: *anyopaque, key: [*]const u8, key_len: usize, out_bu
 extern fn lsm_delete(table: *anyopaque, key: [*]const u8, key_len: usize) c_int;
 extern fn lsm_range_lookup(table: *anyopaque, lo: [*]const u8, lo_len: usize, hi: [*]const u8, hi_len: usize, out_buf: *?[*]u8, out_len: *usize, out_count: *usize) c_int;
 extern fn lsm_snapshot_save(session: *anyopaque, table: *anyopaque, name: [*:0]const u8) c_int;
+extern fn lsm_snapshot_restore(session: *anyopaque, name: [*:0]const u8, out: *?*anyopaque) c_int;
 
 // Global state — initialized once on library load
 var session: ?*anyopaque = null;
@@ -137,4 +138,66 @@ export fn lsm_bridge_snapshot(name_ptr: [*]const u8, name_len: usize) callconv(s
     @memcpy(name_buf[0..name_len], name_ptr[0..name_len]);
     name_buf[name_len] = 0;
     return lsm_snapshot_save(session.?, table.?, @ptrCast(&name_buf));
+}
+
+/// Initialize from an existing snapshot.
+/// Opens a session at path_ptr and restores a table from the named snapshot.
+/// Replaces the global session/table handles.
+export fn lsm_bridge_init_from_snapshot(path_ptr: [*]const u8, path_len: usize, name_ptr: [*]const u8, name_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
+    // Initialize GHC RTS
+    var argc: c_int = 0;
+    var argv: ?[*][*:0]u8 = null;
+    hs_init(&argc, &argv);
+
+    // Null-terminate the path
+    var path_buf: [4096]u8 = undefined;
+    if (path_len >= path_buf.len) return -1;
+    @memcpy(path_buf[0..path_len], path_ptr[0..path_len]);
+    path_buf[path_len] = 0;
+
+    // Open session
+    var sess: ?*anyopaque = null;
+    const sess_rc = lsm_session_open(@ptrCast(&path_buf), &sess);
+    if (sess_rc != 0) return sess_rc;
+    session = sess;
+
+    // Null-terminate the snapshot name
+    var name_buf: [256]u8 = undefined;
+    if (name_len >= name_buf.len) return -1;
+    @memcpy(name_buf[0..name_len], name_ptr[0..name_len]);
+    name_buf[name_len] = 0;
+
+    // Restore table from snapshot
+    var tbl: ?*anyopaque = null;
+    const tbl_rc = lsm_snapshot_restore(sess.?, @ptrCast(&name_buf), &tbl);
+    if (tbl_rc != 0) return tbl_rc;
+    table = tbl;
+
+    return 0;
+}
+
+/// Open a snapshot on an already-initialized session.
+/// Closes the current table and opens one from the named snapshot.
+export fn lsm_bridge_open_snapshot(name_ptr: [*]const u8, name_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
+    if (session == null) return -1;
+
+    // Close current table if present
+    if (table) |tbl| {
+        _ = lsm_table_close(tbl);
+        table = null;
+    }
+
+    // Null-terminate name
+    var name_buf: [256]u8 = undefined;
+    if (name_len >= name_buf.len) return -1;
+    @memcpy(name_buf[0..name_len], name_ptr[0..name_len]);
+    name_buf[name_len] = 0;
+
+    // Restore from snapshot
+    var tbl: ?*anyopaque = null;
+    const rc = lsm_snapshot_restore(session.?, @ptrCast(&name_buf), &tbl);
+    if (rc != 0) return rc;
+    table = tbl;
+
+    return 0;
 }

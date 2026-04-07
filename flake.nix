@@ -125,6 +125,12 @@
             ANCILLARY_VERIFICATION_KEY = builtins.readFile
               "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
           };
+
+          # Ouroboros consensus snapshot-converter (Mem/LMDB/LSM conversions)
+          snapshot-converter = inputs.ouroboros-consensus.packages.${system}.snapshot-converter;
+
+          # Preprod Cardano config + genesis files (for snapshot-converter)
+          preprodConfigDir = "${inputs.cardano-world}/docs/environments/preprod";
         in
         {
           flake-root.projectRootFile = "flake.nix";
@@ -153,6 +159,7 @@
                 pkgs.wasm-pack
                 pkgs.binaryen
                 mithril-client
+                snapshot-converter
                 config.flake-root.package
               ];
 
@@ -200,13 +207,14 @@
               # --- Tasks ---
 
               tasks."mithril:download-snapshot" = {
-                description = "Download Mithril preprod snapshot and convert to LMDB";
-                status = ''[ -d "$DEVENV_STATE/snapshot/ledger" ]'';
+                description = "Download Mithril preprod snapshot and convert to V2LSM";
+                status = ''[ -d "$DEVENV_STATE/snapshot/lsm" ]'';
                 before = [ "devenv:enterShell" ];
                 showOutput = true;
                 env = mithrilEnv // {
                   PATH = pkgs.lib.makeBinPath [
                     mithril-client
+                    snapshot-converter
                     pkgs.coreutils
                     pkgs.jq
                     pkgs.findutils
@@ -224,17 +232,52 @@
                   SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
                   [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
 
-                  echo "==> Converting to LMDB via Mithril snapshot-converter..."
-                  mithril-client tools utxo-hd snapshot-converter \
-                    --db-directory "$SNAP_DIR" \
-                    --cardano-node-version latest \
-                    --utxo-hd-flavor LMDB \
-                    --commit
+                  # Find the ledger slot directory (e.g., ledger/119747816)
+                  SLOT_DIR="$(find "$SNAP_DIR/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
+                  [ -z "$SLOT_DIR" ] && echo "ERROR: No ledger slot directory found" >&2 && exit 1
+                  SLOT="$(basename "$SLOT_DIR")"
+
+                  echo "==> Converting Mem → V2LSM for slot $SLOT..."
+                  snapshot-converter \
+                    --input-mem "$SLOT_DIR" \
+                    --output-lsm-snapshot "$SNAP_DIR/lsm-snapshot/$SLOT" \
+                    --output-lsm-database "$SNAP_DIR/lsm" \
+                    --config "${preprodConfigDir}/config.json"
 
                   mkdir -p "$DEST"
                   rm -rf "''${DEST:?}"/*
                   cp -r "$SNAP_DIR"/* "$DEST/"
-                  echo "==> LMDB snapshot installed at $DEST"
+                  echo "==> V2LSM snapshot installed at $DEST/lsm"
+                '';
+              };
+
+              tasks."mithril:convert-to-lsm" = {
+                description = "Convert existing Mem snapshot to V2LSM (no download)";
+                status = ''[ -d "$DEVENV_STATE/snapshot/lsm" ]'';
+                showOutput = true;
+                env = {
+                  PATH = pkgs.lib.makeBinPath [
+                    snapshot-converter
+                    pkgs.coreutils
+                    pkgs.findutils
+                  ];
+                };
+                exec = ''
+                  DEST="$DEVENV_STATE/snapshot"
+                  SLOT_DIR="$(find "$DEST/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
+                  [ -z "$SLOT_DIR" ] && echo "ERROR: No ledger slot directory found in $DEST/ledger" >&2 && exit 1
+                  SLOT="$(basename "$SLOT_DIR")"
+
+                  echo "==> Converting Mem → V2LSM for slot $SLOT..."
+                  rm -rf "$DEST/lsm" "$DEST/lsm-snapshot"
+                  mkdir -p "$DEST/lsm-snapshot/$SLOT" "$DEST/lsm"
+                  snapshot-converter \
+                    --input-mem "$SLOT_DIR" \
+                    --output-lsm-snapshot "$DEST/lsm-snapshot/$SLOT" \
+                    --output-lsm-database "$DEST/lsm" \
+                    --config "${preprodConfigDir}/config.json"
+
+                  echo "==> V2LSM snapshot at $DEST/lsm"
                 '';
               };
 

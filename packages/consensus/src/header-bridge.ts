@@ -5,13 +5,14 @@
  * The consensus package needs a flattened BlockHeader interface for validation.
  * This module bridges the two.
  *
- * Also computes the header hash (blake2b-256 of CBOR-encoded header body)
- * from raw block CBOR bytes.
+ * Two entry points:
+ *   - `decodeAndBridge`: for full block CBOR (from BlockFetch or ImmutableDB)
+ *   - `decodeWrappedHeader`: for N2N ChainSync wrapped headers
  */
 import { Config, Effect } from "effect";
 import { parseSync, encodeSync, CborKinds } from "cbor-schema";
 import type { BlockHeader as LedgerBlockHeader } from "ledger/lib/block/block";
-import { decodeMultiEraBlock } from "ledger/lib/block/block";
+import { decodeMultiEraBlock, decodeBlockHeader } from "ledger/lib/block/block";
 import type { BlockHeader as ConsensusBlockHeader } from "./validate-header";
 
 /** Slots per KES period — configurable via CARDANO_SLOTS_PER_KES_PERIOD, defaults to 129600. */
@@ -44,6 +45,23 @@ export const computeHeaderHash = (
     throw new Error("Invalid header: expected [headerBody, kesSig]");
 
   const headerBody = header.items[0]!;
+  return crypto.blake2b256(encodeSync(headerBody));
+};
+
+/**
+ * Compute header hash from raw header CBOR bytes (as from ChainSync).
+ * Header structure: [headerBody, kesSignature]
+ * Hash = blake2b-256(CBOR(headerBody))
+ */
+export const computeHeaderHashFromHeader = (
+  headerCbor: Uint8Array,
+  crypto: { blake2b256: (data: Uint8Array) => Uint8Array },
+): Uint8Array => {
+  const parsed = parseSync(headerCbor);
+  if (parsed._tag !== CborKinds.Array || parsed.items.length < 2)
+    throw new Error("Invalid header CBOR: expected [headerBody, kesSig]");
+
+  const headerBody = parsed.items[0]!;
   return crypto.blake2b256(encodeSync(headerBody));
 };
 
@@ -95,5 +113,69 @@ export const decodeAndBridge = (
       header: bridgeHeader(block.header, headerHash, slotsPerKesPeriod),
       era: block.era,
       txCount: block.txBodies.length,
+    };
+  });
+
+/**
+ * Decode a N2N ChainSync wrapped header and produce a consensus BlockHeader.
+ *
+ * ChainSync sends headers as raw CBOR bytes (after Tag(24) unwrap).
+ * Format varies by era:
+ *   - Byron: [era_tag, byron_header_data] — skip
+ *   - Shelley+: [headerBody, kesSig] — decode via ledger
+ *
+ * Returns undefined for Byron headers.
+ */
+export const decodeWrappedHeader = (
+  headerBytes: Uint8Array,
+) =>
+  Effect.gen(function* () {
+    const slotsPerKesPeriod = yield* SlotsPerKesPeriod;
+    const parsed = parseSync(headerBytes);
+
+    if (parsed._tag !== CborKinds.Array || parsed.items.length < 2)
+      return undefined;
+
+    // Try to decode as Shelley+ header [headerBody, kesSig]
+    // If the first element is a small uint (0-7), this is [era, wrappedData] — Byron format
+    const first = parsed.items[0]!;
+    if (first._tag === CborKinds.UInt && first.num <= 7n) {
+      // This is [era_tag, data] — could be a block wrapper or Byron
+      // era 0-1 = Byron, skip
+      if (first.num <= 1n) return undefined;
+
+      // era 2+ = Shelley+: the inner data is the block body [header, txBodies, ...]
+      // Extract the header from the inner block body
+      const blockBody = parsed.items[1]!;
+      if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 1)
+        return undefined;
+
+      const headerCbor = blockBody.items[0]!;
+      const ledgerHeader = yield* decodeBlockHeader(headerCbor);
+
+      // Compute header hash from the header body
+      if (headerCbor._tag !== CborKinds.Array || headerCbor.items.length < 1)
+        return undefined;
+      const headerBodyCbor = encodeSync(headerCbor.items[0]!);
+      const hasher = new Bun.CryptoHasher("blake2b256");
+      hasher.update(headerBodyCbor);
+      const headerHash = new Uint8Array(hasher.digest());
+
+      return {
+        header: bridgeHeader(ledgerHeader, headerHash, slotsPerKesPeriod),
+        era: Number(first.num),
+      };
+    }
+
+    // Try as direct [headerBody, kesSig] (no era wrapper)
+    const ledgerHeader = yield* decodeBlockHeader(parsed);
+    const headerBodyCbor = encodeSync(first);
+    const hasher = new Bun.CryptoHasher("blake2b256");
+    hasher.update(headerBodyCbor);
+    const headerHash = new Uint8Array(hasher.digest());
+
+    return {
+      header: bridgeHeader(ledgerHeader, headerHash, slotsPerKesPeriod),
+      era: undefined,
     };
   });

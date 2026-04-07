@@ -80,7 +80,7 @@ export const BlockHeader = Schema.Struct({
 });
 export type BlockHeader = Schema.Schema.Type<typeof BlockHeader>;
 
-function decodeBlockHeader(cbor: CborSchemaType): Effect.Effect<BlockHeader, SchemaIssue.Issue> {
+export function decodeBlockHeader(cbor: CborSchemaType): Effect.Effect<BlockHeader, SchemaIssue.Issue> {
   return Effect.gen(function* () {
     // Header: [headerBody, kesSignature]
     const headerItems = yield* expectArray(cbor, "Header", 2);

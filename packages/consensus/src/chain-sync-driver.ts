@@ -16,9 +16,8 @@ import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { ChainTip, gsmState } from "./chain-selection";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
-import { decodeAndBridge } from "./header-bridge";
+import { decodeWrappedHeader } from "./header-bridge";
 import { ChainDB } from "storage/services/chain-db";
-import { verifyBodyHash } from "./validate-block";
 import type { BlockHeader, LedgerView } from "./validate-header";
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
@@ -68,14 +67,7 @@ export const handleRollForward = (
     const slotClock = yield* SlotClock;
     const chainDb = yield* ChainDB;
 
-    // Decode CBOR block bytes via ledger → consensus header bridge.
-    // If decode fails (Byron, invalid CBOR), treat as opaque block — store and skip validation.
-    const decoded = yield* Effect.orElseSucceed(
-      decodeAndBridge(headerBytes, serverTip.hash),
-      () => undefined,
-    );
-
-    // Update peer tip
+    // Update peer tip (server's chain tip, not this block)
     yield* peerManager.updatePeerTip(
       peerId,
       new ChainTip({
@@ -85,7 +77,14 @@ export const handleRollForward = (
       }),
     );
 
-    // Byron blocks skip consensus validation — just store and advance
+    // Decode N2N ChainSync wrapped header via ledger → consensus bridge.
+    // Byron headers (era 0-1) return undefined — skip validation.
+    const decoded = yield* Effect.orElseSucceed(
+      decodeWrappedHeader(headerBytes),
+      () => undefined,
+    );
+
+    // Byron/unparseable headers — store raw but can't validate or evolve nonces
     if (decoded === undefined) {
       yield* chainDb.addBlock({
         slot: serverTip.slot,
@@ -103,30 +102,29 @@ export const handleRollForward = (
       } satisfies VolatileState;
     }
 
-    // Validate header + body hash integrity (parallel)
-    yield* Effect.all([
-      engine.validateHeader(decoded.header, ledgerView),
-      verifyBodyHash(headerBytes, decoded.header.bodyHash),
-    ]);
+    const header = decoded.header;
 
-    // Store block in ChainDB
+    // Validate header (no body hash check — ChainSync only sends headers)
+    yield* engine.validateHeader(header, ledgerView);
+
+    // Store block metadata + header bytes in ChainDB
     yield* chainDb.addBlock({
-      slot: decoded.header.slot,
-      hash: decoded.header.hash,
-      prevHash: decoded.header.prevHash,
-      blockNo: decoded.header.blockNo,
+      slot: header.slot,
+      hash: header.hash,
+      prevHash: header.prevHash,
+      blockNo: header.blockNo,
       blockSizeBytes: headerBytes.byteLength,
       blockCbor: headerBytes,
     });
 
     // Epoch transition — derive new epoch nonce at boundary
-    const blockEpoch = slotClock.slotToEpoch(serverTip.slot);
+    const blockEpoch = slotClock.slotToEpoch(header.slot);
     let nonces = state.nonces;
 
     if (blockEpoch > state.nonces.epoch) {
       const newEpochNonce = deriveEpochNonce(
         state.nonces.candidate,
-        decoded.header.prevHash,
+        header.prevHash,
       );
       nonces = new Nonces({
         active: newEpochNonce,
@@ -137,9 +135,9 @@ export const handleRollForward = (
     }
 
     // Evolve nonces using VRF output from decoded header
-    const newEvolving = evolveNonce(nonces.evolving, decoded.header.vrfOutput);
+    const newEvolving = evolveNonce(nonces.evolving, header.vrfOutput);
 
-    const slotInEpoch = slotClock.slotWithinEpoch(serverTip.slot);
+    const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
     const pastCollection = isPastStabilizationWindow(
       slotInEpoch,
       slotClock.config.securityParam,
@@ -154,7 +152,7 @@ export const handleRollForward = (
     });
 
     return {
-      tip: { slot: serverTip.slot, hash: serverTip.hash },
+      tip: { slot: header.slot, hash: header.hash },
       nonces: newNonces,
       blocksProcessed: state.blocksProcessed + 1,
       caughtUp: false,

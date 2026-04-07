@@ -5,7 +5,9 @@ import { Nonces } from "../nonce";
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
 import { ChainDB } from "storage/services/chain-db";
-import { hex } from "../util";
+import { hex, concat } from "../util";
+import { encodeSync, CborKinds } from "cbor-schema";
+import type { CborSchemaType } from "cbor-schema";
 import type { BlockHeader, LedgerView } from "../validate-header";
 import type { StoredBlock } from "storage/types/StoredBlock";
 
@@ -20,13 +22,47 @@ const makeVk = (seed: number): Uint8Array => {
   return vk;
 };
 
+// Shared empty body components for constructing valid block CBOR
+const emptyArray: CborSchemaType = { _tag: CborKinds.Array, items: [] };
+const emptyMap: CborSchemaType = { _tag: CborKinds.Map, entries: [] };
+
+/** Compute body hash from empty block body (matches makeBlockCbor output). */
+const emptyBodyHash = (() => {
+  const bodyBytes = concat(
+    encodeSync(emptyArray), // txBodies
+    encodeSync(emptyArray), // witnesses
+    encodeSync(emptyMap),   // auxData
+    encodeSync(emptyArray), // invalidTxs
+  );
+  const hasher = new Bun.CryptoHasher("blake2b256");
+  return new Uint8Array(hasher.update(bodyBytes).digest().buffer);
+})();
+
+/** Build valid Shelley+ block CBOR with empty body (era 6 = Conway). */
+const makeBlockCbor = (): Uint8Array => {
+  const header: CborSchemaType = {
+    _tag: CborKinds.Array,
+    items: [{ _tag: CborKinds.UInt, num: 0n }],
+  };
+  const block: CborSchemaType = {
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: 6n },
+      { _tag: CborKinds.Array, items: [header, emptyArray, emptyArray, emptyMap, emptyArray] },
+    ],
+  };
+  return encodeSync(block);
+};
+
+const validBlockCbor = makeBlockCbor();
+
 const makeBlock = (slot: bigint, blockNo: bigint): StoredBlock => ({
   slot,
   blockNo,
   hash: new Uint8Array(32).fill(Number(slot & 0xffn)),
   prevHash: new Uint8Array(32),
-  blockSizeBytes: 256,
-  blockCbor: new Uint8Array(256),
+  blockSizeBytes: validBlockCbor.byteLength,
+  blockCbor: validBlockCbor,
 });
 
 const makeHeader = (slot: bigint, blockNo: bigint): BlockHeader => {
@@ -40,7 +76,7 @@ const makeHeader = (slot: bigint, blockNo: bigint): BlockHeader => {
     kesSig: new Uint8Array(448), kesPeriod: 10,
     opcertSig: new Uint8Array(64), opcertVkHot: new Uint8Array(32),
     opcertSeqNo: 5, opcertKesPeriod: 5,
-    bodyHash: new Uint8Array(32),
+    bodyHash: emptyBodyHash,
   };
 };
 
@@ -116,10 +152,11 @@ describe("Sync pipeline", () => {
       epoch: 0n,
     });
 
+    // Slot 50 stays within epoch 0 (epochLength=100)
     const result = await Effect.runPromise(
       processBlock(
-        makeBlock(100n, 50n),
-        makeHeader(100n, 50n),
+        makeBlock(50n, 25n),
+        makeHeader(50n, 25n),
         makeLedgerView(),
         nonces,
       ).pipe(Effect.provide(testLayers)),
@@ -145,6 +182,55 @@ describe("Sync pipeline", () => {
 
     expect(state.blocksProcessed).toBe(10);
     expect(state.tip?.slot).toBe(109n);
+  });
+
+  it("epoch transition derives new nonce at epoch boundary", async () => {
+    const nonces = new Nonces({
+      active: new Uint8Array(32).fill(0xaa),
+      evolving: new Uint8Array(32).fill(0xbb),
+      candidate: new Uint8Array(32).fill(0xcc),
+      epoch: 0n,
+    });
+
+    // Slot 100 is in epoch 1 (epochLength=100), so epoch transition triggers
+    const result = await Effect.runPromise(
+      processBlock(
+        makeBlock(100n, 50n),
+        makeHeader(100n, 50n),
+        makeLedgerView(),
+        nonces,
+      ).pipe(Effect.provide(testLayers)),
+    );
+
+    // Epoch should advance
+    expect(result.epoch).toBe(1n);
+    // Active nonce should change (derived from candidate + prevHash)
+    expect(hex(result.active)).not.toBe(hex(nonces.active));
+    // Active should not be the old candidate verbatim — it's blake2b(candidate ∥ prevHash)
+    expect(hex(result.active)).not.toBe(hex(nonces.candidate));
+  });
+
+  it("epoch transition does not fire within same epoch", async () => {
+    const nonces = new Nonces({
+      active: new Uint8Array(32).fill(0xaa),
+      evolving: new Uint8Array(32).fill(0xbb),
+      candidate: new Uint8Array(32).fill(0xcc),
+      epoch: 0n,
+    });
+
+    // Slot 50 is still epoch 0 (epochLength=100)
+    const result = await Effect.runPromise(
+      processBlock(
+        makeBlock(50n, 25n),
+        makeHeader(50n, 25n),
+        makeLedgerView(),
+        nonces,
+      ).pipe(Effect.provide(testLayers)),
+    );
+
+    // Active nonce unchanged — no epoch transition
+    expect(hex(result.active)).toBe(hex(nonces.active));
+    expect(result.epoch).toBe(0n);
   });
 
   it("nonces evolve differently for each block", async () => {

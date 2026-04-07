@@ -15,9 +15,10 @@ import { SlotClock } from "./clock";
 import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { ChainTip, gsmState } from "./chain-selection";
-import { Nonces, evolveNonce, isPastStabilizationWindow } from "./nonce";
+import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
 import { decodeAndBridge } from "./header-bridge";
 import { ChainDB } from "storage/services/chain-db";
+import { verifyBodyHash } from "./validate-block";
 import type { BlockHeader, LedgerView } from "./validate-header";
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
@@ -102,8 +103,11 @@ export const handleRollForward = (
       } satisfies VolatileState;
     }
 
-    // Validate the decoded Shelley+ header
-    yield* engine.validateHeader(decoded.header, ledgerView);
+    // Validate header + body hash integrity (parallel)
+    yield* Effect.all([
+      engine.validateHeader(decoded.header, ledgerView),
+      verifyBodyHash(headerBytes, decoded.header.bodyHash),
+    ]);
 
     // Store block in ChainDB
     yield* chainDb.addBlock({
@@ -115,8 +119,25 @@ export const handleRollForward = (
       blockCbor: headerBytes,
     });
 
+    // Epoch transition — derive new epoch nonce at boundary
+    const blockEpoch = slotClock.slotToEpoch(serverTip.slot);
+    let nonces = state.nonces;
+
+    if (blockEpoch > state.nonces.epoch) {
+      const newEpochNonce = deriveEpochNonce(
+        state.nonces.candidate,
+        decoded.header.prevHash,
+      );
+      nonces = new Nonces({
+        active: newEpochNonce,
+        evolving: newEpochNonce,
+        candidate: newEpochNonce,
+        epoch: blockEpoch,
+      });
+    }
+
     // Evolve nonces using VRF output from decoded header
-    const newEvolving = evolveNonce(state.nonces.evolving, decoded.header.vrfOutput);
+    const newEvolving = evolveNonce(nonces.evolving, decoded.header.vrfOutput);
 
     const slotInEpoch = slotClock.slotWithinEpoch(serverTip.slot);
     const pastCollection = isPastStabilizationWindow(
@@ -126,10 +147,10 @@ export const handleRollForward = (
     );
 
     const newNonces = new Nonces({
-      active: state.nonces.active,
+      active: nonces.active,
       evolving: newEvolving,
-      candidate: pastCollection ? state.nonces.candidate : newEvolving,
-      epoch: slotClock.slotToEpoch(serverTip.slot),
+      candidate: pastCollection ? nonces.candidate : newEvolving,
+      epoch: blockEpoch,
     });
 
     return {

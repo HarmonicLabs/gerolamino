@@ -15,9 +15,10 @@ import { Effect, Stream, Schema } from "effect";
 import type { StoredBlock, RealPoint } from "storage/types/StoredBlock";
 import { ChainDB } from "storage/services/chain-db";
 import { ConsensusEngine } from "./consensus-engine";
-import { Nonces, evolveNonce, isPastStabilizationWindow } from "./nonce";
+import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
 import { gsmState } from "./chain-selection";
 import { SlotClock } from "./clock";
+import { verifyBodyHash } from "./validate-block";
 import type { BlockHeader, LedgerView } from "./validate-header";
 import type { GsmState } from "./chain-selection";
 
@@ -31,6 +32,8 @@ export interface SyncState {
   readonly nonces: Nonces;
   readonly gsmState: GsmState;
   readonly blocksProcessed: number;
+  /** Volatile chain length since last immutability promotion. */
+  readonly volatileLength: number;
 }
 
 /**
@@ -48,16 +51,34 @@ export const processBlock = (
     const chainDb = yield* ChainDB;
     const slotClock = yield* SlotClock;
 
-    // 1. Validate block header
-    yield* engine.validateHeader(header, ledgerView);
+    // 1. Validate block header + body hash integrity (parallel)
+    yield* Effect.all([
+      engine.validateHeader(header, ledgerView),
+      verifyBodyHash(block.blockCbor, header.bodyHash),
+    ]);
 
     // 2. Store block in ChainDB (volatile)
     yield* chainDb.addBlock(block);
 
-    // 3. Evolve nonces using VRF nonce output
-    const newEvolving = evolveNonce(currentNonces.evolving, header.vrfOutput);
+    // 3. Epoch transition — derive new epoch nonce at boundary
+    const blockEpoch = slotClock.slotToEpoch(header.slot);
+    let nonces = currentNonces;
 
-    // 4. Check if past candidate collection period (16k/f)
+    if (blockEpoch > currentNonces.epoch) {
+      // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
+      const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash);
+      nonces = new Nonces({
+        active: newEpochNonce,
+        evolving: newEpochNonce,
+        candidate: newEpochNonce,
+        epoch: blockEpoch,
+      });
+    }
+
+    // 4. Evolve nonces using VRF nonce output
+    const newEvolving = evolveNonce(nonces.evolving, header.vrfOutput);
+
+    // 5. Check if past candidate collection period (16k/f)
     const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
     const pastCollection = isPastStabilizationWindow(
       slotInEpoch,
@@ -67,20 +88,17 @@ export const processBlock = (
 
     // Candidate nonce freezes at 16k/f — only update if still collecting
     const newCandidate = pastCollection
-      ? currentNonces.candidate
+      ? nonces.candidate
       : newEvolving;
 
     return new Nonces({
-      active: currentNonces.active,
+      active: nonces.active,
       evolving: newEvolving,
       candidate: newCandidate,
-      epoch: currentNonces.epoch,
+      epoch: blockEpoch,
     });
   });
 
-/**
- * Get the current sync state from storage + clock.
- */
 /**
  * Load persisted nonces from the latest ledger snapshot, or return genesis nonces.
  *
@@ -125,28 +143,63 @@ export const getSyncState = Effect.gen(function* () {
     nonces,
     gsmState: gsm,
     blocksProcessed: 0,
+    volatileLength: 0,
   } satisfies SyncState;
 });
 
 /**
+ * Promote volatile blocks to immutable when the chain grows beyond k.
+ * Returns the new volatile length after promotion + GC.
+ */
+const maybePromote = (
+  k: number,
+  volatileLength: number,
+  immutableTip: RealPoint | undefined,
+) =>
+  Effect.gen(function* () {
+    if (volatileLength <= k) return volatileLength;
+
+    const chainDb = yield* ChainDB;
+
+    // Promote blocks up to immutableTip
+    if (immutableTip) {
+      yield* chainDb.promoteToImmutable(immutableTip);
+      yield* chainDb.garbageCollect(immutableTip.slot);
+    }
+
+    // After promotion, volatile length resets to ~k
+    return k;
+  });
+
+/**
  * Process a stream of blocks through the consensus pipeline.
+ * Promotes volatile blocks to immutable every k blocks.
  */
 export const syncFromStream = (
   blocks: Stream.Stream<{ block: StoredBlock; header: BlockHeader; ledgerView: LedgerView }>,
 ) =>
   Effect.gen(function* () {
     const slotClock = yield* SlotClock;
+    const chainDb = yield* ChainDB;
+    const k = slotClock.config.securityParam;
     let state = yield* getSyncState;
 
     yield* Stream.runForEach(blocks, ({ block, header, ledgerView }) =>
       Effect.gen(function* () {
         const newNonces = yield* processBlock(block, header, ledgerView, state.nonces);
         const wallclockSlot = yield* slotClock.currentSlot;
+        const newVolatileLength = state.volatileLength + 1;
+
+        // Promote to immutable when volatile chain exceeds k
+        const immutableTip = yield* chainDb.getImmutableTip;
+        const adjustedVolatile = yield* maybePromote(k, newVolatileLength, immutableTip);
+
         state = {
           ...state,
           tip: { slot: block.slot, hash: block.hash },
           nonces: newNonces,
           blocksProcessed: state.blocksProcessed + 1,
+          volatileLength: adjustedVolatile,
           gsmState: gsmState(block.slot, wallclockSlot, slotClock.stabilityWindow),
         };
         if (state.blocksProcessed % 10000 === 0) {

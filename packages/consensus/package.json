@@ -10,8 +10,8 @@
     "storage": "workspace:*",
     "ledger": "workspace:*",
     "cbor-schema": "workspace:*",
-    "wasm-utils": "workspace:*",
-    "xstate": "^5.30.0"
+    "miniprotocols": "workspace:*",
+    "wasm-utils": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.3.11",

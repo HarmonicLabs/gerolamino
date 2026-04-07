@@ -61,7 +61,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
             hash: r.hash,
             prevHash: r.prevHash ?? undefined,
             blockNo: BigInt(r.blockNo),
-            blockSizeBytes: "blockSizeBytes" in r ? r.blockSizeBytes : (r as any).size ?? 0,
+            blockSizeBytes: "blockSizeBytes" in r ? r.blockSizeBytes : "size" in r ? r.size : 0,
             blockCbor,
           } satisfies StoredBlock;
         });

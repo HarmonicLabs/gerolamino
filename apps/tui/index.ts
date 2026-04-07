@@ -11,11 +11,13 @@
  *     → ChainDBLive (consumes BlobStore + SqliteDrizzle) → ChainDB
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Config, Effect, Layer, Stream } from "effect";
+import * as BunSocket from "@effect/platform-bun/BunSocket";
+import { Config, Effect, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import path from "node:path";
 import {
   getNodeStatus,
+  monitorLoop,
   ConsensusEngineWithWasmCrypto,
   SlotClock,
   SlotClockLive,
@@ -23,9 +25,12 @@ import {
   PREPROD_CONFIG,
   PeerManager,
   PeerManagerLive,
+  connectToRelay,
+  PREPROD_MAGIC,
+  MAINNET_MAGIC,
 } from "consensus";
+import type { LedgerView } from "consensus";
 import {
-  ChainDB,
   ChainDBLive,
   SqliteDrizzle,
   layerBunSqlClient,
@@ -45,11 +50,26 @@ const start = Command.make(
       Flag.withDescription("LSM snapshot name to restore"),
       Flag.withDefault("latest"),
     ),
+    relayHost: Flag.string("relay-host").pipe(
+      Flag.withDescription("Upstream relay host"),
+      Flag.withFallbackConfig(Config.string("RELAY_HOST")),
+      Flag.withDefault("preprod-node.play.dev.cardano.org"),
+    ),
+    relayPort: Flag.integer("relay-port").pipe(
+      Flag.withDescription("Upstream relay port"),
+      Flag.withFallbackConfig(Config.integer("RELAY_PORT")),
+      Flag.withDefault(3001),
+    ),
+    network: Flag.string("network").pipe(
+      Flag.withDescription("Cardano network (preprod|mainnet)"),
+      Flag.withDefault("preprod"),
+    ),
   },
   (config) =>
     Effect.gen(function* () {
       yield* Effect.log("Gerolamino TUI node starting...");
       yield* Effect.log(`Snapshot: ${config.snapshotPath}`);
+      yield* Effect.log(`Relay: ${config.relayHost}:${config.relayPort} (${config.network})`);
 
       // Run migrations via SqlClient before using ChainDB
       yield* runMigrations;
@@ -60,10 +80,37 @@ const start = Command.make(
       yield* Effect.log(`Epoch: ${status.epochNumber}`);
       yield* Effect.log(`Sync: ${status.syncPercent}%`);
       yield* Effect.log(`GSM: ${status.gsmState}`);
-      yield* Effect.log(`Peers: ${status.peerCount}`);
 
-      yield* Effect.log("Node initialized. Connect upstream peers to begin sync.");
-    }),
+      // Stub LedgerView — in production, loaded from snapshot
+      const ledgerView: LedgerView = {
+        epochNonce: new Uint8Array(32),
+        poolVrfKeys: new Map(),
+        poolStake: new Map(),
+        totalStake: 0n,
+        activeSlotsCoeff: 0.05,
+        maxKesEvolutions: 62,
+      };
+
+      const networkMagic = config.network === "mainnet" ? MAINNET_MAGIC : PREPROD_MAGIC;
+      const peerId = `${config.relayHost}:${config.relayPort}`;
+
+      // Connect to upstream relay + run monitor in parallel
+      yield* Effect.all(
+        [
+          connectToRelay(peerId, networkMagic, ledgerView).pipe(
+            Effect.provide(
+              BunSocket.layerNet({ host: config.relayHost, port: config.relayPort }),
+            ),
+            Effect.scoped,
+          ),
+          monitorLoop,
+        ],
+        { concurrency: "unbounded" },
+      );
+    }).pipe(
+      // Storage layers depend on CLI config — provide inside command handler
+      Effect.provide(makeStorageLayers(config.snapshotPath, config.snapshotName)),
+    ),
 ).pipe(
   Command.withDescription("Start the Gerolamino data node"),
 );
@@ -75,15 +122,6 @@ const app = Command.make("gerolamino").pipe(
 
 /**
  * Build storage layers from snapshot path using SqlClient↔Drizzle proxy pattern.
- *
- * Composition:
- *   layerBunSqlClient → SqlClient
- *     → SqliteDrizzle.layerProxy → SqliteDrizzle
- *   layerLsmFromSnapshot → BlobStore
- *     → ChainDBLive → ChainDB
- *
- * SqlClient is also exposed for runMigrations in the startup Effect.
- * Effect's layer memoization ensures a single Database connection is shared.
  */
 const makeStorageLayers = (snapshotPath: string, snapshotName: string) => {
   const lsmDir = path.join(snapshotPath, "lsm");
@@ -97,8 +135,6 @@ const makeStorageLayers = (snapshotPath: string, snapshotName: string) => {
     Layer.provide(Layer.merge(blobStoreLayer, drizzleLayer)),
   );
 
-  // Merge ChainDB + SqlClient — SqlClient needed for runMigrations in startup.
-  // Layer memoization shares the single bun:sqlite connection.
   return Layer.merge(chainDbLayer, sqlClientLayer);
 };
 
@@ -110,35 +146,16 @@ const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),
 );
 
-// Stub ChainDB + SqlClient until V2LSM snapshot data is provided.
-// Once V2LSM is ready, replace with: makeStorageLayers(snapshotPath, snapshotName)
-const stubChainDb = Layer.succeed(ChainDB, {
-  getBlock: () => Effect.succeed(undefined),
-  getBlockAt: () => Effect.succeed(undefined),
-  getTip: Effect.succeed(undefined),
-  getImmutableTip: Effect.succeed(undefined),
-  addBlock: () => Effect.void,
-  rollback: () => Effect.void,
-  getSuccessors: () => Effect.succeed([]),
-  streamFrom: () => Stream.empty,
-  promoteToImmutable: () => Effect.void,
-  garbageCollect: () => Effect.void,
-  writeLedgerSnapshot: () => Effect.void,
-  readLatestLedgerSnapshot: Effect.succeed(undefined),
-});
-const stubSqlClient = layerBunSqlClient({ filename: ":memory:" });
-const stubStorageLayers = Layer.merge(stubChainDb, stubSqlClient);
-
-const nodeLayers = Layer.mergeAll(
+// Consensus + clock + peers — storage is provided per-command from CLI config.
+const consensusLayers = Layer.mergeAll(
   ConsensusEngineWithWasmCrypto,
   slotClockLayer,
   peerManagerLayer,
-  stubStorageLayers,
 );
 
 app.pipe(
   Command.run({ version: "0.1.0" }),
-  Effect.provide(nodeLayers),
+  Effect.provide(consensusLayers),
   Effect.provide(BunServices.layer),
   BunRuntime.runMain,
 );

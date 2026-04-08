@@ -3,9 +3,9 @@
  *
  * All five can run in parallel (no dependencies between them):
  *   1. AssertKnownLeaderVrf — VRF key matches registered pool
- *   2. AssertVrfProof — VRF proof valid (stub: needs vrf_verify export)
- *   3. AssertLeaderStake — stake threshold check (stub: needs check_vrf_leader export)
- *   4. AssertKesSignature — KES Sum6 verify + period bounds
+ *   2. AssertVrfProof — VRF proof valid (ECVRF-ED25519-SHA512-Elligator2)
+ *   3. AssertLeaderStake — stake threshold check (via pallas-math)
+ *   4. AssertKesSignature — KES Sum6 verify over CBOR(headerBody) + period bounds
  *   5. AssertOperationalCertificate — opcert ed25519 verify + sequence check
  */
 import { Effect, Schema } from "effect";
@@ -20,32 +20,47 @@ export class HeaderValidationError extends Schema.TaggedErrorClass<HeaderValidat
   },
 ) {}
 
-export interface BlockHeader {
-  readonly slot: bigint;
-  readonly blockNo: bigint;
-  readonly hash: Uint8Array;
-  readonly prevHash: Uint8Array;
-  readonly issuerVk: Uint8Array;
-  readonly vrfVk: Uint8Array;
-  readonly vrfProof: Uint8Array;
-  readonly vrfOutput: Uint8Array;
-  readonly kesSig: Uint8Array;
-  readonly kesPeriod: number;
-  readonly opcertSig: Uint8Array;
-  readonly opcertVkHot: Uint8Array;
-  readonly opcertSeqNo: number;
-  readonly opcertKesPeriod: number;
-  readonly bodyHash: Uint8Array;
-}
+// ---------------------------------------------------------------------------
+// BlockHeader — consensus-layer view of a Shelley+ block header
+// ---------------------------------------------------------------------------
 
-export interface LedgerView {
-  readonly epochNonce: Uint8Array;
-  readonly poolVrfKeys: ReadonlyMap<string, Uint8Array>;
-  readonly poolStake: ReadonlyMap<string, bigint>;
-  readonly totalStake: bigint;
-  readonly activeSlotsCoeff: number;
-  readonly maxKesEvolutions: number;
-}
+export const BlockHeader = Schema.Struct({
+  slot: Schema.BigInt,
+  blockNo: Schema.BigInt,
+  hash: Schema.Uint8Array,
+  prevHash: Schema.Uint8Array,
+  issuerVk: Schema.Uint8Array,
+  vrfVk: Schema.Uint8Array,
+  vrfProof: Schema.Uint8Array,
+  /** Leader-tagged VRF output (Babbage+: blake2b(0x4c ∥ proofHash), pre-Babbage: leaderVrf.output). */
+  vrfOutput: Schema.Uint8Array,
+  /** Nonce-tagged VRF output for nonce evolution (Babbage+: blake2b(0x4e ∥ proofHash), pre-Babbage: nonceVrf.output). */
+  nonceVrfOutput: Schema.Uint8Array,
+  kesSig: Schema.Uint8Array,
+  kesPeriod: Schema.Number,
+  opcertSig: Schema.Uint8Array,
+  opcertVkHot: Schema.Uint8Array,
+  opcertSeqNo: Schema.Number,
+  opcertKesPeriod: Schema.Number,
+  bodyHash: Schema.Uint8Array,
+  /** Raw CBOR of the header body — KES signs this, not bodyHash. */
+  headerBodyCbor: Schema.Uint8Array,
+});
+export type BlockHeader = Schema.Schema.Type<typeof BlockHeader>;
+
+// ---------------------------------------------------------------------------
+// LedgerView — stake distribution + protocol params for validation
+// ---------------------------------------------------------------------------
+
+export const LedgerView = Schema.Struct({
+  epochNonce: Schema.Uint8Array,
+  poolVrfKeys: Schema.ReadonlyMap(Schema.String, Schema.Uint8Array),
+  poolStake: Schema.ReadonlyMap(Schema.String, Schema.BigInt),
+  totalStake: Schema.BigInt,
+  activeSlotsCoeff: Schema.Number,
+  maxKesEvolutions: Schema.Number,
+});
+export type LedgerView = Schema.Schema.Type<typeof LedgerView>;
 
 /**
  * Validate a block header. All five assertions run in parallel via Effect.all.
@@ -155,12 +170,12 @@ const assertKesSignature = (
         throw `KES period ${header.kesPeriod} before opcert start ${header.opcertKesPeriod}`;
       if (kesPeriodSinceOpcert >= view.maxKesEvolutions)
         throw `KES period ${kesPeriodSinceOpcert} exceeds max ${view.maxKesEvolutions}`;
-      // Verify KES signature over the block body hash
+      // Verify KES signature over CBOR(headerBody) — not bodyHash
       const valid = crypto.kesSum6Verify(
         header.kesSig,
         header.kesPeriod,
         header.opcertVkHot,
-        header.bodyHash,
+        header.headerBodyCbor,
       );
       if (!valid) throw "KES signature invalid";
     },

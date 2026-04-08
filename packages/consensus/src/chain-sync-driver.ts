@@ -26,16 +26,13 @@ export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDrive
 ) {}
 
 /** Volatile chain state — tracks the mutable tip and recent blocks. */
-export interface VolatileState {
-  /** Current chain tip. */
-  readonly tip: { slot: bigint; hash: Uint8Array } | undefined;
-  /** Current nonces. */
-  readonly nonces: Nonces;
-  /** Blocks processed since last report. */
-  readonly blocksProcessed: number;
-  /** Whether we're caught up (server sent AwaitReply). */
-  readonly caughtUp: boolean;
-}
+export const VolatileState = Schema.Struct({
+  tip: Schema.optional(Schema.Struct({ slot: Schema.BigInt, hash: Schema.Uint8Array })),
+  nonces: Nonces,
+  blocksProcessed: Schema.Number,
+  caughtUp: Schema.Boolean,
+});
+export type VolatileState = Schema.Schema.Type<typeof VolatileState>;
 
 /** Initial volatile state — loaded from snapshot or genesis. */
 export const initialVolatileState = (
@@ -134,8 +131,8 @@ export const handleRollForward = (
       });
     }
 
-    // Evolve nonces using VRF output from decoded header
-    const newEvolving = evolveNonce(nonces.evolving, header.vrfOutput);
+    // Evolve nonces using nonce-tagged VRF output (not leader VRF output)
+    const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
 
     const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
     const pastCollection = isPastStabilizationWindow(

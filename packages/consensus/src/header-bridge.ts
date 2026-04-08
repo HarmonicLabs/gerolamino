@@ -15,6 +15,7 @@ import type { BlockHeader as LedgerBlockHeader } from "ledger/lib/block/block";
 import { decodeMultiEraBlock, decodeBlockHeader } from "ledger/lib/block/block";
 import type { BlockHeader as ConsensusBlockHeader } from "./validate-header";
 import { CryptoService } from "./crypto";
+import { concat } from "./util";
 
 /** Slots per KES period — configurable via CARDANO_SLOTS_PER_KES_PERIOD, defaults to 129600. */
 const SlotsPerKesPeriod = Config.number("CARDANO_SLOTS_PER_KES_PERIOD").pipe(
@@ -76,24 +77,45 @@ export const computeHeaderHashFromHeader = (
 export const bridgeHeader = (
   ledgerHeader: LedgerBlockHeader,
   headerHash: Uint8Array,
+  headerBodyCbor: Uint8Array,
+  blake2b256: (data: Uint8Array) => Uint8Array,
   slotsPerKesPeriod = 129600,
-): ConsensusBlockHeader => ({
-  slot: ledgerHeader.slot,
-  blockNo: ledgerHeader.blockNo,
-  hash: headerHash,
-  prevHash: ledgerHeader.prevHash ?? new Uint8Array(32),
-  issuerVk: ledgerHeader.issuerVKey,
-  vrfVk: ledgerHeader.vrfVKey,
-  vrfProof: ledgerHeader.vrfResult.proof,
-  vrfOutput: ledgerHeader.vrfResult.output,
-  kesSig: ledgerHeader.kesSignature,
-  kesPeriod: Math.floor(Number(ledgerHeader.slot) / slotsPerKesPeriod),
-  opcertSig: ledgerHeader.opCert.sigma,
-  opcertVkHot: ledgerHeader.opCert.hotVKey,
-  opcertSeqNo: Number(ledgerHeader.opCert.seqNo),
-  opcertKesPeriod: Number(ledgerHeader.opCert.kesPeriod),
-  bodyHash: ledgerHeader.bodyHash,
-});
+): ConsensusBlockHeader => {
+  const base = {
+    slot: ledgerHeader.slot,
+    blockNo: ledgerHeader.blockNo,
+    hash: headerHash,
+    prevHash: ledgerHeader.prevHash ?? new Uint8Array(32),
+    issuerVk: ledgerHeader.issuerVKey,
+    vrfVk: ledgerHeader.vrfVKey,
+    vrfProof: ledgerHeader.vrfResult.proof,
+    kesSig: ledgerHeader.kesSignature,
+    kesPeriod: Math.floor(Number(ledgerHeader.slot) / slotsPerKesPeriod),
+    opcertSig: ledgerHeader.opCert.sigma,
+    opcertVkHot: ledgerHeader.opCert.hotVKey,
+    opcertSeqNo: Number(ledgerHeader.opCert.seqNo),
+    opcertKesPeriod: Number(ledgerHeader.opCert.kesPeriod),
+    bodyHash: ledgerHeader.bodyHash,
+    headerBodyCbor,
+  };
+
+  // Pre-Babbage: separate leaderVrf and nonceVrf with raw outputs.
+  if (ledgerHeader.nonceVrf !== undefined) {
+    return {
+      ...base,
+      vrfOutput: ledgerHeader.vrfResult.output,
+      nonceVrfOutput: ledgerHeader.nonceVrf.output,
+    };
+  }
+
+  // Babbage+: single VRF proof — derive tagged outputs.
+  // Leader = blake2b-256(0x4c ∥ proofHash), Nonce = blake2b-256(0x4e ∥ proofHash)
+  return {
+    ...base,
+    vrfOutput: blake2b256(concat(new Uint8Array([0x4c]), ledgerHeader.vrfResult.output)),
+    nonceVrfOutput: blake2b256(concat(new Uint8Array([0x4e]), ledgerHeader.vrfResult.output)),
+  };
+};
 
 /**
  * Decode block CBOR and produce a consensus BlockHeader.
@@ -106,12 +128,25 @@ export const decodeAndBridge = (
 ) =>
   Effect.gen(function* () {
     const slotsPerKesPeriod = yield* SlotsPerKesPeriod;
+    const crypto = yield* CryptoService;
     const block = yield* decodeMultiEraBlock(blockCbor);
     if (block._tag === "byron") {
       return undefined;
     }
+
+    // Extract raw header body CBOR for KES signing verification.
+    // Block = [era, [header, txBodies, witnesses, auxData, ...]]
+    // Header = [headerBody, kesSig]
+    const top = parseSync(blockCbor);
+    if (top._tag !== CborKinds.Array) throw new Error("Invalid block CBOR");
+    const blockBody = top.items[1];
+    if (!blockBody || blockBody._tag !== CborKinds.Array) throw new Error("Invalid block body");
+    const headerNode = blockBody.items[0];
+    if (!headerNode || headerNode._tag !== CborKinds.Array) throw new Error("Invalid header");
+    const headerBodyCbor = encodeSync(headerNode.items[0]!);
+
     return {
-      header: bridgeHeader(block.header, headerHash, slotsPerKesPeriod),
+      header: bridgeHeader(block.header, headerHash, headerBodyCbor, crypto.blake2b256, slotsPerKesPeriod),
       era: block.era,
       txCount: block.txBodies.length,
     };
@@ -157,7 +192,7 @@ export const decodeWrappedHeader = (
       const headerHash = crypto.blake2b256(headerBodyCbor);
 
       return {
-        header: bridgeHeader(ledgerHeader, headerHash, slotsPerKesPeriod),
+        header: bridgeHeader(ledgerHeader, headerHash, headerBodyCbor, crypto.blake2b256, slotsPerKesPeriod),
         era: Number(first.num),
       };
     }
@@ -165,10 +200,10 @@ export const decodeWrappedHeader = (
     // Bare [headerBody, kesSig] (no era wrapper)
     const ledgerHeader = yield* decodeBlockHeader(parsed);
     const headerBodyCbor = encodeSync(first);
-    const headerHash = yield* crypto.blake2b256(headerBodyCbor);
+    const headerHash = crypto.blake2b256(headerBodyCbor);
 
     return {
-      header: bridgeHeader(ledgerHeader, headerHash, slotsPerKesPeriod),
+      header: bridgeHeader(ledgerHeader, headerHash, headerBodyCbor, crypto.blake2b256, slotsPerKesPeriod),
       era: undefined,
     };
   });

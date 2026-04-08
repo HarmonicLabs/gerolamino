@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Cause, Config, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 import { TimeoutError } from "effect/Cause";
 
@@ -30,6 +30,14 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 
 const unexpected = (tag: string) =>
   Effect.fail(new ChainSyncError({ cause: `Unexpected message: ${tag}` }));
+
+/**
+ * StMustReply timeout — per network spec 3.7.4, after AwaitReply the server
+ * has 601-911s to respond. Defaults to 900s, configurable.
+ */
+const MustReplyTimeout = Config.duration("CHAIN_SYNC_MUST_REPLY_TIMEOUT").pipe(
+  Config.withDefault(Duration.seconds(900)),
+);
 
 export class ChainSyncClient extends ServiceMap.Service<
   ChainSyncClient,
@@ -65,6 +73,7 @@ export class ChainSyncClient extends ServiceMap.Service<
     ChainSyncClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
+      const mustReplyTimeout = yield* MustReplyTimeout;
       const channel = yield* multiplexer
         .getProtocolChannel(MiniProtocol.ChainSync)
         .pipe(Effect.mapError((cause) => new ChainSyncError({ cause })));
@@ -76,30 +85,46 @@ export class ChainSyncClient extends ServiceMap.Service<
         Stream.mapEffect((bytes) => decodeMessage(bytes)),
       );
 
+      /** Match a message that must be RollForward or RollBackward. */
+      const matchRollResult = (v: Schemas.ChainSyncMessageT) =>
+        Schemas.ChainSyncMessage.match(v, {
+          RollForward: (m) => Effect.succeed(m),
+          RollBackward: (m) => Effect.succeed(m),
+          RequestNext: (m) => unexpected(m._tag),
+          AwaitReply: (m) => unexpected(m._tag),
+          FindIntersect: (m) => unexpected(m._tag),
+          IntersectFound: (m) => unexpected(m._tag),
+          IntersectNotFound: (m) => unexpected(m._tag),
+          Done: (m) => unexpected(m._tag),
+        });
+
+      /** Read the next message from the stream with the given timeout. */
+      const nextMessage = (timeout: Duration.Duration, phase: string) =>
+        messages.pipe(
+          Stream.runHead,
+          Effect.timeout(timeout),
+          Effect.flatMap(
+            Option.match({
+              onNone: () =>
+                Effect.fail(new ChainSyncError({ cause: `No response in ${phase}` })),
+              onSome: Effect.succeed,
+            }),
+          ),
+        );
+
       return ChainSyncClient.of({
         requestNext: () =>
           sendMessage({ _tag: Schemas.ChainSyncMessageType.RequestNext }).pipe(
             Effect.andThen(
-              messages.pipe(
-                Stream.filter((msg) => msg._tag !== Schemas.ChainSyncMessageType.AwaitReply),
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(10)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new ChainSyncError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.ChainSyncMessage.match(v, {
-                        RollForward: (m) => Effect.succeed(m),
-                        RollBackward: (m) => Effect.succeed(m),
-                        RequestNext: (m) => unexpected(m._tag),
-                        AwaitReply: (m) => unexpected(m._tag),
-                        FindIntersect: (m) => unexpected(m._tag),
-                        IntersectFound: (m) => unexpected(m._tag),
-                        IntersectNotFound: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
+              // StCanAwait: server must respond within 10s
+              nextMessage(Duration.seconds(10), "StCanAwait").pipe(
+                Effect.flatMap((msg) =>
+                  msg._tag === Schemas.ChainSyncMessageType.AwaitReply
+                    // StMustReply: at tip, wait for new block (up to 900s)
+                    ? nextMessage(mustReplyTimeout, "StMustReply").pipe(
+                        Effect.flatMap(matchRollResult),
+                      )
+                    : matchRollResult(msg),
                 ),
               ),
             ),

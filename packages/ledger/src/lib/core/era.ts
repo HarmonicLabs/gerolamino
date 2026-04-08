@@ -1,21 +1,22 @@
 /**
  * Cardano era enumeration and capability predicates.
  * The era number corresponds to the CBOR discriminant in block encoding: [era, blockData].
+ * Wire format: 0-1 = Byron (EBB / main), 2 = Shelley, 3 = Allegra, ..., 7 = Conway.
  */
 import { Schema } from "effect";
 
 // ---------------------------------------------------------------------------
-// Era enum
+// Era enum — values match wire format era tags
 // ---------------------------------------------------------------------------
 
 export enum Era {
   Byron = 0,
-  Shelley = 1,
-  Allegra = 2,
-  Mary = 3,
-  Alonzo = 4,
-  Babbage = 5,
-  Conway = 6,
+  Shelley = 2,
+  Allegra = 3,
+  Mary = 4,
+  Alonzo = 5,
+  Babbage = 6,
+  Conway = 7,
 }
 
 /** Schema.Enum validates input is one of Era's numeric values. */

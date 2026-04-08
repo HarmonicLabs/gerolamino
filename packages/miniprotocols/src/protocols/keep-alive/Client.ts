@@ -1,5 +1,6 @@
 import {
   Cause,
+  Config,
   Duration,
   Effect,
   Layer,
@@ -27,6 +28,11 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.KeepAliveMessageBytes);
 
 const unexpected = (tag: string) =>
   Effect.fail(new KeepAliveError({ cause: `Unexpected message: ${tag}` }));
+
+/** KeepAlive interval — configurable, defaults to 30s. */
+const KeepAliveInterval = Config.duration("KEEP_ALIVE_INTERVAL").pipe(
+  Config.withDefault(Duration.seconds(30)),
+);
 
 export class KeepAliveClient extends ServiceMap.Service<
   KeepAliveClient,
@@ -62,6 +68,7 @@ export class KeepAliveClient extends ServiceMap.Service<
     KeepAliveClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
+      const keepAliveInterval = yield* KeepAliveInterval;
       const channel = yield* multiplexer
         .getProtocolChannel(MiniProtocol.KeepAlive)
         .pipe(Effect.mapError((cause) => new KeepAliveError({ cause })));
@@ -73,41 +80,50 @@ export class KeepAliveClient extends ServiceMap.Service<
         Stream.mapEffect((bytes) => decodeMessage(bytes)),
       );
 
-      return KeepAliveClient.of({
-        keepAlive: (cookie) =>
-          sendMessage({ _tag: Schemas.KeepAliveMessageType.KeepAlive, cookie }).pipe(
-            Effect.andThen(
-              messages.pipe(
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(97)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new KeepAliveError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.KeepAliveMessage.match(v, {
-                        KeepAliveResponse: (m) => Effect.succeed(m.cookie),
-                        KeepAlive: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
-                ),
+      /** Send a KeepAlive and validate that the response cookie matches. */
+      const sendAndValidate = (cookie: number) =>
+        sendMessage({ _tag: Schemas.KeepAliveMessageType.KeepAlive, cookie }).pipe(
+          Effect.andThen(
+            messages.pipe(
+              Stream.runHead,
+              Effect.timeout(Duration.seconds(97)),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () =>
+                    Effect.fail(new KeepAliveError({ cause: "No response received" })),
+                  onSome: (v) =>
+                    Schemas.KeepAliveMessage.match(v, {
+                      KeepAliveResponse: (m) =>
+                        m.cookie === cookie
+                          ? Effect.succeed(m.cookie)
+                          : Effect.fail(
+                              new KeepAliveError({
+                                cause: `Cookie mismatch: sent ${cookie}, got ${m.cookie}`,
+                              }),
+                            ),
+                      KeepAlive: (m) => unexpected(m._tag),
+                      Done: (m) => unexpected(m._tag),
+                    }),
+                }),
               ),
             ),
           ),
+        );
+
+      return KeepAliveClient.of({
+        keepAlive: (cookie) =>
+          cookie < 0 || cookie > 0xFFFF
+            ? Effect.fail(
+                new KeepAliveError({ cause: `Cookie must be word16 (0-65535), got ${cookie}` }),
+              )
+            : sendAndValidate(cookie),
         done: () => sendMessage({ _tag: Schemas.KeepAliveMessageType.Done }),
         run: () =>
           Effect.gen(function* () {
             const cookie = yield* Ref.make(0);
-            yield* Ref.getAndUpdate(cookie, (n) => n + 1).pipe(
-              Effect.flatMap((c) =>
-                sendMessage({
-                  _tag: Schemas.KeepAliveMessageType.KeepAlive,
-                  cookie: c,
-                }),
-              ),
-              Effect.andThen(messages.pipe(Stream.runHead)),
-              Effect.repeat(Schedule.spaced(Duration.seconds(30))),
+            yield* Ref.getAndUpdate(cookie, (n) => (n + 1) & 0xFFFF).pipe(
+              Effect.flatMap(sendAndValidate),
+              Effect.repeat(Schedule.spaced(keepAliveInterval)),
             );
           }),
       });

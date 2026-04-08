@@ -12,29 +12,29 @@
  * 5. Track sync progress via GSM state
  */
 import { Effect, Stream, Schema } from "effect";
-import type { StoredBlock, RealPoint } from "storage/types/StoredBlock";
+import type { StoredBlock } from "storage/types/StoredBlock";
+import { RealPoint } from "storage/types/StoredBlock";
 import { ChainDB } from "storage/services/chain-db";
 import { ConsensusEngine } from "./consensus-engine";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
-import { gsmState } from "./chain-selection";
+import { GsmState, gsmState } from "./chain-selection";
 import { SlotClock } from "./clock";
 import { verifyBodyHash } from "./validate-block";
 import type { BlockHeader, LedgerView } from "./validate-header";
-import type { GsmState } from "./chain-selection";
 
 export class SyncError extends Schema.TaggedErrorClass<SyncError>()(
   "SyncError",
   { message: Schema.String, cause: Schema.Defect },
 ) {}
 
-export interface SyncState {
-  readonly tip: RealPoint | undefined;
-  readonly nonces: Nonces;
-  readonly gsmState: GsmState;
-  readonly blocksProcessed: number;
-  /** Volatile chain length since last immutability promotion. */
-  readonly volatileLength: number;
-}
+export const SyncState = Schema.Struct({
+  tip: Schema.optional(RealPoint),
+  nonces: Nonces,
+  gsmState: GsmState,
+  blocksProcessed: Schema.Number,
+  volatileLength: Schema.Number,
+});
+export type SyncState = Schema.Schema.Type<typeof SyncState>;
 
 /**
  * Process a single block through the consensus pipeline.
@@ -75,8 +75,8 @@ export const processBlock = (
       });
     }
 
-    // 4. Evolve nonces using VRF nonce output
-    const newEvolving = evolveNonce(nonces.evolving, header.vrfOutput);
+    // 4. Evolve nonces using nonce-tagged VRF output (not leader VRF output)
+    const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
 
     // 5. Check if past candidate collection period (16k/f)
     const slotInEpoch = slotClock.slotWithinEpoch(header.slot);

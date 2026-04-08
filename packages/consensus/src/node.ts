@@ -10,24 +10,25 @@
  * The node is a single Effect program that composes services via layers.
  * No XState needed — Effect's structured concurrency handles lifecycle.
  */
-import { Effect, Schedule, Stream, Duration } from "effect";
+import { Effect, Schedule, Schema, Stream, Duration } from "effect";
 import { SlotClock } from "./clock";
 import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { getSyncState } from "./sync";
 import { ChainDB } from "storage/services/chain-db";
-import type { GsmState } from "./chain-selection";
+import { GsmState } from "./chain-selection";
 
-export interface NodeStatus {
-  readonly tipSlot: bigint;
-  readonly tipBlockNo: bigint;
-  readonly currentSlot: bigint;
-  readonly epochNumber: bigint;
-  readonly gsmState: GsmState;
-  readonly peerCount: number;
-  readonly blocksProcessed: number;
-  readonly syncPercent: number;
-}
+export const NodeStatus = Schema.Struct({
+  tipSlot: Schema.BigInt,
+  tipBlockNo: Schema.BigInt,
+  currentSlot: Schema.BigInt,
+  epochNumber: Schema.BigInt,
+  gsmState: GsmState,
+  peerCount: Schema.Number,
+  blocksProcessed: Schema.Number,
+  syncPercent: Schema.Number,
+});
+export type NodeStatus = Schema.Schema.Type<typeof NodeStatus>;
 
 /**
  * Get the current node status by reading from all services.

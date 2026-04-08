@@ -73,10 +73,12 @@ const makeHeader = (slot: bigint, blockNo: bigint): BlockHeader => {
     prevHash: new Uint8Array(32),
     issuerVk, vrfVk: makeVk(2),
     vrfProof: new Uint8Array(80), vrfOutput: new Uint8Array(32).fill(Number(slot & 0xffn)),
+    nonceVrfOutput: new Uint8Array(32).fill(Number(slot & 0xffn)),
     kesSig: new Uint8Array(448), kesPeriod: 10,
     opcertSig: new Uint8Array(64), opcertVkHot: new Uint8Array(32),
     opcertSeqNo: 5, opcertKesPeriod: 5,
     bodyHash: emptyBodyHash,
+    headerBodyCbor: new Uint8Array(32),
   };
 };
 

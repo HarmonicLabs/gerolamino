@@ -23,17 +23,19 @@ export class PeerManagerError extends Schema.TaggedErrorClass<PeerManagerError>(
 ) {}
 
 /** Connection status for a tracked peer. */
-export type PeerStatus = "connecting" | "syncing" | "synced" | "stalled" | "disconnected";
+export const PeerStatus = Schema.Literals(["connecting", "syncing", "synced", "stalled", "disconnected"]);
+export type PeerStatus = Schema.Schema.Type<typeof PeerStatus>;
 
 /** Per-peer tracked state. */
-export interface PeerState {
-  readonly peerId: string;
-  readonly address: string;
-  readonly status: PeerStatus;
-  readonly tip: ChainTip | undefined;
-  readonly lastActivityMs: number;
-  readonly headersReceived: number;
-}
+export const PeerState = Schema.Struct({
+  peerId: Schema.String,
+  address: Schema.String,
+  status: PeerStatus,
+  tip: Schema.optional(ChainTip),
+  lastActivityMs: Schema.Number,
+  headersReceived: Schema.Number,
+});
+export type PeerState = Schema.Schema.Type<typeof PeerState>;
 
 /** Stall timeout — configurable via PEER_STALL_TIMEOUT_MS, defaults to 120000 (2 min). */
 const StallTimeoutMs = Config.int("PEER_STALL_TIMEOUT_MS").pipe(

@@ -232,7 +232,11 @@ describe("Multi-era TxBody decoding", () => {
 describe("Era", () => {
   it("enum values match CBOR block discriminants", () => {
     assert.strictEqual(Era.Byron, 0);
-    assert.strictEqual(Era.Shelley, 1);
-    assert.strictEqual(Era.Conway, 6);
+    assert.strictEqual(Era.Shelley, 2);
+    assert.strictEqual(Era.Allegra, 3);
+    assert.strictEqual(Era.Mary, 4);
+    assert.strictEqual(Era.Alonzo, 5);
+    assert.strictEqual(Era.Babbage, 6);
+    assert.strictEqual(Era.Conway, 7);
   });
 });

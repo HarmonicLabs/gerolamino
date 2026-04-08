@@ -123,8 +123,9 @@ describe("Golden crypto vectors (WASM)", () => {
       const signature = ed25519_sign(msg, sk);
 
       // Tamper: XOR first 2 bytes (Dingo verify_header_test.go pattern)
-      signature[0] ^= 0xff;
-      signature[1] ^= 0xff;
+      const sigView = new DataView(signature.buffer);
+      sigView.setUint8(0, sigView.getUint8(0) ^ 0xff);
+      sigView.setUint8(1, sigView.getUint8(1) ^ 0xff);
 
       const valid = await run(
         Effect.gen(function* () {

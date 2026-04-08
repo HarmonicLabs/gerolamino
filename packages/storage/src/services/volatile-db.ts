@@ -6,6 +6,8 @@
 import { Effect, Layer, ServiceMap } from "effect";
 import type { StoredBlock } from "../types/StoredBlock.ts";
 import { VolatileDBError } from "../errors.ts";
+import { BlobStore } from "../blob-store/service.ts";
+import { SqliteDrizzle } from "../db/client.ts";
 import {
   writeVolatileBlock,
   readVolatileBlock,
@@ -23,9 +25,22 @@ export class VolatileDB extends ServiceMap.Service<
   }
 >()("storage/VolatileDB") {}
 
-export const VolatileDBLive: Layer.Layer<VolatileDB> = Layer.succeed(VolatileDB, {
-  addBlock: (block: StoredBlock) => writeVolatileBlock(block),
-  getBlock: (hash: Uint8Array) => readVolatileBlock(hash),
-  getSuccessors: (hash: Uint8Array) => getVolatileSuccessors(hash),
-  garbageCollect: (belowSlot: number) => garbageCollectVolatile(belowSlot),
-});
+export const VolatileDBLive: Layer.Layer<VolatileDB, never, BlobStore | SqliteDrizzle> =
+  Layer.effect(
+    VolatileDB,
+    Effect.gen(function* () {
+      const store = yield* BlobStore;
+      const drizzle = yield* SqliteDrizzle;
+      const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqliteDrizzle>) =>
+        effect.pipe(
+          Effect.provideService(BlobStore, store),
+          Effect.provideService(SqliteDrizzle, drizzle),
+        );
+      return {
+        addBlock: (block: StoredBlock) => provide(writeVolatileBlock(block)),
+        getBlock: (hash: Uint8Array) => provide(readVolatileBlock(hash)),
+        getSuccessors: (hash: Uint8Array) => provide(getVolatileSuccessors(hash)),
+        garbageCollect: (belowSlot: number) => provide(garbageCollectVolatile(belowSlot)),
+      };
+    }),
+  );

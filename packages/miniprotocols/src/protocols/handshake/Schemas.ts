@@ -1,4 +1,4 @@
-import { MultiplexerProtocolTypeSchema } from "@/multiplexer";
+import { MultiplexerProtocolTypeSchema } from "../../multiplexer";
 import { Equivalence, Schema, SchemaGetter } from "effect";
 
 import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";

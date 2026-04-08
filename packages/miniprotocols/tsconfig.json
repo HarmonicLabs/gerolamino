@@ -40,6 +40,7 @@
     "paths": {
       "@/*": ["src/*"] /* Path mapping for cleaner imports */,
       "@/protocols/*": ["src/protocols/*"],
+      "@/multiplexer": ["src/multiplexer/index.ts"],
       "@/multiplexer/*": ["src/multiplexer/*"],
       "@/common/*": ["src/common/*"]
     },
@@ -77,6 +78,5 @@
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node"
-  },
-  "references": [{ "path": "./tsconfig.lib.json" }]
+  }
 }

@@ -14,6 +14,12 @@ import type { StoredBlock, RealPoint } from "../types/StoredBlock";
 import { ImmutableDBError, VolatileDBError } from "../errors";
 import { BlobStore, blockKey } from "../blob-store/index.ts";
 
+/** Convert Uint8Array to Buffer for Drizzle blob columns. */
+const buf = (data: Uint8Array): Buffer => Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+
+/** Convert Buffer from Drizzle back to plain Uint8Array for domain types. */
+const u8 = (b: Buffer): Uint8Array => new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+
 // ---------------------------------------------------------------------------
 // Immutable block operations
 // ---------------------------------------------------------------------------
@@ -36,8 +42,8 @@ export const writeImmutableBlock = (block: StoredBlock) =>
         .insert(schema.immutableBlocks)
         .values({
           slot: Number(block.slot),
-          hash: block.hash,
-          prevHash: block.prevHash ?? null,
+          hash: buf(block.hash),
+          prevHash: block.prevHash ? buf(block.prevHash) : null,
           blockNo: Number(block.blockNo),
           epochNo: 0,
           size: block.blockSizeBytes,
@@ -48,7 +54,7 @@ export const writeImmutableBlock = (block: StoredBlock) =>
         })
         .onConflictDoUpdate({
           target: schema.immutableBlocks.slot,
-          set: { hash: block.hash },
+          set: { hash: buf(block.hash) },
         }),
     );
   }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "writeBlock", cause })));
@@ -66,7 +72,7 @@ export const readImmutableBlock = (point: RealPoint) =>
         .where(
           and(
             eq(schema.immutableBlocks.slot, Number(point.slot)),
-            eq(schema.immutableBlocks.hash, point.hash),
+            eq(schema.immutableBlocks.hash, buf(point.hash)),
           ),
         )
         .limit(1),
@@ -80,11 +86,11 @@ export const readImmutableBlock = (point: RealPoint) =>
 
     return {
       slot: BigInt(r.slot),
-      hash: r.hash,
-      prevHash: r.prevHash ?? undefined,
+      hash: u8(r.hash),
       blockNo: BigInt(r.blockNo),
       blockSizeBytes: r.size,
       blockCbor,
+      ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
     } satisfies StoredBlock;
   }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "readBlock", cause })));
 
@@ -103,7 +109,7 @@ export const getImmutableTip = Effect.gen(function* () {
   if (rows.length === 0) return undefined;
   return {
     slot: BigInt(rows[0]!.slot),
-    hash: rows[0]!.hash,
+    hash: u8(rows[0]!.hash),
   } satisfies RealPoint;
 }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "getTip", cause })));
 
@@ -127,9 +133,9 @@ export const writeVolatileBlock = (block: StoredBlock) =>
       db
         .insert(schema.volatileBlocks)
         .values({
-          hash: block.hash,
+          hash: buf(block.hash),
           slot: Number(block.slot),
-          prevHash: block.prevHash ?? null,
+          prevHash: block.prevHash ? buf(block.prevHash) : null,
           blockNo: Number(block.blockNo),
           blockSizeBytes: block.blockSizeBytes,
         })
@@ -143,7 +149,7 @@ export const readVolatileBlock = (hash: Uint8Array) =>
     const store = yield* BlobStore;
 
     const rows = yield* query(
-      db.select().from(schema.volatileBlocks).where(eq(schema.volatileBlocks.hash, hash)).limit(1),
+      db.select().from(schema.volatileBlocks).where(eq(schema.volatileBlocks.hash, buf(hash))).limit(1),
     );
     if (rows.length === 0) return undefined;
     const r = rows[0]!;
@@ -154,11 +160,11 @@ export const readVolatileBlock = (hash: Uint8Array) =>
 
     return {
       slot: BigInt(r.slot),
-      hash: r.hash,
-      prevHash: r.prevHash ?? undefined,
+      hash: u8(r.hash),
       blockNo: BigInt(r.blockNo),
       blockSizeBytes: r.blockSizeBytes,
       blockCbor,
+      ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
     } satisfies StoredBlock;
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "readBlock", cause })));
 
@@ -169,9 +175,9 @@ export const getVolatileSuccessors = (hash: Uint8Array) =>
       db
         .select({ hash: schema.volatileBlocks.hash })
         .from(schema.volatileBlocks)
-        .where(eq(schema.volatileBlocks.prevHash, hash)),
+        .where(eq(schema.volatileBlocks.prevHash, buf(hash))),
     );
-    return rows.map((r) => r.hash);
+    return rows.map((r) => u8(r.hash));
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "getSuccessors", cause })));
 
 export const garbageCollectVolatile = (belowSlot: number) =>

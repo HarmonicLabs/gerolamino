@@ -1,5 +1,9 @@
-export * from "./types/index.ts";
-export * from "./errors.ts";
+export { StoredBlock, RealPoint } from "./types/StoredBlock.ts";
+export { LedgerStateSnapshot } from "./types/LedgerState.ts";
+export { MempoolTx, MempoolSnapshot } from "./types/Mempool.ts";
+export { AddBlockResult } from "./types/ChainUpdate.ts";
+export { StorageConfig } from "./types/Config.ts";
+export { ImmutableDBError, VolatileDBError, LedgerDBError, MempoolError } from "./errors.ts";
 export * from "./blob-store/index.ts";
 export * from "./services/index.ts";
 export * from "./operations/index.ts";

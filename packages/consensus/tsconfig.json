@@ -13,11 +13,13 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "paths": {
       "storage/*": ["../storage/src/*"],
       "ledger/*": ["../ledger/src/*"],
       "cbor-schema/*": ["../cbor-schema/src/*"],
-      "wasm-utils": ["../wasm-utils/pkg/wasm_utils.js"]
+      "wasm-utils": ["../wasm-utils/pkg/wasm_utils"]
     }
   },
   "include": ["./src/**/*.ts", "../../node_modules/@types/bun/index.d.ts"],

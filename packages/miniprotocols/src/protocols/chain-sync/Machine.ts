@@ -35,6 +35,7 @@ export const chainSyncMachine = setup({
   },
 }).createMachine({
   id: "chainSync",
+  context: {},
   initial: "Idle",
   states: {
     Idle: {

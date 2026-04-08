@@ -14,10 +14,11 @@ packages/bootstrap       <- Bootstrap protocol client (depends: effect)
 packages/wasm-plexer     <- Multiplexer WASM (Rust, bindgen target: bundler)
 packages/wasm-utils      <- Crypto primitives WASM (Rust nightly, bindgen target: web)
 packages/chrome-ext      <- Chrome extension (Solid.js + WXT)
-packages/consensus       <- (placeholder)
+packages/consensus       <- Ouroboros Praos consensus (depends: ledger, cbor-schema, storage)
+packages/lsm-tree        <- LSM-tree FFI bindings (Haskell V2LSM via GHC WASM)
 packages/dashboard       <- (placeholder)
 apps/bootstrap           <- Bootstrap HTTP server (Effect CLI + Bun + LMDB)
-apps/tui                 <- Terminal UI (stub)
+apps/tui                 <- TUI node: relay sync + consensus validation
 ```
 
 ## Tech Stack
@@ -34,14 +35,22 @@ apps/tui                 <- Terminal UI (stub)
 
 ## Coding Conventions
 
-- **Never use `as Type`** typecasts. Only `as const` is allowed. Use
+- **Never use `as Type`** typecasts or `any`. Only `as const` is allowed. Use
   Effect pipelines and Schema for type safety.
 - **Use `Schema.TaggedClass`** (not branded types) for domain types that need
-  methods. Use `Schema.TaggedErrorClass` for error types.
+  methods. Use `Schema.TaggedErrorClass` for error types. Use `Schema.Struct`
+  for plain data records, `Schema.Literals([...])` for string literal unions.
 - **Use `Effect.gen` with `yield*`**, not nested `Effect.flatMap` chains.
 - **Use `Config.string()`** for environment variables, not `process.env`.
+- **Use `Effect.run*` only at entrypoints** (apps/tui, apps/bootstrap). All
+  core logic stays inside Effect. Tests use `@effect/vitest` `it.effect` and
+  `layer()` — never `Effect.runPromise` in test helpers.
 - **All imports at top of file** - no dynamic `import()` inside functions.
 - **No lodash** - use native Array methods (`Array.from`, `for` loops, etc.).
+- **Prefer Bun-native crypto** (Bun.CryptoHasher for blake2b). WASM only for
+  ed25519, KES Sum6, VRF, and leader threshold math.
+- **All runtime ops use Effect abstractions**: Clock for time, Ref for state,
+  Config for env, Schedule for retries — not raw JS/Bun APIs.
 - Cross-package imports use `tsconfig.base.json` path aliases (e.g.,
   `import { ... } from "ledger/lib/block/block.ts"`).
 

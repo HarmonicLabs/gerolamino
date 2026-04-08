@@ -38,15 +38,35 @@ type DrizzleDB = SqliteRemoteDatabase<typeof schema>;
 // SqlClient layer for bun:sqlite — wraps synchronous API in Effect
 // ---------------------------------------------------------------------------
 
+/** Convert Effect SQL params to bun:sqlite bindings at the driver boundary. */
+const toBindings = (params: ReadonlyArray<unknown>): Array<string | number | bigint | boolean | null | Uint8Array> => {
+  const result: Array<string | number | bigint | boolean | null | Uint8Array> = [];
+  for (const p of params) {
+    if (p === null || typeof p === "string" || typeof p === "number" ||
+        typeof p === "bigint" || typeof p === "boolean" || p instanceof Uint8Array) {
+      result.push(p);
+    } else if (p === undefined) {
+      result.push(null);
+    } else {
+      result.push(String(p));
+    }
+  }
+  return result;
+};
+
+const isRow = (r: unknown): r is Record<string, unknown> => typeof r === "object" && r !== null;
+
 const makeBunSqliteConnection = (db: Database): Connection => {
   const run = (sql: string, params: ReadonlyArray<unknown>) => {
     const stmt = db.query(sql);
-    return (stmt.all(...params) ?? []) as ReadonlyArray<any>;
+    return stmt.all(...toBindings(params)).filter(isRow);
   };
 
   const runValues = (sql: string, params: ReadonlyArray<unknown>) => {
     const stmt = db.query(sql);
-    return (stmt.values(...params) ?? []) as ReadonlyArray<ReadonlyArray<unknown>>;
+    return stmt.values(...toBindings(params)).map((row) =>
+      Array.isArray(row) ? row : [row],
+    );
   };
 
   return {
@@ -212,4 +232,4 @@ export const query = <T>(drizzleQuery: Promise<T>): Effect.Effect<T> =>
   Effect.tryPromise({
     try: () => drizzleQuery,
     catch: (cause) => cause,
-  });
+  }).pipe(Effect.orDie);

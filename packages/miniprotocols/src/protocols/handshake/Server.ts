@@ -3,7 +3,7 @@ import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
-import { MultiplexerHeaderError } from "@/multiplexer";
+import { MultiplexerHeaderError } from "../../multiplexer";
 import { MiniProtocol } from "../../MiniProtocol";
 import * as Schemas from "./Schemas";
 

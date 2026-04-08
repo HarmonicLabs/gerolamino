@@ -22,6 +22,9 @@ extern fn lsm_delete(table: *anyopaque, key: [*]const u8, key_len: usize) c_int;
 extern fn lsm_range_lookup(table: *anyopaque, lo: [*]const u8, lo_len: usize, hi: [*]const u8, hi_len: usize, out_buf: *?[*]u8, out_len: *usize, out_count: *usize) c_int;
 extern fn lsm_snapshot_save(session: *anyopaque, table: *anyopaque, name: [*:0]const u8) c_int;
 extern fn lsm_snapshot_restore(session: *anyopaque, name: [*:0]const u8, out: *?*anyopaque) c_int;
+extern fn lsm_cursor_open(table: *anyopaque, key: ?[*]const u8, key_len: usize, out: *?*anyopaque) c_int;
+extern fn lsm_cursor_close(cursor: *anyopaque) c_int;
+extern fn lsm_cursor_read(cursor: *anyopaque, max_count: usize, out_buf: *?[*]u8, out_len: *usize, out_count: *usize) c_int;
 
 // Global state — initialized once on library load
 var session: ?*anyopaque = null;
@@ -199,5 +202,145 @@ export fn lsm_bridge_open_snapshot(name_ptr: [*]const u8, name_len: usize) callc
     if (rc != 0) return rc;
     table = tbl;
 
+    return 0;
+}
+
+// Cursor handle table — maps u64 handles to Haskell StablePtr cursors.
+// Slot 0 is reserved (invalid handle). Max 64 concurrent cursors.
+// Each slot also caches the last read result (Haskell-allocated buffer)
+// because cursor reads advance state — we can't call Haskell twice.
+const MAX_CURSORS = 64;
+
+const CursorSlot = struct {
+    haskell_ptr: ?*anyopaque,
+    // Cached result from Phase 1 read (Haskell-allocated, freed by GC)
+    cached_buf: ?[*]u8,
+    cached_len: usize,
+    cached_count: usize,
+};
+
+var cursor_slots: [MAX_CURSORS]CursorSlot = [_]CursorSlot{.{
+    .haskell_ptr = null,
+    .cached_buf = null,
+    .cached_len = 0,
+    .cached_count = 0,
+}} ** MAX_CURSORS;
+
+fn cursor_alloc(ptr_val: *anyopaque) ?u64 {
+    // Skip slot 0 (reserved as invalid handle)
+    for (1..MAX_CURSORS) |i| {
+        if (cursor_slots[i].haskell_ptr == null) {
+            cursor_slots[i] = .{
+                .haskell_ptr = ptr_val,
+                .cached_buf = null,
+                .cached_len = 0,
+                .cached_count = 0,
+            };
+            return @intCast(i);
+        }
+    }
+    return null;
+}
+
+fn cursor_slot(handle: u64) ?*CursorSlot {
+    if (handle == 0 or handle >= MAX_CURSORS) return null;
+    const slot = &cursor_slots[@intCast(handle)];
+    if (slot.haskell_ptr == null) return null;
+    return slot;
+}
+
+fn cursor_free(handle: u64) void {
+    if (handle > 0 and handle < MAX_CURSORS) {
+        cursor_slots[@intCast(handle)] = .{
+            .haskell_ptr = null,
+            .cached_buf = null,
+            .cached_len = 0,
+            .cached_count = 0,
+        };
+    }
+}
+
+/// Open a cursor on the global table.
+/// If offset_key_ptr is null, starts from the beginning of the table.
+/// If non-null, starts at the given offset key.
+/// Returns handle in out_handle. Returns 0=success, -1=error.
+export fn lsm_bridge_cursor_open(offset_key_ptr: ?[*]const u8, offset_key_len: u64, out_handle: *u64) callconv(std.builtin.CallingConvention.c) c_int {
+    if (table == null) return -1;
+
+    var cursor: ?*anyopaque = null;
+    const rc = lsm_cursor_open(table.?, offset_key_ptr, @intCast(offset_key_len), &cursor);
+    if (rc != 0) return rc;
+
+    const handle = cursor_alloc(cursor.?) orelse {
+        // No free slot — close the cursor we just opened
+        _ = lsm_cursor_close(cursor.?);
+        return -1;
+    };
+    out_handle.* = handle;
+    return 0;
+}
+
+/// Close a cursor by handle.
+/// Returns 0=success, -1=error.
+export fn lsm_bridge_cursor_close(handle: u64) callconv(std.builtin.CallingConvention.c) c_int {
+    const slot = cursor_slot(handle) orelse return -1;
+    const rc = lsm_cursor_close(slot.haskell_ptr.?);
+    cursor_free(handle);
+    return rc;
+}
+
+/// Read up to max_count entries from a cursor.
+/// Two-phase protocol:
+///   Phase 1: out_buf=null — calls Haskell to read a batch, caches the result,
+///            returns needed buffer size in out_len and entry count in out_count.
+///   Phase 2: out_buf=buffer — copies cached result into caller buffer.
+///            The cache is cleared after Phase 2.
+/// This split is necessary because cursor reads advance state — we cannot
+/// call Haskell twice for the same batch.
+/// Buffer format: [key_len:u32 LE][key][val_len:u32 LE][val]...
+/// Returns 0=has entries, 1=cursor exhausted, -1=error.
+export fn lsm_bridge_cursor_read(handle: u64, max_count: u64, out_buf: ?[*]u8, out_len: *u64, out_count: *u64) callconv(std.builtin.CallingConvention.c) c_int {
+    const slot = cursor_slot(handle) orelse return -1;
+
+    if (out_buf) |buf| {
+        // Phase 2: copy cached result into caller-provided buffer
+        if (slot.cached_buf) |hbuf| {
+            const copy_len = @min(slot.cached_len, @as(usize, @intCast(out_len.*)));
+            @memcpy(buf[0..copy_len], hbuf[0..copy_len]);
+            out_len.* = @intCast(slot.cached_len);
+            out_count.* = @intCast(slot.cached_count);
+            // Clear cache
+            slot.cached_buf = null;
+            slot.cached_len = 0;
+            slot.cached_count = 0;
+            return 0;
+        }
+        // No cached data — error (Phase 1 was not called or returned empty)
+        return -1;
+    }
+
+    // Phase 1: call Haskell, cache the result
+    var haskell_buf: ?[*]u8 = null;
+    var haskell_len: usize = 0;
+    var count: usize = 0;
+    const rc = lsm_cursor_read(slot.haskell_ptr.?, @intCast(max_count), &haskell_buf, &haskell_len, &count);
+    if (rc < 0) return rc;
+
+    // rc=1 means cursor exhausted (empty result)
+    if (rc == 1) {
+        out_len.* = 0;
+        out_count.* = 0;
+        slot.cached_buf = null;
+        slot.cached_len = 0;
+        slot.cached_count = 0;
+        return 1;
+    }
+
+    // Cache for Phase 2
+    slot.cached_buf = haskell_buf;
+    slot.cached_len = haskell_len;
+    slot.cached_count = count;
+    out_len.* = @intCast(haskell_len);
+    out_count.* = @intCast(count);
     return 0;
 }

@@ -16,12 +16,12 @@ import * as BunSocket from "@effect/platform-bun/BunSocket";
 import { Multiplexer } from "../multiplexer/Multiplexer.ts";
 import { MultiplexerBuffer } from "../multiplexer/Buffer.ts";
 import { HandshakeClient } from "../protocols/handshake/Client.ts";
-import { HandshakeMessageType } from "../protocols/handshake/Schemas.ts";
+import { HandshakeMessage, HandshakeMessageType } from "../protocols/handshake/Schemas.ts";
 import { ChainSyncClient } from "../protocols/chain-sync/Client.ts";
-import { ChainSyncMessageType } from "../protocols/chain-sync/Schemas.ts";
+import { ChainSyncMessage, ChainSyncMessageType } from "../protocols/chain-sync/Schemas.ts";
 import { BlockFetchClient } from "../protocols/block-fetch/Client.ts";
 import { KeepAliveClient } from "../protocols/keep-alive/Client.ts";
-import { ChainPointType } from "../protocols/types/ChainPoint.ts";
+import { ChainPointType, ChainPointSchema } from "../protocols/types/ChainPoint.ts";
 
 // Decode blocks with ledger spec (direct path import)
 import { decodeMultiEraBlock, type BlockHeader } from "../../../ledger/src/lib/block.ts";
@@ -82,7 +82,7 @@ const program = Effect.gen(function* () {
   const hs = yield* HandshakeClient;
   const hsResult = yield* hs.propose(preprodVersionTable);
 
-  if (hsResult._tag === HandshakeMessageType.MsgAcceptVersion) {
+  if (HandshakeMessage.guards[HandshakeMessageType.MsgAcceptVersion](hsResult)) {
     ok("Handshake", `version=${hsResult.version}, magic=${hsResult.versionData.networkMagic}`);
     if (hsResult.version !== 14) fail("Handshake version", `expected 14, got ${hsResult.version}`);
     if (hsResult.versionData.networkMagic !== 1)
@@ -111,32 +111,32 @@ const program = Effect.gen(function* () {
     Effect.timeout(Duration.seconds(15)),
     Effect.catchTag("TimeoutError", () => Effect.fail("FindIntersect timed out")),
   );
-  if (
-    intersect._tag === ChainSyncMessageType.IntersectFound ||
-    intersect._tag === ChainSyncMessageType.IntersectNotFound
-  ) {
+  if (ChainSyncMessage.isAnyOf(["IntersectFound", "IntersectNotFound"])(intersect)) {
     ok("FindIntersect at origin", intersect._tag);
   } else {
     fail("FindIntersect", `unexpected: ${intersect._tag}`);
   }
 
   // Follow chain for 5 blocks
-  let lastSlot = 0n;
+  let lastSlot = 0;
   let slotsMonotonic = true;
   for (let i = 0; i < 5; i++) {
     const next = yield* cs.requestNext().pipe(
       Effect.timeout(Duration.seconds(15)),
       Effect.catchTag("TimeoutError", () => Effect.fail(`requestNext[${i}] timed out`)),
     );
-    if (next._tag === ChainSyncMessageType.RollForward) {
-      const tipSlot = next.tip.point._tag === ChainPointType.RealPoint ? next.tip.point.slot : 0n;
+    if (ChainSyncMessage.guards.RollForward(next)) {
+      const tipSlot = ChainPointSchema.match(next.tip.point, {
+        RealPoint: (p) => p.slot,
+        Origin: () => 0,
+      });
       if (tipSlot < lastSlot) slotsMonotonic = false;
       lastSlot = tipSlot;
       ok(
         `RequestNext[${i}]`,
         `RollForward tip.blockNo=${next.tip.blockNo}, header=${next.header.length}B`,
       );
-    } else if (next._tag === ChainSyncMessageType.RollBackward) {
+    } else if (ChainSyncMessage.guards.RollBackward(next)) {
       ok(`RequestNext[${i}]`, `RollBackward`);
     } else {
       fail(`RequestNext[${i}]`, `unexpected: ${next._tag}`);
@@ -161,8 +161,8 @@ const program = Effect.gen(function* () {
 
   if (
     nextForFetch &&
-    nextForFetch._tag === ChainSyncMessageType.RollForward &&
-    nextForFetch.tip.point._tag === ChainPointType.RealPoint
+    ChainSyncMessage.guards.RollForward(nextForFetch) &&
+    ChainPointSchema.guards.RealPoint(nextForFetch.tip.point)
   ) {
     const tipPoint = nextForFetch.tip.point;
     ok(

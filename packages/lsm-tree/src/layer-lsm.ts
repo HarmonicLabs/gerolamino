@@ -46,6 +46,18 @@ const BRIDGE_SYMBOLS = {
     args: [FFIType.ptr, FFIType.u64],
     returns: FFIType.int,
   },
+  lsm_bridge_cursor_open: {
+    args: [FFIType.ptr, FFIType.u64, FFIType.ptr],
+    returns: FFIType.int,
+  },
+  lsm_bridge_cursor_close: {
+    args: [FFIType.u64],
+    returns: FFIType.int,
+  },
+  lsm_bridge_cursor_read: {
+    args: [FFIType.u64, FFIType.u64, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+    returns: FFIType.int,
+  },
 } as const;
 
 type BridgeLib = ReturnType<typeof dlopen<typeof BRIDGE_SYMBOLS>>["symbols"];
@@ -54,6 +66,9 @@ const fail = (operation: string, cause: unknown) =>
   new BlobStoreError({ operation, cause });
 
 const lenBuf = new BigUint64Array(1);
+
+/** Number of entries to read per cursor batch. */
+const CURSOR_BATCH_SIZE = 256;
 
 const lsmGet = (ffi: BridgeLib, key: Uint8Array): Uint8Array | undefined => {
   lenBuf[0] = 0n;
@@ -103,51 +118,93 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
 
   scan: (prefix: Uint8Array) => {
     const hi = prefixEnd(prefix);
-    return Stream.fromEffect(
+
+    /** Parse the flat [key_len:u32 LE][key][val_len:u32 LE][val]... buffer. */
+    const parseBatch = (buf: Uint8Array, count: number) => {
+      const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+      const view = new DataView(buf.buffer, buf.byteOffset);
+      let off = 0;
+      for (let i = 0; i < count; i++) {
+        const kLen = view.getUint32(off, true);
+        off += 4;
+        const key = buf.slice(off, off + kLen);
+        off += kLen;
+        const vLen = view.getUint32(off, true);
+        off += 4;
+        const value = buf.slice(off, off + vLen);
+        off += vLen;
+        entries.push({ key, value });
+      }
+      return entries;
+    };
+
+    /** Compare two Uint8Arrays lexicographically. Returns true if a < b. */
+    const lessThan = (a: Uint8Array, b: Uint8Array): boolean => {
+      const len = Math.min(a.byteLength, b.byteLength);
+      for (let i = 0; i < len; i++) {
+        if (a[i]! < b[i]!) return true;
+        if (a[i]! > b[i]!) return false;
+      }
+      return a.byteLength < b.byteLength;
+    };
+
+    // Acquire a cursor scoped to the stream lifetime, then lazily read batches
+    const openCursor = Effect.gen(function* () {
+      const handleBuf = new BigUint64Array(1);
+      const openRc = prefix.byteLength > 0
+        ? ffi.lsm_bridge_cursor_open(ptr(prefix), prefix.byteLength, handleBuf)
+        : ffi.lsm_bridge_cursor_open(null, 0, handleBuf);
+      if (openRc !== 0) {
+        return yield* Effect.fail(fail("cursor_open", `lsm_bridge_cursor_open returned ${openRc}`));
+      }
+      const handle = handleBuf[0]!;
+      // Register finalizer so cursor is closed when scope ends
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => { ffi.lsm_bridge_cursor_close(handle); }),
+      );
+      return handle;
+    });
+
+    const readBatch = (handle: bigint) =>
       Effect.try({
         try: () => {
           const outLen = new BigUint64Array(1);
           const outCount = new BigUint64Array(1);
-          const rc1 = ffi.lsm_bridge_scan(
-            ptr(prefix), prefix.byteLength,
-            ptr(hi.byteLength > 0 ? hi : prefix),
-            hi.byteLength > 0 ? hi.byteLength : prefix.byteLength,
-            null, outLen, outCount,
-          );
-          if (rc1 !== 0) throw `lsm_bridge_scan phase 1 returned ${rc1}`;
+          // Phase 1: size query
+          const rc1 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, null, outLen, outCount);
+          if (rc1 === 1) return undefined; // cursor exhausted
+          if (rc1 !== 0) throw `lsm_bridge_cursor_read phase 1 returned ${rc1}`;
           const count = Number(outCount[0]);
           const totalLen = Number(outLen[0]);
-          if (count === 0 || totalLen === 0) {
-            const empty: Array<{ key: Uint8Array; value: Uint8Array }> = [];
-            return empty;
-          }
+          if (count === 0 || totalLen === 0) return undefined;
+          // Phase 2: fill buffer
           const buf = new Uint8Array(totalLen);
-          const rc2 = ffi.lsm_bridge_scan(
-            ptr(prefix), prefix.byteLength,
-            ptr(hi.byteLength > 0 ? hi : prefix),
-            hi.byteLength > 0 ? hi.byteLength : prefix.byteLength,
-            ptr(buf), outLen, outCount,
-          );
-          if (rc2 !== 0) throw `lsm_bridge_scan phase 2 returned ${rc2}`;
-          const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
-          const view = new DataView(buf.buffer, buf.byteOffset);
-          let off = 0;
-          for (let i = 0; i < count; i++) {
-            const kLen = view.getUint32(off, true);
-            off += 4;
-            const key = buf.slice(off, off + kLen);
-            off += kLen;
-            const vLen = view.getUint32(off, true);
-            off += 4;
-            const value = buf.slice(off, off + vLen);
-            off += vLen;
-            entries.push({ key, value });
-          }
-          return entries;
+          const rc2 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, ptr(buf), outLen, outCount);
+          if (rc2 !== 0) throw `lsm_bridge_cursor_read phase 2 returned ${rc2}`;
+          return parseBatch(buf, count);
         },
-        catch: (cause) => fail("scan", cause),
-      }),
-    ).pipe(Stream.flatMap((entries) => Stream.fromIterable(entries)));
+        catch: (cause) => fail("cursor_read", cause),
+      });
+
+    // Stream.scoped satisfies the Scope requirement from addFinalizer.
+    // Stream.unwrap lifts Effect<Stream> → Stream.
+    // Stream.unfold lazily reads batches; returning undefined → Cause.done().
+    return Stream.scoped(
+      Stream.unwrap(
+        Effect.map(openCursor, (handle) =>
+          Stream.unfold(handle, (h) =>
+            Effect.map(readBatch(h), (batch) => {
+              if (batch === undefined) return undefined;
+              const filtered = hi.byteLength > 0
+                ? batch.filter((e) => lessThan(e.key, hi))
+                : batch;
+              if (filtered.length === 0) return undefined;
+              return [filtered, h] as const;
+            }),
+          ).pipe(Stream.flatMap((entries) => Stream.fromIterable(entries))),
+        ),
+      ),
+    );
   },
 
   putBatch: (entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>) =>

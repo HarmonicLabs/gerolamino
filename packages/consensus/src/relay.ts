@@ -11,7 +11,7 @@
  *                                      ↓
  *                              ConsensusEngine + ChainDB
  */
-import { Config, Effect, Layer, Schedule, Schema, Scope } from "effect";
+import { Config, Duration, Effect, Layer, Schedule, Schema, Scope } from "effect";
 import {
   Multiplexer,
   MultiplexerBuffer,
@@ -19,6 +19,9 @@ import {
   ChainSyncClient,
   KeepAliveClient,
   ChainPointType,
+  ChainPointSchema,
+  ChainSyncMessage,
+  HandshakeMessage,
   HandshakeMessageType,
 } from "miniprotocols";
 import type { ChainPoint } from "miniprotocols";
@@ -47,6 +50,15 @@ export class RelayError extends Schema.TaggedErrorClass<RelayError>()(
 ) {}
 
 /**
+ * Exponential backoff schedule for relay reconnection.
+ * 1s → 2s → 4s → 8s → ... capped at 60s, with ±25% jitter.
+ */
+export const RelayRetrySchedule = Schedule.exponential("1 second", 2).pipe(
+  Schedule.either(Schedule.spaced("60 seconds")),
+  Schedule.jittered,
+);
+
+/**
  * Run the N2N handshake with a Cardano relay.
  * Returns the negotiated version number or fails.
  */
@@ -66,20 +78,25 @@ const runHandshake = (networkMagic: number) =>
       },
     });
 
-    if (result._tag === HandshakeMessageType.MsgAcceptVersion) {
-      yield* Effect.log(`Handshake accepted: version ${result.version}`);
-      return result.version;
-    }
-
-    if (result._tag === HandshakeMessageType.MsgRefuse) {
-      return yield* Effect.fail(
-        new RelayError({ message: `Handshake refused: ${JSON.stringify(result.reason)}`, cause: result }),
-      );
-    }
-
-    return yield* Effect.fail(
-      new RelayError({ message: `Unexpected handshake response: ${result._tag}`, cause: result }),
-    );
+    return yield* HandshakeMessage.match(result, {
+      [HandshakeMessageType.MsgAcceptVersion]: (msg) =>
+        Effect.gen(function* () {
+          yield* Effect.log(`Handshake accepted: version ${msg.version}`);
+          return msg.version;
+        }),
+      [HandshakeMessageType.MsgRefuse]: (msg) =>
+        Effect.fail(
+          new RelayError({ message: `Handshake refused: ${JSON.stringify(msg.reason)}`, cause: msg }),
+        ),
+      [HandshakeMessageType.MsgProposeVersions]: (msg) =>
+        Effect.fail(
+          new RelayError({ message: `Unexpected handshake response: ${msg._tag}`, cause: msg }),
+        ),
+      [HandshakeMessageType.MsgQueryReply]: (msg) =>
+        Effect.fail(
+          new RelayError({ message: `Unexpected handshake response: ${msg._tag}`, cause: msg }),
+        ),
+    });
   });
 
 /**
@@ -99,8 +116,12 @@ const findIntersection = (tip: { slot: bigint; hash: Uint8Array } | undefined) =
 
     const result = yield* chainSync.findIntersect(points);
 
-    if (result._tag === "IntersectFound") {
-      yield* Effect.log(`Intersection found at slot ${result.point._tag === "RealPoint" ? result.point.slot : "origin"}`);
+    if (ChainSyncMessage.guards.IntersectFound(result)) {
+      const slotStr = ChainPointSchema.match(result.point, {
+        RealPoint: (p) => String(p.slot),
+        Origin: () => "origin",
+      });
+      yield* Effect.log(`Intersection found at slot ${slotStr}`);
     } else {
       yield* Effect.log("No intersection found — syncing from origin");
     }
@@ -127,25 +148,33 @@ const chainSyncLoop = (
     const chainSync = yield* ChainSyncClient;
     let state = initialVolatileState(initialTip, initialNonces);
 
-    // Sync loop — runs until connection drops or interrupted
+    // Sync loop — runs until connection drops or interrupted.
+    // Individual block processing errors are logged and skipped;
+    // transport-level errors (socket, schema) propagate and trigger reconnection.
     yield* Effect.repeat(
       Effect.gen(function* () {
         const msg = yield* chainSync.requestNext();
 
-        if (msg._tag === "RollForward") {
+        if (ChainSyncMessage.guards.RollForward(msg)) {
           const serverTip = {
-            slot: BigInt(msg.tip.point._tag === "RealPoint" ? msg.tip.point.slot : 0),
+            ...ChainPointSchema.match(msg.tip.point, {
+              RealPoint: (p) => ({ slot: BigInt(p.slot), hash: p.hash }),
+              Origin: () => ({ slot: 0n, hash: new Uint8Array(32) }),
+            }),
             blockNo: BigInt(msg.tip.blockNo),
-            hash: msg.tip.point._tag === "RealPoint" ? msg.tip.point.hash : new Uint8Array(32),
           };
 
-          state = yield* handleRollForward(
-            msg.header,
-            serverTip,
-            state,
-            peerId,
-            ledgerView,
+          // Wrap block processing — validation/storage errors are non-fatal
+          const result = yield* Effect.result(
+            handleRollForward(msg.header, serverTip, state, peerId, ledgerView),
           );
+          if (result._tag === "Success") {
+            state = result.success;
+          } else {
+            yield* Effect.logWarning(
+              `[sync] Block processing failed at slot ${serverTip.slot}: ${result.failure}`,
+            );
+          }
 
           if (state.blocksProcessed % 1000 === 0 && state.blocksProcessed > 0) {
             yield* Effect.log(
@@ -153,14 +182,17 @@ const chainSyncLoop = (
             );
           }
         } else {
-          const rollbackPoint = msg.point._tag === "RealPoint"
-            ? { slot: BigInt(msg.point.slot), hash: msg.point.hash }
-            : undefined;
+          const rollbackPoint = ChainPointSchema.match(msg.point, {
+            RealPoint: (p) => ({ slot: BigInt(p.slot), hash: p.hash }),
+            Origin: () => undefined,
+          });
 
           const serverTip = {
-            slot: BigInt(msg.tip.point._tag === "RealPoint" ? msg.tip.point.slot : 0),
+            ...ChainPointSchema.match(msg.tip.point, {
+              RealPoint: (p) => ({ slot: BigInt(p.slot), hash: p.hash }),
+              Origin: () => ({ slot: 0n, hash: new Uint8Array(32) }),
+            }),
             blockNo: BigInt(msg.tip.blockNo),
-            hash: msg.tip.point._tag === "RealPoint" ? msg.tip.point.hash : new Uint8Array(32),
           };
 
           state = yield* handleRollBackward(rollbackPoint, serverTip, state, peerId);
@@ -182,6 +214,10 @@ export const connectToRelay = (
   peerId: string,
   networkMagic: number,
   ledgerView: LedgerView,
+  snapshotState?: {
+    tip: { slot: bigint; hash: Uint8Array } | undefined;
+    nonces: Nonces;
+  },
 ) =>
   Effect.gen(function* () {
     const peerManager = yield* PeerManager;
@@ -194,23 +230,25 @@ export const connectToRelay = (
     // 1. Handshake
     yield* runHandshake(networkMagic);
 
-    // 2. Find intersection
-    const tip = yield* chainDb.getTip;
+    // 2. Find intersection — prefer snapshot tip, then ChainDB tip
+    const tip = snapshotState?.tip ?? (yield* chainDb.getTip) ?? undefined;
     yield* findIntersection(tip);
 
-    // 3. Initialize nonces from current epoch
-    const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
-    const nonces = new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch,
-    });
+    // 3. Initialize nonces — from snapshot if available, else zeros
+    const nonces = snapshotState?.nonces ?? (() => {
+      const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
+      return new Nonces({
+        active: new Uint8Array(32),
+        evolving: new Uint8Array(32),
+        candidate: new Uint8Array(32),
+        epoch,
+      });
+    })();
 
     // 4. Run ChainSync + KeepAlive in parallel
     yield* Effect.all(
       [
-        chainSyncLoop(peerId, ledgerView, nonces, tip ?? undefined),
+        chainSyncLoop(peerId, ledgerView, nonces, tip),
         Effect.gen(function* () {
           const keepAlive = yield* KeepAliveClient;
           yield* keepAlive.run();

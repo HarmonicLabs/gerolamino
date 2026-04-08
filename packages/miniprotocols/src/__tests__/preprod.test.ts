@@ -5,9 +5,9 @@ import * as BunSocket from "@effect/platform-bun/BunSocket";
 import { Multiplexer } from "../multiplexer/Multiplexer";
 import { MultiplexerBuffer } from "../multiplexer/Buffer";
 import { HandshakeClient } from "../protocols/handshake/Client";
-import { HandshakeMessageType } from "../protocols/handshake/Schemas";
+import { HandshakeMessage, HandshakeMessageType } from "../protocols/handshake/Schemas";
 import { ChainSyncClient } from "../protocols/chain-sync/Client";
-import { ChainSyncMessageType } from "../protocols/chain-sync/Schemas";
+import { ChainSyncMessage, ChainSyncMessageType } from "../protocols/chain-sync/Schemas";
 import { BlockFetchClient } from "../protocols/block-fetch/Client";
 import { KeepAliveClient } from "../protocols/keep-alive/Client";
 import { ChainPointType } from "../protocols/types/ChainPoint";
@@ -53,9 +53,9 @@ it.live(
       const client = yield* HandshakeClient;
       const result = yield* client.propose(preprodVersionTable);
 
-      expect(result._tag).toBe(HandshakeMessageType.MsgAcceptVersion);
+      expect(HandshakeMessage.guards[HandshakeMessageType.MsgAcceptVersion](result)).toBe(true);
 
-      if (result._tag === HandshakeMessageType.MsgAcceptVersion) {
+      if (HandshakeMessage.guards[HandshakeMessageType.MsgAcceptVersion](result)) {
         expect(result.version).toBe(14);
         expect(result.versionData).toMatchObject({ networkMagic: 1 });
         yield* Effect.log(`Handshake accepted: version ${result.version}`);
@@ -98,8 +98,7 @@ it.live(
       const intersect = yield* client.findIntersect([{ _tag: ChainPointType.Origin }]);
 
       expect(
-        intersect._tag === ChainSyncMessageType.IntersectFound ||
-          intersect._tag === ChainSyncMessageType.IntersectNotFound,
+        ChainSyncMessage.isAnyOf(["IntersectFound", "IntersectNotFound"])(intersect),
       ).toBe(true);
 
       yield* Effect.log(`FindIntersect: ${intersect._tag}`);
@@ -107,11 +106,10 @@ it.live(
       const next = yield* client.requestNext();
 
       expect(
-        next._tag === ChainSyncMessageType.RollForward ||
-          next._tag === ChainSyncMessageType.RollBackward,
+        ChainSyncMessage.isAnyOf(["RollForward", "RollBackward"])(next),
       ).toBe(true);
 
-      if (next._tag === ChainSyncMessageType.RollForward) {
+      if (ChainSyncMessage.guards.RollForward(next)) {
         expect(next.header).toBeInstanceOf(Uint8Array);
         expect(next.tip.blockNo).toBeGreaterThan(0);
         yield* Effect.log(`RollForward: tip blockNo=${next.tip.blockNo}`);
@@ -135,7 +133,7 @@ it.live(
       yield* chainSync.findIntersect([{ _tag: ChainPointType.Origin }]);
       const next = yield* chainSync.requestNext();
 
-      if (next._tag !== ChainSyncMessageType.RollForward) {
+      if (!ChainSyncMessage.guards.RollForward(next)) {
         yield* Effect.log("Skipping: no RollForward from origin");
         return;
       }

@@ -18,7 +18,8 @@ import { HandshakeClient } from "../../protocols/handshake/Client";
 import { HandshakeMessageType } from "../../protocols/handshake/Schemas";
 import { KeepAliveClient } from "../../protocols/keep-alive/Client";
 import { ChainSyncClient } from "../../protocols/chain-sync/Client";
-import { ChainSyncMessageType } from "../../protocols/chain-sync/Schemas";
+import { ChainSyncMessage, ChainSyncMessageType } from "../../protocols/chain-sync/Schemas";
+import { ChainPointSchema } from "../../protocols/types/ChainPoint";
 import { BlockFetchClient } from "../../protocols/block-fetch/Client";
 import { ChainPoint, ChainPointType } from "../../protocols/types/ChainPoint";
 
@@ -326,8 +327,8 @@ async function benchBlockFetchBulk() {
       for (let i = 0; i < WALK_DEPTH; i++) {
         const msg = yield* cs.requestNext();
         if (
-          msg._tag === ChainSyncMessageType.RollForward &&
-          msg.tip.point._tag !== ChainPointType.Origin
+          ChainSyncMessage.guards.RollForward(msg) &&
+          ChainPointSchema.guards.RealPoint(msg.tip.point)
         ) {
           pts.push(msg.tip.point);
         }

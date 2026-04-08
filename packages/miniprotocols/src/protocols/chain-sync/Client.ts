@@ -119,7 +119,7 @@ export class ChainSyncClient extends ServiceMap.Service<
               // StCanAwait: server must respond within 10s
               nextMessage(Duration.seconds(10), "StCanAwait").pipe(
                 Effect.flatMap((msg) =>
-                  msg._tag === Schemas.ChainSyncMessageType.AwaitReply
+                  Schemas.ChainSyncMessage.guards.AwaitReply(msg)
                     // StMustReply: at tip, wait for new block (up to 900s)
                     ? nextMessage(mustReplyTimeout, "StMustReply").pipe(
                         Effect.flatMap(matchRollResult),

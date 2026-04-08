@@ -3,62 +3,27 @@
  * Streams Mithril snapshot data in the correct order.
  * Reads UTxO entries from BlobStore (LSM backend).
  */
-import { Effect, FileSystem, Path, Schema, Stream } from "effect";
+import { Effect, FileSystem, Path, Stream } from "effect";
 import type { BootstrapError } from "./errors.ts";
 import { ChunkReadError } from "./errors.ts";
 import { readAllChunks } from "./chunk-reader.ts";
-import { MessageTag, encodeFrame, encodeInit, encodeBlock, encodeBlobBatch } from "bootstrap";
+import {
+  MessageTag,
+  encodeFrame,
+  encodeInit,
+  encodeBlock,
+  encodeBlobBatch,
+  SnapshotMeta,
+  readSnapshotMeta,
+} from "bootstrap";
 import { BlobStore, PREFIX_UTXO } from "storage/blob-store/index";
 
-export class SnapshotMeta extends Schema.Class<SnapshotMeta>("SnapshotMeta")({
-  protocolMagic: Schema.Number,
-  snapshotSlot: Schema.BigInt,
-  ledgerDir: Schema.String,
-  immutableDir: Schema.String,
-  lsmDir: Schema.String,
-  totalChunks: Schema.Number,
-}) {}
-
-export const readSnapshotMeta = (snapshotPath: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-
-    const ledgerBase = path.join(snapshotPath, "ledger");
-    const ledgerEntries = yield* fs
-      .readDirectory(ledgerBase)
-      .pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause })));
-
-    // Find the primary snapshot slot directory (skip *_lsm suffixed dirs)
-    const snapshotSlotStr = ledgerEntries.find((e) => !e.includes("_"))!;
-    const snapshotSlot = BigInt(snapshotSlotStr);
-
-    const ledgerDir = path.join(ledgerBase, snapshotSlotStr);
-    const immutableDir = path.join(snapshotPath, "immutable");
-    const lsmDir = path.join(snapshotPath, "lsm");
-
-    const protocolMagic = parseInt(
-      new TextDecoder().decode(yield* fs.readFile(path.join(snapshotPath, "protocolMagicId"))),
-    );
-
-    const chunkFiles = yield* fs
-      .readDirectory(immutableDir)
-      .pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause })));
-    const totalChunks = chunkFiles.filter((f) => f.endsWith(".chunk")).length;
-
-    return new SnapshotMeta({
-      protocolMagic,
-      snapshotSlot,
-      ledgerDir,
-      immutableDir,
-      lsmDir,
-      totalChunks,
-    });
-  });
+// Re-export for consumers that used the old location
+export { SnapshotMeta, readSnapshotMeta } from "bootstrap";
 
 export const bootstrapStream = (
   meta: SnapshotMeta,
-): Stream.Stream<Uint8Array, BootstrapError | Schema.SchemaError, FileSystem.FileSystem | Path.Path | BlobStore> => {
+): Stream.Stream<Uint8Array, BootstrapError, FileSystem.FileSystem | Path.Path | BlobStore> => {
   const initStream = Stream.succeed(
     encodeFrame(
       MessageTag.Init,

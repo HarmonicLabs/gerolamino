@@ -81,18 +81,12 @@ export const handleRollForward = (
       () => undefined,
     );
 
-    // Byron/unparseable headers — store raw but can't validate or evolve nonces
+    // Byron/unparseable headers — skip storage (we can't extract correct
+    // slot/hash from the raw header, and using serverTip would be wrong).
+    // Just count them and move on; we'll start storing from Shelley era.
     if (decoded === undefined) {
-      yield* chainDb.addBlock({
-        slot: serverTip.slot,
-        hash: serverTip.hash,
-        prevHash: undefined,
-        blockNo: serverTip.blockNo,
-        blockSizeBytes: headerBytes.byteLength,
-        blockCbor: headerBytes,
-      });
       return {
-        tip: { slot: serverTip.slot, hash: serverTip.hash },
+        tip: state.tip,
         nonces: state.nonces,
         blocksProcessed: state.blocksProcessed + 1,
         caughtUp: false,

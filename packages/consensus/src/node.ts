@@ -83,7 +83,10 @@ export const monitorLoop = Effect.gen(function* () {
         `[${status.gsmState}] slot ${status.tipSlot}/${status.currentSlot} ` +
           `(${status.syncPercent}%) epoch ${status.epochNumber} peers ${status.peerCount}`,
       );
-    }),
+    }).pipe(
+      // Individual monitor iterations are non-fatal — log and continue
+      Effect.catch((e) => Effect.logWarning(`Monitor check failed: ${e}`)),
+    ),
     Schedule.fixed("10 seconds"),
   );
 });

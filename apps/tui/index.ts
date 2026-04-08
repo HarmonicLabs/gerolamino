@@ -12,7 +12,7 @@
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import * as BunSocket from "@effect/platform-bun/BunSocket";
-import { Config, Effect, Layer, Option } from "effect";
+import { Config, Effect, Layer, Option, Schedule } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import path from "node:path";
 import os from "node:os";
@@ -27,10 +27,16 @@ import {
   PeerManager,
   PeerManagerLive,
   connectToRelay,
+  RelayRetrySchedule,
   PREPROD_MAGIC,
   MAINNET_MAGIC,
+  extractLedgerView,
+  extractNonces,
+  extractSnapshotTip,
 } from "consensus";
 import type { LedgerView } from "consensus";
+import { decodeExtLedgerState } from "ledger/lib/state/new-epoch-state.ts";
+import { readSnapshotMeta, readLedgerStateBytes } from "bootstrap";
 import {
   ChainDBLive,
   SqliteDrizzle,
@@ -84,35 +90,82 @@ const start = Command.make(
       yield* runMigrations;
       yield* Effect.log("Database migrations complete.");
 
+      // Bootstrap from Mithril snapshot when available.
+      // Reads ledger state, decodes ExtLedgerState, extracts LedgerView + nonces.
+      let ledgerView: LedgerView;
+      let snapshotState:
+        | { tip: { slot: bigint; hash: Uint8Array } | undefined; nonces: ReturnType<typeof extractNonces> }
+        | undefined;
+
+      if (snapshotPath) {
+        const meta = yield* readSnapshotMeta(snapshotPath);
+        yield* Effect.log(
+          `Snapshot: slot ${meta.snapshotSlot}, magic ${meta.protocolMagic}, ${meta.totalChunks} chunks`,
+        );
+
+        const stateBytes = yield* readLedgerStateBytes(meta);
+        yield* Effect.log(`Ledger state: ${stateBytes.length} bytes, decoding...`);
+
+        const extState = yield* decodeExtLedgerState(stateBytes);
+        yield* Effect.log(
+          `Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
+            `${extState.newEpochState.poolDistr.pools.size} pools`,
+        );
+
+        ledgerView = yield* extractLedgerView(extState);
+        const nonces = extractNonces(extState);
+        const tip = extractSnapshotTip(extState);
+        snapshotState = { tip, nonces };
+
+        yield* Effect.log(
+          `Bootstrap: tip slot ${tip?.slot ?? "origin"}, totalStake ${ledgerView.totalStake}, ` +
+            `${ledgerView.poolVrfKeys.size} VRF keys loaded`,
+        );
+      } else {
+        // No snapshot — stub LedgerView for sync-from-origin (header validation will skip)
+        ledgerView = {
+          epochNonce: new Uint8Array(32),
+          poolVrfKeys: new Map(),
+          poolStake: new Map(),
+          totalStake: 0n,
+          activeSlotsCoeff: 0.05,
+          maxKesEvolutions: 62,
+        };
+      }
+
       const status = yield* getNodeStatus;
       yield* Effect.log(`Tip: slot ${status.tipSlot} / ${status.currentSlot}`);
       yield* Effect.log(`Epoch: ${status.epochNumber}`);
       yield* Effect.log(`Sync: ${status.syncPercent}%`);
       yield* Effect.log(`GSM: ${status.gsmState}`);
 
-      // Stub LedgerView — in production, loaded from snapshot
-      const ledgerView: LedgerView = {
-        epochNonce: new Uint8Array(32),
-        poolVrfKeys: new Map(),
-        poolStake: new Map(),
-        totalStake: 0n,
-        activeSlotsCoeff: 0.05,
-        maxKesEvolutions: 62,
-      };
-
       const networkMagic = config.network === "mainnet" ? MAINNET_MAGIC : PREPROD_MAGIC;
       const peerId = `${config.relayHost}:${config.relayPort}`;
 
-      // Connect to upstream relay + run monitor in parallel
+      // Connect to upstream relay with exponential backoff reconnection.
+      // Monitor loop runs in parallel with its own error recovery.
       yield* Effect.all(
         [
-          connectToRelay(peerId, networkMagic, ledgerView).pipe(
-            Effect.provide(
-              BunSocket.layerNet({ host: config.relayHost, port: config.relayPort }),
+          Effect.retry(
+            connectToRelay(peerId, networkMagic, ledgerView, snapshotState).pipe(
+              Effect.provide(
+                BunSocket.layerNet({ host: config.relayHost, port: config.relayPort }),
+              ),
+              Effect.scoped,
+              Effect.tapError((e) =>
+                Effect.logWarning(`Relay connection lost: ${e}. Reconnecting...`),
+              ),
             ),
-            Effect.scoped,
+            RelayRetrySchedule,
           ),
-          monitorLoop,
+          monitorLoop.pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning(`Monitor error: ${cause}`).pipe(
+                Effect.andThen(Effect.sleep("5 seconds")),
+                Effect.andThen(monitorLoop),
+              ),
+            ),
+          ),
         ],
         { concurrency: "unbounded" },
       );

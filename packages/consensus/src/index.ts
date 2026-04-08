@@ -21,5 +21,6 @@ export { getNodeStatus, monitorLoop } from "./node";
 export { NodeStatus } from "./node";
 export { bridgeHeader, computeHeaderHash, computeHeaderHashFromHeader, decodeAndBridge, decodeWrappedHeader } from "./header-bridge";
 export { validateBlock, verifyBodyHash, BlockValidationError } from "./validate-block";
-export { connectToRelay, PREPROD_MAGIC, MAINNET_MAGIC, RelayError } from "./relay";
+export { connectToRelay, PREPROD_MAGIC, MAINNET_MAGIC, RelayError, RelayRetrySchedule } from "./relay";
+export { extractLedgerView, extractNonces, extractSnapshotTip, SnapshotDecodeError } from "./ledger-view-bridge";
 export { hex, concat, be32 } from "./util";

@@ -81,11 +81,11 @@ export class BlockFetchClient extends ServiceMap.Service<
                         StartBatch: () =>
                           messages.pipe(
                             Stream.takeUntil(
-                              (v) => v._tag === Schemas.BlockFetchMessageType.BatchDone,
+                              Schemas.BlockFetchMessage.guards.BatchDone,
                               { excludeLast: true },
                             ),
                             Stream.filterMap((msg) =>
-                              msg._tag === Schemas.BlockFetchMessageType.Block
+                              Schemas.BlockFetchMessage.guards.Block(msg)
                                 ? Result.succeed(msg.block)
                                 : Result.fail(msg),
                             ),

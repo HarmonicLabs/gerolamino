@@ -26,6 +26,7 @@ import qualified Data.Vector as Data.Vector
 
 type SessionHandle = StablePtr LSM.Session
 type TableHandle   = StablePtr (LSM.Table BS.ByteString BS.ByteString)
+type CursorHandle  = StablePtr (LSM.Cursor BS.ByteString BS.ByteString)
 
 -- Session lifecycle --------------------------------------------------------
 
@@ -184,6 +185,77 @@ lsm_snapshot_list sessionSp outBufPtr outLenPtr = do
       poke outBufPtr (castPtr buf)
       poke outLenPtr (fromIntegral len)
       return 0
+
+-- Cursor operations --------------------------------------------------------
+
+-- | Open a cursor on the current table.
+-- If offset_key is NULL, starts from the beginning.
+-- If offset_key is non-NULL, starts at the given key.
+-- Returns 0=success, -1=error.
+foreign export ccall lsm_cursor_open
+  :: TableHandle -> Ptr Word8 -> CSize -> Ptr CursorHandle -> IO CInt
+lsm_cursor_open :: TableHandle -> Ptr Word8 -> CSize -> Ptr CursorHandle -> IO CInt
+lsm_cursor_open tableSp keyPtr keyLen outPtr = wrap "cursor_open" $ do
+  table <- deRefStablePtr tableSp
+  cursor <- if keyPtr == nullPtr
+    then LSM.newCursor table
+    else do
+      key <- BS.packCStringLen (castPtr keyPtr, fromIntegral keyLen)
+      LSM.newCursorAtOffset table key
+  sp <- newStablePtr cursor
+  poke outPtr sp
+
+-- | Close a cursor and free its StablePtr.
+-- Returns 0=success, -1=error.
+foreign export ccall lsm_cursor_close :: CursorHandle -> IO CInt
+lsm_cursor_close :: CursorHandle -> IO CInt
+lsm_cursor_close sp = wrap "cursor_close" $ do
+  cursor <- deRefStablePtr sp
+  LSM.closeCursor cursor
+  freeStablePtr sp
+
+-- | Read up to N entries from the cursor.
+-- Reads a batch and serialises it into a malloc'd flat buffer.
+-- The caller (Zig bridge) is responsible for caching the result
+-- across the two-phase size-query / copy protocol it exposes to JS.
+-- Buffer format: [key_len:u32][key][val_len:u32][val]...
+-- Returns 0=success (has entries), 1=empty (cursor exhausted), -1=error.
+foreign export ccall lsm_cursor_read
+  :: CursorHandle -> CSize -> Ptr (Ptr Word8) -> Ptr CSize -> Ptr CSize -> IO CInt
+lsm_cursor_read :: CursorHandle -> CSize -> Ptr (Ptr Word8) -> Ptr CSize -> Ptr CSize -> IO CInt
+lsm_cursor_read cursorSp maxCount outBufPtr outBufLen outCount = do
+  cursor <- deRefStablePtr cursorSp
+  result <- try $ LSM.take (fromIntegral maxCount) cursor
+  case result of
+    Left (e :: SomeException) -> do
+      hPutStrLn stderr $ "lsm_cursor_read: " ++ displayException e
+      return (-1)
+    Right vec -> do
+      let entries = Data.Vector.toList vec
+          count = length entries
+      if count == 0
+        then do
+          poke outBufLen 0
+          poke outCount 0
+          return 1
+        else do
+          let totalSize = sum [4 + BS.length k + 4 + BS.length v | (k, v) <- entries]
+          buf <- mallocBytes totalSize
+          let go _ [] = return ()
+              go off ((k, v):rest) = do
+                pokeByteOff buf off (fromIntegral (BS.length k) :: Word32)
+                BSU.unsafeUseAsCStringLen k $ \(kp, kl) ->
+                  copyBytes (plusPtr buf (off + 4)) kp kl
+                let off2 = off + 4 + BS.length k
+                pokeByteOff buf off2 (fromIntegral (BS.length v) :: Word32)
+                BSU.unsafeUseAsCStringLen v $ \(vp, vl) ->
+                  copyBytes (plusPtr buf (off2 + 4)) vp vl
+                go (off2 + 4 + BS.length v) rest
+          go 0 entries
+          poke outBufPtr (castPtr buf)
+          poke outBufLen (fromIntegral totalSize)
+          poke outCount (fromIntegral count)
+          return 0
 
 -- Helpers ------------------------------------------------------------------
 

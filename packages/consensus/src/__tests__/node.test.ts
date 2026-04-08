@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect } from "vitest";
+import { it, layer } from "@effect/vitest";
 import { Clock, Effect, Layer, Stream } from "effect";
 import { getNodeStatus } from "../node";
 import { PeerManager, PeerManagerLive } from "../peer-manager";
@@ -52,35 +53,33 @@ const testLayers = Layer.mergeAll(
   stubChainDb,
 );
 
-const run = <A>(effect: Effect.Effect<A, unknown, any>) =>
-  Effect.runPromise(Effect.provide(effect, testLayers));
+layer(testLayers)("Node orchestrator", (it) => {
+  it.effect("getNodeStatus reports tip and sync progress", () =>
+    Effect.gen(function* () {
+      const status = yield* getNodeStatus;
+      expect(status.tipSlot).toBe(450n);
+      expect(status.currentSlot).toBe(500n);
+      expect(status.epochNumber).toBe(5n);
+      expect(status.syncPercent).toBe(90);
+      expect(status.gsmState).toBe("CaughtUp");
+    }),
+  );
 
-describe("Node orchestrator", () => {
-  it("getNodeStatus reports tip and sync progress", async () => {
-    const status = await run(getNodeStatus);
-    expect(status.tipSlot).toBe(450n);
-    expect(status.currentSlot).toBe(500n);
-    expect(status.epochNumber).toBe(5n);
-    expect(status.syncPercent).toBe(90);
-    expect(status.gsmState).toBe("CaughtUp"); // 500-450=50 < stabilityWindow=60
-  });
+  it.effect("getNodeStatus counts active peers", () =>
+    Effect.gen(function* () {
+      const pm = yield* PeerManager;
+      yield* pm.addPeer("p1", "tcp://p1:3001");
+      yield* pm.addPeer("p2", "tcp://p2:3001");
+      yield* pm.updatePeerTip("p1", new ChainTip({ slot: 500n, blockNo: 250n, hash: new Uint8Array(32) }));
+      const status = yield* getNodeStatus;
+      expect(status.peerCount).toBe(2);
+    }),
+  );
 
-  it("getNodeStatus counts active peers", async () => {
-    const status = await run(
-      Effect.gen(function* () {
-        const pm = yield* PeerManager;
-        yield* pm.addPeer("p1", "tcp://p1:3001");
-        yield* pm.addPeer("p2", "tcp://p2:3001");
-        yield* pm.updatePeerTip("p1", new ChainTip({ slot: 500n, blockNo: 250n, hash: new Uint8Array(32) }));
-        return yield* getNodeStatus;
-      }),
-    );
-    expect(status.peerCount).toBe(2);
-  });
-
-  it("detects CaughtUp when tip is within stability window", async () => {
-    const status = await run(getNodeStatus);
-    // tip=450, current=500, diff=50, stabilityWindow=60 → CaughtUp
-    expect(status.gsmState).toBe("CaughtUp");
-  });
+  it.effect("detects CaughtUp when tip is within stability window", () =>
+    Effect.gen(function* () {
+      const status = yield* getNodeStatus;
+      expect(status.gsmState).toBe("CaughtUp");
+    }),
+  );
 });

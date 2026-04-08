@@ -87,8 +87,9 @@ describe("validateHeader", () => {
 
   it("fails when KES signature is tampered (XOR first 2 bytes)", async () => {
     const kesSig = new Uint8Array(448);
-    kesSig[0] ^= 0xff;
-    kesSig[1] ^= 0xff;
+    const kesView = new DataView(kesSig.buffer);
+    kesView.setUint8(0, kesView.getUint8(0) ^ 0xff);
+    kesView.setUint8(1, kesView.getUint8(1) ^ 0xff);
     const header = makeHeader({ kesSig });
     const result = await run(validateHeader(header, makeView(header)));
     // CryptoServiceBunNative always passes KES verification, so this tests

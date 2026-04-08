@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect } from "vitest";
+import { it, layer } from "@effect/vitest";
 import { Clock, Effect, Layer, Stream } from "effect";
 import {
   handleRollForward,
@@ -81,59 +82,47 @@ const makeLedgerView = (): LedgerView => {
   };
 };
 
-const run = <A>(effect: Effect.Effect<A, unknown, any>) =>
-  Effect.runPromise(Effect.provide(effect, testLayers));
+const makeNonces = () =>
+  new Nonces({
+    active: new Uint8Array(32),
+    evolving: new Uint8Array(32),
+    candidate: new Uint8Array(32),
+    epoch: 0n,
+  });
 
 describe("ChainSync driver", () => {
   it("initialVolatileState creates correct initial state", () => {
-    const state = initialVolatileState(undefined, new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch: 0n,
-    }));
+    const state = initialVolatileState(undefined, makeNonces());
     expect(state.tip).toBeUndefined();
     expect(state.blocksProcessed).toBe(0);
     expect(state.caughtUp).toBe(false);
   });
 
-  it("handleRollForward updates tip and nonces", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch: 0n,
-    });
-    const state = initialVolatileState(undefined, nonces);
+  layer(testLayers)((it) => {
+    it.effect("handleRollForward updates tip and nonces", () =>
+      Effect.gen(function* () {
+        const nonces = makeNonces();
+        const state = initialVolatileState(undefined, nonces);
 
-    const newState = await run(
-      handleRollForward(
-        new Uint8Array(100), // header bytes (placeholder)
-        { slot: 42n, blockNo: 20n, hash: new Uint8Array(32).fill(0x42) },
-        state,
-        "peer1",
-        makeLedgerView(),
-      ),
+        const newState = yield* handleRollForward(
+          new Uint8Array(100),
+          { slot: 42n, blockNo: 20n, hash: new Uint8Array(32).fill(0x42) },
+          state,
+          "peer1",
+          makeLedgerView(),
+        );
+
+        expect(newState.tip?.slot).toBe(42n);
+        expect(newState.blocksProcessed).toBe(1);
+        expect(newState.caughtUp).toBe(false);
+        expect(newState.nonces.evolving).toEqual(nonces.evolving);
+      }),
     );
 
-    expect(newState.tip?.slot).toBe(42n);
-    expect(newState.blocksProcessed).toBe(1);
-    expect(newState.caughtUp).toBe(false);
-    // With opaque (undecoded) block bytes, nonces are preserved (no VRF output available)
-    expect(newState.nonces.evolving).toEqual(nonces.evolving);
-  });
-
-  it("handleRollForward updates peer tip in PeerManager", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch: 0n,
-    });
-    const state = initialVolatileState(undefined, nonces);
-
-    await run(
+    it.effect("handleRollForward updates peer tip in PeerManager", () =>
       Effect.gen(function* () {
+        const nonces = makeNonces();
+        const state = initialVolatileState(undefined, nonces);
         const pm = yield* PeerManager;
         yield* pm.addPeer("peer1", "tcp://relay:3001");
         yield* handleRollForward(
@@ -144,63 +133,49 @@ describe("ChainSync driver", () => {
           makeLedgerView(),
         );
         const best = yield* pm.getBestPeer;
-        return best;
+        expect(best?.tip?.slot).toBe(100n);
       }),
-    ).then((best) => {
-      expect(best?.tip?.slot).toBe(100n);
-    });
-  });
-
-  it("handleRollBackward reverts tip to rollback point", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch: 0n,
-    });
-    const state = initialVolatileState(
-      { slot: 100n, hash: new Uint8Array(32) },
-      nonces,
     );
 
-    const newState = await run(
+    it.effect("handleRollBackward reverts tip to rollback point", () =>
       Effect.gen(function* () {
+        const nonces = makeNonces();
+        const state = initialVolatileState(
+          { slot: 100n, hash: new Uint8Array(32) },
+          nonces,
+        );
+
         const pm = yield* PeerManager;
         yield* pm.addPeer("peer1", "tcp://relay:3001");
-        return yield* handleRollBackward(
+        const newState = yield* handleRollBackward(
           { slot: 80n, hash: new Uint8Array(32).fill(0x80) },
           { slot: 90n, blockNo: 45n, hash: new Uint8Array(32) },
           state,
           "peer1",
         );
+
+        expect(newState.tip?.slot).toBe(80n);
       }),
     );
 
-    expect(newState.tip?.slot).toBe(80n);
-  });
+    it.effect("multiple RollForwards increment blocksProcessed", () =>
+      Effect.gen(function* () {
+        const nonces = makeNonces();
+        let state = initialVolatileState(undefined, nonces);
 
-  it("multiple RollForwards increment blocksProcessed", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch: 0n,
-    });
-    let state = initialVolatileState(undefined, nonces);
+        for (let i = 0; i < 5; i++) {
+          state = yield* handleRollForward(
+            new Uint8Array(100),
+            { slot: BigInt(i + 1), blockNo: BigInt(i + 1), hash: new Uint8Array(32).fill(i) },
+            state,
+            "peer1",
+            makeLedgerView(),
+          );
+        }
 
-    for (let i = 0; i < 5; i++) {
-      state = await run(
-        handleRollForward(
-          new Uint8Array(100),
-          { slot: BigInt(i + 1), blockNo: BigInt(i + 1), hash: new Uint8Array(32).fill(i) },
-          state,
-          "peer1",
-          makeLedgerView(),
-        ),
-      );
-    }
-
-    expect(state.blocksProcessed).toBe(5);
-    expect(state.tip?.slot).toBe(5n);
+        expect(state.blocksProcessed).toBe(5);
+        expect(state.tip?.slot).toBe(5n);
+      }),
+    );
   });
 });

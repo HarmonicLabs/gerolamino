@@ -229,7 +229,7 @@ describe("Golden crypto vectors (WASM)", () => {
 
     it("rejects KES signature with tampered message", async () => {
       const tampered = fromHex(KES_VECTORS.message);
-      tampered[0] ^= 0xff;
+      new DataView(tampered.buffer).setUint8(0, new DataView(tampered.buffer).getUint8(0) ^ 0xff);
 
       const valid = await run(
         Effect.gen(function* () {
@@ -247,7 +247,7 @@ describe("Golden crypto vectors (WASM)", () => {
 
     it("rejects KES signature with wrong public key", async () => {
       const wrongPk = fromHex(KES_VECTORS.publicKey);
-      wrongPk[0] ^= 0xff;
+      new DataView(wrongPk.buffer).setUint8(0, new DataView(wrongPk.buffer).getUint8(0) ^ 0xff);
 
       const valid = await run(
         Effect.gen(function* () {

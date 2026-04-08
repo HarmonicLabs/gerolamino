@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Clock, Effect, Layer, TestClock } from "effect";
+import { Clock, Effect, Layer } from "effect";
 import { SlotClock, SlotClockLive, PREPROD_CONFIG, SlotConfig } from "../clock";
 
 /** Test config: system start at epoch 0, 1s slots, 100 slots per epoch. */

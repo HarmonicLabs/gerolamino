@@ -116,16 +116,16 @@ export const SlotClockLive = (config: SlotConfig) =>
     const f = config.activeSlotsCoeff;
 
     return {
-      currentSlot: Effect.sync(() => msToSlot(clock.currentTimeMillisUnsafe())),
-      currentEpoch: Effect.sync(() => slotToEpoch(msToSlot(clock.currentTimeMillisUnsafe()))),
-      slotInEpoch: Effect.sync(() => slotWithinEpoch(msToSlot(clock.currentTimeMillisUnsafe()))),
+      currentSlot: clock.currentTimeMillis.pipe(Effect.map((ms) => msToSlot(Number(ms)))),
+      currentEpoch: clock.currentTimeMillis.pipe(Effect.map((ms) => slotToEpoch(msToSlot(Number(ms))))),
+      slotInEpoch: clock.currentTimeMillis.pipe(Effect.map((ms) => slotWithinEpoch(msToSlot(Number(ms))))),
       slotToMs,
       msToSlot,
       slotToEpoch,
       slotWithinEpoch,
       stabilityWindow: BigInt(Math.ceil((3 * k) / f)),
-      randomnessStabilizationWindow: BigInt(Math.ceil((8 * k) / f)),
-      candidateCollectionEnd: BigInt(Math.ceil((16 * k) / f)),
+      randomnessStabilizationWindow: BigInt(Math.ceil((4 * k) / f)),
+      candidateCollectionEnd: config.epochLength - BigInt(Math.ceil((4 * k) / f)),
       config,
     };
   });

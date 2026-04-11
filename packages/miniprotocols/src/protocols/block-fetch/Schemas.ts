@@ -30,7 +30,7 @@ export const BlockFetchMessage = Schema.Union([
   Schema.TaggedStruct(BlockFetchMessageType.BatchDone, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type BlockFetchMessageT = Schema.Schema.Type<typeof BlockFetchMessage>;
+export type BlockFetchMessageT = typeof BlockFetchMessage.Type;
 
 // ── CBOR helpers for ChainPoint ──
 

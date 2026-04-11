@@ -22,7 +22,7 @@ export const ChainPointSchema = Schema.Union([
   }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type ChainPoint = Schema.Schema.Type<typeof ChainPointSchema>;
+export type ChainPoint = typeof ChainPointSchema.Type;
 
 // ── CBOR wire format ──
 // Origin = [] (empty CBOR array)

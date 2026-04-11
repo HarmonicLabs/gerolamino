@@ -11,8 +11,8 @@
       };
 
       lsmFfiSrc = lib.fileset.toSource {
-        root = root + "/haskell/lsm-ffi";
-        fileset = root + "/haskell/lsm-ffi";
+        root = root + "/packages/lsm-tree/haskell/lsm-ffi";
+        fileset = root + "/packages/lsm-tree/haskell/lsm-ffi";
       };
 
       # Compile Zig init code to a relocatable object file.

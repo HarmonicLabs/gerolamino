@@ -42,9 +42,7 @@ export class LocalTxSubmitClient extends ServiceMap.Service<
     LocalTxSubmitClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.LocalTxSubmission)
-        .pipe(Effect.mapError((cause) => new LocalTxSubmitError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.LocalTxSubmission);
 
       const sendMessage = (msg: Schemas.LocalTxSubmitMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));

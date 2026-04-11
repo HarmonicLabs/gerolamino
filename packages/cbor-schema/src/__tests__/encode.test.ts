@@ -1,5 +1,5 @@
 import { it, describe, expect } from "@effect/vitest";
-import { encodeSync, CborKinds, type CborSchemaType } from "../index";
+import { encodeSync, CborKinds, type CborSchemaType } from "..";
 
 const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes)

@@ -5,14 +5,6 @@ import { describe, it, expect } from "@effect/vitest";
 import { createActor } from "xstate";
 import { chainDBMachine } from "../machines/chaindb.ts";
 
-const makeBlock = (slot: bigint, blockNo: bigint) => ({
-  slot,
-  hash: new Uint8Array(32).fill(Number(slot % 256n)),
-  prevHash: slot > 0n ? new Uint8Array(32).fill(Number((slot - 1n) % 256n)) : undefined,
-  blockNo,
-  blockSizeBytes: 1000,
-  blockCbor: new Uint8Array(100),
-});
 
 describe("ChainDB Machine", () => {
   it("starts in idle state with correct context", () => {
@@ -33,7 +25,7 @@ describe("ChainDB Machine", () => {
   it("transitions to received on BLOCK_RECEIVED, increments volatileLength", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
-    actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
+    actor.send({ type: "BLOCK_RECEIVED" });
     const snap = actor.getSnapshot();
     expect(snap.value.blockProcessing).toBe("received");
     expect(snap.context.volatileLength).toBe(1);
@@ -43,7 +35,7 @@ describe("ChainDB Machine", () => {
   it("transitions back to idle on CHAIN_SELECTED, updates tip", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
-    actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
+    actor.send({ type: "BLOCK_RECEIVED" });
     const tip = { slot: 1n, hash: new Uint8Array(32).fill(1) };
     actor.send({ type: "CHAIN_SELECTED", tip });
     const snap = actor.getSnapshot();
@@ -57,7 +49,7 @@ describe("ChainDB Machine", () => {
     actor.start();
     // Add 3 blocks to exceed k=2
     for (let i = 1; i <= 3; i++) {
-      actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(BigInt(i), BigInt(i)) });
+      actor.send({ type: "BLOCK_RECEIVED" });
       actor.send({
         type: "CHAIN_SELECTED",
         tip: { slot: BigInt(i), hash: new Uint8Array(32).fill(i) },
@@ -72,7 +64,7 @@ describe("ChainDB Machine", () => {
   it("IMMUTABILITY_CHECK stays idle when volatileLength <= k", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
     actor.start();
-    actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
+    actor.send({ type: "BLOCK_RECEIVED" });
     actor.send({ type: "CHAIN_SELECTED", tip: { slot: 1n, hash: new Uint8Array(32).fill(1) } });
     actor.send({ type: "IMMUTABILITY_CHECK" });
     expect(actor.getSnapshot().value.immutability).toBe("idle");
@@ -82,9 +74,9 @@ describe("ChainDB Machine", () => {
   it("full immutability cycle: copying -> gc -> idle", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 1 } });
     actor.start();
-    actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(1n, 1n) });
+    actor.send({ type: "BLOCK_RECEIVED" });
     actor.send({ type: "CHAIN_SELECTED", tip: { slot: 1n, hash: new Uint8Array(32).fill(1) } });
-    actor.send({ type: "BLOCK_RECEIVED", block: makeBlock(2n, 2n) });
+    actor.send({ type: "BLOCK_RECEIVED" });
     actor.send({ type: "CHAIN_SELECTED", tip: { slot: 2n, hash: new Uint8Array(32).fill(2) } });
     expect(actor.getSnapshot().context.volatileLength).toBe(2);
 
@@ -96,7 +88,10 @@ describe("ChainDB Machine", () => {
 
     actor.send({ type: "GC_COMPLETE" });
     expect(actor.getSnapshot().value.immutability).toBe("idle");
-    expect(actor.getSnapshot().context.volatileLength).toBe(1);
+    // volatileLength stays at 2 because manual COPY_COMPLETE/GC_COMPLETE bypass
+    // the promoteBlocks actor which returns the promoted count. In production,
+    // promoteBlocks.onDone decrements by the actual number promoted.
+    expect(actor.getSnapshot().context.volatileLength).toBe(2);
     actor.stop();
   });
 

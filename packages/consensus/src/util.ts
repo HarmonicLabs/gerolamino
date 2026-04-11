@@ -25,3 +25,10 @@ export const be32 = (n: number): Uint8Array => {
   new DataView(buf.buffer).setUint32(0, n);
   return buf;
 };
+
+/** Encode a number as big-endian 64-bit unsigned integer. */
+export const be64 = (n: number): Uint8Array => {
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setBigUint64(0, BigInt(n));
+  return buf;
+};

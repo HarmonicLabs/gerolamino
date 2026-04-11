@@ -3,12 +3,11 @@
  *
  * Block CBOR stored in BlobStore (LSM / IndexedDB), metadata in SQL.
  */
-import { Effect, Layer, Stream, ServiceMap } from "effect";
+import { Effect, Layer, Option, Stream, ServiceMap } from "effect";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 import { ImmutableDBError } from "../errors.ts";
-import { BlobStore } from "../blob-store/service.ts";
-import { SqliteDrizzle } from "../db/client.ts";
-import { PREFIX_BLK } from "../blob-store/keys.ts";
+import { BlobStore, PREFIX_BLK } from "../blob-store";
+import { SqliteDrizzle } from "../db";
 import {
   writeImmutableBlock,
   readImmutableBlock,
@@ -19,8 +18,8 @@ export class ImmutableDB extends ServiceMap.Service<
   ImmutableDB,
   {
     readonly appendBlock: (block: StoredBlock) => Effect.Effect<void, ImmutableDBError>;
-    readonly readBlock: (point: RealPoint) => Effect.Effect<StoredBlock | undefined, ImmutableDBError>;
-    readonly getTip: Effect.Effect<RealPoint | undefined, ImmutableDBError>;
+    readonly readBlock: (point: RealPoint) => Effect.Effect<Option.Option<StoredBlock>, ImmutableDBError>;
+    readonly getTip: Effect.Effect<Option.Option<RealPoint>, ImmutableDBError>;
     readonly streamBlocks: (
       fromSlot: bigint,
       toSlot: bigint,
@@ -56,7 +55,8 @@ export const ImmutableDBLive: Layer.Layer<ImmutableDB, never, BlobStore | Sqlite
               const hash = entry.key.slice(12, 44);
               return provide(readImmutableBlock({ slot, hash }));
             }),
-            Stream.filter((block): block is StoredBlock => block !== undefined),
+            Stream.filter(Option.isSome),
+            Stream.map((opt) => opt.value),
             Stream.mapError((cause) => new ImmutableDBError({ operation: "streamBlocks", cause })),
           ),
       };

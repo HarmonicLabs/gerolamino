@@ -44,7 +44,7 @@ export const LocalChainSyncMessage = Schema.Union([
   Schema.TaggedStruct(LocalChainSyncMessageType.Done, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type LocalChainSyncMessageT = Schema.Schema.Type<typeof LocalChainSyncMessage>;
+export type LocalChainSyncMessageT = typeof LocalChainSyncMessage.Type;
 
 // ── CBOR helpers for ChainPoint / ChainTip ──
 

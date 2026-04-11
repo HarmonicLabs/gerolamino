@@ -39,7 +39,7 @@ export const LocalStateQueryMessage = Schema.Union([
   Schema.TaggedStruct(LocalStateQueryMessageType.Done, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type LocalStateQueryMessageT = Schema.Schema.Type<typeof LocalStateQueryMessage>;
+export type LocalStateQueryMessageT = typeof LocalStateQueryMessage.Type;
 
 // ── CBOR helpers for ChainPoint ──
 

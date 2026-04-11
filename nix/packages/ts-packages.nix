@@ -1,9 +1,9 @@
 # Unified TypeScript package build using bun2nix + Nx.
 # Builds all TS packages in dependency order via `bunx nx run-many`.
 { inputs, root, ... }: {
-  perSystem = { system, lib, self', pkgs, ... }:
+  perSystem = { lib, self', pkgs, inputs', ... }:
     let
-      bun2nix = inputs.bun2nix.packages.${system}.bun2nix;
+      bun2nix = inputs'.bun2nix.packages.bun2nix;
 
       bunDeps = bun2nix.fetchBunDeps {
         bunNix = root + "/bun.nix";
@@ -47,7 +47,11 @@
           (root + "/packages/wasm-utils/package.json")
           (root + "/packages/bootstrap/package.json")
           (root + "/packages/chrome-ext/package.json")
+          (root + "/packages/consensus/package.json")
+          (root + "/packages/dashboard/package.json")
+          (root + "/packages/lsm-tree/package.json")
           (root + "/apps/bootstrap/package.json")
+          (root + "/apps/tui/package.json")
         ];
       };
     in
@@ -59,8 +63,12 @@
 
         nativeBuildInputs = [ pkgs.bun bun2nix.hook ];
 
+        # bun2nix doesn't generate .npm manifest cache files (bun2nix#77),
+        # so bun install still needs network access to fetch manifests.
+        __noChroot = true;
+
         inherit bunDeps;
-        bunInstallFlags = [ "--backend=copyfile" ];
+        bunInstallFlags = [ "--backend=copyfile" "--frozen-lockfile" ];
 
         dontUseBunBuild = true;
         dontRunLifecycleScripts = true;

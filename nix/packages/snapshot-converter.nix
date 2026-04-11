@@ -1,8 +1,8 @@
-# snapshot-converter from ouroboros-consensus flake.
-# Converts Mithril snapshots between V1LMDB / V2LSM / InMemory formats.
-{ inputs, ... }: {
-  perSystem = { system, ... }: {
+# snapshot-converter from ouroboros-consensus flake (pinned to pre-Peras commit).
+# Converts Mithril snapshots: LMDB → V2LSM.
+{ ... }: {
+  perSystem = { inputs', ... }: {
     packages.snapshot-converter =
-      inputs.ouroboros-consensus.packages.${system}.snapshot-converter;
+      inputs'.ouroboros-consensus.packages.snapshot-converter;
   };
 }

@@ -16,10 +16,11 @@ export interface MempoolContext {
 }
 
 export const mempoolMachine = setup({
-  types: {
-    context: {} as MempoolContext,
-    events: {} as MempoolEvent,
-    input: {} as { maxBytes: number },
+  // XState v5 phantom types — value ignored at runtime, used only for TS inference
+  types: {} as {
+    context: MempoolContext;
+    events: MempoolEvent;
+    input: { maxBytes: number };
   },
   guards: {
     hasCapacity: ({ context, event }) => {

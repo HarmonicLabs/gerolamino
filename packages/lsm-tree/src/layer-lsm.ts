@@ -6,9 +6,17 @@
  * Uint8Array buffers, Zig copies data in/out.
  */
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import { Config, Effect, Layer, Stream } from "effect";
-import { BlobStore, BlobStoreError } from "storage/blob-store/service";
-import { prefixEnd } from "storage/blob-store/keys";
+import { Config, Effect, Layer, Option, Schema, Stream } from "effect";
+import { BlobStore, prefixEnd } from "storage";
+
+/** Typed error for LSM bridge FFI failures. */
+export class LsmBridgeError extends Schema.TaggedErrorClass<LsmBridgeError>()(
+  "LsmBridgeError",
+  {
+    operation: Schema.String,
+    cause: Schema.Defect,
+  },
+) {}
 
 /** Config key for the path to liblsm-bridge.so. Yieldable in Effect.gen. */
 export const LsmBridgePath = Config.string("LIBLSM_BRIDGE_PATH");
@@ -19,11 +27,11 @@ const BRIDGE_SYMBOLS = {
     returns: FFIType.int,
   },
   lsm_bridge_init_from_snapshot: {
-    args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64],
+    args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64],
     returns: FFIType.int,
   },
   lsm_bridge_open_snapshot: {
-    args: [FFIType.ptr, FFIType.u64],
+    args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64],
     returns: FFIType.int,
   },
   lsm_bridge_put: {
@@ -43,7 +51,7 @@ const BRIDGE_SYMBOLS = {
     returns: FFIType.int,
   },
   lsm_bridge_snapshot: {
-    args: [FFIType.ptr, FFIType.u64],
+    args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64],
     returns: FFIType.int,
   },
   lsm_bridge_cursor_open: {
@@ -62,103 +70,81 @@ const BRIDGE_SYMBOLS = {
 
 type BridgeLib = ReturnType<typeof dlopen<typeof BRIDGE_SYMBOLS>>["symbols"];
 
-const fail = (operation: string, cause: unknown) =>
-  new BlobStoreError({ operation, cause });
-
 const lenBuf = new BigUint64Array(1);
 
 /** Number of entries to read per cursor batch. */
 const CURSOR_BATCH_SIZE = 256;
 
-const lsmGet = (ffi: BridgeLib, key: Uint8Array): Uint8Array | undefined => {
-  lenBuf[0] = 0n;
-  const rc1 = ffi.lsm_bridge_get(ptr(key), key.byteLength, null, 0, lenBuf);
-  if (rc1 === 1) return undefined;
-  if (rc1 !== 0) throw `lsm_bridge_get phase 1 returned ${rc1}`;
-  const len = Number(lenBuf[0]);
-  if (len === 0) return new Uint8Array(0);
-  const outBuf = new Uint8Array(len);
-  lenBuf[0] = 0n;
-  const rc2 = ffi.lsm_bridge_get(ptr(key), key.byteLength, ptr(outBuf), len, lenBuf);
-  if (rc2 !== 0) throw `lsm_bridge_get phase 2 returned ${rc2}`;
-  return outBuf;
+const lsmGet = (ffi: BridgeLib, key: Uint8Array): Effect.Effect<Option.Option<Uint8Array>, LsmBridgeError> =>
+  Effect.gen(function* () {
+    lenBuf[0] = 0n;
+    const rc1 = ffi.lsm_bridge_get(ptr(key), key.byteLength, null, 0, lenBuf);
+    if (rc1 === 1) return Option.none();
+    if (rc1 !== 0) return yield* new LsmBridgeError({ operation: "get", cause: `lsm_bridge_get phase 1 returned ${rc1}` });
+    const len = Number(lenBuf[0]);
+    if (len === 0) return Option.some(new Uint8Array(0));
+    const outBuf = new Uint8Array(len);
+    lenBuf[0] = 0n;
+    const rc2 = ffi.lsm_bridge_get(ptr(key), key.byteLength, ptr(outBuf), len, lenBuf);
+    if (rc2 !== 0) return yield* new LsmBridgeError({ operation: "get", cause: `lsm_bridge_get phase 2 returned ${rc2}` });
+    return Option.some(outBuf);
+  });
+
+/** Parse the flat [key_len:u32 LE][key][val_len:u32 LE][val]... buffer. */
+const parseBatch = (buf: Uint8Array, count: number) => {
+  const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+  const view = new DataView(buf.buffer, buf.byteOffset);
+  let off = 0;
+  for (let i = 0; i < count; i++) {
+    const kLen = view.getUint32(off, true);
+    off += 4;
+    const key = buf.slice(off, off + kLen);
+    off += kLen;
+    const vLen = view.getUint32(off, true);
+    off += 4;
+    const value = buf.slice(off, off + vLen);
+    off += vLen;
+    entries.push({ key, value });
+  }
+  return entries;
+};
+
+/** Compare two Uint8Arrays lexicographically. Returns true if a < b. */
+const lessThan = (a: Uint8Array, b: Uint8Array): boolean => {
+  const len = Math.min(a.byteLength, b.byteLength);
+  for (let i = 0; i < len; i++) {
+    if (a[i]! < b[i]!) return true;
+    if (a[i]! > b[i]!) return false;
+  }
+  return a.byteLength < b.byteLength;
 };
 
 /** Build BlobStore operations from an initialized FFI handle. */
 const makeBlobStoreOps = (ffi: BridgeLib) => ({
-  get: (key: Uint8Array) =>
-    Effect.try({ try: () => lsmGet(ffi, key), catch: (cause) => fail("get", cause) }),
+  get: (key: Uint8Array) => lsmGet(ffi, key),
 
   put: (key: Uint8Array, value: Uint8Array) =>
-    Effect.try({
-      try: () => {
-        const rc = ffi.lsm_bridge_put(ptr(key), key.byteLength, ptr(value), value.byteLength);
-        if (rc !== 0) throw `lsm_bridge_put returned ${rc}`;
-      },
-      catch: (cause) => fail("put", cause),
-    }),
+    Effect.sync(() => { ffi.lsm_bridge_put(ptr(key), key.byteLength, ptr(value), value.byteLength); }),
 
   delete: (key: Uint8Array) =>
-    Effect.try({
-      try: () => {
-        const rc = ffi.lsm_bridge_delete(ptr(key), key.byteLength);
-        if (rc !== 0) throw `lsm_bridge_delete returned ${rc}`;
-      },
-      catch: (cause) => fail("delete", cause),
-    }),
+    Effect.sync(() => { ffi.lsm_bridge_delete(ptr(key), key.byteLength); }),
 
   has: (key: Uint8Array) =>
-    Effect.try({
-      try: () => {
-        lenBuf[0] = 0n;
-        return ffi.lsm_bridge_get(ptr(key), key.byteLength, null, 0, lenBuf) === 0;
-      },
-      catch: (cause) => fail("has", cause),
+    Effect.sync(() => {
+      lenBuf[0] = 0n;
+      return ffi.lsm_bridge_get(ptr(key), key.byteLength, null, 0, lenBuf) === 0;
     }),
 
   scan: (prefix: Uint8Array) => {
     const hi = prefixEnd(prefix);
 
-    /** Parse the flat [key_len:u32 LE][key][val_len:u32 LE][val]... buffer. */
-    const parseBatch = (buf: Uint8Array, count: number) => {
-      const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
-      const view = new DataView(buf.buffer, buf.byteOffset);
-      let off = 0;
-      for (let i = 0; i < count; i++) {
-        const kLen = view.getUint32(off, true);
-        off += 4;
-        const key = buf.slice(off, off + kLen);
-        off += kLen;
-        const vLen = view.getUint32(off, true);
-        off += 4;
-        const value = buf.slice(off, off + vLen);
-        off += vLen;
-        entries.push({ key, value });
-      }
-      return entries;
-    };
-
-    /** Compare two Uint8Arrays lexicographically. Returns true if a < b. */
-    const lessThan = (a: Uint8Array, b: Uint8Array): boolean => {
-      const len = Math.min(a.byteLength, b.byteLength);
-      for (let i = 0; i < len; i++) {
-        if (a[i]! < b[i]!) return true;
-        if (a[i]! > b[i]!) return false;
-      }
-      return a.byteLength < b.byteLength;
-    };
-
-    // Acquire a cursor scoped to the stream lifetime, then lazily read batches
     const openCursor = Effect.gen(function* () {
       const handleBuf = new BigUint64Array(1);
       const openRc = prefix.byteLength > 0
         ? ffi.lsm_bridge_cursor_open(ptr(prefix), prefix.byteLength, handleBuf)
         : ffi.lsm_bridge_cursor_open(null, 0, handleBuf);
-      if (openRc !== 0) {
-        return yield* Effect.fail(fail("cursor_open", `lsm_bridge_cursor_open returned ${openRc}`));
-      }
+      if (openRc !== 0) return yield* new LsmBridgeError({ operation: "cursor_open", cause: `lsm_bridge_cursor_open returned ${openRc}` });
       const handle = handleBuf[0]!;
-      // Register finalizer so cursor is closed when scope ends
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => { ffi.lsm_bridge_cursor_close(handle); }),
       );
@@ -166,34 +152,26 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
     });
 
     const readBatch = (handle: bigint) =>
-      Effect.try({
-        try: () => {
-          const outLen = new BigUint64Array(1);
-          const outCount = new BigUint64Array(1);
-          // Phase 1: size query
-          const rc1 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, null, outLen, outCount);
-          if (rc1 === 1) return undefined; // cursor exhausted
-          if (rc1 !== 0) throw `lsm_bridge_cursor_read phase 1 returned ${rc1}`;
-          const count = Number(outCount[0]);
-          const totalLen = Number(outLen[0]);
-          if (count === 0 || totalLen === 0) return undefined;
-          // Phase 2: fill buffer
-          const buf = new Uint8Array(totalLen);
-          const rc2 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, ptr(buf), outLen, outCount);
-          if (rc2 !== 0) throw `lsm_bridge_cursor_read phase 2 returned ${rc2}`;
-          return parseBatch(buf, count);
-        },
-        catch: (cause) => fail("cursor_read", cause),
+      Effect.gen(function* () {
+        const outLen = new BigUint64Array(1);
+        const outCount = new BigUint64Array(1);
+        const rc1 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, null, outLen, outCount);
+        if (rc1 === 1) return undefined;
+        if (rc1 !== 0) return yield* new LsmBridgeError({ operation: "cursor_read", cause: `lsm_bridge_cursor_read phase 1 returned ${rc1}` });
+        const count = Number(outCount[0]);
+        const totalLen = Number(outLen[0]);
+        if (count === 0 || totalLen === 0) return undefined;
+        const buf = new Uint8Array(totalLen);
+        const rc2 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, ptr(buf), outLen, outCount);
+        if (rc2 !== 0) return yield* new LsmBridgeError({ operation: "cursor_read", cause: `lsm_bridge_cursor_read phase 2 returned ${rc2}` });
+        return parseBatch(buf, count);
       });
 
-    // Stream.scoped satisfies the Scope requirement from addFinalizer.
-    // Stream.unwrap lifts Effect<Stream> → Stream.
-    // Stream.unfold lazily reads batches; returning undefined → Cause.done().
-    return Stream.scoped(
-      Stream.unwrap(
-        Effect.map(openCursor, (handle) =>
-          Stream.unfold(handle, (h) =>
-            Effect.map(readBatch(h), (batch) => {
+    return openCursor.pipe(
+      Effect.map((handle) =>
+        Stream.unfold(handle, (h) =>
+          readBatch(h).pipe(
+            Effect.map((batch) => {
               if (batch === undefined) return undefined;
               const filtered = hi.byteLength > 0
                 ? batch.filter((e) => lessThan(e.key, hi))
@@ -201,32 +179,23 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
               if (filtered.length === 0) return undefined;
               return [filtered, h] as const;
             }),
-          ).pipe(Stream.flatMap((entries) => Stream.fromIterable(entries))),
-        ),
+          ),
+        ).pipe(Stream.flatMap((entries) => Stream.fromIterable(entries))),
       ),
+      Stream.unwrap,
+      Stream.scoped,
     );
   },
 
   putBatch: (entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>) =>
-    Effect.try({
-      try: () => {
-        for (const { key, value } of entries) {
-          const rc = ffi.lsm_bridge_put(ptr(key), key.byteLength, ptr(value), value.byteLength);
-          if (rc !== 0) throw `lsm_bridge_put returned ${rc}`;
-        }
-      },
-      catch: (cause) => fail("putBatch", cause),
+    Effect.sync(() => {
+      for (const { key, value } of entries)
+        ffi.lsm_bridge_put(ptr(key), key.byteLength, ptr(value), value.byteLength);
     }),
 
   deleteBatch: (keys: ReadonlyArray<Uint8Array>) =>
-    Effect.try({
-      try: () => {
-        for (const key of keys) {
-          const rc = ffi.lsm_bridge_delete(ptr(key), key.byteLength);
-          if (rc !== 0) throw `lsm_bridge_delete returned ${rc}`;
-        }
-      },
-      catch: (cause) => fail("deleteBatch", cause),
+    Effect.sync(() => {
+      for (const key of keys) ffi.lsm_bridge_delete(ptr(key), key.byteLength);
     }),
 });
 
@@ -241,42 +210,36 @@ export const layerLsm = (dataDir: string) =>
     Effect.gen(function* () {
       const libPath = yield* LsmBridgePath;
       const ffi = dlopen(libPath, BRIDGE_SYMBOLS).symbols;
-
       const pathBytes = new TextEncoder().encode(dataDir);
-      const initResult = ffi.lsm_bridge_init(ptr(pathBytes), pathBytes.byteLength);
-      if (initResult !== 0) {
-        return yield* Effect.fail(fail("init", `lsm_bridge_init returned ${initResult}`));
-      }
-
+      ffi.lsm_bridge_init(ptr(pathBytes), pathBytes.byteLength);
       return makeBlobStoreOps(ffi);
     }),
   );
+
+/** Default snapshot label used by cardano-node V2LSM. */
+const DEFAULT_SNAPSHOT_LABEL = "UTxO table";
 
 /**
  * BlobStore layer from an existing V2LSM snapshot.
  * Opens a session at sessionDir and restores a table from snapshotName.
  * @param sessionDir Path to the LSM session directory (containing snapshots/)
  * @param snapshotName Name of the snapshot to restore
+ * @param label Snapshot label for validation (default: "UTxO table" for cardano-node compatibility)
  */
-export const layerLsmFromSnapshot = (sessionDir: string, snapshotName: string) =>
+export const layerLsmFromSnapshot = (sessionDir: string, snapshotName: string, label = DEFAULT_SNAPSHOT_LABEL) =>
   Layer.effect(
     BlobStore,
     Effect.gen(function* () {
       const libPath = yield* LsmBridgePath;
       const ffi = dlopen(libPath, BRIDGE_SYMBOLS).symbols;
-
       const pathBytes = new TextEncoder().encode(sessionDir);
       const nameBytes = new TextEncoder().encode(snapshotName);
-      const initResult = ffi.lsm_bridge_init_from_snapshot(
+      const labelBytes = new TextEncoder().encode(label);
+      ffi.lsm_bridge_init_from_snapshot(
         ptr(pathBytes), pathBytes.byteLength,
         ptr(nameBytes), nameBytes.byteLength,
+        ptr(labelBytes), labelBytes.byteLength,
       );
-      if (initResult !== 0) {
-        return yield* Effect.fail(
-          fail("init_from_snapshot", `lsm_bridge_init_from_snapshot returned ${initResult}`),
-        );
-      }
-
       return makeBlobStoreOps(ffi);
     }),
   );

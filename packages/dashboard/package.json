@@ -1,0 +1,11 @@
+{
+  "name": "dashboard",
+  "private": true,
+  "version": "0.0.1",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "effect": "^4.0.0-beta.43",
+    "@effect/atom-solid": "^4.0.0-beta.43",
+    "solid-js": "^1.9.12"
+  }
+}

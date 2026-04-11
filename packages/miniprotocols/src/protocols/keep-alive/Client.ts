@@ -69,9 +69,7 @@ export class KeepAliveClient extends ServiceMap.Service<
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
       const keepAliveInterval = yield* KeepAliveInterval;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.KeepAlive)
-        .pipe(Effect.mapError((cause) => new KeepAliveError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.KeepAlive);
 
       const sendMessage = (msg: Schemas.KeepAliveMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));

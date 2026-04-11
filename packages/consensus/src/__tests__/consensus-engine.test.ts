@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Effect, Layer } from "effect";
+import { Effect, HashMap, Layer } from "effect";
 import { ConsensusEngine, ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { ChainTip } from "../chain-selection";
 import { hex } from "../util";
@@ -32,8 +32,8 @@ const makeView = (header: BlockHeader): LedgerView => {
   const poolId = poolIdFromVk(header.issuerVk);
   return {
     epochNonce: new Uint8Array(32),
-    poolVrfKeys: new Map([[poolId, header.vrfVk]]),
-    poolStake: new Map([[poolId, 1_000_000n]]),
+    poolVrfKeys: HashMap.make([poolId, header.vrfVk]),
+    poolStake: HashMap.make([poolId, 1_000_000n]),
     totalStake: 10_000_000n, activeSlotsCoeff: 0.05, maxKesEvolutions: 62,
   };
 };

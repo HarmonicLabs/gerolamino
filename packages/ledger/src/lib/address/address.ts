@@ -28,27 +28,27 @@ export const BaseAddr = Schema.Struct({
   pay: Credential,
   stake: Credential,
 });
-export type BaseAddr = Schema.Schema.Type<typeof BaseAddr>;
+export type BaseAddr = typeof BaseAddr.Type;
 
 // Enterprise address: payment credential only (no staking)
 export const EnterpriseAddr = Schema.Struct({
   net: Schema.Enum(Network),
   pay: Credential,
 });
-export type EnterpriseAddr = Schema.Schema.Type<typeof EnterpriseAddr>;
+export type EnterpriseAddr = typeof EnterpriseAddr.Type;
 
 // Reward address: stake credential only (for withdrawals)
 export const RwdAddr = Schema.Struct({
   net: Schema.Enum(Network),
   stake: Credential,
 });
-export type RwdAddr = Schema.Schema.Type<typeof RwdAddr>;
+export type RwdAddr = typeof RwdAddr.Type;
 
 // Bootstrap (Byron) address: opaque bytes
 export const BootstrapAddr = Schema.Struct({
   bytes: Schema.Uint8Array,
 });
-export type BootstrapAddr = Schema.Schema.Type<typeof BootstrapAddr>;
+export type BootstrapAddr = typeof BootstrapAddr.Type;
 
 // Full address union
 export const Addr = Schema.Union([
@@ -58,7 +58,7 @@ export const Addr = Schema.Union([
   Schema.TaggedStruct(AddrKind.Bootstrap, { ...BootstrapAddr.fields }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type Addr = Schema.Schema.Type<typeof Addr>;
+export type Addr = typeof Addr.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Address binary encoding helpers
@@ -68,9 +68,10 @@ export type Addr = Schema.Schema.Type<typeof Addr>;
 //   Bits 3-0: network id (for Shelley) or additional type info
 // ────────────────────────────────────────────────────────────────────────────
 
-function credKindBit(cred: Credential): number {
-  return cred._tag === CredentialKind.Script ? 1 : 0;
-}
+const credKindBit = Credential.match({
+  [CredentialKind.KeyHash]: () => 0,
+  [CredentialKind.Script]: () => 1,
+});
 
 function makeCredential(kind: CredentialKind, hash: Uint8Array): Credential {
   return { _tag: kind, hash };

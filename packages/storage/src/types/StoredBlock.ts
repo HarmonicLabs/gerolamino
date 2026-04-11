@@ -10,7 +10,7 @@ export const RealPoint = Schema.Struct({
   slot: Schema.BigInt,
   hash: Schema.Uint8Array, // 32 bytes
 });
-export type RealPoint = Schema.Schema.Type<typeof RealPoint>;
+export type RealPoint = typeof RealPoint.Type;
 
 export const StoredBlock = Schema.Struct({
   slot: Schema.BigInt,
@@ -20,4 +20,4 @@ export const StoredBlock = Schema.Struct({
   blockSizeBytes: Schema.Number,
   blockCbor: Schema.Uint8Array, // raw block CBOR for re-encoding/forwarding
 });
-export type StoredBlock = Schema.Schema.Type<typeof StoredBlock>;
+export type StoredBlock = typeof StoredBlock.Type;

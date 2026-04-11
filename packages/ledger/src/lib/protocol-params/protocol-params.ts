@@ -32,7 +32,7 @@ export const DRepThresholds = Schema.Struct({
   p5d: Rational, // ChangePParams (governance)
   p6: Rational, // TreasuryWdrl
 });
-export type DRepThresholds = Schema.Schema.Type<typeof DRepThresholds>;
+export type DRepThresholds = typeof DRepThresholds.Type;
 
 export const PoolThresholds = Schema.Struct({
   q1: Rational, // NoConfidence
@@ -41,7 +41,7 @@ export const PoolThresholds = Schema.Struct({
   q4: Rational, // TriggerHF
   q5: Rational, // ChangePParams (security)
 });
-export type PoolThresholds = Schema.Schema.Type<typeof PoolThresholds>;
+export type PoolThresholds = typeof PoolThresholds.Type;
 
 // ---------------------------------------------------------------------------
 // Execution units (shared sub-schema for Alonzo+)
@@ -61,7 +61,7 @@ export const CostModels = Schema.Struct({
   plutusV2: Schema.optional(Schema.Array(Schema.BigInt)), // 175 params
   plutusV3: Schema.optional(Schema.Array(Schema.BigInt)), // 251 params
 });
-export type CostModels = Schema.Schema.Type<typeof CostModels>;
+export type CostModels = typeof CostModels.Type;
 
 // ---------------------------------------------------------------------------
 // VariantSchema setup: era variants for PParams
@@ -129,19 +129,19 @@ export const PParams = PV.Struct({
 
 /** Shelley-era PParams schema (no execution units, no governance) */
 export const ShelleyPParams = PV.extract(PParams, "shelley");
-export type ShelleyPParams = Schema.Schema.Type<typeof ShelleyPParams>;
+export type ShelleyPParams = typeof ShelleyPParams.Type;
 
 /** Alonzo-era PParams schema (adds execution units) */
 export const AlonzoPParams = PV.extract(PParams, "alonzo");
-export type AlonzoPParams = Schema.Schema.Type<typeof AlonzoPParams>;
+export type AlonzoPParams = typeof AlonzoPParams.Type;
 
 /** Babbage-era PParams schema (same fields as Alonzo, different semantics for coinsPerUTxOByte) */
 export const BabbagePParams = PV.extract(PParams, "babbage");
-export type BabbagePParams = Schema.Schema.Type<typeof BabbagePParams>;
+export type BabbagePParams = typeof BabbagePParams.Type;
 
 /** Conway-era PParams schema (all fields including governance) */
 export const ConwayPParams = PV.extract(PParams, "conway");
-export type ConwayPParams = Schema.Schema.Type<typeof ConwayPParams>;
+export type ConwayPParams = typeof ConwayPParams.Type;
 
 // ---------------------------------------------------------------------------
 // PParamsUpdate — all fields optional (for governance proposals)
@@ -186,4 +186,4 @@ export const PParamsUpdate = Schema.Struct({
   drepDeposit: opt(Schema.BigInt),
   drepActivity: opt(Schema.BigInt),
 });
-export type PParamsUpdate = Schema.Schema.Type<typeof PParamsUpdate>;
+export type PParamsUpdate = typeof PParamsUpdate.Type;

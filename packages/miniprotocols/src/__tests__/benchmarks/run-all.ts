@@ -404,7 +404,7 @@ async function main() {
     try {
       await fn();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : ((e as any)?._tag ?? String(e));
+      const msg = e instanceof Error ? e.message : (e !== null && typeof e === "object" && "_tag" in e ? String(e._tag) : String(e));
       console.error(`\n[WARN] ${fn.name} failed:`, msg);
     }
     await pause(10_000); // let connections fully close + avoid node rate limit

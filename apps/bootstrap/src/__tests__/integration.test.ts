@@ -3,7 +3,7 @@ import { Effect, Layer, Stream } from "effect";
 import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { readSnapshotMeta, bootstrapStream } from "../loader.ts";
 import { MessageTag, decodeFrame } from "bootstrap";
-import { BlobStore, BlobStoreError } from "storage/blob-store/index";
+import { BlobStore, BlobStoreError } from "storage";
 
 const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer);
 

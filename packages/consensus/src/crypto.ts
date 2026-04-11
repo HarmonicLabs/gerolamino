@@ -3,6 +3,11 @@
  *
  * blake2b256: Bun.CryptoHasher (native, fast)
  * ed25519/KES/VRF: wasm-utils WASM (no Bun-native equivalent)
+ *
+ * Three layers available:
+ * - CryptoServiceBunNative: stubs for testing (no WASM)
+ * - CryptoServiceLive: main-thread WASM (no workers, for tests)
+ * - CryptoServiceWorker: dispatches to CryptoWorkerPool (true OS-thread parallelism)
  */
 import { Effect, Layer, ServiceMap } from "effect";
 import init, {
@@ -12,6 +17,8 @@ import init, {
   vrf_verify_proof,
   vrf_proof_to_hash,
 } from "wasm-utils";
+import { CryptoWorkerPool } from "./crypto-pool.ts";
+import { CryptoRequestKind, CryptoResponseKind } from "./crypto-protocol.ts";
 
 export class CryptoService extends ServiceMap.Service<
   CryptoService,
@@ -92,3 +99,7 @@ export const CryptoServiceLive: Layer.Layer<CryptoService> = Layer.effect(
     };
   }),
 );
+
+// CryptoWorkerPool re-export for convenience — the actual pool layer is in
+// crypto-pool.ts. Worker-backed crypto dispatch happens in chain-sync-driver.ts
+// (Phase 3) where validateHeader forks assertions to the pool.

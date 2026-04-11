@@ -8,12 +8,12 @@
 # Build:  nix build .#bootstrap-image
 # Push:   nix run .#bootstrap-image.copyToRegistry -- docker://ghcr.io/harmoniclabs/bootstrap:latest
 # Run:    nix run .#bootstrap-image.copyToDockerDaemon && docker run -p 3040:3040 -v /path:/data:ro bootstrap:latest
-{ inputs, root, ... }: {
-  perSystem = { system, lib, self', pkgs, ... }:
+{ root, ... }: {
+  perSystem = { lib, self', pkgs, inputs', ... }:
     let
-      nix2container = inputs.nix2container.packages.${system}.nix2container;
+      nix2container = inputs'.nix2container.packages.nix2container;
 
-      bun2nix = inputs.bun2nix.packages.${system}.bun2nix;
+      bun2nix = inputs'.bun2nix.packages.bun2nix;
 
       bunDeps = bun2nix.fetchBunDeps {
         bunNix = root + "/bun.nix";
@@ -52,6 +52,10 @@
 
           (root + "/packages/miniprotocols/package.json")
 
+          (root + "/packages/chrome-ext/package.json")
+          (root + "/packages/dashboard/package.json")
+          (root + "/apps/tui/package.json")
+
           (root + "/packages/storage/src")
           (root + "/packages/storage/package.json")
           (root + "/packages/storage/tsconfig.json")
@@ -74,8 +78,12 @@
 
         nativeBuildInputs = [ pkgs.bun bun2nix.hook pkgs.makeWrapper ];
 
+        # bun2nix doesn't generate .npm manifest cache files (bun2nix#77),
+        # so bun install still needs network access to fetch manifests.
+        __noChroot = true;
+
         inherit bunDeps;
-        bunInstallFlags = [ "--backend=copyfile" ];
+        bunInstallFlags = [ "--backend=copyfile" "--frozen-lockfile" ];
 
         dontUseBunBuild = true;
         dontRunLifecycleScripts = true;

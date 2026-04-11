@@ -42,7 +42,7 @@ export const Relay = Schema.Union([
   }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type Relay = Schema.Schema.Type<typeof Relay>;
+export type Relay = typeof Relay.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Pool Metadata
@@ -53,7 +53,7 @@ export const PoolMetadata = Schema.Struct({
   url: Schema.String.pipe(Schema.check(Schema.isMaxLength(128))),
   hash: Bytes32,
 });
-export type PoolMetadata = Schema.Schema.Type<typeof PoolMetadata>;
+export type PoolMetadata = typeof PoolMetadata.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // PoolParams — stake pool registration parameters
@@ -72,7 +72,7 @@ export const PoolParams = Schema.Struct({
   relays: Schema.Array(Relay),
   metadata: Schema.optional(PoolMetadata),
 });
-export type PoolParams = Schema.Schema.Type<typeof PoolParams>;
+export type PoolParams = typeof PoolParams.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR encoding helpers (module-private)

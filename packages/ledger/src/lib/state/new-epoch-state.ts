@@ -7,9 +7,10 @@
  * Key encoding quirk: Credential tags are REVERSED in state CBOR vs block CBOR.
  * State: 0=Script, 1=Key. Block/CDDL: 0=Key, 1=Script.
  */
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { CborKinds, type CborSchemaType, parseSync } from "cbor-schema";
 import { Era } from "../core/era.ts";
+import { hashToHex } from "../core/hash-utils.ts";
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -98,11 +99,11 @@ function decodeMap<T>(
 
 // Hex-encode a credential for use as map key
 function credKey(cred: StateCredential): string {
-  return `${cred.kind}:${Buffer.from(cred.hash).toString("hex")}`;
+  return `${cred.kind}:${hashToHex(cred.hash)}`;
 }
 
 function hashKey(hash: Uint8Array): string {
-  return Buffer.from(hash).toString("hex");
+  return hashToHex(hash);
 }
 
 // Unwrap Tag(258, Array) or bare Array into items
@@ -329,6 +330,54 @@ function decodeDRepState(cbor: CborSchemaType): Effect.Effect<DRepState, StateDe
 }
 
 // ---------------------------------------------------------------------------
+// RewardAccount: raw bytes (old) or structured [network, credential] (new)
+// ---------------------------------------------------------------------------
+
+/**
+ * Decode a reward account that may be raw serialized bytes OR a structured
+ * CBOR array [network, credential] (newer cardano-node state encoding).
+ * Reconstructs the canonical 29-byte serialized reward address either way.
+ *
+ * Haskell ref: AccountAddress EncCBOR in cardano-ledger-core Address.hs
+ * Old format: encCBOR (putAccountAddress → 29 raw bytes)
+ * New format: derived struct encoding [network, credential]
+ *   where credential is [credType, hash] or raw hash bytes
+ */
+function decodeRewardAccount(
+  cbor: CborSchemaType,
+  ctx: string,
+): Effect.Effect<Uint8Array, StateDecodeError> {
+  // Old format: already serialized as raw bytes
+  return expectBytes(cbor, ctx).pipe(
+    Effect.catchTag("StateDecodeError", () =>
+      // New format: [network, credential_or_hash]
+      Effect.gen(function* () {
+        const items = yield* expectArray(cbor, ctx, 2);
+        const network = yield* expectUint(items[0]!, `${ctx}.network`);
+
+        // Credential may be structured [credType, hash] or raw hash bytes
+        // (pool reward accounts are always key-based per Cardano spec)
+        const { kind, hash } = yield* decodeStateCredential(items[1]!, `${ctx}.cred`).pipe(
+          Effect.catchTag("StateDecodeError", () =>
+            expectBytes(items[1]!, `${ctx}.hash`).pipe(
+              Effect.map((h) => ({ kind: "key" as const, hash: h })),
+            ),
+          ),
+        );
+
+        // Reconstruct serialized reward address:
+        // Header: 0xe0 (key) or 0xf0 (script) | network
+        const headerByte = (kind === "key" ? 0xe0 : 0xf0) | Number(network);
+        const result = new Uint8Array(29);
+        result[0] = headerByte;
+        result.set(hash, 1);
+        return result;
+      }),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PoolParams (in PState): [vrf, pledge, cost, margin, rewardAcct, owners, relays, metadata, deposit]
 // ---------------------------------------------------------------------------
 
@@ -354,7 +403,7 @@ function decodeStatePoolParams(
       pledge: yield* expectUint(items[1]!, "pledge"),
       cost: yield* expectUint(items[2]!, "cost"),
       margin: yield* decodeRational(items[3]!, "margin"),
-      rewardAccount: yield* expectBytes(items[4]!, "rewardAcct"),
+      rewardAccount: yield* decodeRewardAccount(items[4]!, "rewardAcct"),
       owners: yield* Effect.all(getSetItems(items[5]!).map((c) => expectBytes(c, "owner"))),
       relays: items[6]!,
       metadata: yield* decodeStrictMaybe(items[7]!, "metadata", (c) => decodeAnchor(c, "metadata")),
@@ -786,16 +835,16 @@ export interface ShelleyTip {
 
 function decodeShelleyTip(
   cbor: CborSchemaType,
-): Effect.Effect<ShelleyTip | undefined, StateDecodeError> {
-  if (cbor._tag === CborKinds.Array && cbor.items.length === 0) return Effect.succeed(undefined);
+): Effect.Effect<Option.Option<ShelleyTip>, StateDecodeError> {
+  if (cbor._tag === CborKinds.Array && cbor.items.length === 0) return Effect.succeed(Option.none());
   if (cbor._tag === CborKinds.Array && cbor.items.length === 1) {
     return Effect.gen(function* () {
       const inner = yield* expectArray(cbor.items[0]!, "ShelleyTip", 3);
-      return {
+      return Option.some<ShelleyTip>({
         slot: yield* expectUint(inner[0]!, "tip.slot"),
         blockNo: yield* expectUint(inner[1]!, "tip.blockNo"),
         hash: yield* expectBytes(inner[2]!, "tip.hash"),
-      };
+      });
     });
   }
   return fail("ShelleyTip", "valid tip format", "unexpected format");
@@ -819,7 +868,7 @@ export interface ExtLedgerState {
   readonly pastEras: ReadonlyArray<PastEra>;
   readonly currentEra: Era;
   readonly currentStart: Bound;
-  readonly tip: ShelleyTip | undefined;
+  readonly tip: Option.Option<ShelleyTip>;
   readonly newEpochState: NewEpochState;
   readonly transition: bigint;
   readonly chainDepState: CborSchemaType;

@@ -53,7 +53,7 @@ export const DRep = Schema.Union([
   Schema.TaggedStruct(DRepKind.AlwaysNoConfidence, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type DRep = Schema.Schema.Type<typeof DRep>;
+export type DRep = typeof DRep.Type;
 
 export function decodeDRep(cbor: CborSchemaType): Effect.Effect<DRep, SchemaIssue.Issue> {
   return Effect.gen(function* () {
@@ -125,7 +125,7 @@ export const Voter = Schema.Struct({
   kind: Schema.Enum(VoterKind),
   hash: Bytes28,
 });
-export type Voter = Schema.Schema.Type<typeof Voter>;
+export type Voter = typeof Voter.Type;
 
 const voterKindValues = [
   VoterKind.CCKeyHash,
@@ -169,7 +169,7 @@ export const Anchor = Schema.Struct({
   url: Schema.String.pipe(Schema.check(Schema.isMaxLength(128))),
   hash: Bytes32,
 });
-export type Anchor = Schema.Schema.Type<typeof Anchor>;
+export type Anchor = typeof Anchor.Type;
 
 export function decodeAnchor(cbor: CborSchemaType): Effect.Effect<Anchor, SchemaIssue.Issue> {
   return Effect.gen(function* () {
@@ -198,7 +198,7 @@ export const GovActionId = Schema.Struct({
   txId: Bytes32,
   index: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
 });
-export type GovActionId = Schema.Schema.Type<typeof GovActionId>;
+export type GovActionId = typeof GovActionId.Type;
 
 export function decodeGovActionId(
   cbor: CborSchemaType,
@@ -229,7 +229,7 @@ export const VotingProcedure = Schema.Struct({
   vote: Schema.Enum(Vote),
   anchor: Schema.optional(Anchor),
 });
-export type VotingProcedure = Schema.Schema.Type<typeof VotingProcedure>;
+export type VotingProcedure = typeof VotingProcedure.Type;
 
 const voteValues = [Vote.No, Vote.Yes, Vote.Abstain] as const;
 
@@ -319,7 +319,7 @@ export const GovAction = Schema.Union([
   Schema.TaggedStruct(GovActionKind.InfoAction, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type GovAction = Schema.Schema.Type<typeof GovAction>;
+export type GovAction = typeof GovAction.Type;
 
 // Domain predicates via .isAnyOf()
 export const needsHashProtection = GovAction.isAnyOf([
@@ -354,7 +354,7 @@ export const ProposalProcedure = Schema.Struct({
   govAction: GovAction,
   anchor: Anchor,
 });
-export type ProposalProcedure = Schema.Schema.Type<typeof ProposalProcedure>;
+export type ProposalProcedure = typeof ProposalProcedure.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // GovAction CBOR decode — [tag, ...fields]
@@ -493,13 +493,13 @@ export const VoteEntry = Schema.Struct({
   actionId: GovActionId,
   procedure: VotingProcedure,
 });
-export type VoteEntry = Schema.Schema.Type<typeof VoteEntry>;
+export type VoteEntry = typeof VoteEntry.Type;
 
 export const VotingProceduresEntry = Schema.Struct({
   voter: Voter,
   votes: Schema.Array(VoteEntry),
 });
-export type VotingProceduresEntry = Schema.Schema.Type<typeof VotingProceduresEntry>;
+export type VotingProceduresEntry = typeof VotingProceduresEntry.Type;
 
 export function decodeVotingProcedures(
   cbor: CborSchemaType,

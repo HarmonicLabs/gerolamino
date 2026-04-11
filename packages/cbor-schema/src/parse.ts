@@ -169,7 +169,7 @@ export const parseSync = (input: Uint8Array): CborSchemaType => {
 
     const length = getLength(addInfos);
 
-    switch (majorType as CborKinds) {
+    switch (majorType) {
       case CborKinds.UInt:
         return { _tag: CborKinds.UInt, num: length, addInfos };
 

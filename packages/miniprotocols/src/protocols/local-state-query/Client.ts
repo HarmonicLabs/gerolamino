@@ -15,7 +15,7 @@ import { Socket } from "effect/unstable/socket";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
-import { ChainPoint } from "../types/ChainPoint";
+import type { ChainPoint } from "../types/ChainPoint";
 import * as Schemas from "./Schemas";
 
 export class LocalStateQueryError extends Schema.TaggedErrorClass<LocalStateQueryError>()(
@@ -89,9 +89,7 @@ export class LocalStateQueryClient extends ServiceMap.Service<
     LocalStateQueryClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.LocalStateQuery)
-        .pipe(Effect.mapError((cause) => new LocalStateQueryError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.LocalStateQuery);
       const state = yield* Ref.make<QueryState>("Idle");
 
       const sendMessage = (msg: Schemas.LocalStateQueryMessageT) =>

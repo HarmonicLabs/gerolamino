@@ -56,7 +56,7 @@ export const TxIn = Schema.Struct({
   txId: Bytes32,
   index: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
 });
-export type TxIn = Schema.Schema.Type<typeof TxIn>;
+export type TxIn = typeof TxIn.Type;
 
 export function decodeTxIn(cbor: CborSchemaType): Effect.Effect<TxIn, SchemaIssue.Issue> {
   return Effect.gen(function* () {
@@ -91,7 +91,7 @@ export const DatumOption = Schema.Union([
   Schema.TaggedStruct(DatumOptionKind.InlineDatum, { datum: Schema.Uint8Array }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type DatumOption = Schema.Schema.Type<typeof DatumOption>;
+export type DatumOption = typeof DatumOption.Type;
 
 function decodeDatumOption(cbor: CborSchemaType): Effect.Effect<DatumOption, SchemaIssue.Issue> {
   return Effect.gen(function* () {
@@ -160,7 +160,92 @@ export const TxOut = Schema.Struct({
   datumOption: Schema.optional(DatumOption),
   scriptRef: Schema.optional(Schema.Uint8Array), // Tag(24, scriptBytes)
 });
-export type TxOut = Schema.Schema.Type<typeof TxOut>;
+export type TxOut = typeof TxOut.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// MultiEraTxOut — tagged union preserving which era format was decoded
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Shared fields present in every TxOut variant.
+ */
+const BaseTxOutFields = {
+  address: Schema.Uint8Array,
+  value: Value,
+};
+
+/**
+ * Multi-era TxOut. Three structural variants matching the CBOR format:
+ *
+ * - `shelleyMary`: 2-element array [addr, value]
+ * - `alonzo`:      3-element array [addr, value, datumHash?]
+ * - `babbageConway`: CBOR map {0: addr, 1: value, 2?: datumOption, 3?: scriptRef}
+ */
+export const MultiEraTxOut = Schema.TaggedUnion({
+  shelleyMary: BaseTxOutFields,
+  alonzo: {
+    ...BaseTxOutFields,
+    datumOption: Schema.optional(DatumOption),
+  },
+  babbageConway: {
+    ...BaseTxOutFields,
+    datumOption: Schema.optional(DatumOption),
+    scriptRef: Schema.optional(Schema.Uint8Array),
+  },
+});
+export type MultiEraTxOut = typeof MultiEraTxOut.Type;
+
+/** Map from ledger era number to MultiEraTxOut tag. */
+const eraToTxOutTag: Record<number, MultiEraTxOut["_tag"]> = {
+  [0]: "shelleyMary", // Byron (not used in practice — Byron has no UTxO in this format)
+  [2]: "shelleyMary", // Shelley
+  [3]: "shelleyMary", // Allegra
+  [4]: "shelleyMary", // Mary
+  [5]: "alonzo",      // Alonzo
+  [6]: "babbageConway", // Babbage
+  [7]: "babbageConway", // Conway
+};
+
+/**
+ * Decode a TxOut from CBOR AST and tag it with the appropriate era variant.
+ * Falls back to structural detection when no era number is provided.
+ */
+export function decodeMultiEraTxOut(
+  cbor: CborSchemaType,
+  eraNum?: number,
+): Effect.Effect<MultiEraTxOut, SchemaIssue.Issue> {
+  // Determine tag from era number, or detect from CBOR structure
+  const tag = eraNum !== undefined
+    ? eraToTxOutTag[eraNum] ?? "babbageConway"
+    : cbor._tag === CborKinds.Map
+      ? "babbageConway"
+      : cbor._tag === CborKinds.Array && cbor.items.length === 3
+        ? "alonzo"
+        : "shelleyMary";
+
+  return Effect.map(decodeTxOut(cbor), (txOut) =>
+    tag === "shelleyMary"
+      ? { _tag: "shelleyMary" as const, address: txOut.address, value: txOut.value }
+      : tag === "alonzo"
+        ? { _tag: "alonzo" as const, address: txOut.address, value: txOut.value, datumOption: txOut.datumOption }
+        : { _tag: "babbageConway" as const, address: txOut.address, value: txOut.value, datumOption: txOut.datumOption, scriptRef: txOut.scriptRef },
+  );
+}
+
+/** Type guards for grouping MultiEraTxOut variants. */
+export const isShelleyMaryTxOut = MultiEraTxOut.isAnyOf(["shelleyMary"]);
+export const isAlonzoTxOut = MultiEraTxOut.isAnyOf(["alonzo"]);
+export const isBabbageConwayTxOut = MultiEraTxOut.isAnyOf(["babbageConway"]);
+export const isPreBabbageTxOut = MultiEraTxOut.isAnyOf(["shelleyMary", "alonzo"]);
+
+/** Convert a MultiEraTxOut to the canonical (flat) TxOut representation. */
+export function multiEraTxOutToTxOut(me: MultiEraTxOut): TxOut {
+  return MultiEraTxOut.match(me, {
+    shelleyMary: (v) => ({ address: v.address, value: v.value, datumOption: undefined, scriptRef: undefined }),
+    alonzo: (v) => ({ address: v.address, value: v.value, datumOption: v.datumOption, scriptRef: undefined }),
+    babbageConway: (v) => ({ address: v.address, value: v.value, datumOption: v.datumOption, scriptRef: v.scriptRef }),
+  });
+}
 
 export function decodeTxOut(cbor: CborSchemaType): Effect.Effect<TxOut, SchemaIssue.Issue> {
   // Shelley/Allegra/Mary: Array[addr, value] (2-element array)
@@ -320,7 +405,7 @@ export const TxRedeemer = Schema.Struct({
   data: PlutusData,
   exUnits: Schema.Struct({ mem: Schema.BigInt, steps: Schema.BigInt }),
 });
-export type TxRedeemer = Schema.Schema.Type<typeof TxRedeemer>;
+export type TxRedeemer = typeof TxRedeemer.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // VKeyWitness — [vkey, signature]
@@ -330,7 +415,7 @@ export const VKeyWitness = Schema.Struct({
   vkey: Bytes32,
   signature: Bytes64,
 });
-export type VKeyWitness = Schema.Schema.Type<typeof VKeyWitness>;
+export type VKeyWitness = typeof VKeyWitness.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // BootstrapWitness — [vkey, signature, chainCode, attributes]
@@ -342,7 +427,7 @@ export const BootstrapWitness = Schema.Struct({
   chainCode: Bytes32,
   attributes: Schema.Uint8Array,
 });
-export type BootstrapWitness = Schema.Schema.Type<typeof BootstrapWitness>;
+export type BootstrapWitness = typeof BootstrapWitness.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // TxWitnessSet — sparse CBOR map {0?..7?}
@@ -358,7 +443,7 @@ export const TxWitnessSet = Schema.Struct({
   plutusV2Scripts: Schema.optional(Schema.Array(Schema.Uint8Array)), // compiled bytecode
   plutusV3Scripts: Schema.optional(Schema.Array(Schema.Uint8Array)), // compiled bytecode
 });
-export type TxWitnessSet = Schema.Schema.Type<typeof TxWitnessSet>;
+export type TxWitnessSet = typeof TxWitnessSet.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // TxBody — sparse CBOR map with keys 0-22
@@ -403,7 +488,7 @@ export const TxBody = Schema.Struct({
   currentTreasury: Schema.optional(Schema.BigInt), // key 21
   donation: Schema.optional(Schema.BigInt), // key 22
 });
-export type TxBody = Schema.Schema.Type<typeof TxBody>;
+export type TxBody = typeof TxBody.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Tx — [body, witnesses, isValid, auxData?]
@@ -415,7 +500,7 @@ export const Tx = Schema.Struct({
   isValid: Schema.Boolean,
   auxiliaryData: Schema.optional(AuxiliaryData),
 });
-export type Tx = Schema.Schema.Type<typeof Tx>;
+export type Tx = typeof Tx.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // TxBody CBOR codec helpers

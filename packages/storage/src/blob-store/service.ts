@@ -7,7 +7,7 @@
  *
  * All storage logic uses `yield* BlobStore` — never imports a platform module.
  */
-import { Effect, Schema, ServiceMap, Stream } from "effect";
+import { Effect, Option, Schema, ServiceMap, Stream } from "effect";
 
 export class BlobStoreError extends Schema.TaggedErrorClass<BlobStoreError>()(
   "BlobStoreError",
@@ -20,7 +20,7 @@ export class BlobStoreError extends Schema.TaggedErrorClass<BlobStoreError>()(
 export class BlobStore extends ServiceMap.Service<
   BlobStore,
   {
-    readonly get: (key: Uint8Array) => Effect.Effect<Uint8Array | undefined, BlobStoreError>;
+    readonly get: (key: Uint8Array) => Effect.Effect<Option.Option<Uint8Array>, BlobStoreError>;
     readonly put: (key: Uint8Array, value: Uint8Array) => Effect.Effect<void, BlobStoreError>;
     readonly delete: (key: Uint8Array) => Effect.Effect<void, BlobStoreError>;
     readonly has: (key: Uint8Array) => Effect.Effect<boolean, BlobStoreError>;

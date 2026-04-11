@@ -98,13 +98,13 @@ describe("SlotClock", () => {
     expect(sw).toBe(60n);
   });
 
-  it("randomness stabilization window is 8k/f", async () => {
+  it("randomness stabilization window is 4k/f", async () => {
     const rsw = await run(0, Effect.gen(function* () {
       const clock = yield* SlotClock;
       return clock.randomnessStabilizationWindow;
     }));
-    // k=10, f=0.5 → ceil(8*10/0.5) = 160
-    expect(rsw).toBe(160n);
+    // k=10, f=0.5 → ceil(4*10/0.5) = 80
+    expect(rsw).toBe(80n);
   });
 
   it("works with preprod config", async () => {

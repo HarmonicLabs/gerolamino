@@ -122,3 +122,212 @@ export const readLedgerStateBytes = (meta: SnapshotMeta) =>
       ),
     );
   });
+
+// ---------- Cardano-node V2LSM database support ----------
+
+/**
+ * Network magic constants for protocol magic lookup.
+ */
+const NETWORK_MAGIC: Record<string, number> = {
+  preprod: 1,
+  mainnet: 764824073,
+};
+
+/**
+ * Find the latest LSM snapshot name in a cardano-node lsm/snapshots/ directory.
+ * Returns the highest-numbered slot name (e.g., "78123456").
+ */
+export const findLatestLsmSnapshot = (lsmDir: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const p = yield* Path.Path;
+    const snapshotsDir = p.join(lsmDir, "snapshots");
+    const entries = yield* fs.readDirectory(snapshotsDir).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: `Failed to read LSM snapshots directory: ${snapshotsDir}`,
+            cause,
+          }),
+      ),
+    );
+    const numericEntries = entries
+      .filter((e) => /^\d+$/.test(e))
+      .sort((a, b) => Number(BigInt(b) - BigInt(a)));
+    if (numericEntries.length === 0) {
+      return yield* Effect.fail(
+        new SnapshotReadError({
+          message: "No numeric snapshot directories found in lsm/snapshots/",
+          cause: `entries: ${entries.join(", ")}`,
+        }),
+      );
+    }
+    return numericEntries[0]!;
+  });
+
+/**
+ * Prepare an LSM session directory by hard-linking snapshot files
+ * from a running cardano-node's lsm/ directory into a temp session dir.
+ *
+ * The running node holds an OS file lock on lsm/lock, so we cannot open
+ * the session directly. Instead we create a temp dir with the same
+ * snapshot structure and hard-link the immutable snapshot files.
+ */
+export const prepareLsmSession = (sourceLsmDir: string, snapshotName: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const p = yield* Path.Path;
+
+    const tempDir = yield* fs.makeTempDirectory({ prefix: "lsm-session-" }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: "Failed to create temp LSM session directory",
+            cause,
+          }),
+      ),
+    );
+
+    const sourceSnapshotDir = p.join(sourceLsmDir, "snapshots", snapshotName);
+    const targetSnapshotDir = p.join(tempDir, "snapshots", snapshotName);
+
+    yield* fs.makeDirectory(p.join(tempDir, "snapshots"), { recursive: true }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: "Failed to create snapshots/ in temp session dir",
+            cause,
+          }),
+      ),
+    );
+
+    yield* fs.makeDirectory(targetSnapshotDir, { recursive: true }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: `Failed to create snapshot dir: ${targetSnapshotDir}`,
+            cause,
+          }),
+      ),
+    );
+
+    const files = yield* fs.readDirectory(sourceSnapshotDir).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: `Failed to read source snapshot dir: ${sourceSnapshotDir}`,
+            cause,
+          }),
+      ),
+    );
+
+    for (const file of files) {
+      const src = p.join(sourceSnapshotDir, file);
+      const dst = p.join(targetSnapshotDir, file);
+      // Try hard-link first (fast, no copy), fall back to copyFile (cross-device)
+      yield* fs.link(src, dst).pipe(
+        Effect.catchCause(() => fs.copyFile(src, dst)),
+        Effect.mapError(
+          (cause) =>
+            new SnapshotReadError({
+              message: `Failed to link/copy snapshot file: ${file}`,
+              cause,
+            }),
+        ),
+      );
+    }
+
+    // Copy root metadata file — required by lsm_session_open
+    const rootMetaSrc = p.join(sourceLsmDir, "metadata");
+    const rootMetaDst = p.join(tempDir, "metadata");
+    yield* fs.link(rootMetaSrc, rootMetaDst).pipe(
+      Effect.catchCause(() => fs.copyFile(rootMetaSrc, rootMetaDst)),
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: "Failed to link/copy root LSM metadata file",
+            cause,
+          }),
+      ),
+    );
+
+    // Create empty active/ directory — required by lsm_session_open
+    yield* fs.makeDirectory(p.join(tempDir, "active"), { recursive: true }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: "Failed to create active/ in temp session dir",
+            cause,
+          }),
+      ),
+    );
+
+    return tempDir;
+  });
+
+/**
+ * Read metadata from a running cardano-node's database directory.
+ *
+ * Expected layout:
+ *   {dbPath}/
+ *     immutable/*.chunk
+ *     volatile/
+ *     ledger/{slot}/state
+ *     ledger/lsm/[lock, active/, snapshots/{slot}/]
+ *
+ * Unlike Mithril snapshots, node databases don't have a protocolMagicId file,
+ * so the network magic must be provided explicitly.
+ *
+ * Returns the SnapshotMeta (pointing at a temp LSM session to avoid lock
+ * contention) plus the snapshot name for layerLsmFromSnapshot.
+ */
+export const readNodeDbMeta = (dbPath: string, network: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const p = yield* Path.Path;
+
+    const protocolMagic = NETWORK_MAGIC[network];
+    if (protocolMagic === undefined) {
+      return yield* Effect.fail(
+        new SnapshotReadError({
+          message: `Unknown network: ${network}`,
+          cause: `Valid networks: ${Object.keys(NETWORK_MAGIC).join(", ")}`,
+        }),
+      );
+    }
+
+    const immutableDir = p.join(dbPath, "immutable");
+    // V2LSM stores ledger state in {database-path}/lsm (not ledger/<slot>)
+    const nodeLsmDir = p.join(dbPath, "lsm");
+
+    // Find latest LSM snapshot — its name IS the slot number
+    const snapshotName = yield* findLatestLsmSnapshot(nodeLsmDir);
+    const snapshotSlot = BigInt(snapshotName);
+    const sessionDir = yield* prepareLsmSession(nodeLsmDir, snapshotName);
+
+    // cardano-node V2LSM keeps ledger snapshots in {dbPath}/ledger/{slot}/
+    // The slot name matches the LSM snapshot name.
+    const ledgerDir = p.join(dbPath, "ledger", snapshotName);
+
+    const chunkFiles = yield* fs.readDirectory(immutableDir).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SnapshotReadError({
+            message: `Failed to read immutable directory: ${immutableDir}`,
+            cause,
+          }),
+      ),
+    );
+    const totalChunks = chunkFiles.filter((f) => f.endsWith(".chunk")).length;
+
+    const meta = new SnapshotMeta({
+      protocolMagic,
+      snapshotSlot,
+      ledgerDir,
+      immutableDir,
+      lsmDir: sessionDir,
+      totalChunks,
+    });
+
+    return { meta, snapshotName };
+  });

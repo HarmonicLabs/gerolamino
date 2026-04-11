@@ -30,25 +30,42 @@ function cborCred(kind: number, hash: Uint8Array): CborSchemaType {
 }
 
 describe("DCert domain predicates", () => {
+  const stakeDelegation: DCert = {
+    _tag: CertKind.StakeDelegation,
+    credential: { _tag: CredentialKind.KeyHash, hash: keyHash },
+    poolKeyHash: poolHash,
+  };
+  const stakeRegistration: DCert = {
+    _tag: CertKind.StakeRegistration,
+    credential: { _tag: CredentialKind.KeyHash, hash: keyHash },
+  };
+  const regDRep: DCert = {
+    _tag: CertKind.RegDRep,
+    credential: { _tag: CredentialKind.KeyHash, hash: keyHash },
+    deposit: 0n,
+  };
+  const poolRegistration: DCert = {
+    _tag: CertKind.PoolRegistration,
+    poolParams: {
+      operator: poolHash,
+      vrfKeyHash: hash32,
+      pledge: 0n,
+      cost: 0n,
+      margin: { numerator: 0n, denominator: 1n },
+      rewardAccount: new Uint8Array(29),
+      owners: [],
+      relays: [],
+    },
+  };
+
   it("isDelegationCert", () => {
-    expect(
-      isDelegationCert({
-        _tag: CertKind.StakeDelegation,
-        credential: { _tag: CredentialKind.KeyHash, hash: keyHash },
-        poolKeyHash: poolHash,
-      } as any),
-    ).toBe(true);
-    expect(
-      isDelegationCert({
-        _tag: CertKind.StakeRegistration,
-        credential: { _tag: CredentialKind.KeyHash, hash: keyHash },
-      } as any),
-    ).toBe(false);
+    expect(isDelegationCert(stakeDelegation)).toBe(true);
+    expect(isDelegationCert(stakeRegistration)).toBe(false);
   });
 
   it("isGovernanceCert", () => {
-    expect(isGovernanceCert({ _tag: CertKind.RegDRep } as any)).toBe(true);
-    expect(isGovernanceCert({ _tag: CertKind.PoolRegistration } as any)).toBe(false);
+    expect(isGovernanceCert(regDRep)).toBe(true);
+    expect(isGovernanceCert(poolRegistration)).toBe(false);
   });
 });
 

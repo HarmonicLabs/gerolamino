@@ -59,18 +59,18 @@ export const deriveEpochNonce = (
 /**
  * Check if a slot is past the randomness stabilization window.
  *
- * Per Praos spec Section 5.2: epoch has R = 24k/f slots total.
- * First 16k/f slots: candidate nonce collection period.
- * Last 8k/f slots: stabilization (quiet) period — nonce is frozen.
+ * Per Amaru/Haskell: randomness_stabilization_window = 4k/f slots.
+ * The candidate nonce freezes at (epochLength - 4k/f) slots into the epoch.
+ * Before that point, candidate = evolving. After, candidate is frozen.
  *
- * The candidate nonce freezes at slot 16k/f into the epoch.
+ * For standard params (k=2160, f=0.05): freezes at slot 259,200 of 432,000.
  */
 export const isPastStabilizationWindow = (
   slotInEpoch: bigint,
   securityParam: number,
   activeSlotsCoeff: number,
+  epochLength: bigint,
 ): boolean => {
-  // Candidate collection ends at 16k/f, quiet period is last 8k/f
-  const candidateCollectionEnd = Math.ceil((16 * securityParam) / activeSlotsCoeff);
-  return slotInEpoch >= BigInt(candidateCollectionEnd);
+  const stabilizationWindow = Math.ceil((4 * securityParam) / activeSlotsCoeff);
+  return slotInEpoch >= epochLength - BigInt(stabilizationWindow);
 };

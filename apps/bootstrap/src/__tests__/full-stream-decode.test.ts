@@ -8,7 +8,7 @@ import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { initLmdb } from "../lmdb.ts";
 import { readSnapshotMeta, bootstrapStream } from "../loader.ts";
 import { MessageTag, decodeFrame, type BlockMessage } from "bootstrap";
-import { decodeMultiEraBlock } from "ledger/lib/block/block.ts";
+import { decodeMultiEraBlock } from "ledger";
 
 const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer);
 
@@ -37,7 +37,8 @@ describe("Full snapshot stream + decode", () => {
 
               switch (msg.tag) {
                 case MessageTag.Block: {
-                  const block = msg as BlockMessage;
+                  // After narrowing on msg.tag, msg is BlockMessage
+                  const block = msg;
                   const result = yield* decodeMultiEraBlock(block.blockCbor).pipe(
                     Effect.map((decoded) => {
                       const txCount = decoded._tag === "postByron" ? decoded.txBodies.length : 0;

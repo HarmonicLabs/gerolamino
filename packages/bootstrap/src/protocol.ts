@@ -317,6 +317,33 @@ export function decodeFrame(frame: Uint8Array): BootstrapMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Exhaustive match over BootstrapMessage
+// ---------------------------------------------------------------------------
+
+export function matchMessage<R>(
+  msg: BootstrapMessage,
+  handlers: {
+    readonly Init: (msg: InitMessage) => R;
+    readonly Block: (msg: BlockMessage) => R;
+    readonly LedgerState: (msg: LedgerStateMessage) => R;
+    readonly LedgerMeta: (msg: LedgerMetaMessage) => R;
+    readonly BlobEntries: (msg: BlobEntriesMessage) => R;
+    readonly Progress: (msg: ProgressMessage) => R;
+    readonly Complete: (msg: CompleteMessage) => R;
+  },
+): R {
+  switch (msg.tag) {
+    case MessageTag.Init: return handlers.Init(msg);
+    case MessageTag.Block: return handlers.Block(msg);
+    case MessageTag.LedgerState: return handlers.LedgerState(msg);
+    case MessageTag.LedgerMeta: return handlers.LedgerMeta(msg);
+    case MessageTag.BlobEntries: return handlers.BlobEntries(msg);
+    case MessageTag.Progress: return handlers.Progress(msg);
+    case MessageTag.Complete: return handlers.Complete(msg);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility: concatenate two Uint8Arrays
 // ---------------------------------------------------------------------------
 

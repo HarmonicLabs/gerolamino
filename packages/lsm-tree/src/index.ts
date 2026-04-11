@@ -1,7 +1,8 @@
 // BlobStore service + keys defined in packages/storage.
 // This package provides the LSM tree implementation layer.
-export { BlobStore, BlobStoreError } from "storage/blob-store/service";
 export {
+  BlobStore,
+  BlobStoreError,
   utxoKey,
   blockKey,
   blockIndexKey,
@@ -15,5 +16,5 @@ export {
   PREFIX_STAK,
   PREFIX_ACCT,
   PREFIX_COFF,
-} from "storage/blob-store/keys";
-export { layerLsm, layerLsmFromSnapshot } from "./layer-lsm";
+} from "storage";
+export { layerLsm, layerLsmFromSnapshot, LsmBridgeError } from "./layer-lsm";

@@ -10,14 +10,14 @@
  *
  * The driver is an Effect program that runs in a Scope (for resource cleanup).
  */
-import { Effect, Schema, Stream } from "effect";
+import { Deferred, Effect, HashMap, Ref, Schema } from "effect";
 import { SlotClock } from "./clock";
 import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
-import { ChainTip, gsmState } from "./chain-selection";
+import { ChainTip } from "./chain-selection";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
-import { decodeWrappedHeader } from "./header-bridge";
-import { ChainDB } from "storage/services/chain-db";
+import { decodeWrappedHeader, DecodedHeader } from "./header-bridge";
+import { ChainDB } from "storage";
 import type { BlockHeader, LedgerView } from "./validate-header";
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
@@ -32,27 +32,32 @@ export const VolatileState = Schema.Struct({
   blocksProcessed: Schema.Number,
   caughtUp: Schema.Boolean,
 });
-export type VolatileState = Schema.Schema.Type<typeof VolatileState>;
+export type VolatileState = typeof VolatileState.Type;
 
 /** Initial volatile state — loaded from snapshot or genesis. */
 export const initialVolatileState = (
   tip: { slot: bigint; hash: Uint8Array } | undefined,
   nonces: Nonces,
-): VolatileState => ({
-  tip,
-  nonces,
-  blocksProcessed: 0,
-  caughtUp: false,
-});
+): VolatileState => {
+  const result: VolatileState = {
+    tip,
+    nonces,
+    blocksProcessed: 0,
+    caughtUp: false,
+  };
+  return result;
+};
 
 /**
  * Process a RollForward message from ChainSync.
  *
- * Validates the header, stores the block, evolves nonces.
+ * For Shelley+: validates the header (5 Praos assertions), stores the block, evolves nonces.
+ * For Byron: stores the block and updates tip — no Praos validation or nonce evolution.
  * Returns the updated volatile state.
  */
 export const handleRollForward = (
   headerBytes: Uint8Array,
+  eraVariant: number,
   serverTip: { slot: bigint; blockNo: bigint; hash: Uint8Array },
   state: VolatileState,
   peerId: string,
@@ -74,80 +79,94 @@ export const handleRollForward = (
       }),
     );
 
-    // Decode N2N ChainSync wrapped header via ledger → consensus bridge.
-    // Byron headers (era 0-1) return undefined — skip validation.
-    const decoded = yield* Effect.orElseSucceed(
-      decodeWrappedHeader(headerBytes),
-      () => undefined,
-    );
+    // Decode N2N ChainSync header — returns Byron or Shelley info
+    const decoded = yield* decodeWrappedHeader(headerBytes, eraVariant);
 
-    // Byron/unparseable headers — skip storage (we can't extract correct
-    // slot/hash from the raw header, and using serverTip would be wrong).
-    // Just count them and move on; we'll start storing from Shelley era.
-    if (decoded === undefined) {
-      return {
-        tip: state.tip,
+    if (DecodedHeader.guards.byron(decoded)) {
+      // Byron blocks: store in ChainDB, update tip. No Praos validation or nonce evolution.
+      yield* chainDb.addBlock({
+        slot: decoded.slot,
+        hash: decoded.hash,
+        prevHash: decoded.prevHash,
+        blockNo: decoded.blockNo,
+        blockSizeBytes: headerBytes.byteLength,
+        blockCbor: headerBytes,
+      });
+
+      const result: VolatileState = {
+        tip: { slot: decoded.slot, hash: decoded.hash },
         nonces: state.nonces,
         blocksProcessed: state.blocksProcessed + 1,
         caughtUp: false,
-      } satisfies VolatileState;
+      };
+      return result;
     }
 
+    // Shelley+ path: Praos validation (if pools available) + nonce evolution
     const header = decoded.header;
 
-    // Validate header (no body hash check — ChainSync only sends headers)
-    yield* engine.validateHeader(header, ledgerView);
-
-    // Store block metadata + header bytes in ChainDB
-    yield* chainDb.addBlock({
-      slot: header.slot,
-      hash: header.hash,
-      prevHash: header.prevHash,
-      blockNo: header.blockNo,
-      blockSizeBytes: headerBytes.byteLength,
-      blockCbor: headerBytes,
-    });
-
-    // Epoch transition — derive new epoch nonce at boundary
-    const blockEpoch = slotClock.slotToEpoch(header.slot);
-    let nonces = state.nonces;
-
-    if (blockEpoch > state.nonces.epoch) {
-      const newEpochNonce = deriveEpochNonce(
-        state.nonces.candidate,
-        header.prevHash,
-      );
-      nonces = new Nonces({
-        active: newEpochNonce,
-        evolving: newEpochNonce,
-        candidate: newEpochNonce,
-        epoch: blockEpoch,
-      });
+    // Skip Praos validation when LedgerView has no pools (genesis sync mode).
+    // Byron blocks already skip validation above; this handles Shelley+ blocks
+    // during genesis sync where no bootstrap data provides pool distributions.
+    if (HashMap.size(ledgerView.poolVrfKeys) > 0) {
+      yield* engine.validateHeader(header, ledgerView);
     }
 
-    // Evolve nonces using nonce-tagged VRF output (not leader VRF output)
-    const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
+    // Storage and nonce evolution are INDEPENDENT — run in parallel.
+    // Storage writes to DB; nonce computation reads only header fields.
+    const [, newNonces] = yield* Effect.all([
+      // I/O-bound: store block metadata + header bytes in ChainDB
+      chainDb.addBlock({
+        slot: header.slot,
+        hash: header.hash,
+        prevHash: header.prevHash,
+        blockNo: header.blockNo,
+        blockSizeBytes: headerBytes.byteLength,
+        blockCbor: headerBytes,
+      }),
+      // CPU-bound (fast): compute nonces purely from header fields
+      Effect.sync(() => {
+        const blockEpoch = slotClock.slotToEpoch(header.slot);
+        let nonces = state.nonces;
 
-    const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
-    const pastCollection = isPastStabilizationWindow(
-      slotInEpoch,
-      slotClock.config.securityParam,
-      slotClock.config.activeSlotsCoeff,
-    );
+        if (blockEpoch > state.nonces.epoch) {
+          const newEpochNonce = deriveEpochNonce(
+            state.nonces.candidate,
+            header.prevHash,
+          );
+          nonces = new Nonces({
+            active: newEpochNonce,
+            evolving: newEpochNonce,
+            candidate: newEpochNonce,
+            epoch: blockEpoch,
+          });
+        }
 
-    const newNonces = new Nonces({
-      active: nonces.active,
-      evolving: newEvolving,
-      candidate: pastCollection ? nonces.candidate : newEvolving,
-      epoch: blockEpoch,
-    });
+        const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
+        const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
+        const pastCollection = isPastStabilizationWindow(
+          slotInEpoch,
+          slotClock.config.securityParam,
+          slotClock.config.activeSlotsCoeff,
+          slotClock.config.epochLength,
+        );
 
-    return {
+        return new Nonces({
+          active: nonces.active,
+          evolving: newEvolving,
+          candidate: pastCollection ? nonces.candidate : newEvolving,
+          epoch: blockEpoch,
+        });
+      }),
+    ], { concurrency: "unbounded" });
+
+    const result: VolatileState = {
       tip: { slot: header.slot, hash: header.hash },
       nonces: newNonces,
       blocksProcessed: state.blocksProcessed + 1,
       caughtUp: false,
-    } satisfies VolatileState;
+    };
+    return result;
   });
 
 /**
@@ -185,9 +204,10 @@ export const handleRollBackward = (
       yield* chainDb.rollback(rollbackPoint);
     }
 
-    return {
+    const result: VolatileState = {
       ...state,
       tip: rollbackPoint,
       caughtUp: false,
-    } satisfies VolatileState;
+    };
+    return result;
   });

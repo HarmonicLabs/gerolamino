@@ -7,6 +7,8 @@ import type { ChainTip, GsmState } from "./chain-selection";
 import { HeaderValidationError, validateHeader } from "./validate-header";
 import { preferCandidate, gsmState } from "./chain-selection";
 import { CryptoService, CryptoServiceBunNative, CryptoServiceLive } from "./crypto";
+import { CryptoWorkerPool, CryptoWorkerPoolLive, CryptoWorkerPoolWithSpawner } from "./crypto-pool";
+import type * as Worker from "effect/unstable/workers/Worker";
 
 export class ConsensusEngine extends ServiceMap.Service<
   ConsensusEngine,
@@ -55,3 +57,16 @@ export const ConsensusEngineWithBunCrypto: Layer.Layer<ConsensusEngine | CryptoS
 /** Production: ConsensusEngine + CryptoService with real WASM crypto. */
 export const ConsensusEngineWithWasmCrypto: Layer.Layer<ConsensusEngine | CryptoService> =
   ConsensusEngineLive.pipe(Layer.provideMerge(CryptoServiceLive));
+
+/**
+ * Production with worker pool: ConsensusEngine + CryptoService + CryptoWorkerPool.
+ * Accepts a platform-specific worker layer (BunWorker.layer or BrowserWorker.layer)
+ * that provides WorkerPlatform + Spawner.
+ */
+export const ConsensusEngineWithWorkerCrypto = (
+  workerLayer: Layer.Layer<Worker.WorkerPlatform | Worker.Spawner>,
+): Layer.Layer<ConsensusEngine | CryptoService | CryptoWorkerPool> =>
+  ConsensusEngineLive.pipe(
+    Layer.provideMerge(CryptoServiceLive),
+    Layer.provideMerge(CryptoWorkerPoolWithSpawner(workerLayer)),
+  );

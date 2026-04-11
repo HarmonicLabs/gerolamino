@@ -84,7 +84,7 @@ export const Script = Schema.Union([
   Schema.TaggedStruct(ScriptKind.PlutusV3, { bytes: Schema.Uint8Array }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type Script = Schema.Schema.Type<typeof Script>;
+export type Script = typeof Script.Type;
 
 // Domain predicates
 export const isPlutusScript = Script.isAnyOf([

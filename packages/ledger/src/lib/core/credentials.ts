@@ -19,7 +19,7 @@ export const Credential = Schema.Union([
   Schema.TaggedStruct(CredentialKind.Script, { hash: Bytes28 }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type Credential = Schema.Schema.Type<typeof Credential>;
+export type Credential = typeof Credential.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode helpers (used by address codec and certificate codecs)

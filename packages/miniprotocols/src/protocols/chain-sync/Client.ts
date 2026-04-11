@@ -5,23 +5,23 @@ import { TimeoutError } from "effect/Cause";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
-import { ChainPoint } from "../types/ChainPoint";
+import type { ChainPoint } from "../types/ChainPoint";
 import * as Schemas from "./Schemas";
 
 export class ChainSyncError extends Schema.TaggedErrorClass<ChainSyncError>()("ChainSyncError", {
   cause: Schema.Defect,
 }) {}
 
-export type ChainSyncRollForward = Schema.Schema.Type<typeof Schemas.ChainSyncMessage> & {
+export type ChainSyncRollForward = typeof Schemas.ChainSyncMessage.Type & {
   readonly _tag: Schemas.ChainSyncMessageType.RollForward;
 };
-export type ChainSyncRollBackward = Schema.Schema.Type<typeof Schemas.ChainSyncMessage> & {
+export type ChainSyncRollBackward = typeof Schemas.ChainSyncMessage.Type & {
   readonly _tag: Schemas.ChainSyncMessageType.RollBackward;
 };
-export type ChainSyncIntersectFound = Schema.Schema.Type<typeof Schemas.ChainSyncMessage> & {
+export type ChainSyncIntersectFound = typeof Schemas.ChainSyncMessage.Type & {
   readonly _tag: Schemas.ChainSyncMessageType.IntersectFound;
 };
-export type ChainSyncIntersectNotFound = Schema.Schema.Type<typeof Schemas.ChainSyncMessage> & {
+export type ChainSyncIntersectNotFound = typeof Schemas.ChainSyncMessage.Type & {
   readonly _tag: Schemas.ChainSyncMessageType.IntersectNotFound;
 };
 
@@ -74,9 +74,7 @@ export class ChainSyncClient extends ServiceMap.Service<
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
       const mustReplyTimeout = yield* MustReplyTimeout;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.ChainSync)
-        .pipe(Effect.mapError((cause) => new ChainSyncError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.ChainSync);
 
       const sendMessage = (msg: Schemas.ChainSyncMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));

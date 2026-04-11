@@ -57,12 +57,12 @@ export const MetadataEntry = Schema.Struct({
   label: Schema.BigInt,
   value: Metadatum,
 });
-export type MetadataEntry = Schema.Schema.Type<typeof MetadataEntry>;
+export type MetadataEntry = typeof MetadataEntry.Type;
 
 export const TxMetadata = Schema.Struct({
   entries: Schema.Array(MetadataEntry),
 });
-export type TxMetadata = Schema.Schema.Type<typeof TxMetadata>;
+export type TxMetadata = typeof TxMetadata.Type;
 
 // ---------------------------------------------------------------------------
 // AuxiliaryData Schema
@@ -75,7 +75,7 @@ export const AuxiliaryData = Schema.Struct({
   plutusV2Scripts: Schema.optional(Schema.Array(Schema.Uint8Array)),
   plutusV3Scripts: Schema.optional(Schema.Array(Schema.Uint8Array)),
 });
-export type AuxiliaryData = Schema.Schema.Type<typeof AuxiliaryData>;
+export type AuxiliaryData = typeof AuxiliaryData.Type;
 
 // ---------------------------------------------------------------------------
 // Metadatum CBOR decoder (recursive)

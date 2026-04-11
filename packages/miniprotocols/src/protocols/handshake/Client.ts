@@ -36,9 +36,7 @@ export class HandshakeClient extends ServiceMap.Service<
     HandshakeClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.Handshake)
-        .pipe(Effect.mapError((cause) => new HandshakeError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.Handshake);
 
       const messages = Stream.fromPubSub(channel.pubsub).pipe(
         Stream.mapEffect((bytes) =>

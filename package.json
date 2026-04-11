@@ -18,10 +18,12 @@
     "@swc-node/register": "1.11.1",
     "@swc/core": "1.15.8",
     "@swc/helpers": "0.5.18",
-    "drizzle-kit": "^0.30.0",
+    "@types/chrome": "^0.1.40",
+    "chrome-ext": "workspace:*",
+    "drizzle-kit": "^0.30.6",
     "nx": "22.6.2",
-    "tslib": "^2.3.0",
-    "typescript": "~5.9.2",
-    "vitest": "^4.1.2"
+    "tslib": "^2.8.1",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.3"
   }
 }

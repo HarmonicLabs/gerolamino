@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Clock, Effect, Layer } from "effect";
+import { Clock, Effect, Layer, Option } from "effect";
 import { PeerManager, PeerManagerLive } from "../peer-manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
 import { ChainTip } from "../chain-selection";
@@ -74,7 +74,7 @@ describe("PeerManager", () => {
         return yield* pm.getBestPeer;
       }),
     );
-    expect(result?.peerId).toBe("fast");
+    expect(Option.isSome(result) && result.value.peerId).toBe("fast");
   });
 
   it("ignores disconnected peers for best selection", async () => {
@@ -89,7 +89,7 @@ describe("PeerManager", () => {
         return yield* pm.getBestPeer;
       }),
     );
-    expect(result?.peerId).toBe("good");
+    expect(Option.isSome(result) && result.value.peerId).toBe("good");
   });
 
   it("counts peers by status", async () => {
@@ -109,7 +109,7 @@ describe("PeerManager", () => {
     expect(result.disconnected).toBe(1); // c
   });
 
-  it("returns undefined when no peers have tips", async () => {
+  it("returns none when no peers have tips", async () => {
     const result = await run(
       Effect.gen(function* () {
         const pm = yield* PeerManager;
@@ -117,6 +117,6 @@ describe("PeerManager", () => {
         return yield* pm.getBestPeer;
       }),
     );
-    expect(result).toBeUndefined();
+    expect(Option.isNone(result)).toBe(true);
   });
 });

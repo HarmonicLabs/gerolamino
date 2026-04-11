@@ -8,7 +8,7 @@ export const ChainTipSchema = Schema.Struct({
   blockNo: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 
-export type ChainTip = Schema.Schema.Type<typeof ChainTipSchema>;
+export type ChainTip = typeof ChainTipSchema.Type;
 
 // ── CBOR wire format ──
 // tip = [point, blockNo] where point is [] or [slot, hash]

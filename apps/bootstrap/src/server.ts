@@ -40,12 +40,11 @@ export const startServer = (meta: SnapshotMeta, config: ServerConfig) =>
         protocolMagic: meta.protocolMagic,
         snapshotSlot: meta.snapshotSlot.toString(),
         totalChunks: meta.totalChunks,
-        blobPrefixes: meta.blobPrefixes,
       }),
     ),
     HttpRouter.route("GET", "/bootstrap", handleClient(meta, config)),
   ]).pipe(
     (routes) => HttpRouter.serve(routes),
-    Layer.provide(BunHttpServer.layer({ port: config.port })),
+    Layer.provide(BunHttpServer.layer({ port: config.port, hostname: "0.0.0.0" })),
     Layer.launch,
   );

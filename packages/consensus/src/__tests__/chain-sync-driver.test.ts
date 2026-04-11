@@ -1,6 +1,7 @@
 import { describe, expect } from "vitest";
 import { it, layer } from "@effect/vitest";
-import { Clock, Effect, Layer, Stream } from "effect";
+import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
+import { encodeSync, CborKinds, type CborSchemaType } from "cbor-schema";
 import {
   handleRollForward,
   handleRollBackward,
@@ -9,7 +10,7 @@ import {
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { PeerManager, PeerManagerLive } from "../peer-manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
-import { ChainDB } from "storage/services/chain-db";
+import { ChainDB } from "storage";
 import { Nonces } from "../nonce";
 import { hex } from "../util";
 import type { LedgerView } from "../validate-header";
@@ -40,10 +41,10 @@ const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
 );
 
 const stubChainDb = Layer.succeed(ChainDB, {
-  getBlock: () => Effect.succeed(undefined),
-  getBlockAt: () => Effect.succeed(undefined),
-  getTip: Effect.succeed(undefined),
-  getImmutableTip: Effect.succeed(undefined),
+  getBlock: () => Effect.succeed(Option.none()),
+  getBlockAt: () => Effect.succeed(Option.none()),
+  getTip: Effect.succeed(Option.none()),
+  getImmutableTip: Effect.succeed(Option.none()),
   addBlock: () => Effect.void,
   rollback: () => Effect.void,
   getSuccessors: () => Effect.succeed([]),
@@ -51,7 +52,7 @@ const stubChainDb = Layer.succeed(ChainDB, {
   promoteToImmutable: () => Effect.void,
   garbageCollect: () => Effect.void,
   writeLedgerSnapshot: () => Effect.void,
-  readLatestLedgerSnapshot: Effect.succeed(undefined),
+  readLatestLedgerSnapshot: Effect.succeed(Option.none()),
 });
 
 const testLayers = Layer.mergeAll(
@@ -61,21 +62,63 @@ const testLayers = Layer.mergeAll(
   stubChainDb,
 );
 
+/**
+ * Build a minimal Babbage-era header CBOR: [headerBody(10 elements), kesSig].
+ * This is the format AFTER ChainSync schema extraction (era wrapper + Tag(24) already stripped).
+ * Pass eraVariant=5 (Babbage) when calling handleRollForward.
+ */
+const makeBabbageHeader = (
+  slot: bigint,
+  blockNo: bigint,
+  issuerVk: Uint8Array,
+  vrfVk?: Uint8Array,
+): Uint8Array => {
+  const uint = (n: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num: n });
+  const bytes = (b: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: b });
+  const arr = (...items: CborSchemaType[]): CborSchemaType => ({ _tag: CborKinds.Array, items });
+
+  const vrf = vrfVk ?? new Uint8Array(32);
+  const vrfOutput = new Uint8Array(32);
+  const vrfProof = new Uint8Array(80);
+  const prevHash = new Uint8Array(32);
+  const bodyHash = new Uint8Array(32);
+  const hotVKey = new Uint8Array(32);
+  const opcertSig = new Uint8Array(64);
+  const kesSig = new Uint8Array(448); // Sum6 KES sig
+
+  const headerBody = arr(
+    uint(blockNo),        // [0] blockNo
+    uint(slot),           // [1] slot
+    bytes(prevHash),      // [2] prevHash
+    bytes(issuerVk),      // [3] issuerVKey
+    bytes(vrf),           // [4] vrfVKey
+    arr(bytes(vrfOutput), bytes(vrfProof)), // [5] vrfResult
+    uint(100n),           // [6] bodySize
+    bytes(bodyHash),      // [7] bodyHash
+    arr(bytes(hotVKey), uint(0n), uint(0n), bytes(opcertSig)), // [8] opCert
+    arr(uint(9n), uint(0n)), // [9] protVer
+  );
+
+  return encodeSync(arr(headerBody, bytes(kesSig)));
+};
+
+/** N2N era variant for Babbage (used with handleRollForward). */
+const BABBAGE_ERA_VARIANT = 5;
+
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
   return hex(new Uint8Array(hasher.update(vk).digest().buffer));
 };
 
+const TEST_ISSUER_VK = (() => { const vk = new Uint8Array(32); vk[0] = 1; return vk; })();
+const TEST_VRF_VK = (() => { const vk = new Uint8Array(32); vk[0] = 2; return vk; })();
+
 const makeLedgerView = (): LedgerView => {
-  const vk = new Uint8Array(32);
-  vk[0] = 1;
-  const poolId = poolIdFromVk(vk);
-  const vrfVk = new Uint8Array(32);
-  vrfVk[0] = 2;
+  const poolId = poolIdFromVk(TEST_ISSUER_VK);
   return {
     epochNonce: new Uint8Array(32),
-    poolVrfKeys: new Map([[poolId, vrfVk]]),
-    poolStake: new Map([[poolId, 1_000_000n]]),
+    poolVrfKeys: HashMap.make([poolId, TEST_VRF_VK]),
+    poolStake: HashMap.make([poolId, 1_000_000n]),
     totalStake: 10_000_000n,
     activeSlotsCoeff: 0.05,
     maxKesEvolutions: 62,
@@ -103,9 +146,11 @@ describe("ChainSync driver", () => {
       Effect.gen(function* () {
         const nonces = makeNonces();
         const state = initialVolatileState(undefined, nonces);
+        const headerBytes = makeBabbageHeader(42n, 20n, TEST_ISSUER_VK, TEST_VRF_VK);
 
         const newState = yield* handleRollForward(
-          new Uint8Array(100),
+          headerBytes,
+          BABBAGE_ERA_VARIANT,
           { slot: 42n, blockNo: 20n, hash: new Uint8Array(32).fill(0x42) },
           state,
           "peer1",
@@ -115,7 +160,6 @@ describe("ChainSync driver", () => {
         expect(newState.tip?.slot).toBe(42n);
         expect(newState.blocksProcessed).toBe(1);
         expect(newState.caughtUp).toBe(false);
-        expect(newState.nonces.evolving).toEqual(nonces.evolving);
       }),
     );
 
@@ -123,17 +167,19 @@ describe("ChainSync driver", () => {
       Effect.gen(function* () {
         const nonces = makeNonces();
         const state = initialVolatileState(undefined, nonces);
+        const headerBytes = makeBabbageHeader(100n, 50n, TEST_ISSUER_VK, TEST_VRF_VK);
         const pm = yield* PeerManager;
         yield* pm.addPeer("peer1", "tcp://relay:3001");
         yield* handleRollForward(
-          new Uint8Array(100),
+          headerBytes,
+          BABBAGE_ERA_VARIANT,
           { slot: 100n, blockNo: 50n, hash: new Uint8Array(32) },
           state,
           "peer1",
           makeLedgerView(),
         );
         const best = yield* pm.getBestPeer;
-        expect(best?.tip?.slot).toBe(100n);
+        expect(Option.isSome(best) && best.value.tip?.slot).toBe(100n);
       }),
     );
 
@@ -164,8 +210,10 @@ describe("ChainSync driver", () => {
         let state = initialVolatileState(undefined, nonces);
 
         for (let i = 0; i < 5; i++) {
+          const headerBytes = makeBabbageHeader(BigInt(i + 1), BigInt(i + 1), TEST_ISSUER_VK, TEST_VRF_VK);
           state = yield* handleRollForward(
-            new Uint8Array(100),
+            headerBytes,
+            BABBAGE_ERA_VARIANT,
             { slot: BigInt(i + 1), blockNo: BigInt(i + 1), hash: new Uint8Array(32).fill(i) },
             state,
             "peer1",

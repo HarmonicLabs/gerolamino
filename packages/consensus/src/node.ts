@@ -10,12 +10,12 @@
  * The node is a single Effect program that composes services via layers.
  * No XState needed — Effect's structured concurrency handles lifecycle.
  */
-import { Effect, Schedule, Schema, Stream, Duration } from "effect";
+import { Effect, Option, Schedule, Schema } from "effect";
 import { SlotClock } from "./clock";
 import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { getSyncState } from "./sync";
-import { ChainDB } from "storage/services/chain-db";
+import { ChainDB } from "storage";
 import { GsmState } from "./chain-selection";
 
 export const NodeStatus = Schema.Struct({
@@ -28,7 +28,7 @@ export const NodeStatus = Schema.Struct({
   blocksProcessed: Schema.Number,
   syncPercent: Schema.Number,
 });
-export type NodeStatus = Schema.Schema.Type<typeof NodeStatus>;
+export type NodeStatus = typeof NodeStatus.Type;
 
 /**
  * Get the current node status by reading from all services.
@@ -38,20 +38,19 @@ export const getNodeStatus = Effect.gen(function* () {
   const peerManager = yield* PeerManager;
   const chainDb = yield* ChainDB;
 
-  const tip = yield* chainDb.getTip;
+  const tipOpt = yield* chainDb.getTip;
   const currentSlot = yield* slotClock.currentSlot;
   const epoch = yield* slotClock.currentEpoch;
   const peers = yield* peerManager.getPeers;
   const activePeers = peers.filter((p) => p.status !== "disconnected").length;
 
-  const tipSlot = tip?.slot ?? 0n;
-  // Read the actual block number from the tip block
-  const tipBlock = tip ? yield* chainDb.getBlockAt(tip) : undefined;
-  const tipBlockNo = tipBlock?.blockNo ?? 0n;
+  const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
+  const tipBlock = Option.isSome(tipOpt) ? yield* chainDb.getBlockAt(tipOpt.value) : Option.none();
+  const tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
   const syncPercent =
     currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
 
-  return {
+  const result: NodeStatus = {
     tipSlot,
     tipBlockNo,
     currentSlot,
@@ -60,7 +59,8 @@ export const getNodeStatus = Effect.gen(function* () {
     peerCount: activePeers,
     blocksProcessed: 0,
     syncPercent: Math.min(syncPercent, 100),
-  } satisfies NodeStatus;
+  };
+  return result;
 });
 
 /**

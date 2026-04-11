@@ -31,9 +31,13 @@ describe("PParamsUpdate (all-optional)", () => {
   );
 });
 
+/** Check that a key is absent from a fields record. */
+const fieldKeys = (fields: object): ReadonlyArray<string> => Object.keys(fields);
+
 describe("VariantSchema PParams per-era extraction", () => {
   it("ShelleyPParams has shared fields but not execution units", () => {
     const fields = ShelleyPParams.fields;
+    const keys = fieldKeys(fields);
     // Shared fields present
     assert.isDefined(fields.maxBlockBodySize);
     assert.isDefined(fields.minFeeA);
@@ -44,16 +48,17 @@ describe("VariantSchema PParams per-era extraction", () => {
     assert.isDefined(fields.d);
     assert.isDefined(fields.minUTxOValue);
     // Alonzo+ fields absent
-    assert.isUndefined((fields as Record<string, unknown>).maxTxExUnits);
-    assert.isUndefined((fields as Record<string, unknown>).costModels);
-    assert.isUndefined((fields as Record<string, unknown>).prices);
+    assert.isFalse(keys.includes("maxTxExUnits"));
+    assert.isFalse(keys.includes("costModels"));
+    assert.isFalse(keys.includes("prices"));
     // Conway fields absent
-    assert.isUndefined((fields as Record<string, unknown>).poolThresholds);
-    assert.isUndefined((fields as Record<string, unknown>).drepDeposit);
+    assert.isFalse(keys.includes("poolThresholds"));
+    assert.isFalse(keys.includes("drepDeposit"));
   });
 
   it("AlonzoPParams has execution unit fields but not governance", () => {
     const fields = AlonzoPParams.fields;
+    const keys = fieldKeys(fields);
     // Shared fields present
     assert.isDefined(fields.maxBlockBodySize);
     assert.isDefined(fields.minFeeA);
@@ -63,15 +68,16 @@ describe("VariantSchema PParams per-era extraction", () => {
     assert.isDefined(fields.prices);
     assert.isDefined(fields.collateralPercentage);
     // Shelley-only fields absent
-    assert.isUndefined((fields as Record<string, unknown>).d);
-    assert.isUndefined((fields as Record<string, unknown>).minUTxOValue);
+    assert.isFalse(keys.includes("d"));
+    assert.isFalse(keys.includes("minUTxOValue"));
     // Conway fields absent
-    assert.isUndefined((fields as Record<string, unknown>).poolThresholds);
-    assert.isUndefined((fields as Record<string, unknown>).drepActivity);
+    assert.isFalse(keys.includes("poolThresholds"));
+    assert.isFalse(keys.includes("drepActivity"));
   });
 
   it("ConwayPParams has all fields including governance", () => {
     const fields = ConwayPParams.fields;
+    const keys = fieldKeys(fields);
     // Shared fields
     assert.isDefined(fields.maxBlockBodySize);
     // Alonzo+ fields
@@ -85,8 +91,8 @@ describe("VariantSchema PParams per-era extraction", () => {
     assert.isDefined(fields.drepActivity);
     assert.isDefined(fields.govActionDeposit);
     // Shelley-only fields absent in Conway
-    assert.isUndefined((fields as Record<string, unknown>).d);
-    assert.isUndefined((fields as Record<string, unknown>).minUTxOValue);
+    assert.isFalse(keys.includes("d"));
+    assert.isFalse(keys.includes("minUTxOValue"));
   });
 
   it("BabbagePParams matches AlonzoPParams fields", () => {

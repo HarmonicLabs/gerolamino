@@ -69,7 +69,7 @@ export const preferCandidate = (
  * CaughtUp: tip within stability window of wallclock
  */
 export const GsmState = Schema.Literals(["PreSyncing", "Syncing", "CaughtUp"]);
-export type GsmState = Schema.Schema.Type<typeof GsmState>;
+export type GsmState = typeof GsmState.Type;
 
 /**
  * Determine GSM state from current tip slot and wallclock slot.

@@ -10,28 +10,37 @@
  * - MustReply: Server (must send RollForward or RollBackward)
  * - Intersect: Server (sends IntersectFound or IntersectNotFound)
  * - Done: Terminal
+ *
+ * Events use Schema.toTaggedUnion("type") for XState compatibility —
+ * the "type" discriminator matches XState's event format.
  */
+import { Schema } from "effect";
 import { setup } from "xstate";
 
-export type ChainSyncState = "Idle" | "CanAwait" | "MustReply" | "Intersect" | "Done";
+export const ChainSyncState = Schema.Literals(["Idle", "CanAwait", "MustReply", "Intersect", "Done"]);
+export type ChainSyncState = typeof ChainSyncState.Type;
 
-export type ChainSyncMachineEvent =
+export const ChainSyncMachineEvent = Schema.Union([
   // Client-initiated (Idle state)
-  | { readonly type: "CLIENT_REQUEST_NEXT" }
-  | { readonly type: "CLIENT_FIND_INTERSECT" }
-  | { readonly type: "CLIENT_DONE" }
+  Schema.Struct({ type: Schema.Literal("CLIENT_REQUEST_NEXT") }),
+  Schema.Struct({ type: Schema.Literal("CLIENT_FIND_INTERSECT") }),
+  Schema.Struct({ type: Schema.Literal("CLIENT_DONE") }),
   // Server responses (CanAwait/MustReply state)
-  | { readonly type: "SERVER_ROLL_FORWARD" }
-  | { readonly type: "SERVER_ROLL_BACKWARD" }
-  | { readonly type: "SERVER_AWAIT_REPLY" }
+  Schema.Struct({ type: Schema.Literal("SERVER_ROLL_FORWARD") }),
+  Schema.Struct({ type: Schema.Literal("SERVER_ROLL_BACKWARD") }),
+  Schema.Struct({ type: Schema.Literal("SERVER_AWAIT_REPLY") }),
   // Server responses (Intersect state)
-  | { readonly type: "SERVER_INTERSECT_FOUND" }
-  | { readonly type: "SERVER_INTERSECT_NOT_FOUND" };
+  Schema.Struct({ type: Schema.Literal("SERVER_INTERSECT_FOUND") }),
+  Schema.Struct({ type: Schema.Literal("SERVER_INTERSECT_NOT_FOUND") }),
+]).pipe(Schema.toTaggedUnion("type"));
+
+export type ChainSyncMachineEvent = typeof ChainSyncMachineEvent.Type;
 
 export const chainSyncMachine = setup({
-  types: {
-    context: {} as Record<string, never>,
-    events: {} as ChainSyncMachineEvent,
+  // XState v5 phantom types — value ignored at runtime, used only for TS inference
+  types: {} as {
+    context: Record<string, never>;
+    events: ChainSyncMachineEvent;
   },
 }).createMachine({
   id: "chainSync",

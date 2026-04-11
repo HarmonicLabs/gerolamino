@@ -11,10 +11,9 @@
  * 4. Evolve nonces per block (with correct VRF tag bytes)
  * 5. Track sync progress via GSM state
  */
-import { Effect, Stream, Schema } from "effect";
-import type { StoredBlock } from "storage/types/StoredBlock";
-import { RealPoint } from "storage/types/StoredBlock";
-import { ChainDB } from "storage/services/chain-db";
+import { Effect, Option, Ref, Stream, Schema } from "effect";
+import { ChainDB, RealPoint } from "storage";
+import type { StoredBlock } from "storage";
 import { ConsensusEngine } from "./consensus-engine";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
 import { GsmState, gsmState } from "./chain-selection";
@@ -34,7 +33,7 @@ export const SyncState = Schema.Struct({
   blocksProcessed: Schema.Number,
   volatileLength: Schema.Number,
 });
-export type SyncState = Schema.Schema.Type<typeof SyncState>;
+export type SyncState = typeof SyncState.Type;
 
 /**
  * Process a single block through the consensus pipeline.
@@ -62,31 +61,32 @@ export const processBlock = (
 
     // 3. Epoch transition — derive new epoch nonce at boundary
     const blockEpoch = slotClock.slotToEpoch(header.slot);
-    let nonces = currentNonces;
-
-    if (blockEpoch > currentNonces.epoch) {
-      // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
-      const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash);
-      nonces = new Nonces({
-        active: newEpochNonce,
-        evolving: newEpochNonce,
-        candidate: newEpochNonce,
-        epoch: blockEpoch,
-      });
-    }
+    const nonces = blockEpoch > currentNonces.epoch
+      ? (() => {
+          // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
+          const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash);
+          return new Nonces({
+            active: newEpochNonce,
+            evolving: newEpochNonce,
+            candidate: newEpochNonce,
+            epoch: blockEpoch,
+          });
+        })()
+      : currentNonces;
 
     // 4. Evolve nonces using nonce-tagged VRF output (not leader VRF output)
     const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
 
-    // 5. Check if past candidate collection period (16k/f)
+    // 5. Check if past candidate collection period (epochLength - 4k/f)
     const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
     const pastCollection = isPastStabilizationWindow(
       slotInEpoch,
       slotClock.config.securityParam,
       slotClock.config.activeSlotsCoeff,
+      slotClock.config.epochLength,
     );
 
-    // Candidate nonce freezes at 16k/f — only update if still collecting
+    // Candidate nonce freezes at (epochLength - 4k/f) — only update if still collecting
     const newCandidate = pastCollection
       ? nonces.candidate
       : newEvolving;
@@ -122,29 +122,30 @@ export const getSyncState = Effect.gen(function* () {
   const chainDb = yield* ChainDB;
   const slotClock = yield* SlotClock;
 
-  const tip = yield* chainDb.getTip;
-  const snapshot = yield* chainDb.readLatestLedgerSnapshot;
+  const tipOpt = yield* chainDb.getTip;
+  const snapshotOpt = yield* chainDb.readLatestLedgerSnapshot;
 
   // Use snapshot epoch if available, otherwise derive from tip slot
-  const epoch = snapshot
-    ? snapshot.epoch
-    : tip
-      ? slotClock.slotToEpoch(tip.slot)
+  const epoch = Option.isSome(snapshotOpt)
+    ? snapshotOpt.value.epoch
+    : Option.isSome(tipOpt)
+      ? slotClock.slotToEpoch(tipOpt.value.slot)
       : 0n;
 
   const nonces = loadNonces(epoch);
 
   const wallclockSlot = yield* slotClock.currentSlot;
-  const tipSlot = tip?.slot ?? 0n;
+  const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
   const gsm = gsmState(tipSlot, wallclockSlot, slotClock.stabilityWindow);
 
-  return {
-    tip,
+  const result: SyncState = {
+    tip: Option.isSome(tipOpt) ? tipOpt.value : undefined,
     nonces,
     gsmState: gsm,
     blocksProcessed: 0,
     volatileLength: 0,
-  } satisfies SyncState;
+  };
+  return result;
 });
 
 /**
@@ -154,20 +155,18 @@ export const getSyncState = Effect.gen(function* () {
 const maybePromote = (
   k: number,
   volatileLength: number,
-  immutableTip: RealPoint | undefined,
+  immutableTip: Option.Option<RealPoint>,
 ) =>
   Effect.gen(function* () {
     if (volatileLength <= k) return volatileLength;
 
     const chainDb = yield* ChainDB;
 
-    // Promote blocks up to immutableTip
-    if (immutableTip) {
-      yield* chainDb.promoteToImmutable(immutableTip);
-      yield* chainDb.garbageCollect(immutableTip.slot);
+    if (Option.isSome(immutableTip)) {
+      yield* chainDb.promoteToImmutable(immutableTip.value);
+      yield* chainDb.garbageCollect(immutableTip.value.slot);
     }
 
-    // After promotion, volatile length resets to ~k
     return k;
   });
 
@@ -182,31 +181,33 @@ export const syncFromStream = (
     const slotClock = yield* SlotClock;
     const chainDb = yield* ChainDB;
     const k = slotClock.config.securityParam;
-    let state = yield* getSyncState;
+    const stateRef = yield* Ref.make(yield* getSyncState);
 
     yield* Stream.runForEach(blocks, ({ block, header, ledgerView }) =>
       Effect.gen(function* () {
-        const newNonces = yield* processBlock(block, header, ledgerView, state.nonces);
+        const current = yield* Ref.get(stateRef);
+        const newNonces = yield* processBlock(block, header, ledgerView, current.nonces);
         const wallclockSlot = yield* slotClock.currentSlot;
-        const newVolatileLength = state.volatileLength + 1;
+        const newVolatileLength = current.volatileLength + 1;
 
         // Promote to immutable when volatile chain exceeds k
         const immutableTip = yield* chainDb.getImmutableTip;
         const adjustedVolatile = yield* maybePromote(k, newVolatileLength, immutableTip);
 
-        state = {
-          ...state,
+        const next = {
+          ...current,
           tip: { slot: block.slot, hash: block.hash },
           nonces: newNonces,
-          blocksProcessed: state.blocksProcessed + 1,
+          blocksProcessed: current.blocksProcessed + 1,
           volatileLength: adjustedVolatile,
           gsmState: gsmState(block.slot, wallclockSlot, slotClock.stabilityWindow),
         };
-        if (state.blocksProcessed % 10000 === 0) {
-          yield* Effect.log(`Synced ${state.blocksProcessed} blocks, tip slot ${block.slot}`);
+        yield* Ref.set(stateRef, next);
+        if (next.blocksProcessed % 10000 === 0) {
+          yield* Effect.log(`Synced ${next.blocksProcessed} blocks, tip slot ${block.slot}`);
         }
       }),
     );
 
-    return state;
+    return yield* Ref.get(stateRef);
   });

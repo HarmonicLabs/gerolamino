@@ -13,4 +13,4 @@ export const LedgerStateSnapshot = Schema.Struct({
   epoch: Schema.BigInt,
   slot: Schema.BigInt,
 });
-export type LedgerStateSnapshot = Schema.Schema.Type<typeof LedgerStateSnapshot>;
+export type LedgerStateSnapshot = typeof LedgerStateSnapshot.Type;

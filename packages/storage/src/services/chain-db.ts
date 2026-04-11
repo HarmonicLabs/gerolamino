@@ -15,7 +15,7 @@
  * The service shape is intentionally broad — layers can implement
  * subsets (e.g., read-only for bootstrap, full for sync).
  */
-import { Effect, Schema, ServiceMap, Stream } from "effect";
+import { Effect, Option, Schema, ServiceMap, Stream } from "effect";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
 export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()(
@@ -37,18 +37,18 @@ export class ChainDB extends ServiceMap.Service<
     // --- Block lookups (volatile-first, then immutable) ---
 
     /** Get block by hash. Tries volatile first, then immutable. */
-    readonly getBlock: (hash: Uint8Array) => Effect.Effect<StoredBlock | undefined, ChainDBError>;
+    readonly getBlock: (hash: Uint8Array) => Effect.Effect<Option.Option<StoredBlock>, ChainDBError>;
 
     /** Get block by slot + hash (exact point). */
-    readonly getBlockAt: (point: RealPoint) => Effect.Effect<StoredBlock | undefined, ChainDBError>;
+    readonly getBlockAt: (point: RealPoint) => Effect.Effect<Option.Option<StoredBlock>, ChainDBError>;
 
     // --- Chain tip ---
 
     /** Current chain tip (most recent block). */
-    readonly getTip: Effect.Effect<RealPoint | undefined, ChainDBError>;
+    readonly getTip: Effect.Effect<Option.Option<RealPoint>, ChainDBError>;
 
     /** Immutable tip (k blocks behind chain tip — blocks before this are final). */
-    readonly getImmutableTip: Effect.Effect<RealPoint | undefined, ChainDBError>;
+    readonly getImmutableTip: Effect.Effect<Option.Option<RealPoint>, ChainDBError>;
 
     // --- Block writing ---
 
@@ -92,7 +92,7 @@ export class ChainDB extends ServiceMap.Service<
 
     /** Read the latest ledger state snapshot. */
     readonly readLatestLedgerSnapshot: Effect.Effect<
-      { point: RealPoint; stateBytes: Uint8Array; epoch: bigint } | undefined,
+      Option.Option<{ point: RealPoint; stateBytes: Uint8Array; epoch: bigint }>,
       ChainDBError
     >;
   }

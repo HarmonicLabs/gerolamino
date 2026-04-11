@@ -13,7 +13,7 @@
  *   - Ref<Map> for atomic peer state
  *   - Config for tunable timeouts
  */
-import { Clock, Config, Duration, Effect, Ref, Schema, ServiceMap } from "effect";
+import { Clock, Config, Effect, Option, Ref, Schema, ServiceMap } from "effect";
 import { SlotClock } from "./clock";
 import { ChainTip, preferCandidate } from "./chain-selection";
 
@@ -24,7 +24,7 @@ export class PeerManagerError extends Schema.TaggedErrorClass<PeerManagerError>(
 
 /** Connection status for a tracked peer. */
 export const PeerStatus = Schema.Literals(["connecting", "syncing", "synced", "stalled", "disconnected"]);
-export type PeerStatus = Schema.Schema.Type<typeof PeerStatus>;
+export type PeerStatus = typeof PeerStatus.Type;
 
 /** Per-peer tracked state. */
 export const PeerState = Schema.Struct({
@@ -35,17 +35,13 @@ export const PeerState = Schema.Struct({
   lastActivityMs: Schema.Number,
   headersReceived: Schema.Number,
 });
-export type PeerState = Schema.Schema.Type<typeof PeerState>;
+export type PeerState = typeof PeerState.Type;
 
 /** Stall timeout — configurable via PEER_STALL_TIMEOUT_MS, defaults to 120000 (2 min). */
 const StallTimeoutMs = Config.int("PEER_STALL_TIMEOUT_MS").pipe(
   Config.withDefault(2 * 60 * 1000),
 );
 
-/** Recycle cooldown — configurable via PEER_RECYCLE_COOLDOWN_MS, defaults to 240000 (4 min). */
-const RecycleCooldownMs = Config.int("PEER_RECYCLE_COOLDOWN_MS").pipe(
-  Config.withDefault(4 * 60 * 1000),
-);
 
 export class PeerManager extends ServiceMap.Service<
   PeerManager,
@@ -57,7 +53,7 @@ export class PeerManager extends ServiceMap.Service<
     /** Mark a peer as disconnected. */
     readonly removePeer: (peerId: string) => Effect.Effect<void, PeerManagerError>;
     /** Get the current best peer (highest tip by Praos rules). */
-    readonly getBestPeer: Effect.Effect<PeerState | undefined, PeerManagerError>;
+    readonly getBestPeer: Effect.Effect<Option.Option<PeerState>, PeerManagerError>;
     /** Get all tracked peers. */
     readonly getPeers: Effect.Effect<ReadonlyArray<PeerState>, PeerManagerError>;
     /** Check for stalled peers and mark them. */
@@ -134,7 +130,7 @@ export const PeerManagerLive = Effect.gen(function* () {
             best = peer;
           }
         }
-        return best;
+        return Option.fromNullishOr(best);
       }),
     ),
 

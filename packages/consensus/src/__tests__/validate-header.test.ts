@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Effect, Exit, Layer } from "effect";
+import { Effect, Exit, HashMap, Layer } from "effect";
 import { validateHeader, HeaderValidationError } from "../validate-header";
 import type { BlockHeader, LedgerView } from "../validate-header";
 import { CryptoService, CryptoServiceBunNative } from "../crypto";
@@ -35,8 +35,8 @@ const makeView = (header: BlockHeader, overrides?: Partial<LedgerView>): LedgerV
   const poolId = poolIdFromVk(header.issuerVk);
   return {
     epochNonce: new Uint8Array(32),
-    poolVrfKeys: new Map([[poolId, header.vrfVk]]),
-    poolStake: new Map([[poolId, 1_000_000n]]),
+    poolVrfKeys: HashMap.make([poolId, header.vrfVk]),
+    poolStake: HashMap.make([poolId, 1_000_000n]),
     totalStake: 10_000_000n, activeSlotsCoeff: 0.05, maxKesEvolutions: 62,
     ...overrides,
   };
@@ -54,14 +54,14 @@ describe("validateHeader", () => {
 
   it("fails when pool VRF key is not registered", async () => {
     const header = makeHeader();
-    const result = await run(validateHeader(header, makeView(header, { poolVrfKeys: new Map() })));
+    const result = await run(validateHeader(header, makeView(header, { poolVrfKeys: HashMap.empty() })));
     expect(Exit.isFailure(result)).toBe(true);
   });
 
   it("fails when VRF key doesn't match", async () => {
     const header = makeHeader();
     const poolId = poolIdFromVk(header.issuerVk);
-    const result = await run(validateHeader(header, makeView(header, { poolVrfKeys: new Map([[poolId, makeVk(99)]]) })));
+    const result = await run(validateHeader(header, makeView(header, { poolVrfKeys: HashMap.make([poolId, makeVk(99)]) })));
     expect(Exit.isFailure(result)).toBe(true);
   });
 
@@ -101,7 +101,7 @@ describe("validateHeader", () => {
   it("fails when pool has no registered stake", async () => {
     const header = makeHeader();
     const result = await run(
-      validateHeader(header, makeView(header, { poolStake: new Map() })),
+      validateHeader(header, makeView(header, { poolStake: HashMap.empty() })),
     );
     expect(Exit.isFailure(result)).toBe(true);
   });

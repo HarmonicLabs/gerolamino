@@ -9,25 +9,25 @@ export const Coin = Schema.BigInt.pipe(
   Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n)),
   Schema.brand("Coin"),
 );
-export type Coin = Schema.Schema.Type<typeof Coin>;
+export type Coin = typeof Coin.Type;
 
 export const Slot = Schema.BigInt.pipe(
   Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n)),
   Schema.brand("Slot"),
 );
-export type Slot = Schema.Schema.Type<typeof Slot>;
+export type Slot = typeof Slot.Type;
 
 export const Epoch = Schema.BigInt.pipe(
   Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n)),
   Schema.brand("Epoch"),
 );
-export type Epoch = Schema.Schema.Type<typeof Epoch>;
+export type Epoch = typeof Epoch.Type;
 
 export const Ix = Schema.BigInt.pipe(
   Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n)),
   Schema.brand("Ix"),
 );
-export type Ix = Schema.Schema.Type<typeof Ix>;
+export type Ix = typeof Ix.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Network enum
@@ -39,7 +39,7 @@ export enum Network {
 }
 
 export const NetworkSchema = Schema.Enum(Network);
-export type NetworkType = Schema.Schema.Type<typeof NetworkSchema>;
+export type NetworkType = typeof NetworkSchema.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Rational number
@@ -49,7 +49,7 @@ export const Rational = Schema.Struct({
   numerator: Schema.BigInt,
   denominator: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanBigInt(0n))),
 });
-export type Rational = Schema.Schema.Type<typeof Rational>;
+export type Rational = typeof Rational.Type;
 
 // UnitInterval: rational in [0, 1]
 export const UnitInterval = Rational.pipe(
@@ -59,7 +59,7 @@ export const UnitInterval = Rational.pipe(
     }),
   ),
 ).pipe(Schema.brand("UnitInterval"));
-export type UnitInterval = Schema.Schema.Type<typeof UnitInterval>;
+export type UnitInterval = typeof UnitInterval.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // ExUnits (execution units: memory + CPU steps)
@@ -69,7 +69,7 @@ export const ExUnits = Schema.Struct({
   mem: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
   steps: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
 });
-export type ExUnits = Schema.Schema.Type<typeof ExUnits>;
+export type ExUnits = typeof ExUnits.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR Codecs

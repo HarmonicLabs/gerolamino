@@ -1,6 +1,6 @@
 import { it, describe, expect } from "@effect/vitest";
 import { BigDecimal } from "effect";
-import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "../index";
+import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "..";
 
 const fromHex = (hex: string): Uint8Array => {
   const bytes = new Uint8Array(hex.length / 2);

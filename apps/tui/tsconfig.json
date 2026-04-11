@@ -5,7 +5,8 @@
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
-    "jsx": "react-jsx",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "allowJs": true,
 
     // Bundler mode
@@ -25,5 +26,10 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  "references": [
+    {
+      "path": "../../packages/dashboard"
+    }
+  ]
 }

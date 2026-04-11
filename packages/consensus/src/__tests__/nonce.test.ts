@@ -98,25 +98,29 @@ describe("deriveEpochNonce", () => {
 });
 
 describe("isPastStabilizationWindow", () => {
-  // Praos spec: candidate collection = 16k/f, quiet period = 8k/f, epoch = 24k/f
-  // Mainnet: k=2160, f=0.05 → candidate end = ceil(16*2160/0.05) = 691200
+  // Per Amaru/Haskell: randomness_stabilization_window = 4k/f
+  // Candidate freezes at epochLength - 4k/f slots into epoch.
+  // Mainnet: k=2160, f=0.05, epochLength=432000
+  //   4k/f = 4*2160/0.05 = 172800
+  //   candidateEnd = 432000 - 172800 = 259200
   const k = 2160;
   const f = 0.05;
-  const candidateEnd = 691200n; // 16k/f
+  const epochLength = 432000n;
+  const candidateEnd = 259200n; // epochLength - 4k/f
 
   it("returns false for slot 0", () => {
-    expect(isPastStabilizationWindow(0n, k, f)).toBe(false);
+    expect(isPastStabilizationWindow(0n, k, f, epochLength)).toBe(false);
   });
 
   it("returns false just before the window", () => {
-    expect(isPastStabilizationWindow(candidateEnd - 1n, k, f)).toBe(false);
+    expect(isPastStabilizationWindow(candidateEnd - 1n, k, f, epochLength)).toBe(false);
   });
 
   it("returns true at the window boundary", () => {
-    expect(isPastStabilizationWindow(candidateEnd, k, f)).toBe(true);
+    expect(isPastStabilizationWindow(candidateEnd, k, f, epochLength)).toBe(true);
   });
 
   it("returns true well past the window", () => {
-    expect(isPastStabilizationWindow(800000n, k, f)).toBe(true);
+    expect(isPastStabilizationWindow(400000n, k, f, epochLength)).toBe(true);
   });
 });

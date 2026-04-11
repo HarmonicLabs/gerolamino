@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { BlobStoreError } from "storage/blob-store/index";
+import { BlobStoreError } from "storage";
 
 export class ChunkReadError extends Schema.TaggedErrorClass<ChunkReadError>()("ChunkReadError", {
   chunkNo: Schema.Number,

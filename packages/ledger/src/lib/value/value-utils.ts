@@ -5,6 +5,7 @@
  * Supports both ADA-only and multi-asset values.
  */
 import type { Value, MultiAssetEntry } from "./value.ts";
+import { hashToHex, hexToHash } from "../core/hash-utils.ts";
 
 // ---------------------------------------------------------------------------
 // Coin (ADA) utilities
@@ -37,14 +38,14 @@ function mergeMultiAsset(
 
   const addEntries = (entries: ReadonlyArray<MultiAssetEntry>, opFn: (qty: bigint) => bigint) => {
     for (const entry of entries) {
-      const policyHex = Buffer.from(entry.policy).toString("hex");
+      const policyHex = hashToHex(entry.policy);
       let assetMap = merged.get(policyHex);
       if (!assetMap) {
         assetMap = new Map();
         merged.set(policyHex, assetMap);
       }
       for (const asset of entry.assets) {
-        const nameHex = Buffer.from(asset.name).toString("hex");
+        const nameHex = hashToHex(asset.name);
         const existing = assetMap.get(nameHex) ?? 0n;
         assetMap.set(nameHex, op(existing, opFn(asset.quantity)));
       }
@@ -60,11 +61,11 @@ function mergeMultiAsset(
     const assets: Array<{ name: Uint8Array; quantity: bigint }> = [];
     for (const [nameHex, qty] of assetMap) {
       if (qty !== 0n) {
-        assets.push({ name: Buffer.from(nameHex, "hex"), quantity: qty });
+        assets.push({ name: hexToHash(nameHex), quantity: qty });
       }
     }
     if (assets.length > 0) {
-      result.push({ policy: Buffer.from(policyHex, "hex"), assets });
+      result.push({ policy: hexToHash(policyHex), assets });
     }
   }
   return result.length > 0 ? result : undefined;

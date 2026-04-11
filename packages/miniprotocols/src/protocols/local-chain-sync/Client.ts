@@ -5,7 +5,7 @@ import { TimeoutError } from "effect/Cause";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
-import { ChainPoint } from "../types/ChainPoint";
+import type { ChainPoint } from "../types/ChainPoint";
 import * as Schemas from "./Schemas";
 
 export class LocalChainSyncError extends Schema.TaggedErrorClass<LocalChainSyncError>()(
@@ -13,7 +13,7 @@ export class LocalChainSyncError extends Schema.TaggedErrorClass<LocalChainSyncE
   { cause: Schema.Defect },
 ) {}
 
-export type LocalChainSyncRollForward = Schema.Schema.Type<typeof Schemas.LocalChainSyncMessage> & {
+export type LocalChainSyncRollForward = typeof Schemas.LocalChainSyncMessage.Type & {
   readonly _tag: Schemas.LocalChainSyncMessageType.RollForward;
 };
 export type LocalChainSyncRollBackward = Schema.Schema.Type<
@@ -72,9 +72,7 @@ export class LocalChainSyncClient extends ServiceMap.Service<
     LocalChainSyncClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.LocalChainSync)
-        .pipe(Effect.mapError((cause) => new LocalChainSyncError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.LocalChainSync);
 
       const sendMessage = (msg: Schemas.LocalChainSyncMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));

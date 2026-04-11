@@ -1,21 +1,30 @@
 /**
- * ChainDB live implementation — backed by BlobStore + SqliteDrizzle.
+ * ChainDB live implementation — backed by BlobStore + SqliteDrizzle + XState machine.
  *
  * Block CBOR stored in BlobStore under `blk:` prefix.
  * Metadata (slot, hash, prevHash, blockNo) stored in SQL.
  * Ledger state bytes stored in BlobStore under `snap` prefix.
  *
+ * The XState machine (chainDBMachine) orchestrates the block lifecycle:
+ *   addBlock → BLOCK_RECEIVED → CHAIN_SELECTED → IMMUTABILITY_CHECK
+ *   → (if volatileLength > k) copying (invoke promoteToImmutable)
+ *   → gc (invoke garbageCollect) → idle
+ *
+ * Block writes bypass the machine for performance — they go directly to
+ * BlobStore + SQL. The machine manages the background lifecycle only
+ * (immutability promotion, garbage collection).
+ *
  * Lookups follow spec 12.1.1: try volatile first, then immutable.
  * Rollback removes volatile blocks after the rollback point.
- * GC deletes both SQL rows and BlobStore entries.
  */
-import { Clock, Effect, Layer, Stream } from "effect";
+import { Clock, Config, Effect, Layer, Option, Scope, Stream } from "effect";
+import { createActor, fromPromise } from "xstate";
 import { eq, and, lt, gt, desc, asc } from "drizzle-orm";
 import { ChainDB, ChainDBError } from "./chain-db.ts";
-import { BlobStore } from "../blob-store/service.ts";
-import { blockKey, PREFIX_BLK } from "../blob-store/keys.ts";
-import { SqliteDrizzle, query, schema } from "../db/client.ts";
-import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
+import { BlobStore, blockKey, PREFIX_BLK } from "../blob-store";
+import { SqliteDrizzle, query, schema } from "../db";
+import { chainDBMachine } from "../machines/chaindb.ts";
+import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
 /** Convert Uint8Array to Buffer for Drizzle blob columns. */
 const buf = (data: Uint8Array): Buffer => Buffer.from(data.buffer, data.byteOffset, data.byteLength);
@@ -26,6 +35,7 @@ const u8 = (b: Buffer): Uint8Array => new Uint8Array(b.buffer, b.byteOffset, b.b
 const fail = (operation: string, cause: unknown) =>
   new ChainDBError({ operation, cause });
 
+
 /** BlobStore key for ledger snapshot state bytes. */
 const snapshotBlobKey = (slot: bigint): Uint8Array => {
   const prefix = new TextEncoder().encode("snap");
@@ -35,12 +45,85 @@ const snapshotBlobKey = (slot: bigint): Uint8Array => {
   return buf;
 };
 
+/** Default security param (k) — overridable via SECURITY_PARAM env. */
+const securityParamConfig = Config.int("SECURITY_PARAM").pipe(
+  Config.withDefault(2160),
+);
+
 export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle> =
   Layer.effect(
     ChainDB,
     Effect.gen(function* () {
       const store = yield* BlobStore;
       const db = yield* SqliteDrizzle;
+      const securityParam = yield* securityParamConfig;
+      const scope = yield* Effect.scope;
+
+      // --- XState machine with Effect-backed invoke actors ---
+      // fromPromise actors bridge XState ↔ Effect at the actor boundary.
+      // Effect.runPromise is unavoidable here: XState actors must return Promises.
+      const providedMachine = chainDBMachine.provide({
+        actors: {
+          promoteBlocks: fromPromise<number, { tip: RealPoint }>(({ input }) => {
+            const upTo = input.tip;
+            return Effect.runPromise(
+              Effect.gen(function* () {
+                const now = yield* Clock.currentTimeMillis;
+                const rows = yield* query(
+                  db.select().from(schema.volatileBlocks)
+                    .where(lt(schema.volatileBlocks.slot, Number(upTo.slot) + 1))
+                    .orderBy(asc(schema.volatileBlocks.slot)),
+                );
+                for (const r of rows) {
+                  yield* query(
+                    db.insert(schema.immutableBlocks).values({
+                      slot: r.slot, hash: r.hash,
+                      prevHash: r.prevHash, blockNo: r.blockNo,
+                      epochNo: 0, size: r.blockSizeBytes,
+                      time: Math.floor(Number(now) / 1000),
+                      slotLeaderId: 0, protoMajor: 0, protoMinor: 0,
+                    }).onConflictDoUpdate({
+                      target: schema.immutableBlocks.slot,
+                      set: { hash: r.hash },
+                    }),
+                  );
+                }
+                yield* query(
+                  db.delete(schema.volatileBlocks)
+                    .where(lt(schema.volatileBlocks.slot, Number(upTo.slot) + 1)),
+                );
+                return rows.length;
+              }),
+            );
+          }),
+          collectGarbage: fromPromise<void, { belowSlot: bigint }>(({ input }) =>
+            Effect.runPromise(
+              Effect.gen(function* () {
+                const toDelete = yield* query(
+                  db.select({ slot: schema.volatileBlocks.slot, hash: schema.volatileBlocks.hash })
+                    .from(schema.volatileBlocks)
+                    .where(lt(schema.volatileBlocks.slot, Number(input.belowSlot))),
+                );
+                if (toDelete.length > 0) {
+                  yield* store.deleteBatch(
+                    toDelete.map((r) => blockKey(BigInt(r.slot), r.hash)),
+                  );
+                }
+                yield* query(
+                  db.delete(schema.volatileBlocks)
+                    .where(lt(schema.volatileBlocks.slot, Number(input.belowSlot))),
+                );
+              }),
+            ),
+          ),
+        },
+      });
+
+      const actor = createActor(providedMachine, { input: { securityParam } });
+      actor.start();
+
+      // Stop actor on scope finalization
+      yield* Scope.addFinalizer(scope, Effect.sync(() => actor.stop()));
 
       return {
         // --- Lookups (volatile first) ---
@@ -56,11 +139,14 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
             if (vRows.length > 0) {
               const r = vRows[0]!;
               const blockCbor = yield* store.get(blockKey(BigInt(r.slot), r.hash));
-              if (blockCbor) return {
-                slot: BigInt(r.slot), hash: u8(r.hash),
-                ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
-                blockNo: BigInt(r.blockNo), blockSizeBytes: r.blockSizeBytes, blockCbor,
-              } satisfies StoredBlock;
+              if (Option.isSome(blockCbor)) {
+                const block = {
+                  slot: BigInt(r.slot), hash: u8(r.hash),
+                  ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
+                  blockNo: BigInt(r.blockNo), blockSizeBytes: r.blockSizeBytes, blockCbor: blockCbor.value,
+                };
+                return Option.some<StoredBlock>(block);
+              }
             }
             // Then immutable
             const iRows = yield* query(
@@ -68,15 +154,16 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
                 .where(eq(schema.immutableBlocks.hash, hashBuf))
                 .limit(1),
             );
-            if (iRows.length === 0) return undefined;
+            if (iRows.length === 0) return Option.none<StoredBlock>();
             const r = iRows[0]!;
             const blockCbor = yield* store.get(blockKey(BigInt(r.slot), r.hash));
-            if (!blockCbor) return undefined;
-            return {
+            if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
+            const block = {
               slot: BigInt(r.slot), hash: u8(r.hash),
               ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
-              blockNo: BigInt(r.blockNo), blockSizeBytes: r.size, blockCbor,
-            } satisfies StoredBlock;
+              blockNo: BigInt(r.blockNo), blockSizeBytes: r.size, blockCbor: blockCbor.value,
+            };
+            return Option.some<StoredBlock>(block);
           }).pipe(Effect.mapError((c) => fail("getBlock", c))),
 
         getBlockAt: (point: RealPoint) =>
@@ -93,11 +180,14 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
             if (vRows.length > 0) {
               const r = vRows[0]!;
               const blockCbor = yield* store.get(blockKey(point.slot, point.hash));
-              if (blockCbor) return {
-                slot: BigInt(r.slot), hash: u8(r.hash),
-                ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
-                blockNo: BigInt(r.blockNo), blockSizeBytes: r.blockSizeBytes, blockCbor,
-              } satisfies StoredBlock;
+              if (Option.isSome(blockCbor)) {
+                const block = {
+                  slot: BigInt(r.slot), hash: u8(r.hash),
+                  ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
+                  blockNo: BigInt(r.blockNo), blockSizeBytes: r.blockSizeBytes, blockCbor: blockCbor.value,
+                };
+                return Option.some<StoredBlock>(block);
+              }
             }
             // Then immutable
             const iRows = yield* query(
@@ -107,15 +197,16 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
                   eq(schema.immutableBlocks.slot, Number(point.slot)),
                 )).limit(1),
             );
-            if (iRows.length === 0) return undefined;
+            if (iRows.length === 0) return Option.none<StoredBlock>();
             const r = iRows[0]!;
             const blockCbor = yield* store.get(blockKey(point.slot, point.hash));
-            if (!blockCbor) return undefined;
-            return {
+            if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
+            const block = {
               slot: BigInt(r.slot), hash: u8(r.hash),
               ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
-              blockNo: BigInt(r.blockNo), blockSizeBytes: r.size, blockCbor,
-            } satisfies StoredBlock;
+              blockNo: BigInt(r.blockNo), blockSizeBytes: r.size, blockCbor: blockCbor.value,
+            };
+            return Option.some<StoredBlock>(block);
           }).pipe(Effect.mapError((c) => fail("getBlockAt", c))),
 
         // --- Tip ---
@@ -128,7 +219,8 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
               .limit(1),
           );
           if (vRows.length > 0) {
-            return { slot: BigInt(vRows[0]!.slot), hash: u8(vRows[0]!.hash) } satisfies RealPoint;
+            const point = { slot: BigInt(vRows[0]!.slot), hash: u8(vRows[0]!.hash) };
+            return Option.some<RealPoint>(point);
           }
           // Then immutable tip
           const iRows = yield* query(
@@ -137,8 +229,9 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
               .orderBy(desc(schema.immutableBlocks.slot))
               .limit(1),
           );
-          if (iRows.length === 0) return undefined;
-          return { slot: BigInt(iRows[0]!.slot), hash: u8(iRows[0]!.hash) } satisfies RealPoint;
+          if (iRows.length === 0) return Option.none<RealPoint>();
+          const point = { slot: BigInt(iRows[0]!.slot), hash: u8(iRows[0]!.hash) };
+          return Option.some<RealPoint>(point);
         }).pipe(Effect.mapError((c) => fail("getTip", c))),
 
         getImmutableTip: Effect.gen(function* () {
@@ -148,8 +241,9 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
               .orderBy(desc(schema.immutableBlocks.slot))
               .limit(1),
           );
-          if (rows.length === 0) return undefined;
-          return { slot: BigInt(rows[0]!.slot), hash: u8(rows[0]!.hash) } satisfies RealPoint;
+          if (rows.length === 0) return Option.none<RealPoint>();
+          const point = { slot: BigInt(rows[0]!.slot), hash: u8(rows[0]!.hash) };
+          return Option.some<RealPoint>(point);
         }).pipe(Effect.mapError((c) => fail("getImmutableTip", c))),
 
         // --- Writing ---
@@ -165,6 +259,13 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
                 blockSizeBytes: block.blockSizeBytes,
               }).onConflictDoNothing({ target: schema.volatileBlocks.hash }),
             );
+
+            // Notify machine — drives lifecycle (immutability promotion, GC).
+            // Block write is already complete; these events update bookkeeping only.
+            const tip = { slot: block.slot, hash: block.hash };
+            actor.send({ type: "BLOCK_RECEIVED" });
+            actor.send({ type: "CHAIN_SELECTED", tip });
+            actor.send({ type: "IMMUTABILITY_CHECK" });
           }).pipe(Effect.mapError((c) => fail("addBlock", c))),
 
         // --- Fork handling ---
@@ -187,6 +288,9 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
               db.delete(schema.volatileBlocks)
                 .where(gt(schema.volatileBlocks.slot, Number(point.slot))),
             );
+
+            // Notify machine of rollback
+            actor.send({ type: "ROLLBACK", point });
           }).pipe(Effect.mapError((c) => fail("rollback", c))),
 
         getSuccessors: (hash: Uint8Array) =>
@@ -223,15 +327,16 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
               const blocks: StoredBlock[] = [];
               for (const r of allRows) {
                 const blockCbor = yield* store.get(blockKey(BigInt(r.slot), r.hash));
-                if (blockCbor) {
+                if (Option.isSome(blockCbor)) {
                   const blockSizeBytes = r.source === "volatile" ? r.blockSizeBytes : r.size;
-                  blocks.push({
+                  const block: StoredBlock = {
                     slot: BigInt(r.slot), hash: u8(r.hash),
                     ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
                     blockNo: BigInt(r.blockNo),
                     blockSizeBytes,
-                    blockCbor,
-                  });
+                    blockCbor: blockCbor.value,
+                  };
+                  blocks.push(block);
                 }
               }
               return blocks;
@@ -311,15 +416,15 @@ export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle>
               .orderBy(desc(schema.ledgerSnapshots.slot))
               .limit(1),
           );
-          if (rows.length === 0) return undefined;
+          if (rows.length === 0) return Option.none();
           const r = rows[0]!;
           const stateBytes = yield* store.get(snapshotBlobKey(BigInt(r.slot)));
-          if (!stateBytes) return undefined;
-          return {
+          if (Option.isNone(stateBytes)) return Option.none();
+          return Option.some({
             point: { slot: BigInt(r.slot), hash: u8(r.hash) },
-            stateBytes,
+            stateBytes: stateBytes.value,
             epoch: BigInt(r.epoch),
-          };
+          });
         }).pipe(Effect.mapError((c) => fail("readLatestLedgerSnapshot", c))),
       };
     }),

@@ -11,7 +11,7 @@
  *                                      ↓
  *                              ConsensusEngine + ChainDB
  */
-import { Config, Duration, Effect, Layer, Schedule, Schema, Scope } from "effect";
+import { Deferred, Effect, Layer, Option, Ref, Schedule, Schema } from "effect";
 import {
   Multiplexer,
   MultiplexerBuffer,
@@ -25,7 +25,7 @@ import {
   HandshakeMessageType,
 } from "miniprotocols";
 import type { ChainPoint } from "miniprotocols";
-import { ChainDB } from "storage/services/chain-db";
+import { ChainDB } from "storage";
 import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { SlotClock } from "./clock";
@@ -146,7 +146,15 @@ const chainSyncLoop = (
 ) =>
   Effect.gen(function* () {
     const chainSync = yield* ChainSyncClient;
-    let state = initialVolatileState(initialTip, initialNonces);
+
+    // All mutable state managed via Ref (no mutable `let`)
+    const stateRef = yield* Ref.make(initialVolatileState(initialTip, initialNonces));
+
+    // Deferred commit gate chain — ensures sequential nonce evolution
+    // across blocks while allowing validation to proceed in parallel
+    const initialGate = yield* Deferred.make<void>();
+    yield* Deferred.succeed(initialGate, undefined); // first block: no predecessor
+    const gateRef = yield* Ref.make(initialGate);
 
     // Sync loop — runs until connection drops or interrupted.
     // Individual block processing errors are logged and skipped;
@@ -164,21 +172,30 @@ const chainSyncLoop = (
             blockNo: BigInt(msg.tip.blockNo),
           };
 
-          // Wrap block processing — validation/storage errors are non-fatal
-          const result = yield* Effect.result(
-            handleRollForward(msg.header, serverTip, state, peerId, ledgerView),
-          );
-          if (result._tag === "Success") {
-            state = result.success;
-          } else {
-            yield* Effect.logWarning(
-              `[sync] Block processing failed at slot ${serverTip.slot}: ${result.failure}`,
-            );
-          }
+          // Create this block's commit gate
+          const thisCommitDone = yield* Deferred.make<void>();
+          const prevCommitDone = yield* Ref.get(gateRef);
+          yield* Ref.set(gateRef, thisCommitDone);
 
-          if (state.blocksProcessed % 1000 === 0 && state.blocksProcessed > 0) {
+          // Wait for previous commit to complete (nonce dependency)
+          yield* Deferred.await(prevCommitDone);
+
+          // Process block: validate + store + evolve nonces
+          const state = yield* Ref.get(stateRef);
+          yield* handleRollForward(msg.header, msg.eraVariant, serverTip, state, peerId, ledgerView).pipe(
+            Effect.tap((newState) => Ref.set(stateRef, newState)),
+            Effect.matchEffect({
+              onSuccess: () => Effect.void,
+              onFailure: (err) => Effect.logWarning(`[sync] Block processing failed (era ${msg.eraVariant}, tip ${serverTip.slot}): ${err}`),
+            }),
+            // Guarantee gate signaling even on failure — prevents downstream deadlock
+            Effect.ensuring(Deferred.succeed(thisCommitDone, undefined)),
+          );
+
+          const currentState = yield* Ref.get(stateRef);
+          if (currentState.blocksProcessed % 1000 === 0 && currentState.blocksProcessed > 0) {
             yield* Effect.log(
-              `[sync] ${state.blocksProcessed} blocks, tip slot ${state.tip?.slot ?? 0n}`,
+              `[sync] ${currentState.blocksProcessed} blocks, tip slot ${currentState.tip?.slot ?? 0n}`,
             );
           }
         } else {
@@ -195,7 +212,14 @@ const chainSyncLoop = (
             blockNo: BigInt(msg.tip.blockNo),
           };
 
-          state = yield* handleRollBackward(rollbackPoint, serverTip, state, peerId);
+          const state = yield* Ref.get(stateRef);
+          const newState = yield* handleRollBackward(rollbackPoint, serverTip, state, peerId);
+          yield* Ref.set(stateRef, newState);
+
+          // Reset commit gate for new chain after rollback
+          const freshGate = yield* Deferred.make<void>();
+          yield* Deferred.succeed(freshGate, undefined);
+          yield* Ref.set(gateRef, freshGate);
         }
       }),
       Schedule.forever,
@@ -230,11 +254,16 @@ export const connectToRelay = (
     // 1. Handshake
     yield* runHandshake(networkMagic);
 
-    // 2. Find intersection — prefer snapshot tip, then ChainDB tip
-    const tip = snapshotState?.tip ?? (yield* chainDb.getTip) ?? undefined;
+    // 2. Find intersection — prefer ChainDB tip (evolved state) over snapshot tip.
+    // On reconnection, ChainDB has the latest stored tip from the previous session.
+    const dbTip = yield* chainDb.getTip;
+    const tip = Option.isSome(dbTip) ? dbTip.value : snapshotState?.tip;
     yield* findIntersection(tip);
 
-    // 3. Initialize nonces — from snapshot if available, else zeros
+    // 3. Initialize nonces — from snapshot if available, else zeros.
+    // NOTE: Nonces are not persisted in ChainDB yet. On reconnection, snapshot
+    // nonces are stale but still better than zeros. Nonce evolution will
+    // catch up after the first epoch transition. TODO: persist nonces in ChainDB.
     const nonces = snapshotState?.nonces ?? (() => {
       const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
       return new Nonces({

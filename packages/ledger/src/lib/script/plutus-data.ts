@@ -41,10 +41,12 @@ export type PlutusData =
   | { readonly _tag: PlutusDataKind.Int; readonly value: bigint }
   | { readonly _tag: PlutusDataKind.Bytes; readonly value: Uint8Array };
 
-// Recursive Schema using suspend for self-referencing fields
-const PlutusDataRef = Schema.suspend((): Schema.Schema<PlutusData> => PlutusData);
+// Recursive Schema using suspend — references _PlutusDataSchema lazily.
+// The return type annotation breaks the circular inference chain.
+const PlutusDataRef = Schema.suspend((): Schema.Schema<PlutusData> => _PlutusDataSchema);
 
-export const PlutusData: Schema.Schema<PlutusData> = Schema.Union([
+// Internal schema with full inferred type (preserves .match(), .guards, .isAnyOf())
+const _PlutusDataSchema = Schema.Union([
   Schema.TaggedStruct(PlutusDataKind.Constr, {
     constrTag: Schema.BigInt,
     fields: Schema.Array(PlutusDataRef),
@@ -58,6 +60,9 @@ export const PlutusData: Schema.Schema<PlutusData> = Schema.Union([
   Schema.TaggedStruct(PlutusDataKind.Int, { value: Schema.BigInt }),
   Schema.TaggedStruct(PlutusDataKind.Bytes, { value: Schema.Uint8Array }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
+
+// Re-export with inferred type so .match()/.guards/.isAnyOf() are accessible
+export const PlutusData = _PlutusDataSchema;
 
 // ---------------------------------------------------------------------------
 // CBOR Decoder (recursive)
@@ -159,52 +164,50 @@ export function decodePlutusData(
 }
 
 // ---------------------------------------------------------------------------
-// CBOR Encoder (recursive)
+// CBOR Encoder (recursive) — uses PlutusData.match for exhaustive dispatch
 // ---------------------------------------------------------------------------
 
-export function encodePlutusData(data: PlutusData): CborSchemaType {
-  switch (data._tag) {
-    case PlutusDataKind.Int:
-      return data.value >= 0n
-        ? { _tag: CborKinds.UInt, num: data.value }
-        : { _tag: CborKinds.NegInt, num: data.value };
+export const encodePlutusData: (data: PlutusData) => CborSchemaType = PlutusData.match({
+  [PlutusDataKind.Int]: (d): CborSchemaType =>
+    d.value >= 0n
+      ? { _tag: CborKinds.UInt, num: d.value }
+      : { _tag: CborKinds.NegInt, num: d.value },
 
-    case PlutusDataKind.Bytes:
-      return { _tag: CborKinds.Bytes, bytes: data.value };
+  [PlutusDataKind.Bytes]: (d): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: d.value }),
 
-    case PlutusDataKind.List:
-      return { _tag: CborKinds.Array, items: data.items.map(encodePlutusData) };
+  [PlutusDataKind.List]: (d): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: d.items.map(encodePlutusData),
+  }),
 
-    case PlutusDataKind.Map:
-      return {
-        _tag: CborKinds.Map,
-        entries: data.entries.map(([k, v]) => ({
-          k: encodePlutusData(k),
-          v: encodePlutusData(v),
-        })),
-      };
+  [PlutusDataKind.Map]: (d): CborSchemaType => ({
+    _tag: CborKinds.Map,
+    entries: d.entries.map(([k, v]) => ({
+      k: encodePlutusData(k),
+      v: encodePlutusData(v),
+    })),
+  }),
 
-    case PlutusDataKind.Constr: {
-      const tag = Number(data.constrTag);
-      const fields: CborSchemaType = {
+  [PlutusDataKind.Constr]: (d): CborSchemaType => {
+    const tag = Number(d.constrTag);
+    const fields: CborSchemaType = {
+      _tag: CborKinds.Array,
+      items: d.fields.map(encodePlutusData),
+    };
+    // Small tag: 0..6 → Tag(121+n)
+    if (tag >= 0 && tag <= 6)
+      return { _tag: CborKinds.Tag, tag: BigInt(121 + tag), data: fields };
+    // Medium tag: 7..127 → Tag(1280+n-7)
+    if (tag >= 7 && tag <= 127)
+      return { _tag: CborKinds.Tag, tag: BigInt(1280 + tag - 7), data: fields };
+    // General: Tag(102, [tag, fields])
+    return {
+      _tag: CborKinds.Tag,
+      tag: 102n,
+      data: {
         _tag: CborKinds.Array,
-        items: data.fields.map(encodePlutusData),
-      };
-      // Small tag: 0..6 → Tag(121+n)
-      if (tag >= 0 && tag <= 6)
-        return { _tag: CborKinds.Tag, tag: BigInt(121 + tag), data: fields };
-      // Medium tag: 7..127 → Tag(1280+n-7)
-      if (tag >= 7 && tag <= 127)
-        return { _tag: CborKinds.Tag, tag: BigInt(1280 + tag - 7), data: fields };
-      // General: Tag(102, [tag, fields])
-      return {
-        _tag: CborKinds.Tag,
-        tag: 102n,
-        data: {
-          _tag: CborKinds.Array,
-          items: [{ _tag: CborKinds.UInt, num: data.constrTag }, fields],
-        },
-      };
-    }
-  }
-}
+        items: [{ _tag: CborKinds.UInt, num: d.constrTag }, fields],
+      },
+    };
+  },
+});

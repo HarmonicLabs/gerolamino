@@ -4,10 +4,15 @@
  * XState defines WHAT state transitions happen (pure logic).
  * Effect defines HOW side effects execute (I/O, errors, resources).
  *
- * Pattern: XState store's enqueue.effect() collects side effects during transition,
- * which are then executed as Effect values via a ManagedRuntime.
+ * Two bridge patterns:
+ *
+ * 1. `EffectTransition` — for @xstate/store: returns [nextContext, effects[]]
+ * 2. `fromEffectActor` — for XState `invoke`: creates a `fromPromise` actor
+ *    that runs an Effect program via a ManagedRuntime. Use with `machine.provide()`
+ *    to inject real implementations at construction time.
  */
-import { type Effect } from "effect";
+import { type Effect, type ManagedRuntime } from "effect";
+import { fromPromise } from "xstate";
 
 /**
  * A transition function that returns the next state AND a list of Effects to execute.
@@ -30,4 +35,24 @@ export function fromEffectTransition<TContext, TEvent>(
     transition,
     initialContext,
   };
+}
+
+/**
+ * Create an XState `fromPromise` actor that runs an Effect program via ManagedRuntime.
+ *
+ * Use this to bridge XState `invoke` states to Effect-TS side effects:
+ *
+ *   const providedMachine = machine.provide({
+ *     actors: {
+ *       promoteBlocks: fromEffectActor(runtime, (input) => promoteEffect(input.tip)),
+ *     },
+ *   });
+ *
+ * The ManagedRuntime provides all required Effect services (BlobStore, SqliteDrizzle, etc.).
+ */
+export function fromEffectActor<I, O, R, E>(
+  runtime: ManagedRuntime.ManagedRuntime<R, E>,
+  effect: (input: I) => Effect.Effect<O, unknown, R>,
+) {
+  return fromPromise<O, I>(({ input }) => runtime.runPromise(effect(input)));
 }

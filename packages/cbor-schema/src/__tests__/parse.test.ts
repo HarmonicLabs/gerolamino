@@ -1,6 +1,6 @@
 import { it, describe, expect } from "@effect/vitest";
 import { BigDecimal } from "effect";
-import { parseSync, CborKinds } from "../index";
+import { parseSync, CborKinds } from "..";
 
 const fromHex = (hex: string): Uint8Array => {
   const bytes = new Uint8Array(hex.length / 2);
@@ -252,12 +252,8 @@ describe("parseSync", () => {
     it("float64: 2.5", () => {
       const result = parseSync(fromHex("fb4004000000000000"));
       expect(result._tag).toBe(CborKinds.Simple);
-      if (
-        result._tag === CborKinds.Simple &&
-        typeof result.value === "object" &&
-        result.value !== null
-      ) {
-        expect(BigDecimal.toNumberUnsafe(result.value as BigDecimal.BigDecimal)).toBe(2.5);
+      if (result._tag === CborKinds.Simple && BigDecimal.isBigDecimal(result.value)) {
+        expect(BigDecimal.toNumberUnsafe(result.value)).toBe(2.5);
         expect(result.addInfos).toBe(27);
       }
     });
@@ -265,12 +261,8 @@ describe("parseSync", () => {
     it("float16: 5.5", () => {
       const result = parseSync(fromHex("f94580"));
       expect(result._tag).toBe(CborKinds.Simple);
-      if (
-        result._tag === CborKinds.Simple &&
-        typeof result.value === "object" &&
-        result.value !== null
-      ) {
-        expect(BigDecimal.toNumberUnsafe(result.value as BigDecimal.BigDecimal)).toBe(5.5);
+      if (result._tag === CborKinds.Simple && BigDecimal.isBigDecimal(result.value)) {
+        expect(BigDecimal.toNumberUnsafe(result.value)).toBe(5.5);
         expect(result.addInfos).toBe(25);
       }
     });

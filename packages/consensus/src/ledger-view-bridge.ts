@@ -5,9 +5,9 @@
  * ledger package. This module maps its PoolDistr and PraosChainDepState into
  * the consensus-layer types needed for header validation.
  */
-import { Effect, Schema } from "effect";
+import { Effect, HashMap, Option, Schema } from "effect";
 import { CborKinds, type CborSchemaType } from "cbor-schema";
-import type { ExtLedgerState, ShelleyTip } from "ledger/lib/state/new-epoch-state.ts";
+import type { ExtLedgerState, ShelleyTip } from "ledger";
 import type { LedgerView } from "./validate-header";
 import { SlotClock } from "./clock";
 import { Nonces } from "./nonce";
@@ -29,28 +29,27 @@ export const extractLedgerView = (state: ExtLedgerState) =>
     const poolDistr = state.newEpochState.poolDistr;
 
     // Build VRF key map: poolHash (hex) → vrfKeyHash
-    const poolVrfKeys = new Map<string, Uint8Array>();
-    for (const [poolHash, poolStake] of poolDistr.pools) {
-      poolVrfKeys.set(poolHash, poolStake.vrfKeyHash);
-    }
+    const poolVrfKeys = HashMap.fromIterable(
+      Array.from(poolDistr.pools, ([poolHash, ps]) => [poolHash, ps.vrfKeyHash] as const),
+    );
 
     // Build stake map: poolHash (hex) → totalStake (absolute lovelace)
-    const poolStake = new Map<string, bigint>();
-    for (const [poolHash, ps] of poolDistr.pools) {
-      poolStake.set(poolHash, ps.totalStake);
-    }
+    const poolStake = HashMap.fromIterable(
+      Array.from(poolDistr.pools, ([poolHash, ps]) => [poolHash, ps.totalStake] as const),
+    );
 
     // Extract epoch nonce from PraosChainDepState if available
     const epochNonce = extractEpochNonceFromChainDepState(state.chainDepState);
 
-    return {
+    const result: LedgerView = {
       epochNonce,
       poolVrfKeys,
       poolStake,
       totalStake: poolDistr.totalActiveStake,
       activeSlotsCoeff: slotClock.config.activeSlotsCoeff,
       maxKesEvolutions: 62,
-    } satisfies LedgerView;
+    };
+    return result;
   });
 
 /**
@@ -76,7 +75,8 @@ export const extractNonces = (state: ExtLedgerState): Nonces => {
  */
 export const extractSnapshotTip = (
   state: ExtLedgerState,
-): { slot: bigint; hash: Uint8Array } | undefined => state.tip;
+): { slot: bigint; hash: Uint8Array } | undefined =>
+  Option.isSome(state.tip) ? state.tip.value : undefined;
 
 // ---------------------------------------------------------------------------
 // PraosChainDepState nonce extraction

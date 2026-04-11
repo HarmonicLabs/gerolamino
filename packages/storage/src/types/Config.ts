@@ -8,4 +8,4 @@ export const StorageConfig = Schema.Struct({
   maxBlockBodySize: Schema.Number, // for mempool capacity (2x this)
   snapshotInterval: Schema.Number, // how often to write LedgerDB snapshots
 });
-export type StorageConfig = Schema.Schema.Type<typeof StorageConfig>;
+export type StorageConfig = typeof StorageConfig.Type;

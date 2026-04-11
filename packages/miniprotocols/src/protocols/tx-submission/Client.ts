@@ -49,9 +49,7 @@ export class TxSubmissionClient extends ServiceMap.Service<
     TxSubmissionClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.TxSubmission)
-        .pipe(Effect.mapError((cause) => new TxSubmissionError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.TxSubmission);
 
       const sendMessage = (msg: Schemas.TxSubmissionMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));

@@ -10,7 +10,7 @@ import {
 /**
  * Type definitions derived from schemas
  */
-export type MultiplexerProtocolType = Schema.Schema.Type<typeof MultiplexerProtocolTypeSchema>;
-export type MultiplexerHeader = Schema.Schema.Type<typeof MultiplexerHeaderSchema>;
-export type MultiplexerMessage = Schema.Schema.Type<typeof MultiplexerMessageSchema>;
-export type MultiplexerConfig = Schema.Schema.Type<typeof MultiplexerConfigSchema>;
+export type MultiplexerProtocolType = typeof MultiplexerProtocolTypeSchema.Type;
+export type MultiplexerHeader = typeof MultiplexerHeaderSchema.Type;
+export type MultiplexerMessage = typeof MultiplexerMessageSchema.Type;
+export type MultiplexerConfig = typeof MultiplexerConfigSchema.Type;

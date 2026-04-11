@@ -16,7 +16,7 @@ import {
   SnapshotMeta,
   readSnapshotMeta,
 } from "bootstrap";
-import { BlobStore, PREFIX_UTXO } from "storage/blob-store/index";
+import { BlobStore } from "storage";
 
 // Re-export for consumers that used the old location
 export { SnapshotMeta, readSnapshotMeta } from "bootstrap";
@@ -38,25 +38,34 @@ export const bootstrapStream = (
     ),
   );
 
+  // State/meta files exist in Mithril snapshots but not in V2LSM node DBs.
+  // Skip gracefully if they don't exist.
   const stateStream = Stream.fromEffect(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const bytes = yield* fs.readFile(path.join(meta.ledgerDir, "state"));
+      const statePath = path.join(meta.ledgerDir, "state");
+      if (!(yield* fs.exists(statePath))) return undefined;
+      const bytes = yield* fs.readFile(statePath);
       return encodeFrame(MessageTag.LedgerState, bytes);
     }).pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause }))),
-  );
+  ).pipe(Stream.filter((f): f is Uint8Array => f !== undefined));
 
   const metaStream = Stream.fromEffect(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const bytes = yield* fs.readFile(path.join(meta.ledgerDir, "meta"));
+      const metaPath = path.join(meta.ledgerDir, "meta");
+      if (!(yield* fs.exists(metaPath))) return undefined;
+      const bytes = yield* fs.readFile(metaPath);
       return encodeFrame(MessageTag.LedgerMeta, bytes);
     }).pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause }))),
-  );
+  ).pipe(Stream.filter((f): f is Uint8Array => f !== undefined));
 
-  // Stream UTxO entries from BlobStore (LSM backend) via scan(prefix)
+  // Stream UTxO entries from BlobStore (LSM backend) via scan.
+  // V2LSM tables store raw MemPack keys without our PREFIX_UTXO,
+  // so scan with empty prefix to get all entries (entire table is UTxOs).
+  // Wire format sends raw MemPack keys — client adds PREFIX_UTXO on receipt.
   const utxoStream = Stream.fromEffect(
     Effect.gen(function* () {
       const store = yield* BlobStore;
@@ -64,7 +73,7 @@ export const bootstrapStream = (
     }),
   ).pipe(
     Stream.flatMap((store) =>
-      store.scan(PREFIX_UTXO).pipe(
+      store.scan(new Uint8Array(0)).pipe(
         Stream.grouped(500),
         Stream.map((batch) =>
           encodeFrame(
@@ -72,8 +81,7 @@ export const bootstrapStream = (
             encodeBlobBatch(
               "utxo",
               batch.map((e: { readonly key: Uint8Array; readonly value: Uint8Array }) => ({
-                // Strip "utxo" prefix (4 bytes) — wire format expects raw MemPack keys
-                key: e.key.slice(4),
+                key: e.key,
                 value: e.value,
               })),
             ),

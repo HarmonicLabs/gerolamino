@@ -1,18 +1,18 @@
 /**
  * LedgerDB — ledger state management with snapshot persistence.
  */
-import { Effect, Layer, ServiceMap } from "effect";
+import { Effect, Layer, Option, ServiceMap } from "effect";
 import type { LedgerStateSnapshot } from "../types/LedgerState.ts";
 import { LedgerDBError } from "../errors.ts";
-import { BlobStore } from "../blob-store/service.ts";
-import { SqliteDrizzle } from "../db/client.ts";
+import { BlobStore } from "../blob-store";
+import { SqliteDrizzle } from "../db";
 import { writeSnapshot, readLatestSnapshot } from "../operations/snapshots.ts";
 
 export class LedgerDB extends ServiceMap.Service<
   LedgerDB,
   {
     readonly writeSnapshot: (snapshot: LedgerStateSnapshot) => Effect.Effect<void, LedgerDBError>;
-    readonly readLatestSnapshot: Effect.Effect<LedgerStateSnapshot | undefined, LedgerDBError>;
+    readonly readLatestSnapshot: Effect.Effect<Option.Option<LedgerStateSnapshot>, LedgerDBError>;
   }
 >()("storage/LedgerDB") {}
 

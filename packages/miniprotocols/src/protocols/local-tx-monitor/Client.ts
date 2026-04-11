@@ -87,9 +87,7 @@ export class LocalTxMonitorClient extends ServiceMap.Service<
     LocalTxMonitorClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.LocalTxMonitor)
-        .pipe(Effect.mapError((cause) => new LocalTxMonitorError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.LocalTxMonitor);
       const state = yield* Ref.make<MonitorState>("Idle");
 
       const sendMessage = (msg: Schemas.LocalTxMonitorMessageT) =>

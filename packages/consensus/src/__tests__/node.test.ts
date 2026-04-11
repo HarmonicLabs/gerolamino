@@ -1,10 +1,10 @@
 import { describe, expect } from "vitest";
 import { it, layer } from "@effect/vitest";
-import { Clock, Effect, Layer, Stream } from "effect";
+import { Clock, Effect, Layer, Option, Stream } from "effect";
 import { getNodeStatus } from "../node";
 import { PeerManager, PeerManagerLive } from "../peer-manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
-import { ChainDB } from "storage/services/chain-db";
+import { ChainDB } from "storage";
 import { ChainTip } from "../chain-selection";
 
 const testConfig = new SlotConfig({
@@ -33,10 +33,10 @@ const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
 );
 
 const stubChainDb = Layer.succeed(ChainDB, {
-  getBlock: () => Effect.succeed(undefined),
-  getBlockAt: () => Effect.succeed(undefined),
-  getTip: Effect.succeed({ slot: 450n, hash: new Uint8Array(32) }),
-  getImmutableTip: Effect.succeed(undefined),
+  getBlock: () => Effect.succeed(Option.none()),
+  getBlockAt: () => Effect.succeed(Option.none()),
+  getTip: Effect.succeed(Option.some({ slot: 450n, hash: new Uint8Array(32) })),
+  getImmutableTip: Effect.succeed(Option.none()),
   addBlock: () => Effect.void,
   rollback: () => Effect.void,
   getSuccessors: () => Effect.succeed([]),
@@ -44,7 +44,7 @@ const stubChainDb = Layer.succeed(ChainDB, {
   promoteToImmutable: () => Effect.void,
   garbageCollect: () => Effect.void,
   writeLedgerSnapshot: () => Effect.void,
-  readLatestLedgerSnapshot: Effect.succeed(undefined),
+  readLatestLedgerSnapshot: Effect.succeed(Option.none()),
 });
 
 const testLayers = Layer.mergeAll(

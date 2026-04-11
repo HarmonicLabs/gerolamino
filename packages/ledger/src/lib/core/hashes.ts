@@ -120,53 +120,53 @@ export const Hash28 = Schema.Uint8Array.pipe(
   Schema.check(isByteLength(28)),
   Schema.brand("Hash28"),
 );
-export type Hash28 = Schema.Schema.Type<typeof Hash28>;
+export type Hash28 = typeof Hash28.Type;
 
 export const Hash32 = Schema.Uint8Array.pipe(
   Schema.check(isByteLength(32)),
   Schema.brand("Hash32"),
 );
-export type Hash32 = Schema.Schema.Type<typeof Hash32>;
+export type Hash32 = typeof Hash32.Type;
 
 export const Signature = Schema.Uint8Array.pipe(
   Schema.check(isByteLength(64)),
   Schema.brand("Signature"),
 );
-export type Signature = Schema.Schema.Type<typeof Signature>;
+export type Signature = typeof Signature.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Domain-specific hash aliases (stacked brands for nominal type safety)
 // ────────────────────────────────────────────────────────────────────────────
 
 export const KeyHash = Hash28.pipe(Schema.brand("KeyHash"));
-export type KeyHash = Schema.Schema.Type<typeof KeyHash>;
+export type KeyHash = typeof KeyHash.Type;
 
 export const ScriptHash = Hash28.pipe(Schema.brand("ScriptHash"));
-export type ScriptHash = Schema.Schema.Type<typeof ScriptHash>;
+export type ScriptHash = typeof ScriptHash.Type;
 
 export const PolicyId = Hash28.pipe(Schema.brand("PolicyId"));
-export type PolicyId = Schema.Schema.Type<typeof PolicyId>;
+export type PolicyId = typeof PolicyId.Type;
 
 export const PoolKeyHash = Hash28.pipe(Schema.brand("PoolKeyHash"));
-export type PoolKeyHash = Schema.Schema.Type<typeof PoolKeyHash>;
+export type PoolKeyHash = typeof PoolKeyHash.Type;
 
 export const VRFKeyHash = Hash32.pipe(Schema.brand("VRFKeyHash"));
-export type VRFKeyHash = Schema.Schema.Type<typeof VRFKeyHash>;
+export type VRFKeyHash = typeof VRFKeyHash.Type;
 
 export const TxId = Hash32.pipe(Schema.brand("TxId"));
-export type TxId = Schema.Schema.Type<typeof TxId>;
+export type TxId = typeof TxId.Type;
 
 export const DataHash = Hash32.pipe(Schema.brand("DataHash"));
-export type DataHash = Schema.Schema.Type<typeof DataHash>;
+export type DataHash = typeof DataHash.Type;
 
 export const AuxDataHash = Hash32.pipe(Schema.brand("AuxDataHash"));
-export type AuxDataHash = Schema.Schema.Type<typeof AuxDataHash>;
+export type AuxDataHash = typeof AuxDataHash.Type;
 
 export const ScriptDataHash = Hash32.pipe(Schema.brand("ScriptDataHash"));
-export type ScriptDataHash = Schema.Schema.Type<typeof ScriptDataHash>;
+export type ScriptDataHash = typeof ScriptDataHash.Type;
 
 export const DocHash = Hash32.pipe(Schema.brand("DocHash"));
-export type DocHash = Schema.Schema.Type<typeof DocHash>;
+export type DocHash = typeof DocHash.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR Codecs

@@ -19,6 +19,7 @@ import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Utils (copyBytes)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
+import qualified Data.Text as Text
 import qualified Database.LSMTree.Simple as LSM
 import System.IO (hPutStrLn, stderr)
 import Control.Exception (try, SomeException, displayException)
@@ -145,22 +146,24 @@ lsm_range_lookup tableSp loPtr loLen hiPtr hiLen outBufPtr outBufLen outCount = 
 -- Snapshot -----------------------------------------------------------------
 
 foreign export ccall lsm_snapshot_save
-  :: SessionHandle -> TableHandle -> CString -> IO CInt
-lsm_snapshot_save :: SessionHandle -> TableHandle -> CString -> IO CInt
-lsm_snapshot_save _sessionSp tableSp namePtr = wrap "snapshot_save" $ do
+  :: SessionHandle -> TableHandle -> CString -> CString -> IO CInt
+lsm_snapshot_save :: SessionHandle -> TableHandle -> CString -> CString -> IO CInt
+lsm_snapshot_save _sessionSp tableSp namePtr labelPtr = wrap "snapshot_save" $ do
   table <- deRefStablePtr tableSp
   name <- peekCString namePtr
+  label <- peekCString labelPtr
   let sn = LSM.toSnapshotName name
-  LSM.saveSnapshot sn (LSM.SnapshotLabel "lsm-ffi") table
+  LSM.saveSnapshot sn (LSM.SnapshotLabel (Text.pack label)) table
 
 foreign export ccall lsm_snapshot_restore
-  :: SessionHandle -> CString -> Ptr TableHandle -> IO CInt
-lsm_snapshot_restore :: SessionHandle -> CString -> Ptr TableHandle -> IO CInt
-lsm_snapshot_restore sessionSp namePtr outPtr = wrap "snapshot_restore" $ do
+  :: SessionHandle -> CString -> CString -> Ptr TableHandle -> IO CInt
+lsm_snapshot_restore :: SessionHandle -> CString -> CString -> Ptr TableHandle -> IO CInt
+lsm_snapshot_restore sessionSp namePtr labelPtr outPtr = wrap "snapshot_restore" $ do
   session <- deRefStablePtr sessionSp
   name <- peekCString namePtr
+  label <- peekCString labelPtr
   let sn = LSM.toSnapshotName name
-  table <- LSM.openTableFromSnapshot session sn (LSM.SnapshotLabel "lsm-ffi")
+  table <- LSM.openTableFromSnapshot session sn (LSM.SnapshotLabel (Text.pack label))
   sp <- newStablePtr table
   poke outPtr sp
 

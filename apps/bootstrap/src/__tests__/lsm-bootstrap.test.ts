@@ -12,7 +12,7 @@ import { Effect, Layer, Stream } from "effect";
 import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { readSnapshotMeta, bootstrapStream } from "../loader";
 import { MessageTag, decodeFrame } from "bootstrap";
-import { BlobStore, BlobStoreError } from "storage/blob-store/index";
+import { BlobStore, BlobStoreError } from "storage";
 import { layerLsm } from "lsm-tree";
 
 const SNAPSHOT_PATH = process.env["SNAPSHOT_PATH"];

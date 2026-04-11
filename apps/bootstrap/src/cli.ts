@@ -1,14 +1,16 @@
 /**
  * CLI entry point for the Gerolamo bootstrap server.
- * Uses V2LSM snapshots via BlobStore (lsm-tree FFI).
+ * Supports two data sources:
+ *   --snapshot-path: Mithril V2LSM snapshot directory
+ *   --db-path:       Running cardano-node database directory
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Config, Effect, Layer } from "effect";
+import { Config, Effect, Layer, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { readSnapshotMeta } from "./loader.ts";
+import { readNodeDbMeta } from "bootstrap";
 import { startServer } from "./server.ts";
-import { BlobStore, BlobStoreError } from "storage/blob-store/index";
-import { layerLsm } from "lsm-tree";
+import { layerLsm, layerLsmFromSnapshot } from "lsm-tree";
 
 const serve = Command.make(
   "serve",
@@ -22,8 +24,20 @@ const serve = Command.make(
     snapshotPath: Flag.directory("snapshot-path").pipe(
       Flag.withAlias("s"),
       Flag.withDescription("Path to Mithril snapshot directory"),
-      Flag.withDefault("db"),
       Flag.withFallbackConfig(Config.string("SNAPSHOT_PATH")),
+      Flag.optional,
+    ),
+    dbPath: Flag.directory("db-path").pipe(
+      Flag.withAlias("d"),
+      Flag.withDescription("Path to running cardano-node database directory"),
+      Flag.withFallbackConfig(Config.string("NODE_DB_PATH")),
+      Flag.optional,
+    ),
+    network: Flag.string("network").pipe(
+      Flag.withAlias("n"),
+      Flag.withDescription("Cardano network (preprod|mainnet)"),
+      Flag.withDefault("preprod"),
+      Flag.withFallbackConfig(Config.string("NETWORK")),
     ),
     lsmLibPath: Flag.file("lsm-lib").pipe(
       Flag.withDescription("Path to liblsm-ffi.so"),
@@ -38,29 +52,54 @@ const serve = Command.make(
   (config) =>
     Effect.gen(function* () {
       const upstreamUrl = new URL(config.upstreamUrl);
+      const snapshotPath = Option.getOrUndefined(config.snapshotPath);
+      const dbPath = Option.getOrUndefined(config.dbPath);
 
-      const meta = yield* readSnapshotMeta(config.snapshotPath);
-      yield* Effect.log(
-        `Snapshot: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks} lsm=${meta.lsmDir}`,
-      );
+      if (!snapshotPath && !dbPath) {
+        return yield* Effect.fail(
+          new Error("Either --snapshot-path or --db-path must be provided"),
+        );
+      }
 
-      // Provide LSM BlobStore layer
-      const lsmLayer = layerLsm(meta.lsmDir);
+      let lsmLayer: Layer.Layer<import("storage/blob-store/service").BlobStore, import("storage/blob-store/service").BlobStoreError>;
 
-      yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(
-        Effect.provide(lsmLayer),
-      );
+      if (dbPath) {
+        // Cardano-node database mode
+        yield* Effect.log(`Reading cardano-node database: ${dbPath} (${config.network})`);
+        const { meta, snapshotName } = yield* readNodeDbMeta(dbPath, config.network);
+        yield* Effect.log(
+          `Node DB: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks} snapshot=${snapshotName}`,
+        );
+        lsmLayer = layerLsmFromSnapshot(meta.lsmDir, snapshotName);
+
+        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(
+          Effect.provide(lsmLayer),
+        );
+      } else {
+        // Mithril snapshot mode
+        const meta = yield* readSnapshotMeta(snapshotPath!);
+        yield* Effect.log(
+          `Snapshot: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks} lsm=${meta.lsmDir}`,
+        );
+        lsmLayer = layerLsm(meta.lsmDir);
+
+        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(
+          Effect.provide(lsmLayer),
+        );
+      }
+
       yield* Effect.log(`Bootstrap server ready on :${config.port}`);
     }),
 ).pipe(
   Command.withDescription("Start the Gerolamo bootstrap server"),
   Command.withExamples([
-    { command: "bootstrap serve --lsm-lib /path/to/liblsm-ffi.so -s /data/snapshot", description: "Start with LSM" },
+    { command: "bootstrap serve --lsm-lib /path/to/lib -s /data/snapshot", description: "Start from Mithril snapshot" },
+    { command: "bootstrap serve --lsm-lib /path/to/lib -d /var/lib/cardano-node", description: "Start from cardano-node DB" },
   ]),
 );
 
 const app = Command.make("bootstrap").pipe(
-  Command.withDescription("Gerolamo Mithril bootstrap server (V2LSM)"),
+  Command.withDescription("Gerolamo bootstrap server (V2LSM)"),
   Command.withSubcommands([serve]),
 );
 

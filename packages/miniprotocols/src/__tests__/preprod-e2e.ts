@@ -179,7 +179,7 @@ const program = Effect.gen(function* () {
       const blocks = yield* result.value.pipe(
         Stream.runCollect,
         Effect.timeout(Duration.seconds(15)),
-        Effect.catchTag("TimeoutError", () => Effect.succeed([] as Uint8Array[])),
+        Effect.catchTag("TimeoutError", (): Effect.Effect<Uint8Array[]> => Effect.succeed([])),
       );
       ok("BlockFetch requestRange", `${blocks.length} block(s) received`);
 
@@ -189,7 +189,7 @@ const program = Effect.gen(function* () {
         try {
           const decoded = Effect.runSync(decodeMultiEraBlock(blockCbor));
           if (decoded._tag === "postByron" && decoded.header) {
-            const hdr = decoded.header as BlockHeader;
+            const hdr = decoded.header;
             ok(
               "Block header decode",
               `slot=${hdr.slot}, blockNo=${hdr.blockNo}, txs=${decoded.txBodies.length}`,

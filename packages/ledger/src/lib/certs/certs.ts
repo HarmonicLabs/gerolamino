@@ -47,6 +47,19 @@ export enum CertKind {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// MIR target — coin amount or credential map
+// ────────────────────────────────────────────────────────────────────────────
+
+export const MIRTarget = Schema.Union([
+  Schema.TaggedStruct("coin" as const, { value: Schema.BigInt }),
+  Schema.TaggedStruct("map" as const, {
+    entries: Schema.Array(Schema.Struct({ credential: Credential, coin: Schema.BigInt })),
+  }),
+]).pipe(Schema.toTaggedUnion("_tag"));
+
+export type MIRTarget = typeof MIRTarget.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
 // DCert — discriminated union of all certificate types
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -63,12 +76,7 @@ export const DCert = Schema.Union([
   }),
   Schema.TaggedStruct(CertKind.MoveInstantRewards, {
     pot: Schema.BigInt, // 0 = Reserves, 1 = Treasury
-    target: Schema.Union([
-      Schema.TaggedStruct("coin" as const, { value: Schema.BigInt }),
-      Schema.TaggedStruct("map" as const, {
-        entries: Schema.Array(Schema.Struct({ credential: Credential, coin: Schema.BigInt })),
-      }),
-    ]).pipe(Schema.toTaggedUnion("_tag")),
+    target: MIRTarget,
   }),
   Schema.TaggedStruct(CertKind.RegDeposit, { credential: Credential, deposit: Schema.BigInt }),
   Schema.TaggedStruct(CertKind.UnregDeposit, { credential: Credential, deposit: Schema.BigInt }),
@@ -114,7 +122,7 @@ export const DCert = Schema.Union([
   }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type DCert = Schema.Schema.Type<typeof DCert>;
+export type DCert = typeof DCert.Type;
 
 // Domain predicates
 export const isDelegationCert = DCert.isAnyOf([
@@ -354,16 +362,16 @@ export const encodeDCert = DCert.match({
       { _tag: CborKinds.Bytes, bytes: c.vrfKeyHash },
     ),
   [CertKind.MoveInstantRewards]: (c): CborSchemaType => {
-    const targetCbor: CborSchemaType =
-      c.target._tag === "coin"
-        ? uint(c.target.value)
-        : {
-            _tag: CborKinds.Map,
-            entries: c.target.entries.map((e) => ({
-              k: encodeCredential(e.credential),
-              v: uint(e.coin),
-            })),
-          };
+    const targetCbor: CborSchemaType = MIRTarget.match({
+      coin: (t): CborSchemaType => uint(t.value),
+      map: (t): CborSchemaType => ({
+        _tag: CborKinds.Map,
+        entries: t.entries.map((e) => ({
+          k: encodeCredential(e.credential),
+          v: uint(e.coin),
+        })),
+      }),
+    })(c.target);
     return arr(uint(6), arr(uint(c.pot), targetCbor));
   },
   [CertKind.RegDeposit]: (c): CborSchemaType =>

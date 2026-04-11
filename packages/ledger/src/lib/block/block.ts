@@ -24,7 +24,7 @@ export const VrfCert = Schema.Struct({
   output: Schema.Uint8Array,
   proof: Schema.Uint8Array,
 });
-export type VrfCert = Schema.Schema.Type<typeof VrfCert>;
+export type VrfCert = typeof VrfCert.Type;
 
 function decodeVrfCert(
   cbor: CborSchemaType,
@@ -48,7 +48,7 @@ export const OpCert = Schema.Struct({
   kesPeriod: Schema.BigInt,
   sigma: Bytes64,
 });
-export type OpCert = Schema.Schema.Type<typeof OpCert>;
+export type OpCert = typeof OpCert.Type;
 
 // ---------------------------------------------------------------------------
 // ProtocolVersion
@@ -58,7 +58,7 @@ export const ProtocolVersion = Schema.Struct({
   major: Schema.BigInt,
   minor: Schema.BigInt,
 });
-export type ProtocolVersion = Schema.Schema.Type<typeof ProtocolVersion>;
+export type ProtocolVersion = typeof ProtocolVersion.Type;
 
 // ---------------------------------------------------------------------------
 // BlockHeader — fully decoded header with all consensus-critical fields
@@ -78,7 +78,7 @@ export const BlockHeader = Schema.Struct({
   protocolVersion: ProtocolVersion,
   kesSignature: Schema.Uint8Array, // outer KES sig over header body
 });
-export type BlockHeader = Schema.Schema.Type<typeof BlockHeader>;
+export type BlockHeader = typeof BlockHeader.Type;
 
 export function decodeBlockHeader(cbor: CborSchemaType): Effect.Effect<BlockHeader, SchemaIssue.Issue> {
   return Effect.gen(function* () {
@@ -158,16 +158,269 @@ export function decodeBlockHeader(cbor: CborSchemaType): Effect.Effect<BlockHead
 }
 
 // ---------------------------------------------------------------------------
+// Byron headers — Ouroboros Classic (not Praos)
+// ---------------------------------------------------------------------------
+
+/**
+ * Byron EBB (Epoch Boundary Block) header fields.
+ * EBB headers mark epoch boundaries; consensus_data = [epochId, difficulty].
+ */
+export const ByronEbbHeader = Schema.Struct({
+  protocolMagic: Schema.BigInt,
+  prevHash: Bytes32,
+  epoch: Schema.BigInt,
+  blockNo: Schema.BigInt,
+});
+export type ByronEbbHeader = typeof ByronEbbHeader.Type;
+
+/**
+ * Byron main block header fields.
+ * consensus_data = [slotId(epoch, slotInEpoch), pubKey, difficulty, blockSig].
+ */
+export const ByronMainHeader = Schema.Struct({
+  protocolMagic: Schema.BigInt,
+  prevHash: Bytes32,
+  epoch: Schema.BigInt,
+  slotInEpoch: Schema.BigInt,
+  blockNo: Schema.BigInt,
+});
+export type ByronMainHeader = typeof ByronMainHeader.Type;
+
+/**
+ * Decode a Byron EBB header from CBOR AST.
+ * CBOR: [protocolMagic, prevHash, bodyProof, [epochId, [difficulty]], extraData]
+ */
+function decodeByronEbbHeader(cbor: CborSchemaType): Effect.Effect<ByronEbbHeader, SchemaIssue.Issue> {
+  return Effect.gen(function* () {
+    const items = yield* expectArray(cbor, "ByronEbbHeader");
+    if (items.length < 4)
+      return yield* Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `ByronEbbHeader: expected >=4 items, got ${items.length}` }),
+      );
+
+    const protocolMagic = yield* expectUint(items[0]!, "ByronEbbHeader.protocolMagic");
+    const prevHash = yield* expectBytes(items[1]!, "ByronEbbHeader.prevHash", 32);
+
+    // consensus_data = [epochId, difficulty]
+    const consensusItems = yield* expectArray(items[3]!, "ByronEbbHeader.consensusData", 2);
+    const epoch = yield* expectUint(consensusItems[0]!, "ByronEbbHeader.epoch");
+
+    // difficulty = [uint]
+    const diffItems = yield* expectArray(consensusItems[1]!, "ByronEbbHeader.difficulty");
+    const blockNo = diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt
+      ? diffItems[0]!.num
+      : 0n;
+
+    return { protocolMagic, prevHash, epoch, blockNo };
+  });
+}
+
+/**
+ * Decode a Byron main block header from CBOR AST.
+ * CBOR: [protocolMagic, prevHash, bodyProof, [slotId, pubKey, difficulty, blockSig], extraData]
+ */
+function decodeByronMainHeader(cbor: CborSchemaType): Effect.Effect<ByronMainHeader, SchemaIssue.Issue> {
+  return Effect.gen(function* () {
+    const items = yield* expectArray(cbor, "ByronMainHeader");
+    if (items.length < 4)
+      return yield* Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `ByronMainHeader: expected >=4 items, got ${items.length}` }),
+      );
+
+    const protocolMagic = yield* expectUint(items[0]!, "ByronMainHeader.protocolMagic");
+    const prevHash = yield* expectBytes(items[1]!, "ByronMainHeader.prevHash", 32);
+
+    // consensus_data = [slotId, pubKey, difficulty, blockSig]
+    const consensusItems = yield* expectArray(items[3]!, "ByronMainHeader.consensusData");
+    if (consensusItems.length < 3)
+      return yield* Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(items[3]!), { message: `ByronMainHeader.consensusData: expected >=3 items, got ${consensusItems.length}` }),
+      );
+
+    // slotId = [epoch, slotInEpoch]
+    const slotIdItems = yield* expectArray(consensusItems[0]!, "ByronMainHeader.slotId", 2);
+    const epoch = yield* expectUint(slotIdItems[0]!, "ByronMainHeader.epoch");
+    const slotInEpoch = yield* expectUint(slotIdItems[1]!, "ByronMainHeader.slotInEpoch");
+
+    // difficulty (index 2) = [uint]
+    const diffItems = yield* expectArray(consensusItems[2]!, "ByronMainHeader.difficulty");
+    const blockNo = diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt
+      ? diffItems[0]!.num
+      : 0n;
+
+    return { protocolMagic, prevHash, epoch, slotInEpoch, blockNo };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Shelley-like header fields (shared by Shelley, Allegra, Mary, Alonzo)
+// ---------------------------------------------------------------------------
+
+const ShelleyLikeHeaderFields = {
+  blockNo: Schema.BigInt,
+  slot: Schema.BigInt,
+  prevHash: Schema.optional(Bytes32),
+  issuerVKey: Bytes32,
+  vrfVKey: Bytes32,
+  nonceVrf: VrfCert,
+  vrfResult: VrfCert,
+  bodySize: Schema.BigInt,
+  bodyHash: Bytes32,
+  opCert: OpCert,
+  protocolVersion: ProtocolVersion,
+  kesSignature: Schema.Uint8Array,
+};
+
+// ---------------------------------------------------------------------------
+// Babbage-like header fields (shared by Babbage, Conway)
+// ---------------------------------------------------------------------------
+
+const BabbageLikeHeaderFields = {
+  blockNo: Schema.BigInt,
+  slot: Schema.BigInt,
+  prevHash: Schema.optional(Bytes32),
+  issuerVKey: Bytes32,
+  vrfVKey: Bytes32,
+  vrfResult: VrfCert,
+  bodySize: Schema.BigInt,
+  bodyHash: Bytes32,
+  opCert: OpCert,
+  protocolVersion: ProtocolVersion,
+  kesSignature: Schema.Uint8Array,
+};
+
+// ---------------------------------------------------------------------------
+// MultiEraHeader — tagged union across all Cardano eras
+// ---------------------------------------------------------------------------
+
+/**
+ * Multi-era block header. Each variant corresponds to a Cardano era,
+ * with fields matching the era's CBOR structure.
+ *
+ * Tags match the Era enum string names for pattern matching.
+ * Shelley-Alonzo share the 15-element header structure (with separate nonceVrf).
+ * Babbage-Conway share the 10-element header structure (merged VRF).
+ */
+export const MultiEraHeader = Schema.TaggedUnion({
+  byronEbb: ByronEbbHeader.fields,
+  byron: ByronMainHeader.fields,
+  shelley: ShelleyLikeHeaderFields,
+  allegra: ShelleyLikeHeaderFields,
+  mary: ShelleyLikeHeaderFields,
+  alonzo: ShelleyLikeHeaderFields,
+  babbage: BabbageLikeHeaderFields,
+  conway: BabbageLikeHeaderFields,
+});
+export type MultiEraHeader = typeof MultiEraHeader.Type;
+
+/** Type guards for grouping MultiEraHeader variants. */
+export const isByronHeader = MultiEraHeader.isAnyOf(["byronEbb", "byron"]);
+export const isShelleyLikeHeader = MultiEraHeader.isAnyOf(["shelley", "allegra", "mary", "alonzo"]);
+export const isBabbageLikeHeader = MultiEraHeader.isAnyOf(["babbage", "conway"]);
+
+/**
+ * Map from ledger era number to MultiEraHeader tag for Shelley+ eras.
+ * Used by decodeMultiEraHeader to determine which variant to construct.
+ */
+const eraToHeaderTag: Record<number, MultiEraHeader["_tag"]> = {
+  [Era.Shelley]: "shelley",
+  [Era.Allegra]: "allegra",
+  [Era.Mary]: "mary",
+  [Era.Alonzo]: "alonzo",
+  [Era.Babbage]: "babbage",
+  [Era.Conway]: "conway",
+};
+
+/**
+ * Decode a multi-era header from CBOR AST + era number.
+ *
+ * @param cbor - Parsed CBOR AST of the header ([headerBody, kesSig] for Shelley+)
+ * @param eraNum - Ledger era number (0 for Byron, 2-7 for Shelley-Conway)
+ * @param byronSubtag - For Byron era (0): 0=EBB, 1=main block
+ */
+export function decodeMultiEraHeader(
+  cbor: CborSchemaType,
+  eraNum: number,
+  byronSubtag?: number,
+): Effect.Effect<MultiEraHeader, SchemaIssue.Issue> {
+  return Effect.gen(function* () {
+    // Byron headers
+    if (eraNum <= 1) {
+      if (byronSubtag === 0) {
+        const h = yield* decodeByronEbbHeader(cbor);
+        return { _tag: "byronEbb" as const, ...h };
+      }
+      const h = yield* decodeByronMainHeader(cbor);
+      return { _tag: "byron" as const, ...h };
+    }
+
+    // Shelley+ headers: [headerBody, kesSig]
+    const tag = eraToHeaderTag[eraNum];
+    if (!tag) {
+      return yield* Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Unknown era: ${eraNum}` }),
+      );
+    }
+
+    // Reuse existing decodeBlockHeader for the actual parsing
+    const header = yield* decodeBlockHeader(cbor);
+
+    // Shelley-like (15-element, has nonceVrf)
+    if (tag === "shelley" || tag === "allegra" || tag === "mary" || tag === "alonzo") {
+      return {
+        _tag: tag,
+        blockNo: header.blockNo,
+        slot: header.slot,
+        prevHash: header.prevHash,
+        issuerVKey: header.issuerVKey,
+        vrfVKey: header.vrfVKey,
+        nonceVrf: header.nonceVrf!,
+        vrfResult: header.vrfResult,
+        bodySize: header.bodySize,
+        bodyHash: header.bodyHash,
+        opCert: header.opCert,
+        protocolVersion: header.protocolVersion,
+        kesSignature: header.kesSignature,
+      };
+    }
+
+    // Babbage-like (10-element, no nonceVrf) — only "babbage" | "conway" can reach here
+    if (tag !== "babbage" && tag !== "conway") {
+      return yield* Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Unexpected tag in Babbage path: ${tag}` }),
+      );
+    }
+
+    return {
+      _tag: tag,
+      blockNo: header.blockNo,
+      slot: header.slot,
+      prevHash: header.prevHash,
+      issuerVKey: header.issuerVKey,
+      vrfVKey: header.vrfVKey,
+      vrfResult: header.vrfResult,
+      bodySize: header.bodySize,
+      bodyHash: header.bodyHash,
+      opCert: header.opCert,
+      protocolVersion: header.protocolVersion,
+      kesSignature: header.kesSignature,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // MultiEraBlock — tagged union with .match, .guards, .isAnyOf
 // ---------------------------------------------------------------------------
 
 export const MultiEraBlock = Schema.TaggedUnion({
   byron: {
     raw: Schema.Uint8Array,
+    multiEraHeader: MultiEraHeader,
   },
   postByron: {
     era: EraSchema,
     header: BlockHeader,
+    multiEraHeader: MultiEraHeader,
     txBodies: Schema.Array(TxBody),
     witnessSetsCbor: Schema.Uint8Array,
     auxDataCbor: Schema.Uint8Array,
@@ -187,9 +440,15 @@ export function decodeMultiEraBlock(
     const topItems = yield* expectArray(cbor, "MultiEraBlock", 2);
     const eraNum = Number(yield* expectUint(topItems[0]!, "MultiEraBlock.era"));
 
-    // Byron/EBB (era 0-1): return opaque bytes
+    // Byron/EBB (era 0-1): decode header but keep raw bytes for body
     if (eraNum <= 1) {
-      return { _tag: "byron" as const, raw: blockCbor };
+      // Byron block body: [[header_tuple], body]
+      // header_tuple for main: just the header array
+      // For EBB: different block structure
+      const blockBody = yield* expectArray(topItems[1]!, "ByronBlock.body");
+      const headerCbor = blockBody[0]!;
+      const multiEraHeader = yield* decodeMultiEraHeader(headerCbor, eraNum, eraNum);
+      return { _tag: "byron" as const, raw: blockCbor, multiEraHeader };
     }
 
     // Shelley through Conway (era 2-7): parse block body
@@ -197,6 +456,7 @@ export function decodeMultiEraBlock(
 
     // Block body: [header, txBodies[], witnessSets[], auxData, invalidTxs?]
     const header = yield* decodeBlockHeader(blockBody[0]!);
+    const multiEraHeader = yield* decodeMultiEraHeader(blockBody[0]!, eraNum);
     const witnessSetsCbor = blockBody[2] ? encodeSync(blockBody[2]) : new Uint8Array(0);
     const auxDataCbor = blockBody[3] ? encodeSync(blockBody[3]) : new Uint8Array(0);
 
@@ -211,6 +471,7 @@ export function decodeMultiEraBlock(
       _tag: "postByron" as const,
       era: eraNum in Era ? eraNum : Era.Conway,
       header,
+      multiEraHeader,
       txBodies,
       witnessSetsCbor,
       auxDataCbor,

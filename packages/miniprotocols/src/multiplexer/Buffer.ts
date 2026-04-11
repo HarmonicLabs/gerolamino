@@ -9,7 +9,7 @@ export class MultiplexerBuffer extends ServiceMap.Service<
   {
     appendChunk: (chunk: Uint8Array) => Effect.Effect<void, MultiplexerBufferError>;
     processedFrames: () => Effect.Effect<
-      Schema.Schema.Type<typeof ProcessedFrameArraySchema>,
+      typeof ProcessedFrameArraySchema.Type,
       MultiplexerBufferError | Schema.SchemaError
     >;
     bufferLen: () => Effect.Effect<number, MultiplexerBufferError>;
@@ -26,7 +26,7 @@ export class MultiplexerBuffer extends ServiceMap.Service<
             try: () => wasmBuffer.append_chunk(chunk),
             catch: (e) =>
               new MultiplexerBufferError({
-                cause: e as Error,
+                cause: e instanceof Error ? e : new Error(String(e)),
               }),
           }),
         ),

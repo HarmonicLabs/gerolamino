@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType, cborUint, cborBytes, cborBool, cborArray } from "cbor-schema";
 
 // ── Application-level types ──
 
@@ -20,7 +20,7 @@ export const TxIdAndSizeSchema = Schema.Struct({
   size: Schema.Number,
 });
 
-export type TxIdAndSize = Schema.Schema.Type<typeof TxIdAndSizeSchema>;
+export type TxIdAndSize = typeof TxIdAndSizeSchema.Type;
 
 export const TxSubmissionMessage = Schema.Union([
   Schema.TaggedStruct(TxSubmissionMessageType.RequestTxIds, {
@@ -41,7 +41,7 @@ export const TxSubmissionMessage = Schema.Union([
   Schema.TaggedStruct(TxSubmissionMessageType.Init, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type TxSubmissionMessageT = Schema.Schema.Type<typeof TxSubmissionMessage>;
+export type TxSubmissionMessageT = typeof TxSubmissionMessage.Type;
 
 // ── CBOR wire format ──
 // [0, blocking, ack, req]   — RequestTxIds
@@ -61,43 +61,35 @@ export const TxSubmissionMessageBytes = CborSchemaFromBytes.pipe(
         case 0:
           return {
             _tag: TxSubmissionMessageType.RequestTxIds as const,
-            blocking: (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Simple }>)
-              .value as boolean,
-            ack: Number((cbor.items[2] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
-            req: Number((cbor.items[3] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num),
+            blocking: cborBool(cbor.items[1]!, "RequestTxIds blocking"),
+            ack: Number(cborUint(cbor.items[2]!, "RequestTxIds ack")),
+            req: Number(cborUint(cbor.items[3]!, "RequestTxIds req")),
           };
         case 1: {
-          const idsArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+          const idsItems = cborArray(cbor.items[1]!, "ReplyTxIds ids");
           return {
             _tag: TxSubmissionMessageType.ReplyTxIds as const,
-            ids: idsArray.items.map((pair) => {
-              const pairArr = pair as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+            ids: idsItems.map((pair) => {
+              const pairItems = cborArray(pair, "ReplyTxIds pair");
               return {
-                txId: (pairArr.items[0] as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>)
-                  .bytes,
-                size: Number(
-                  (pairArr.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
-                ),
+                txId: cborBytes(pairItems[0]!, "txId"),
+                size: Number(cborUint(pairItems[1]!, "size")),
               };
             }),
           };
         }
         case 2: {
-          const txIdsArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+          const txIdsItems = cborArray(cbor.items[1]!, "RequestTxs txIds");
           return {
             _tag: TxSubmissionMessageType.RequestTxs as const,
-            txIds: txIdsArray.items.map(
-              (item) => (item as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes,
-            ),
+            txIds: txIdsItems.map((item) => cborBytes(item, "txId")),
           };
         }
         case 3: {
-          const txsArray = cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.Array }>;
+          const txsItems = cborArray(cbor.items[1]!, "ReplyTxs txs");
           return {
             _tag: TxSubmissionMessageType.ReplyTxs as const,
-            txs: txsArray.items.map(
-              (item) => (item as Extract<CborSchemaType, { _tag: CborKinds.Bytes }>).bytes,
-            ),
+            txs: txsItems.map((item) => cborBytes(item, "tx")),
           };
         }
         case 4:

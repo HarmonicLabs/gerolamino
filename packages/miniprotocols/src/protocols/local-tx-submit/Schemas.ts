@@ -24,7 +24,7 @@ export const LocalTxSubmitMessage = Schema.Union([
   Schema.TaggedStruct(LocalTxSubmitMessageType.Done, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type LocalTxSubmitMessageT = Schema.Schema.Type<typeof LocalTxSubmitMessage>;
+export type LocalTxSubmitMessageT = typeof LocalTxSubmitMessage.Type;
 
 export type LocalTxSubmitResult =
   | { readonly accepted: true }

@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { Clock, Effect, Layer, Stream } from "effect";
+import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
 import { processBlock, getSyncState, syncFromStream } from "../sync";
 import { Nonces } from "../nonce";
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
-import { ChainDB } from "storage/services/chain-db";
+import { ChainDB } from "storage";
+import type { StoredBlock } from "storage";
 import { hex, concat } from "../util";
 import { encodeSync, CborKinds } from "cbor-schema";
 import type { CborSchemaType } from "cbor-schema";
 import type { BlockHeader, LedgerView } from "../validate-header";
-import type { StoredBlock } from "storage/types/StoredBlock";
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
@@ -86,8 +86,8 @@ const makeLedgerView = (): LedgerView => {
   const poolId = poolIdFromVk(makeVk(1));
   return {
     epochNonce: new Uint8Array(32),
-    poolVrfKeys: new Map([[poolId, makeVk(2)]]),
-    poolStake: new Map([[poolId, 1_000_000n]]),
+    poolVrfKeys: HashMap.make([poolId, makeVk(2)]),
+    poolStake: HashMap.make([poolId, 1_000_000n]),
     totalStake: 10_000_000n,
     activeSlotsCoeff: 0.05,
     maxKesEvolutions: 62,
@@ -96,10 +96,10 @@ const makeLedgerView = (): LedgerView => {
 
 // Stub ChainDB for sync tests (in-memory, no SQL/BlobStore)
 const stubChainDb = Layer.succeed(ChainDB, {
-  getBlock: () => Effect.succeed(undefined),
-  getBlockAt: () => Effect.succeed(undefined),
-  getTip: Effect.succeed(undefined),
-  getImmutableTip: Effect.succeed(undefined),
+  getBlock: () => Effect.succeed(Option.none()),
+  getBlockAt: () => Effect.succeed(Option.none()),
+  getTip: Effect.succeed(Option.none()),
+  getImmutableTip: Effect.succeed(Option.none()),
   addBlock: () => Effect.void,
   rollback: () => Effect.void,
   getSuccessors: () => Effect.succeed([]),
@@ -107,7 +107,7 @@ const stubChainDb = Layer.succeed(ChainDB, {
   promoteToImmutable: () => Effect.void,
   garbageCollect: () => Effect.void,
   writeLedgerSnapshot: () => Effect.void,
-  readLatestLedgerSnapshot: Effect.succeed(undefined),
+  readLatestLedgerSnapshot: Effect.succeed(Option.none()),
 });
 
 // SlotClock with test config: system start at 0, 1s slots, 100 slots/epoch

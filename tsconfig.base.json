@@ -42,7 +42,9 @@
       "lsm-tree": ["packages/lsm-tree/src/index.ts"],
       "lsm-tree/*": ["packages/lsm-tree/src/*"],
       "consensus": ["packages/consensus/src/index.ts"],
-      "consensus/*": ["packages/consensus/src/*"]
+      "consensus/*": ["packages/consensus/src/*"],
+      "dashboard": ["packages/dashboard/src/index.ts"],
+      "dashboard/*": ["packages/dashboard/src/*"]
     }
   }
 }

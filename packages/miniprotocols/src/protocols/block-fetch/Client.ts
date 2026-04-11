@@ -16,7 +16,7 @@ import { TimeoutError } from "effect/Cause";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
-import { ChainPoint } from "../types/ChainPoint";
+import type { ChainPoint } from "../types/ChainPoint";
 import * as Schemas from "./Schemas";
 
 export class BlockFetchError extends Schema.TaggedErrorClass<BlockFetchError>()("BlockFetchError", {

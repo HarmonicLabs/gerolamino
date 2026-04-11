@@ -79,16 +79,14 @@
       flake = false;
     };
 
-    # Ouroboros consensus — provides snapshot-converter for Mem → V2LSM
+    # Ouroboros consensus — pinned to last commit before Peras added 4th element
+    # to ShelleyLedgerState. Has V2LSM output AND reads 10.6.2 LMDB (3-element).
     ouroboros-consensus = {
-      url = "github:IntersectMBO/ouroboros-consensus";
+      url = "github:IntersectMBO/ouroboros-consensus/3a59a8a551141a5999f57e86b909bca6d6d6f1ff";
     };
 
-    # Cardano network configs (preprod, mainnet genesis files)
-    # Using flake = false to avoid pulling in bitte/tullia/std dependency tree
-    cardano-world = {
-      url = "github:IntersectMBO/cardano-world";
-      flake = false;
+    cardano-node = {
+      url = "github:IntersectMBO/cardano-node/10.7.0";
     };
   };
 
@@ -105,7 +103,7 @@
       # Project root as a Nix path — available in all modules via `config._module.args.root`
       _module.args.root = ./.;
       systems = [ "x86_64-linux" ];
-      perSystem = { pkgs, system, config, ... }:
+      perSystem = { pkgs, system, config, inputs', ... }:
         let
           rustPkgs = import inputs.nixpkgs {
             inherit system;
@@ -114,7 +112,7 @@
 
           # Mithril client + verification keys (for snapshot download task)
           # Tests skipped: upstream reqwest HTTP tests fail in Nix sandbox (no CA certs)
-          mithril-client = inputs.mithril.packages.${system}.mithril-client-cli.overrideAttrs (_: {
+          mithril-client = inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: {
             doCheck = false;
           });
           mithrilSrc = inputs.mithril;
@@ -126,11 +124,12 @@
               "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
           };
 
-          # Ouroboros consensus snapshot-converter (Mem/LMDB/LSM conversions)
-          snapshot-converter = inputs.ouroboros-consensus.packages.${system}.snapshot-converter;
+          # Ouroboros consensus snapshot-converter (LMDB → V2LSM)
+          snapshot-converter = inputs'.ouroboros-consensus.packages.snapshot-converter;
 
-          # Preprod Cardano config + genesis files (for snapshot-converter)
-          preprodConfigDir = "${inputs.cardano-world}/docs/environments/preprod";
+          # Preprod Cardano config files (for snapshot-converter --config)
+          preprodConfigDir = "${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node";
+
         in
         {
           flake-root.projectRootFile = "flake.nix";
@@ -157,6 +156,7 @@
                 pkgs.poppler-utils
                 pkgs.wasm-pack
                 pkgs.binaryen
+                pkgs.chromium
                 mithril-client
                 snapshot-converter
                 config.flake-root.package
@@ -200,19 +200,21 @@
               # --- Environment ---
               env = {
                 BOOTSTRAP_SERVER_URL = "http://decentralizationmaxi.io:3040";
+                LIBLSM_BRIDGE_PATH = "${config.packages.lsm-bridge}/lib/liblsm-bridge.so";
               };
 
               # --- Tasks ---
 
+              # Downloads ImmutableDB + ledger state from Mithril.
+              # V2LSM conversion requires a synced cardano-node 10.7.x;
+              # use CARDANO_NODE_DB to point at an existing V2LSM db.
               tasks."mithril:download-snapshot" = {
-                description = "Download Mithril preprod snapshot and convert to V2LSM";
-                status = ''[ -d "$DEVENV_STATE/snapshot/lsm" ]'';
-                before = [ "devenv:enterShell" ];
+                description = "Download Mithril preprod snapshot";
+                status = ''[ -f "$DEVENV_STATE/snapshot/ledger/"*/state ]'';
                 showOutput = true;
                 env = mithrilEnv // {
                   PATH = pkgs.lib.makeBinPath [
                     mithril-client
-                    snapshot-converter
                     pkgs.coreutils
                     pkgs.jq
                     pkgs.findutils
@@ -220,6 +222,19 @@
                 };
                 exec = ''
                   DEST="$DEVENV_STATE/snapshot"
+
+                  # If user provides a V2LSM db from a synced cardano-node, use it directly
+                  if [ -n "''${CARDANO_NODE_DB:-}" ] && [ -d "$CARDANO_NODE_DB/ledger" ]; then
+                    echo "==> Using existing cardano-node db at $CARDANO_NODE_DB"
+                    mkdir -p "$DEST"
+                    rm -rf "''${DEST:?}"/*
+                    cp -r "$CARDANO_NODE_DB"/* "$DEST/"
+                    echo -n "1" > "$DEST/protocolMagicId"
+                    SLOT_DIR="$(find "$DEST/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
+                    echo "==> Snapshot installed from cardano-node db (slot $(basename "$SLOT_DIR"))"
+                    exit 0
+                  fi
+
                   WORK="$(mktemp -d)"
                   trap 'rm -rf "$WORK"' EXIT
 
@@ -230,68 +245,102 @@
                   SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
                   [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
 
-                  # Find the ledger slot directory (e.g., ledger/119747816)
-                  SLOT_DIR="$(find "$SNAP_DIR/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
-                  [ -z "$SLOT_DIR" ] && echo "ERROR: No ledger slot directory found" >&2 && exit 1
-                  SLOT="$(basename "$SLOT_DIR")"
-
-                  echo "==> Converting Mem → V2LSM for slot $SLOT..."
-                  snapshot-converter \
-                    --input-mem "$SLOT_DIR" \
-                    --output-lsm-snapshot "$SNAP_DIR/lsm-snapshot/$SLOT" \
-                    --output-lsm-database "$SNAP_DIR/lsm" \
-                    --config "${preprodConfigDir}/config.json"
+                  echo -n "1" > "$SNAP_DIR/protocolMagicId"
 
                   mkdir -p "$DEST"
                   rm -rf "''${DEST:?}"/*
                   cp -r "$SNAP_DIR"/* "$DEST/"
-                  echo "==> V2LSM snapshot installed at $DEST/lsm"
-                '';
-              };
 
-              tasks."mithril:convert-to-lsm" = {
-                description = "Convert existing Mem snapshot to V2LSM (no download)";
-                status = ''[ -d "$DEVENV_STATE/snapshot/lsm" ]'';
-                showOutput = true;
-                env = {
-                  PATH = pkgs.lib.makeBinPath [
-                    snapshot-converter
-                    pkgs.coreutils
-                    pkgs.findutils
-                  ];
-                };
-                exec = ''
-                  DEST="$DEVENV_STATE/snapshot"
                   SLOT_DIR="$(find "$DEST/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
-                  [ -z "$SLOT_DIR" ] && echo "ERROR: No ledger slot directory found in $DEST/ledger" >&2 && exit 1
                   SLOT="$(basename "$SLOT_DIR")"
-
-                  echo "==> Converting Mem → V2LSM for slot $SLOT..."
-                  rm -rf "$DEST/lsm" "$DEST/lsm-snapshot"
-                  mkdir -p "$DEST/lsm-snapshot/$SLOT" "$DEST/lsm"
-                  snapshot-converter \
-                    --input-mem "$SLOT_DIR" \
-                    --output-lsm-snapshot "$DEST/lsm-snapshot/$SLOT" \
-                    --output-lsm-database "$DEST/lsm" \
-                    --config "${preprodConfigDir}/config.json"
-
-                  echo "==> V2LSM snapshot at $DEST/lsm"
+                  echo "==> Mithril snapshot installed: slot $SLOT, $(ls "$DEST/immutable/"*.chunk | wc -l) chunks"
+                  echo "    To add V2LSM, set CARDANO_NODE_DB to a synced 10.7.x node's db and re-run"
                 '';
               };
 
               # --- Processes (managed by process-compose TUI via `devenv up`) ---
 
-              processes.bootstrap = {
+              # Local cardano-node (preprod, V2LSM).
+              # Syncs the full chain — takes 24-48h on first run.
+              # Data stored in $DEVENV_STATE/cardano-node/.
+              # Config generated from cardanoLib.environments.preprod.
+              processes.cardano-node =
+                let
+                  cardanoNodePkg = inputs'.cardano-node.packages.cardano-node;
+                  cardanoLib = inputs'.cardano-node.legacyPackages.cardanoLib or
+                    (builtins.throw "cardano-node flake does not expose cardanoLib");
+                  preprodEnv = cardanoLib.environments.preprod;
+
+                  # Node config with V2LSM enabled
+                  nodeConfigJson = builtins.toJSON (preprodEnv.nodeConfig // {
+                    LedgerDB = {
+                      Backend = "V2LSM";
+                    };
+                  });
+                  configFile = pkgs.writeText "preprod-config.json" nodeConfigJson;
+                  topologyFile = preprodEnv.topology or (pkgs.writeText "preprod-topology.json" (builtins.toJSON {
+                    bootstrapPeers = [
+                      { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+                    ];
+                    localRoots = [];
+                    publicRoots = [{
+                      accessPoints = [
+                        { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+                      ];
+                      advertise = false;
+                      valency = 1;
+                    }];
+                    useLedgerAfterSlot = -1;
+                  }));
+                in {
                 exec = ''
-                  export SNAPSHOT_PATH="$DEVENV_STATE/snapshot"
-                  exec bun run apps/bootstrap/src/cli.ts serve \
-                    --snapshot-path "$SNAPSHOT_PATH"
+                  NODE_DB="$DEVENV_STATE/cardano-node"
+                  mkdir -p "$NODE_DB"
+
+                  exec ${cardanoNodePkg}/bin/cardano-node run \
+                    --topology ${topologyFile} \
+                    --database-path "$NODE_DB/db" \
+                    --socket-path "$NODE_DB/node.socket" \
+                    --host-addr 0.0.0.0 \
+                    --port 3001 \
+                    --config ${configFile} \
+                    +RTS -N2 -I0 -A16m -RTS
                 '';
                 process-compose = {
                   availability = {
                     restart = "on_failure";
                     max_restarts = 3;
                   };
+                };
+              };
+
+              # Bootstrap server — serves from cardano-node db when available,
+              # falls back to Mithril snapshot if no node db exists.
+              processes.bootstrap = {
+                exec = ''
+                  NODE_DB="$DEVENV_STATE/cardano-node/db"
+                  SNAPSHOT_PATH="$DEVENV_STATE/snapshot"
+
+                  if [ -d "$NODE_DB/ledger" ]; then
+                    echo "==> Starting bootstrap server from cardano-node db"
+                    exec bun run apps/bootstrap/src/cli.ts serve \
+                      --db-path "$NODE_DB" \
+                      --network preprod
+                  elif [ -d "$SNAPSHOT_PATH/ledger" ]; then
+                    echo "==> Starting bootstrap server from Mithril snapshot"
+                    exec bun run apps/bootstrap/src/cli.ts serve \
+                      --snapshot-path "$SNAPSHOT_PATH"
+                  else
+                    echo "==> No data source available. Start cardano-node or run download-snapshot."
+                    sleep infinity
+                  fi
+                '';
+                process-compose = {
+                  availability = {
+                    restart = "on_failure";
+                    max_restarts = 3;
+                  };
+                  depends_on.cardano-node.condition = "process_started";
                   readiness_probe = {
                     http_get = {
                       host = "127.0.0.1";
@@ -319,13 +368,6 @@
                 registry = "docker://ghcr.io/harmoniclabs/";
                 maxLayers = 20;
                 enableLayerDeduplication = true;
-              };
-
-              # --- Scripts ---
-
-              scripts.download-snapshot = {
-                exec = "devenv tasks run mithril:download-snapshot";
-                description = "Download Mithril preprod snapshot";
               };
             };
           };

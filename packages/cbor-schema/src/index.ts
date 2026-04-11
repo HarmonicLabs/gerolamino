@@ -7,6 +7,14 @@ export {
   CborSchema,
   transformation,
   CborSchemaFromBytes,
+  cborUint,
+  cborNegInt,
+  cborBytes,
+  cborText,
+  cborArray,
+  cborMap,
+  cborSimple,
+  cborBool,
 } from "./schema";
 
 export { parse, parseSync } from "./parse";

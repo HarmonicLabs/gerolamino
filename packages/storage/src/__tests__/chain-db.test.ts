@@ -3,7 +3,7 @@
  * Tests the unified chain storage interface (volatile-first lookups, rollback, GC).
  */
 import { describe, it, expect } from "vitest";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 import { ChainDB, ChainDBError } from "../services/chain-db.ts";
 import { BlobStore, BlobStoreError } from "../blob-store/service.ts";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
@@ -19,10 +19,10 @@ const makeInMemoryChainDB = () => {
 
   return {
     getBlock: (hash: Uint8Array) =>
-      Effect.succeed(blocks.get(hashKey(hash))),
+      Effect.succeed(Option.fromNullishOr(blocks.get(hashKey(hash)))),
 
     getBlockAt: (point: RealPoint) =>
-      Effect.succeed(blocks.get(hashKey(point.hash))),
+      Effect.succeed(Option.fromNullishOr(blocks.get(hashKey(point.hash)))),
 
     getTip: Effect.sync(() => {
       let best: RealPoint | undefined;
@@ -31,7 +31,7 @@ const makeInMemoryChainDB = () => {
           best = { slot: block.slot, hash: block.hash };
         }
       }
-      return best;
+      return Option.fromNullishOr(best);
     }),
 
     getImmutableTip: Effect.sync(() => {
@@ -43,7 +43,7 @@ const makeInMemoryChainDB = () => {
           }
         }
       }
-      return best;
+      return Option.fromNullishOr(best);
     }),
 
     addBlock: (block: StoredBlock) =>
@@ -100,7 +100,7 @@ const makeInMemoryChainDB = () => {
         ledgerSnapshot = { point: { slot, hash }, stateBytes, epoch };
       }),
 
-    readLatestLedgerSnapshot: Effect.sync(() => ledgerSnapshot),
+    readLatestLedgerSnapshot: Effect.sync(() => Option.fromNullishOr(ledgerSnapshot)),
   };
 };
 
@@ -129,7 +129,7 @@ describe("ChainDB unified service", () => {
         return yield* db.getBlock(block.hash);
       }),
     );
-    expect(result?.slot).toBe(100n);
+    expect(Option.isSome(result) && result.value.slot).toBe(100n);
   });
 
   it("getTip returns highest slot", async () => {
@@ -142,7 +142,7 @@ describe("ChainDB unified service", () => {
         return yield* db.getTip;
       }),
     );
-    expect(result?.slot).toBe(200n);
+    expect(Option.isSome(result) && result.value.slot).toBe(200n);
   });
 
   it("rollback removes blocks after point", async () => {
@@ -156,7 +156,7 @@ describe("ChainDB unified service", () => {
         return yield* db.getTip;
       }),
     );
-    expect(result?.slot).toBe(100n);
+    expect(Option.isSome(result) && result.value.slot).toBe(100n);
   });
 
   it("promoteToImmutable protects blocks from rollback", async () => {
@@ -173,7 +173,7 @@ describe("ChainDB unified service", () => {
         return yield* db.getBlock(b1.hash);
       }),
     );
-    expect(result?.slot).toBe(100n);
+    expect(Option.isSome(result) && result.value.slot).toBe(100n);
   });
 
   it("garbageCollect removes old volatile blocks", async () => {
@@ -186,7 +186,7 @@ describe("ChainDB unified service", () => {
         return yield* db.getTip;
       }),
     );
-    expect(result?.slot).toBe(200n); // Only slot 200 survives
+    expect(Option.isSome(result) && result.value.slot).toBe(200n); // Only slot 200 survives
   });
 
   it("streamFrom returns blocks in slot order", async () => {
@@ -239,8 +239,11 @@ describe("ChainDB unified service", () => {
         return yield* db.readLatestLedgerSnapshot;
       }),
     );
-    expect(result?.point.slot).toBe(100n);
-    expect(result?.epoch).toBe(5n);
-    expect(result?.stateBytes).toEqual(new Uint8Array([1, 2, 3]));
+    expect(Option.isSome(result)).toBe(true);
+    if (Option.isSome(result)) {
+      expect(result.value.point.slot).toBe(100n);
+      expect(result.value.epoch).toBe(5n);
+      expect(result.value.stateBytes).toEqual(new Uint8Array([1, 2, 3]));
+    }
   });
 });

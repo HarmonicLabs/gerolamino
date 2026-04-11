@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborSchemaFromBytes, CborKinds, type CborSchemaType, cborUint } from "cbor-schema";
 
 // ── Application-level types ──
 
@@ -22,7 +22,7 @@ export const KeepAliveMessage = Schema.Union([
   Schema.TaggedStruct(KeepAliveMessageType.Done, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type KeepAliveMessageT = Schema.Schema.Type<typeof KeepAliveMessage>;
+export type KeepAliveMessageT = typeof KeepAliveMessage.Type;
 
 // ── CBOR wire format ──
 // [0, cookie] — KeepAlive
@@ -39,16 +39,12 @@ export const KeepAliveMessageBytes = CborSchemaFromBytes.pipe(
         case 0:
           return {
             _tag: KeepAliveMessageType.KeepAlive as const,
-            cookie: Number(
-              (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
-            ),
+            cookie: Number(cborUint(cbor.items[1]!, "KeepAlive cookie")),
           };
         case 1:
           return {
             _tag: KeepAliveMessageType.KeepAliveResponse as const,
-            cookie: Number(
-              (cbor.items[1] as Extract<CborSchemaType, { _tag: CborKinds.UInt }>).num,
-            ),
+            cookie: Number(cborUint(cbor.items[1]!, "KeepAliveResponse cookie")),
           };
         default:
           return { _tag: KeepAliveMessageType.Done as const };

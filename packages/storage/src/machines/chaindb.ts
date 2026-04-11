@@ -4,8 +4,10 @@
  * Uses parallel state regions so block processing, immutability transitions,
  * and snapshot writing operate independently.
  *
- * Side effects are expressed as Effect values via enqueue.effect(),
- * executed by the runtime after state transitions.
+ * Lifecycle states (`copying`, `gc`) use XState `invoke` with `fromPromise`
+ * actors. The machine definition uses placeholder actors — real implementations
+ * are provided at runtime via `machine.provide({ actors: { ... } })` in
+ * ChainDBLive, bridging to Effect via ManagedRuntime.
  */
 import { setup, assign, fromPromise } from "xstate";
 import type { RealPoint, StoredBlock } from "../types/StoredBlock.ts";
@@ -20,13 +22,20 @@ export interface ChainDBContext {
 }
 
 export const chainDBMachine = setup({
-  types: {
-    context: {} as ChainDBContext,
-    events: {} as ChainDBEvent,
-    input: {} as { securityParam: number },
+  // XState v5 phantom types — value ignored at runtime, used only for TS inference
+  types: {} as {
+    context: ChainDBContext;
+    events: ChainDBEvent;
+    input: { securityParam: number };
   },
   guards: {
     shouldCopyToImmutable: ({ context }) => context.volatileLength > context.securityParam,
+  },
+  actors: {
+    /** Promote volatile blocks to immutable. Returns count of promoted blocks. Replaced at runtime via .provide(). */
+    promoteBlocks: fromPromise<number, { tip: RealPoint }>(async () => 0),
+    /** Garbage-collect stale volatile blocks. Replaced at runtime via .provide(). */
+    collectGarbage: fromPromise<void, { belowSlot: bigint }>(async () => {}),
   },
 }).createMachine({
   id: "chainDB",
@@ -85,18 +94,51 @@ export const chainDBMachine = setup({
           },
         },
         copying: {
+          invoke: {
+            src: "promoteBlocks",
+            input: ({ context }) => ({ tip: context.tip! }),
+            onDone: {
+              target: "gc",
+              actions: assign(({ context, event }) => ({
+                ...context,
+                immutableTip: context.tip,
+                volatileLength: Math.max(0, context.volatileLength - (event.output ?? 0)),
+              })),
+            },
+            onError: {
+              target: "idle",
+              actions: assign(({ context, event }) => ({
+                ...context,
+                lastError: "error" in event ? event.error : event,
+              })),
+            },
+          },
           on: {
+            // Keep manual event for tests that don't provide real actors
             COPY_COMPLETE: "gc",
           },
         },
         gc: {
+          invoke: {
+            src: "collectGarbage",
+            input: ({ context }) => ({
+              belowSlot: context.immutableTip?.slot ?? 0n,
+            }),
+            onDone: {
+              target: "idle",
+            },
+            onError: {
+              target: "idle",
+              actions: assign(({ context, event }) => ({
+                ...context,
+                lastError: "error" in event ? event.error : event,
+              })),
+            },
+          },
           on: {
+            // Keep manual event for tests that don't provide real actors
             GC_COMPLETE: {
               target: "idle",
-              actions: assign(({ context }) => ({
-                ...context,
-                volatileLength: Math.max(0, context.volatileLength - 1),
-              })),
             },
           },
         },

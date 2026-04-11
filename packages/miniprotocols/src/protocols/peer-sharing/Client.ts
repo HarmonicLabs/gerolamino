@@ -42,9 +42,7 @@ export class PeerSharingClient extends ServiceMap.Service<
     PeerSharingClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const channel = yield* multiplexer
-        .getProtocolChannel(MiniProtocol.PeerSharing)
-        .pipe(Effect.mapError((cause) => new PeerSharingError({ cause })));
+      const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.PeerSharing);
 
       const sendMessage = (msg: Schemas.PeerSharingMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));

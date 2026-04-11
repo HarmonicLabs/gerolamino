@@ -7,12 +7,16 @@
 
 /** Convert hash bytes to hex string. */
 export function hashToHex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += bytes[i]!.toString(16).padStart(2, "0");
+  return s;
 }
 
 /** Convert hex string to hash bytes. */
 export function hexToHash(hex: string): Uint8Array {
-  return Buffer.from(hex, "hex");
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }
 
 /** Compare two hashes for equality. */

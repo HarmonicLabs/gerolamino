@@ -30,7 +30,7 @@ const PolicyIdBytes28 = Schema.Uint8Array.pipe(
 
 // AssetName: up to 32 bytes
 export const AssetName = Schema.Uint8Array.pipe(Schema.check(isByteMaxLength(32)));
-export type AssetName = Schema.Schema.Type<typeof AssetName>;
+export type AssetName = typeof AssetName.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Value: Coin or Coin + MultiAsset
@@ -58,7 +58,7 @@ export const Value = Schema.Struct({
   coin: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
   multiAsset: Schema.optional(Schema.Array(MultiAssetEntry)),
 });
-export type Value = Schema.Schema.Type<typeof Value>;
+export type Value = typeof Value.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR encoding helpers (module-private)

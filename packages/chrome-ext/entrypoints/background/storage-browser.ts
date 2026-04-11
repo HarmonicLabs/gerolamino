@@ -50,6 +50,11 @@ const blobSchema = Schema.Struct({
   value: Schema.Uint8Array,
 });
 
+// V1: original single "blobs" object store (kept for migration chain)
+const BlobsTable = IndexedDbTable.make({ name: "blobs", schema: blobSchema, keyPath: "hexKey" });
+const BlobDbV1 = IndexedDbVersion.make(BlobsTable);
+
+// V2: separate object stores per LSM key prefix
 const UtxoTable = IndexedDbTable.make({ name: "utxo", schema: blobSchema, keyPath: "hexKey" });
 const BlocksTable = IndexedDbTable.make({ name: "blocks", schema: blobSchema, keyPath: "hexKey" });
 const BlockIndexTable = IndexedDbTable.make({
@@ -68,8 +73,7 @@ const OffsetsTable = IndexedDbTable.make({
   schema: blobSchema,
   keyPath: "hexKey",
 });
-
-const BlobDbV1 = IndexedDbVersion.make(
+const BlobDbV2 = IndexedDbVersion.make(
   UtxoTable,
   BlocksTable,
   BlockIndexTable,
@@ -79,14 +83,20 @@ const BlobDbV1 = IndexedDbVersion.make(
 );
 
 const BlobDbSchema = IndexedDbDatabase.make(BlobDbV1, (query) =>
-  Effect.all([
-    query.createObjectStore("utxo"),
-    query.createObjectStore("blocks"),
-    query.createObjectStore("block_index"),
-    query.createObjectStore("stake"),
-    query.createObjectStore("accounts"),
-    query.createObjectStore("offsets"),
-  ]).pipe(Effect.asVoid),
+  Effect.gen(function* () {
+    yield* query.createObjectStore("blobs");
+  }),
+).add(
+  BlobDbV2,
+  Effect.fnUntraced(function* (fromQuery, toQuery) {
+    yield* fromQuery.deleteObjectStore("blobs");
+    yield* toQuery.createObjectStore("utxo");
+    yield* toQuery.createObjectStore("blocks");
+    yield* toQuery.createObjectStore("block_index");
+    yield* toQuery.createObjectStore("stake");
+    yield* toQuery.createObjectStore("accounts");
+    yield* toQuery.createObjectStore("offsets");
+  }),
 );
 
 // ---------------------------------------------------------------------------

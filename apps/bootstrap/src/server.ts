@@ -8,7 +8,7 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as Socket from "effect/unstable/socket/Socket";
-import type { SnapshotMeta } from "./loader.ts";
+import type { SnapshotMeta, PreloadedLedger } from "./loader.ts";
 import { bootstrapStream } from "./loader.ts";
 import { bridgeSockets } from "./proxy.ts";
 
@@ -18,20 +18,20 @@ export const ServerConfig = Schema.Struct({
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
-const handleClient = (meta: SnapshotMeta, config: ServerConfig) =>
+const handleClient = (meta: SnapshotMeta, config: ServerConfig, preloaded: PreloadedLedger) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const wsSocket = yield* request.upgrade;
     const write = yield* wsSocket.writer;
 
-    yield* bootstrapStream(meta).pipe(Stream.runForEach((frame) => write(frame)));
+    yield* bootstrapStream(meta, preloaded).pipe(Stream.runForEach((frame) => write(frame)));
 
     yield* bridgeSockets(wsSocket, config.upstreamUrl);
 
     return HttpServerResponse.empty({ status: 101 });
   });
 
-export const startServer = (meta: SnapshotMeta, config: ServerConfig) =>
+export const startServer = (meta: SnapshotMeta, config: ServerConfig, preloaded: PreloadedLedger) =>
   HttpRouter.addAll([
     HttpRouter.route(
       "GET",
@@ -42,7 +42,7 @@ export const startServer = (meta: SnapshotMeta, config: ServerConfig) =>
         totalChunks: meta.totalChunks,
       }),
     ),
-    HttpRouter.route("GET", "/bootstrap", handleClient(meta, config)),
+    HttpRouter.route("GET", "/bootstrap", handleClient(meta, config, preloaded)),
   ]).pipe(
     (routes) => HttpRouter.serve(routes),
     Layer.provide(BunHttpServer.layer({ port: config.port, hostname: "0.0.0.0" })),

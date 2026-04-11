@@ -5,20 +5,28 @@
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, Layer, Stream, Ref } from "effect";
 import { BunFileSystem, BunPath } from "@effect/platform-bun";
-import { initLmdb } from "../lmdb.ts";
-import { readSnapshotMeta, bootstrapStream } from "../loader.ts";
-import { MessageTag, decodeFrame, type BlockMessage } from "bootstrap";
+import { readSnapshotMeta, bootstrapStream, preloadLedgerFiles } from "../loader.ts";
+import { MessageTag, decodeFrame } from "bootstrap";
 import { decodeMultiEraBlock } from "ledger";
+import { BlobStore, BlobStoreError } from "storage";
 
-const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer);
+const stubBlobStore = Layer.succeed(BlobStore, {
+  get: () => Effect.fail(new BlobStoreError({ operation: "get", cause: "stub" })),
+  put: () => Effect.fail(new BlobStoreError({ operation: "put", cause: "stub" })),
+  delete: () => Effect.fail(new BlobStoreError({ operation: "delete", cause: "stub" })),
+  has: () => Effect.fail(new BlobStoreError({ operation: "has", cause: "stub" })),
+  scan: () => Stream.empty,
+  putBatch: () => Effect.fail(new BlobStoreError({ operation: "putBatch", cause: "stub" })),
+  deleteBatch: () => Effect.fail(new BlobStoreError({ operation: "deleteBatch", cause: "stub" })),
+} as never);
+
+const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer, stubBlobStore);
 
 describe("Full snapshot stream + decode", () => {
   it.effect(
     "streams entire snapshot and decodes all blocks with zero failures",
     () =>
       Effect.gen(function* () {
-        yield* initLmdb;
-
         const meta = yield* readSnapshotMeta("./db");
         yield* Effect.log(
           `Snapshot: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks}`,
@@ -30,7 +38,8 @@ describe("Full snapshot stream + decode", () => {
         const totalLmdbEntries = yield* Ref.make(0);
         let lastLoggedBlocks = 0;
 
-        yield* bootstrapStream(meta).pipe(
+        const preloaded = yield* preloadLedgerFiles(meta);
+        yield* bootstrapStream(meta, preloaded).pipe(
           Stream.mapEffect((frame) =>
             Effect.gen(function* () {
               const msg = decodeFrame(frame);
@@ -65,8 +74,8 @@ describe("Full snapshot stream + decode", () => {
                   }
                   break;
                 }
-                case MessageTag.LmdbEntries: {
-                  yield* Ref.update(totalLmdbEntries, (n) => n + msg.count);
+                case MessageTag.BlobEntries: {
+                  yield* Ref.update(totalLmdbEntries, (n) => n + msg.entries.length);
                   break;
                 }
                 case MessageTag.Init:

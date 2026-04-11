@@ -47,7 +47,7 @@ const snapshotBlobKey = (slot: bigint): Uint8Array => {
 /** Default security param (k) — overridable via SECURITY_PARAM env. */
 const securityParamConfig = Config.int("SECURITY_PARAM").pipe(Config.withDefault(2160));
 
-export const ChainDBLive: Layer.Layer<ChainDB, never, BlobStore | SqliteDrizzle> = Layer.effect(
+export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | SqliteDrizzle> = Layer.effect(
   ChainDB,
   Effect.gen(function* () {
     const store = yield* BlobStore;

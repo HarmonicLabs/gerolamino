@@ -7,7 +7,7 @@
  */
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { Config, Effect, Layer, Option, Schema, Stream } from "effect";
-import { BlobStore, prefixEnd } from "storage";
+import { BlobStore, BlobStoreError, prefixEnd } from "storage";
 
 /** Typed error for LSM bridge FFI failures. */
 export class LsmBridgeError extends Schema.TaggedErrorClass<LsmBridgeError>()("LsmBridgeError", {
@@ -135,9 +135,12 @@ const lessThan = (a: Uint8Array, b: Uint8Array): boolean => {
   return a.byteLength < b.byteLength;
 };
 
+const toBlobStoreError = (cause: unknown) =>
+  new BlobStoreError({ operation: "lsm", cause });
+
 /** Build BlobStore operations from an initialized FFI handle. */
 const makeBlobStoreOps = (ffi: BridgeLib) => ({
-  get: (key: Uint8Array) => lsmGet(ffi, key),
+  get: (key: Uint8Array) => lsmGet(ffi, key).pipe(Effect.mapError(toBlobStoreError)),
 
   put: (key: Uint8Array, value: Uint8Array) =>
     Effect.sync(() => {
@@ -223,6 +226,7 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
       ),
       Stream.unwrap,
       Stream.scoped,
+      Stream.mapError(toBlobStoreError),
     );
   },
 

@@ -7,7 +7,7 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Config, Effect, Layer, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
-import { readSnapshotMeta } from "./loader.ts";
+import { readSnapshotMeta, preloadLedgerFiles } from "./loader.ts";
 import { readNodeDbMeta } from "bootstrap";
 import { startServer } from "./server.ts";
 import { layerLsm, layerLsmFromSnapshot } from "lsm-tree";
@@ -61,10 +61,7 @@ const serve = Command.make(
         );
       }
 
-      let lsmLayer: Layer.Layer<
-        import("storage/blob-store/service").BlobStore,
-        import("storage/blob-store/service").BlobStoreError
-      >;
+      let lsmLayer: Layer.Layer<import("storage/blob-store/service").BlobStore, unknown>;
 
       if (dbPath) {
         // Cardano-node database mode
@@ -73,18 +70,20 @@ const serve = Command.make(
         yield* Effect.log(
           `Node DB: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks} snapshot=${snapshotName}`,
         );
+        const preloaded = yield* preloadLedgerFiles(meta);
         lsmLayer = layerLsmFromSnapshot(meta.lsmDir, snapshotName);
 
-        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(Effect.provide(lsmLayer));
+        yield* startServer(meta, { port: config.port, upstreamUrl }, preloaded).pipe(Effect.provide(lsmLayer));
       } else {
         // Mithril snapshot mode
         const meta = yield* readSnapshotMeta(snapshotPath!);
         yield* Effect.log(
           `Snapshot: magic=${meta.protocolMagic} slot=${meta.snapshotSlot} chunks=${meta.totalChunks} lsm=${meta.lsmDir}`,
         );
+        const preloaded = yield* preloadLedgerFiles(meta);
         lsmLayer = layerLsm(meta.lsmDir);
 
-        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(Effect.provide(lsmLayer));
+        yield* startServer(meta, { port: config.port, upstreamUrl }, preloaded).pipe(Effect.provide(lsmLayer));
       }
 
       yield* Effect.log(`Bootstrap server ready on :${config.port}`);

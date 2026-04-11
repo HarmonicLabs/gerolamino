@@ -3,7 +3,7 @@
  * Streams Mithril snapshot data in the correct order.
  * Reads UTxO entries from BlobStore (LSM backend).
  */
-import { Effect, FileSystem, Path, Stream } from "effect";
+import { Effect, FileSystem, Option, Path, Stream } from "effect";
 import type { BootstrapError } from "./errors.ts";
 import { ChunkReadError } from "./errors.ts";
 import { readAllChunks } from "./chunk-reader.ts";
@@ -21,9 +21,49 @@ import { BlobStore } from "storage";
 // Re-export for consumers that used the old location
 export { SnapshotMeta, readSnapshotMeta } from "bootstrap";
 
+/**
+ * Pre-load ledger state and meta files at startup (when FileSystem is available).
+ * HTTP request handlers may run in a scope without FileSystem — reading
+ * at startup avoids this issue and also prevents re-reading 28MB per connection.
+ */
+export const preloadLedgerFiles = (meta: SnapshotMeta) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+
+    const statePath = path.join(meta.ledgerDir, "state");
+    const stateBytes = (yield* fs.exists(statePath))
+      ? yield* fs
+          .readFile(statePath)
+          .pipe(Effect.tapError((e) => Effect.logWarning(`Failed to read ledger state: ${e}`)))
+          .pipe(Effect.option)
+      : Option.none<Uint8Array>();
+
+    const metaPath = path.join(meta.ledgerDir, "meta");
+    const metaBytes = (yield* fs.exists(metaPath))
+      ? yield* fs
+          .readFile(metaPath)
+          .pipe(Effect.tapError((e) => Effect.logWarning(`Failed to read ledger meta: ${e}`)))
+          .pipe(Effect.option)
+      : Option.none<Uint8Array>();
+
+    yield* Effect.log(
+      `Preloaded: state=${Option.isSome(stateBytes) ? `${Option.getOrThrow(stateBytes).length} bytes` : "missing"}, ` +
+        `meta=${Option.isSome(metaBytes) ? `${Option.getOrThrow(metaBytes).length} bytes` : "missing"}`,
+    );
+
+    return { stateBytes, metaBytes };
+  });
+
+export type PreloadedLedger = {
+  readonly stateBytes: Option.Option<Uint8Array>;
+  readonly metaBytes: Option.Option<Uint8Array>;
+};
+
 export const bootstrapStream = (
   meta: SnapshotMeta,
-): Stream.Stream<Uint8Array, BootstrapError, FileSystem.FileSystem | Path.Path | BlobStore> => {
+  preloaded: PreloadedLedger,
+): Stream.Stream<Uint8Array, BootstrapError, BlobStore | FileSystem.FileSystem | Path.Path> => {
   const initStream = Stream.succeed(
     encodeFrame(
       MessageTag.Init,
@@ -38,29 +78,14 @@ export const bootstrapStream = (
     ),
   );
 
-  // State/meta files exist in Mithril snapshots but not in V2LSM node DBs.
-  // Skip gracefully if they don't exist.
-  const stateStream = Stream.fromEffect(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const statePath = path.join(meta.ledgerDir, "state");
-      if (!(yield* fs.exists(statePath))) return undefined;
-      const bytes = yield* fs.readFile(statePath);
-      return encodeFrame(MessageTag.LedgerState, bytes);
-    }).pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause }))),
-  ).pipe(Stream.filter((f): f is Uint8Array => f !== undefined));
+  // Use pre-loaded bytes — avoids FileSystem dependency in request handler scope
+  const stateStream = Option.isSome(preloaded.stateBytes)
+    ? Stream.succeed(encodeFrame(MessageTag.LedgerState, Option.getOrThrow(preloaded.stateBytes)))
+    : Stream.empty;
 
-  const metaStream = Stream.fromEffect(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const metaPath = path.join(meta.ledgerDir, "meta");
-      if (!(yield* fs.exists(metaPath))) return undefined;
-      const bytes = yield* fs.readFile(metaPath);
-      return encodeFrame(MessageTag.LedgerMeta, bytes);
-    }).pipe(Effect.mapError((cause) => new ChunkReadError({ chunkNo: -1, cause }))),
-  ).pipe(Stream.filter((f): f is Uint8Array => f !== undefined));
+  const metaStream = Option.isSome(preloaded.metaBytes)
+    ? Stream.succeed(encodeFrame(MessageTag.LedgerMeta, Option.getOrThrow(preloaded.metaBytes)))
+    : Stream.empty;
 
   // Stream UTxO entries from BlobStore (LSM backend) via scan.
   // V2LSM tables store raw MemPack keys without our PREFIX_UTXO,

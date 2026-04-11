@@ -30,7 +30,7 @@ import {
 } from "consensus";
 import type { LedgerView } from "consensus";
 import { decodeExtLedgerState } from "ledger";
-import { MessageTag, concatBytes, extractFrames, decodeFrame } from "bootstrap";
+import { MessageTag, decodeFrame } from "bootstrap";
 import { BlobStore, PREFIX_UTXO, blockKey, runMigrations } from "storage";
 import { SyncStateRef } from "./sync-state.ts";
 import { CryptoServiceBrowser, initWasm } from "./crypto-browser.ts";
@@ -95,21 +95,42 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   const snapshotStateRef = yield* Ref.make<SnapshotState | undefined>(undefined);
 
   // Read TLV frames from byte queue until Complete message.
-  // Uses while loop — `return` from Complete exits cleanly (no Effect.interrupt
-  // which would kill the entire fiber and prevent relay phase from starting).
-  const bufferRef = yield* Ref.make(new Uint8Array(0));
+  // Uses a growable buffer with amortized O(1) appends to avoid O(n²)
+  // re-copying when accumulating large frames (e.g., 28MB LedgerState).
+  // The buffer doubles in capacity when full — total copies ≈ 2× frame size.
+  let frameBuf = new Uint8Array(256 * 1024);
+  let frameBufLen = 0;
+
+  const appendToFrameBuf = (data: Uint8Array) => {
+    const needed = frameBufLen + data.length;
+    if (needed > frameBuf.length) {
+      const newCap = Math.max(frameBuf.length * 2, needed);
+      const newBuf = new Uint8Array(newCap);
+      newBuf.set(frameBuf.subarray(0, frameBufLen));
+      frameBuf = newBuf;
+    }
+    frameBuf.set(data, frameBufLen);
+    frameBufLen += data.length;
+  };
+
+  const HEADER_SIZE = 5;
 
   yield* Effect.gen(function* () {
     let bootstrapDone = false;
     while (!bootstrapDone) {
       const chunk = yield* Queue.take(byteQueue);
-      const buffer = yield* Ref.get(bufferRef);
-      const combined = concatBytes(buffer, chunk);
-      const { frames, remaining } = extractFrames(combined);
-      yield* Ref.set(bufferRef, new Uint8Array(remaining));
+      appendToFrameBuf(chunk);
 
-      for (const frame of frames) {
-        const msg = decodeFrame(new Uint8Array(frame));
+      // Extract all complete frames from the growable buffer
+      let offset = 0;
+      while (offset + HEADER_SIZE <= frameBufLen) {
+        const dv = new DataView(frameBuf.buffer, frameBuf.byteOffset + offset);
+        const payloadLen = dv.getUint32(1, false);
+        const frameLen = HEADER_SIZE + payloadLen;
+        if (offset + frameLen > frameBufLen) break;
+
+        const msg = decodeFrame(frameBuf.slice(offset, offset + frameLen));
+        offset += frameLen;
 
         switch (msg.tag) {
           case MessageTag.Init:
@@ -195,6 +216,12 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
         }
         if (bootstrapDone) break;
       }
+
+      // Shift consumed data to the front of the buffer
+      if (offset > 0) {
+        frameBuf.copyWithin(0, offset, frameBufLen);
+        frameBufLen -= offset;
+      }
     }
   });
 
@@ -215,8 +242,8 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   // Inject any leftover bytes from TLV frame parsing into the relay queue.
   // Without this, the Multiplexer misses the first bytes of the handshake
   // response if they arrived in the same TCP segment as the Complete frame.
-  const leftover = yield* Ref.get(bufferRef);
-  if (leftover.length > 0) {
+  if (frameBufLen > 0) {
+    const leftover = frameBuf.slice(0, frameBufLen);
     yield* Effect.log(`[bootstrap] Injecting ${leftover.length} leftover bytes into relay queue`);
     yield* Queue.offer(byteQueue, leftover);
   }

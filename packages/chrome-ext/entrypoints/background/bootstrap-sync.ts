@@ -11,7 +11,7 @@
  * The bootstrap server (apps/bootstrap) streams snapshot data, then transparently
  * bridges the WebSocket to an upstream Cardano relay for miniprotocol traffic.
  */
-import { Config, Effect, HashMap, Layer, Queue, Ref, Stream } from "effect";
+import { Config, Effect, Fiber, HashMap, Layer, Queue, Ref, Schedule, Stream } from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import {
@@ -84,6 +84,16 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
       .pipe(Effect.ensuring(Queue.shutdown(byteQueue))),
   );
 
+  // Fork WebSocket keepalive: send a ping every 30s to reset Bun's 120s idle
+  // timeout. The server ignores these bytes (wsDefaultRun is a no-op).
+  const write = yield* socket.writer;
+  yield* Effect.forkScoped(
+    Effect.repeat(
+      write(new Uint8Array([0xff])),
+      Schedule.fixed("30 seconds"),
+    ).pipe(Effect.ignore),
+  );
+
   // --- Phase 1: Bootstrap ---
   const store = yield* BlobStore;
   const syncState = yield* SyncStateRef;
@@ -93,6 +103,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   const blockCountRef = yield* Ref.make(0);
   const ledgerViewRef = yield* Ref.make<LedgerView | undefined>(undefined);
   const snapshotStateRef = yield* Ref.make<SnapshotState | undefined>(undefined);
+  const ledgerDecodeFiberRef = yield* Ref.make<Fiber.Fiber<void> | undefined>(undefined);
 
   // Read TLV frames from byte queue until Complete message.
   // Uses a growable buffer with amortized O(1) appends to avoid O(n²)
@@ -118,7 +129,12 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   yield* Effect.gen(function* () {
     let bootstrapDone = false;
     while (!bootstrapDone) {
-      const chunk = yield* Queue.take(byteQueue);
+      // Queue.take fails with interrupt when socket closes (Queue.shutdown)
+      const chunk = yield* Queue.take(byteQueue).pipe(
+        Effect.catch(() =>
+          Effect.fail(new Error("WebSocket disconnected during bootstrap")),
+        ),
+      );
       appendToFrameBuf(chunk);
 
       // Extract all complete frames from the growable buffer
@@ -147,22 +163,29 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
             break;
 
           case MessageTag.LedgerState: {
-            yield* Effect.log(`[bootstrap] Ledger state: ${msg.payload.length} bytes, decoding...`);
-            const extState = yield* decodeExtLedgerState(msg.payload);
-            yield* Effect.log(
-              `[bootstrap] Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
-                `${extState.newEpochState.poolDistr.pools.size} pools`,
+            yield* Effect.log(`[bootstrap] Ledger state: ${msg.payload.length} bytes, decoding in background...`);
+            // Fork decode so block/UTxO processing continues concurrently.
+            // The decoded ledger view is only needed for Phase 2 (relay sync).
+            const decodeFiber = yield* Effect.forkScoped(
+              Effect.gen(function* () {
+                const extState = yield* decodeExtLedgerState(msg.payload);
+                yield* Effect.log(
+                  `[bootstrap] Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
+                    `${extState.newEpochState.poolDistr.pools.size} pools`,
+                );
+                const lv = yield* extractLedgerView(extState);
+                const nonces = extractNonces(extState);
+                const tip = extractSnapshotTip(extState);
+                yield* Ref.set(ledgerViewRef, lv);
+                yield* Ref.set(snapshotStateRef, { tip, nonces });
+                yield* Effect.log(
+                  `[bootstrap] Tip slot ${tip?.slot ?? "origin"}, totalStake ${lv.totalStake}, ` +
+                    `${HashMap.size(lv.poolVrfKeys)} VRF keys`,
+                );
+                yield* syncState.update({ ledgerStateReceived: true });
+              }),
             );
-            const lv = yield* extractLedgerView(extState);
-            const nonces = extractNonces(extState);
-            const tip = extractSnapshotTip(extState);
-            yield* Ref.set(ledgerViewRef, lv);
-            yield* Ref.set(snapshotStateRef, { tip, nonces });
-            yield* Effect.log(
-              `[bootstrap] Tip slot ${tip?.slot ?? "origin"}, totalStake ${lv.totalStake}, ` +
-                `${HashMap.size(lv.poolVrfKeys)} VRF keys`,
-            );
-            yield* syncState.update({ ledgerStateReceived: true });
+            yield* Ref.set(ledgerDecodeFiberRef, decodeFiber);
             break;
           }
 
@@ -224,6 +247,14 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
       }
     }
   });
+
+  // Wait for ledger state decode to finish (it was forked during bootstrap).
+  const decodeFiber = yield* Ref.get(ledgerDecodeFiberRef);
+  if (decodeFiber) {
+    yield* Effect.log("[bootstrap] Waiting for ledger state decode to finish...");
+    yield* Fiber.join(decodeFiber);
+    yield* Effect.log("[bootstrap] Ledger state decode complete.");
+  }
 
   const ledgerView = yield* Ref.get(ledgerViewRef);
   const snapshotState = yield* Ref.get(snapshotStateRef);

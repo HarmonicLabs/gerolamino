@@ -41,7 +41,7 @@ export default defineConfig({
   manifest: {
     name: "Gerolamino",
     description: "In-browser Cardano node",
-    permissions: ["storage", "unlimitedStorage"],
+    permissions: ["storage", "unlimitedStorage", "alarms"],
     host_permissions: ["*://178.156.252.81/*", "*://decentralizationmaxi.io/*"],
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",

@@ -1,6 +1,14 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType, cborUint, cborBytes, cborBool, cborArray } from "cbor-schema";
+import {
+  CborSchemaFromBytes,
+  CborKinds,
+  type CborSchemaType,
+  cborUint,
+  cborBytes,
+  cborBool,
+  cborArray,
+} from "cbor-schema";
 
 // ── Application-level types ──
 

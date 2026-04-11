@@ -33,8 +33,8 @@ describe("Relay Machine", () => {
   it("transitions to reconnecting on sync error", async () => {
     const machine = relayMachine.provide({
       actors: {
-        connectAndSync: fromPromise<void, { peerId: string }>(
-          () => Promise.reject(new Error("connection refused")),
+        connectAndSync: fromPromise<void, { peerId: string }>(() =>
+          Promise.reject(new Error("connection refused")),
         ),
       },
     });
@@ -55,9 +55,7 @@ describe("Relay Machine", () => {
   it("transitions to disconnected on DISCONNECT from syncing", () => {
     const machine = relayMachine.provide({
       actors: {
-        connectAndSync: fromPromise<void, { peerId: string }>(
-          () => new Promise(() => {}),
-        ),
+        connectAndSync: fromPromise<void, { peerId: string }>(() => new Promise(() => {})),
       },
     });
     const actor = createActor(machine, { input: { peerId: "test:3001" } });
@@ -72,8 +70,8 @@ describe("Relay Machine", () => {
   it("transitions to disconnected on DISCONNECT from reconnecting", async () => {
     const machine = relayMachine.provide({
       actors: {
-        connectAndSync: fromPromise<void, { peerId: string }>(
-          () => Promise.reject(new Error("fail")),
+        connectAndSync: fromPromise<void, { peerId: string }>(() =>
+          Promise.reject(new Error("fail")),
         ),
       },
     });
@@ -90,8 +88,8 @@ describe("Relay Machine", () => {
   it("stops retrying after maxRetries", async () => {
     const machine = relayMachine.provide({
       actors: {
-        connectAndSync: fromPromise<void, { peerId: string }>(
-          () => Promise.reject(new Error("fail")),
+        connectAndSync: fromPromise<void, { peerId: string }>(() =>
+          Promise.reject(new Error("fail")),
         ),
       },
     });

@@ -13,7 +13,9 @@
 
 use core::borrow::Borrow;
 
-use backend::serial::curve_models::{AffineNielsPoint, CompletedPoint, ProjectiveNielsPoint, ProjectivePoint};
+use backend::serial::curve_models::{
+    AffineNielsPoint, CompletedPoint, ProjectiveNielsPoint, ProjectivePoint,
+};
 use edwards::EdwardsPoint;
 #[allow(unused_imports)]
 use prelude::*;
@@ -54,9 +56,14 @@ impl VartimePrecomputedMultiscalarMul for VartimePrecomputedStraus {
         J::Item: Borrow<Scalar>,
         K: IntoIterator<Item = Option<Self::Point>>,
     {
-        let static_nafs = static_scalars.into_iter().map(|c| c.borrow().non_adjacent_form(5)).collect::<Vec<_>>();
-        let dynamic_nafs: Vec<_> =
-            dynamic_scalars.into_iter().map(|c| c.borrow().non_adjacent_form(5)).collect::<Vec<_>>();
+        let static_nafs = static_scalars
+            .into_iter()
+            .map(|c| c.borrow().non_adjacent_form(5))
+            .collect::<Vec<_>>();
+        let dynamic_nafs: Vec<_> = dynamic_scalars
+            .into_iter()
+            .map(|c| c.borrow().non_adjacent_form(5))
+            .collect::<Vec<_>>();
 
         let dynamic_lookup_tables = dynamic_points
             .into_iter()

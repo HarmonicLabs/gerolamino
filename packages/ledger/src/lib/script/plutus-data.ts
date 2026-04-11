@@ -195,8 +195,7 @@ export const encodePlutusData: (data: PlutusData) => CborSchemaType = PlutusData
       items: d.fields.map(encodePlutusData),
     };
     // Small tag: 0..6 → Tag(121+n)
-    if (tag >= 0 && tag <= 6)
-      return { _tag: CborKinds.Tag, tag: BigInt(121 + tag), data: fields };
+    if (tag >= 0 && tag <= 6) return { _tag: CborKinds.Tag, tag: BigInt(121 + tag), data: fields };
     // Medium tag: 7..127 → Tag(1280+n-7)
     if (tag >= 7 && tag <= 127)
       return { _tag: CborKinds.Tag, tag: BigInt(1280 + tag - 7), data: fields };

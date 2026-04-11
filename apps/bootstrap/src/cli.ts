@@ -61,7 +61,10 @@ const serve = Command.make(
         );
       }
 
-      let lsmLayer: Layer.Layer<import("storage/blob-store/service").BlobStore, import("storage/blob-store/service").BlobStoreError>;
+      let lsmLayer: Layer.Layer<
+        import("storage/blob-store/service").BlobStore,
+        import("storage/blob-store/service").BlobStoreError
+      >;
 
       if (dbPath) {
         // Cardano-node database mode
@@ -72,9 +75,7 @@ const serve = Command.make(
         );
         lsmLayer = layerLsmFromSnapshot(meta.lsmDir, snapshotName);
 
-        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(
-          Effect.provide(lsmLayer),
-        );
+        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(Effect.provide(lsmLayer));
       } else {
         // Mithril snapshot mode
         const meta = yield* readSnapshotMeta(snapshotPath!);
@@ -83,9 +84,7 @@ const serve = Command.make(
         );
         lsmLayer = layerLsm(meta.lsmDir);
 
-        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(
-          Effect.provide(lsmLayer),
-        );
+        yield* startServer(meta, { port: config.port, upstreamUrl }).pipe(Effect.provide(lsmLayer));
       }
 
       yield* Effect.log(`Bootstrap server ready on :${config.port}`);
@@ -93,8 +92,14 @@ const serve = Command.make(
 ).pipe(
   Command.withDescription("Start the Gerolamo bootstrap server"),
   Command.withExamples([
-    { command: "bootstrap serve --lsm-lib /path/to/lib -s /data/snapshot", description: "Start from Mithril snapshot" },
-    { command: "bootstrap serve --lsm-lib /path/to/lib -d /var/lib/cardano-node", description: "Start from cardano-node DB" },
+    {
+      command: "bootstrap serve --lsm-lib /path/to/lib -s /data/snapshot",
+      description: "Start from Mithril snapshot",
+    },
+    {
+      command: "bootstrap serve --lsm-lib /path/to/lib -d /var/lib/cardano-node",
+      description: "Start from cardano-node DB",
+    },
   ]),
 );
 
@@ -103,8 +108,4 @@ const app = Command.make("bootstrap").pipe(
   Command.withSubcommands([serve]),
 );
 
-app.pipe(
-  Command.run({ version: "0.1.0" }),
-  Effect.provide(BunServices.layer),
-  BunRuntime.runMain,
-);
+app.pipe(Command.run({ version: "0.1.0" }), Effect.provide(BunServices.layer), BunRuntime.runMain);

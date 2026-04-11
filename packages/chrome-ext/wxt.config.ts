@@ -30,7 +30,10 @@ const workspaceAliases = [
   { find: /^lsm-tree$/, replacement: path.join(pkg("lsm-tree"), "index.ts") },
   { find: /^lsm-tree\/(.*)/, replacement: path.join(pkg("lsm-tree"), "$1") },
   { find: /^wasm-utils$/, replacement: path.join(root, "packages/wasm-utils/pkg/wasm_utils.js") },
-  { find: /^wasm-plexer$/, replacement: path.join(root, "packages/wasm-plexer/result/wasm_plexer_bun.js") },
+  {
+    find: /^wasm-plexer$/,
+    replacement: path.join(root, "packages/wasm-plexer/result/wasm_plexer_bun.js"),
+  },
 ];
 
 export default defineConfig({

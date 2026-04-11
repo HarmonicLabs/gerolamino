@@ -76,7 +76,13 @@ export const peersAtom: Atom.Writable<readonly PeerInfo[]> = Atom.make<readonly 
 // Bootstrap progress
 // ---------------------------------------------------------------------------
 
-export const BootstrapPhase = Schema.Literals(["idle", "ledger-state", "utxo-entries", "blocks", "complete"]);
+export const BootstrapPhase = Schema.Literals([
+  "idle",
+  "ledger-state",
+  "utxo-entries",
+  "blocks",
+  "complete",
+]);
 export type BootstrapPhase = typeof BootstrapPhase.Type;
 
 export const BootstrapProgress = Schema.Struct({

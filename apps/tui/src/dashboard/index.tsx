@@ -24,4 +24,10 @@ export const TuiDashboard = () => (
 );
 
 // Re-export atom push functions for convenience
-export { registry, pushNodeState, pushBootstrapProgress, pushNetworkInfo, pushPeers } from "./atoms.ts";
+export {
+  registry,
+  pushNodeState,
+  pushBootstrapProgress,
+  pushNetworkInfo,
+  pushPeers,
+} from "./atoms.ts";

@@ -13,7 +13,18 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import * as BunSocket from "@effect/platform-bun/BunSocket";
 import * as BunWorker from "@effect/platform-bun/BunWorker";
-import { Config, Effect, FileSystem, HashMap, Layer, Path, Ref, Schedule, Schema, Stream } from "effect";
+import {
+  Config,
+  Effect,
+  FileSystem,
+  HashMap,
+  Layer,
+  Path,
+  Ref,
+  Schedule,
+  Schema,
+  Stream,
+} from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 import { Command, Flag } from "effect/unstable/cli";
 import {
@@ -48,7 +59,12 @@ import {
 } from "storage";
 import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient";
 import { layerLsm } from "lsm-tree";
-import { pushNodeState, pushBootstrapProgress, pushNetworkInfo, pushPeers } from "./dashboard/atoms.ts";
+import {
+  pushNodeState,
+  pushBootstrapProgress,
+  pushNetworkInfo,
+  pushPeers,
+} from "./dashboard/atoms.ts";
 import { concat } from "consensus";
 
 /** Bootstrap completed without receiving the expected LedgerState message. */
@@ -103,9 +119,12 @@ const start = Command.make(
       yield* runMigrations;
       yield* Effect.log("Database migrations complete.");
 
-      type SnapshotState = { tip: { slot: bigint; hash: Uint8Array } | undefined; nonces: ReturnType<typeof extractNonces> };
+      type SnapshotState = {
+        tip: { slot: bigint; hash: Uint8Array } | undefined;
+        nonces: ReturnType<typeof extractNonces>;
+      };
 
-      const { ledgerView, snapshotState } = yield* (config.genesis
+      const { ledgerView, snapshotState } = yield* config.genesis
         ? Effect.gen(function* () {
             yield* Effect.log("Genesis mode: syncing from origin (no bootstrap)");
             yield* pushNodeState({ status: "connecting" });
@@ -130,87 +149,103 @@ const start = Command.make(
             const ledgerViewRef = yield* Ref.make<LedgerView | undefined>(undefined);
             const snapshotStateRef = yield* Ref.make<SnapshotState | undefined>(undefined);
 
-            yield* Effect.scoped(Effect.gen(function* () {
-              const stream = yield* connect(config.bootstrapUrl);
+            yield* Effect.scoped(
+              Effect.gen(function* () {
+                const stream = yield* connect(config.bootstrapUrl);
 
-              yield* stream.pipe(
-                Stream.runForEach((msg: BootstrapMessage) =>
-                  matchMessage(msg, {
-                    Init: (m) => Effect.gen(function* () {
-                      yield* Effect.log(
-                        `Bootstrap: slot ${m.snapshotSlot}, magic ${m.protocolMagic}, ${m.totalChunks} chunks`,
-                      );
-                      yield* pushBootstrapProgress({
-                        protocolMagic: m.protocolMagic,
-                        totalChunks: m.totalChunks,
-                        phase: "ledger-state",
-                      });
+                yield* stream.pipe(
+                  Stream.runForEach((msg: BootstrapMessage) =>
+                    matchMessage(msg, {
+                      Init: (m) =>
+                        Effect.gen(function* () {
+                          yield* Effect.log(
+                            `Bootstrap: slot ${m.snapshotSlot}, magic ${m.protocolMagic}, ${m.totalChunks} chunks`,
+                          );
+                          yield* pushBootstrapProgress({
+                            protocolMagic: m.protocolMagic,
+                            totalChunks: m.totalChunks,
+                            phase: "ledger-state",
+                          });
+                        }),
+
+                      LedgerState: (m) =>
+                        Effect.gen(function* () {
+                          yield* Effect.log(`Ledger state: ${m.payload.length} bytes, decoding...`);
+                          const extState = yield* decodeExtLedgerState(m.payload);
+                          yield* Effect.log(
+                            `Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
+                              `${extState.newEpochState.poolDistr.pools.size} pools`,
+                          );
+
+                          const lv = yield* extractLedgerView(extState);
+                          const nonces = extractNonces(extState);
+                          const tip = extractSnapshotTip(extState);
+                          yield* Ref.set(ledgerViewRef, lv);
+                          yield* Ref.set(snapshotStateRef, { tip, nonces });
+
+                          yield* Effect.log(
+                            `Bootstrap: tip slot ${tip?.slot ?? "origin"}, totalStake ${lv.totalStake}, ` +
+                              `${HashMap.size(lv.poolVrfKeys)} VRF keys loaded`,
+                          );
+                          yield* pushBootstrapProgress({ ledgerStateReceived: true });
+                        }),
+
+                      LedgerMeta: (m) => Effect.log(`Ledger meta: ${m.payload.length} bytes`),
+
+                      BlobEntries: (m) =>
+                        Effect.gen(function* () {
+                          yield* store.putBatch(
+                            m.entries.map((e) => ({
+                              key: concat(PREFIX_UTXO, e.key),
+                              value: e.value,
+                            })),
+                          );
+                          const newCount = yield* Ref.updateAndGet(
+                            blobCountRef,
+                            (n) => n + m.count,
+                          );
+                          if (newCount % 50000 === 0) {
+                            yield* Effect.log(`UTxO entries received: ${newCount}`);
+                            yield* pushBootstrapProgress({
+                              blobEntriesReceived: newCount,
+                              phase: "utxo-entries",
+                            });
+                          }
+                        }),
+
+                      Block: (m) =>
+                        Effect.gen(function* () {
+                          yield* store.put(blockKey(m.slotNo, m.headerHash), m.blockCbor);
+                          const newCount = yield* Ref.updateAndGet(blockCountRef, (n) => n + 1);
+                          if (newCount % 10000 === 0) {
+                            yield* Effect.log(`Blocks received: ${newCount}`);
+                            yield* pushBootstrapProgress({
+                              blocksReceived: newCount,
+                              phase: "blocks",
+                            });
+                          }
+                        }),
+
+                      Progress: (m) => Effect.log(`Progress: ${m.phase} ${m.current}/${m.total}`),
+
+                      Complete: () =>
+                        Effect.gen(function* () {
+                          const blobCount = yield* Ref.get(blobCountRef);
+                          const blockCount = yield* Ref.get(blockCountRef);
+                          yield* Effect.log(
+                            `Bootstrap complete: ${blobCount} UTxO entries, ${blockCount} blocks`,
+                          );
+                          yield* pushBootstrapProgress({
+                            blobEntriesReceived: blobCount,
+                            blocksReceived: blockCount,
+                            phase: "complete",
+                          });
+                        }),
                     }),
-
-                    LedgerState: (m) => Effect.gen(function* () {
-                      yield* Effect.log(`Ledger state: ${m.payload.length} bytes, decoding...`);
-                      const extState = yield* decodeExtLedgerState(m.payload);
-                      yield* Effect.log(
-                        `Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
-                          `${extState.newEpochState.poolDistr.pools.size} pools`,
-                      );
-
-                      const lv = yield* extractLedgerView(extState);
-                      const nonces = extractNonces(extState);
-                      const tip = extractSnapshotTip(extState);
-                      yield* Ref.set(ledgerViewRef, lv);
-                      yield* Ref.set(snapshotStateRef, { tip, nonces });
-
-                      yield* Effect.log(
-                        `Bootstrap: tip slot ${tip?.slot ?? "origin"}, totalStake ${lv.totalStake}, ` +
-                          `${HashMap.size(lv.poolVrfKeys)} VRF keys loaded`,
-                      );
-                      yield* pushBootstrapProgress({ ledgerStateReceived: true });
-                    }),
-
-                    LedgerMeta: (m) => Effect.log(`Ledger meta: ${m.payload.length} bytes`),
-
-                    BlobEntries: (m) => Effect.gen(function* () {
-                      yield* store.putBatch(
-                        m.entries.map((e) => ({
-                          key: concat(PREFIX_UTXO, e.key),
-                          value: e.value,
-                        })),
-                      );
-                      const newCount = yield* Ref.updateAndGet(blobCountRef, (n) => n + m.count);
-                      if (newCount % 50000 === 0) {
-                        yield* Effect.log(`UTxO entries received: ${newCount}`);
-                        yield* pushBootstrapProgress({ blobEntriesReceived: newCount, phase: "utxo-entries" });
-                      }
-                    }),
-
-                    Block: (m) => Effect.gen(function* () {
-                      yield* store.put(blockKey(m.slotNo, m.headerHash), m.blockCbor);
-                      const newCount = yield* Ref.updateAndGet(blockCountRef, (n) => n + 1);
-                      if (newCount % 10000 === 0) {
-                        yield* Effect.log(`Blocks received: ${newCount}`);
-                        yield* pushBootstrapProgress({ blocksReceived: newCount, phase: "blocks" });
-                      }
-                    }),
-
-                    Progress: (m) => Effect.log(`Progress: ${m.phase} ${m.current}/${m.total}`),
-
-                    Complete: () => Effect.gen(function* () {
-                      const blobCount = yield* Ref.get(blobCountRef);
-                      const blockCount = yield* Ref.get(blockCountRef);
-                      yield* Effect.log(
-                        `Bootstrap complete: ${blobCount} UTxO entries, ${blockCount} blocks`,
-                      );
-                      yield* pushBootstrapProgress({
-                        blobEntriesReceived: blobCount,
-                        blocksReceived: blockCount,
-                        phase: "complete",
-                      });
-                    }),
-                  }),
-                ),
-              );
-            }));
+                  ),
+                );
+              }),
+            );
 
             const lv = yield* Ref.get(ledgerViewRef);
             if (!lv) return yield* new BootstrapMissingLedgerState();
@@ -218,7 +253,7 @@ const start = Command.make(
               ledgerView: lv,
               snapshotState: yield* Ref.get(snapshotStateRef),
             };
-          }));
+          });
 
       const status = yield* getNodeStatus;
       yield* Effect.log(`Tip: slot ${status.tipSlot} / ${status.currentSlot}`);
@@ -268,13 +303,16 @@ const start = Command.make(
             yield* pushPeers(
               peers.map((p) => ({
                 id: p.peerId,
-                status: p.status === "syncing" || p.status === "synced" ? "connected" : p.status === "stalled" ? "stalled" : "disconnected",
+                status:
+                  p.status === "syncing" || p.status === "synced"
+                    ? "connected"
+                    : p.status === "stalled"
+                      ? "stalled"
+                      : "disconnected",
                 tipSlot: p.tip?.slot ?? 0n,
               })),
             );
-          }).pipe(
-            Effect.catch((e) => Effect.logWarning(`Monitor check failed: ${e}`)),
-          ),
+          }).pipe(Effect.catch((e) => Effect.logWarning(`Monitor check failed: ${e}`))),
           Schedule.fixed("10 seconds"),
         );
       });
@@ -305,9 +343,7 @@ const start = Command.make(
       // Storage layers — always fresh LSM in temp dir (populated by bootstrap stream)
       Effect.provide(makeStorageLayers()),
     ),
-).pipe(
-  Command.withDescription("Start the Gerolamino data node"),
-);
+).pipe(Command.withDescription("Start the Gerolamino data node"));
 
 const app = Command.make("gerolamino").pipe(
   Command.withDescription("Gerolamino: sync-to-tip Cardano data node"),
@@ -342,9 +378,10 @@ const makeStorageLayers = () =>
   );
 
 // SlotClock from Config env vars, falling back to PREPROD_CONFIG defaults.
-const slotClockLayer = Layer.effect(SlotClock, SlotClockLayerFromConfig.pipe(
-  Effect.catch(() => SlotClockLive(PREPROD_CONFIG)),
-));
+const slotClockLayer = Layer.effect(
+  SlotClock,
+  SlotClockLayerFromConfig.pipe(Effect.catch(() => SlotClockLive(PREPROD_CONFIG))),
+);
 const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),
 );

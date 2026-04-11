@@ -69,7 +69,12 @@ impl From<edwards::EdwardsPoint> for ExtendedPoint {
 impl From<ExtendedPoint> for edwards::EdwardsPoint {
     fn from(P: ExtendedPoint) -> edwards::EdwardsPoint {
         let tmp = P.0.split();
-        edwards::EdwardsPoint { X: tmp[0], Y: tmp[1], Z: tmp[2], T: tmp[3] }
+        edwards::EdwardsPoint {
+            X: tmp[0],
+            Y: tmp[1],
+            Z: tmp[2],
+            T: tmp[3],
+        }
     }
 }
 
@@ -382,7 +387,12 @@ mod test {
         let Z3 = &S15 * &S14; // R2 * R3
         let T3 = &S12 * &S13; // R1 * R4
 
-        edwards::EdwardsPoint { X: X3, Y: Y3, Z: Z3, T: T3 }
+        edwards::EdwardsPoint {
+            X: X3,
+            Y: Y3,
+            Z: Z3,
+            T: T3,
+        }
     }
 
     fn addition_test_helper(P: edwards::EdwardsPoint, Q: edwards::EdwardsPoint) {
@@ -475,7 +485,12 @@ mod test {
         let Z3 = &S8 * &S6;
         let T3 = &S5 * &S9;
 
-        edwards::EdwardsPoint { X: X3, Y: Y3, Z: Z3, T: T3 }
+        edwards::EdwardsPoint {
+            X: X3,
+            Y: Y3,
+            Z: Z3,
+            T: T3,
+        }
     }
 
     fn doubling_test_helper(P: edwards::EdwardsPoint) {
@@ -514,7 +529,8 @@ mod test {
         use backend::vector::avx2::constants::BASEPOINT_ODD_LOOKUP_TABLE;
         use constants;
 
-        let basepoint_odd_table = NafLookupTable8::<CachedPoint>::from(&constants::ED25519_BASEPOINT_POINT);
+        let basepoint_odd_table =
+            NafLookupTable8::<CachedPoint>::from(&constants::ED25519_BASEPOINT_POINT);
         println!("basepoint_odd_lookup_table = {:?}", basepoint_odd_table);
 
         let table_B = &BASEPOINT_ODD_LOOKUP_TABLE;

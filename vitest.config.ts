@@ -52,17 +52,41 @@ export default defineConfig({
       "ledger/lib/block/block": path.resolve(__dirname, "packages/ledger/src/lib/block/block.ts"),
       // workspace package aliases for cross-package imports
       // storage package subpath aliases
-      "storage/blob-store/service": path.resolve(__dirname, "packages/storage/src/blob-store/service.ts"),
+      "storage/blob-store/service": path.resolve(
+        __dirname,
+        "packages/storage/src/blob-store/service.ts",
+      ),
       "storage/blob-store/keys": path.resolve(__dirname, "packages/storage/src/blob-store/keys.ts"),
-      "storage/blob-store/index": path.resolve(__dirname, "packages/storage/src/blob-store/index.ts"),
-      "storage/blob-store/index.ts": path.resolve(__dirname, "packages/storage/src/blob-store/index.ts"),
+      "storage/blob-store/index": path.resolve(
+        __dirname,
+        "packages/storage/src/blob-store/index.ts",
+      ),
+      "storage/blob-store/index.ts": path.resolve(
+        __dirname,
+        "packages/storage/src/blob-store/index.ts",
+      ),
       "storage/services/index": path.resolve(__dirname, "packages/storage/src/services/index.ts"),
-      "storage/services/immutable-db": path.resolve(__dirname, "packages/storage/src/services/immutable-db.ts"),
-      "storage/services/volatile-db": path.resolve(__dirname, "packages/storage/src/services/volatile-db.ts"),
-      "storage/services/ledger-db": path.resolve(__dirname, "packages/storage/src/services/ledger-db.ts"),
-      "storage/types/StoredBlock": path.resolve(__dirname, "packages/storage/src/types/StoredBlock.ts"),
+      "storage/services/immutable-db": path.resolve(
+        __dirname,
+        "packages/storage/src/services/immutable-db.ts",
+      ),
+      "storage/services/volatile-db": path.resolve(
+        __dirname,
+        "packages/storage/src/services/volatile-db.ts",
+      ),
+      "storage/services/ledger-db": path.resolve(
+        __dirname,
+        "packages/storage/src/services/ledger-db.ts",
+      ),
+      "storage/types/StoredBlock": path.resolve(
+        __dirname,
+        "packages/storage/src/types/StoredBlock.ts",
+      ),
       "storage/db/client": path.resolve(__dirname, "packages/storage/src/db/client.ts"),
-      "storage/services/chain-db": path.resolve(__dirname, "packages/storage/src/services/chain-db.ts"),
+      "storage/services/chain-db": path.resolve(
+        __dirname,
+        "packages/storage/src/services/chain-db.ts",
+      ),
       "lsm-tree": path.resolve(__dirname, "packages/lsm-tree/src/index.ts"),
     },
   },

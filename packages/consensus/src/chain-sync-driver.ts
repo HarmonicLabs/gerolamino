@@ -114,51 +114,51 @@ export const handleRollForward = (
 
     // Storage and nonce evolution are INDEPENDENT — run in parallel.
     // Storage writes to DB; nonce computation reads only header fields.
-    const [, newNonces] = yield* Effect.all([
-      // I/O-bound: store block metadata + header bytes in ChainDB
-      chainDb.addBlock({
-        slot: header.slot,
-        hash: header.hash,
-        prevHash: header.prevHash,
-        blockNo: header.blockNo,
-        blockSizeBytes: headerBytes.byteLength,
-        blockCbor: headerBytes,
-      }),
-      // CPU-bound (fast): compute nonces purely from header fields
-      Effect.sync(() => {
-        const blockEpoch = slotClock.slotToEpoch(header.slot);
-        let nonces = state.nonces;
+    const [, newNonces] = yield* Effect.all(
+      [
+        // I/O-bound: store block metadata + header bytes in ChainDB
+        chainDb.addBlock({
+          slot: header.slot,
+          hash: header.hash,
+          prevHash: header.prevHash,
+          blockNo: header.blockNo,
+          blockSizeBytes: headerBytes.byteLength,
+          blockCbor: headerBytes,
+        }),
+        // CPU-bound (fast): compute nonces purely from header fields
+        Effect.sync(() => {
+          const blockEpoch = slotClock.slotToEpoch(header.slot);
+          let nonces = state.nonces;
 
-        if (blockEpoch > state.nonces.epoch) {
-          const newEpochNonce = deriveEpochNonce(
-            state.nonces.candidate,
-            header.prevHash,
+          if (blockEpoch > state.nonces.epoch) {
+            const newEpochNonce = deriveEpochNonce(state.nonces.candidate, header.prevHash);
+            nonces = new Nonces({
+              active: newEpochNonce,
+              evolving: newEpochNonce,
+              candidate: newEpochNonce,
+              epoch: blockEpoch,
+            });
+          }
+
+          const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
+          const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
+          const pastCollection = isPastStabilizationWindow(
+            slotInEpoch,
+            slotClock.config.securityParam,
+            slotClock.config.activeSlotsCoeff,
+            slotClock.config.epochLength,
           );
-          nonces = new Nonces({
-            active: newEpochNonce,
-            evolving: newEpochNonce,
-            candidate: newEpochNonce,
+
+          return new Nonces({
+            active: nonces.active,
+            evolving: newEvolving,
+            candidate: pastCollection ? nonces.candidate : newEvolving,
             epoch: blockEpoch,
           });
-        }
-
-        const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
-        const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
-        const pastCollection = isPastStabilizationWindow(
-          slotInEpoch,
-          slotClock.config.securityParam,
-          slotClock.config.activeSlotsCoeff,
-          slotClock.config.epochLength,
-        );
-
-        return new Nonces({
-          active: nonces.active,
-          evolving: newEvolving,
-          candidate: pastCollection ? nonces.candidate : newEvolving,
-          epoch: blockEpoch,
-        });
-      }),
-    ], { concurrency: "unbounded" });
+        }),
+      ],
+      { concurrency: "unbounded" },
+    );
 
     const result: VolatileState = {
       tip: { slot: header.slot, hash: header.hash },

@@ -195,11 +195,16 @@ const assertOperationalCertificate = (
       if (header.opcertSeqNo < 0) throw `invalid opcert sequence number: ${header.opcertSeqNo}`;
       // Opcert message: hotVk(32 bytes) ∥ seqNo(BE64) ∥ kesPeriod(BE64)
       // Per Amaru/Haskell: seqNo and kesPeriod are Word64, serialized as 8-byte big-endian.
-      const msg = concat(header.opcertVkHot, be64(header.opcertSeqNo), be64(header.opcertKesPeriod));
+      const msg = concat(
+        header.opcertVkHot,
+        be64(header.opcertSeqNo),
+        be64(header.opcertKesPeriod),
+      );
       const valid = crypto.ed25519Verify(msg, header.opcertSig, header.issuerVk);
       if (!valid) throw "opcert Ed25519 signature invalid";
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertOperationalCertificate", cause }),
+    catch: (cause) =>
+      new HeaderValidationError({ assertion: "AssertOperationalCertificate", cause }),
   });
 
 // Re-export for type usage

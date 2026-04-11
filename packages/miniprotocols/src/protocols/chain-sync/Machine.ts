@@ -17,7 +17,13 @@
 import { Schema } from "effect";
 import { setup } from "xstate";
 
-export const ChainSyncState = Schema.Literals(["Idle", "CanAwait", "MustReply", "Intersect", "Done"]);
+export const ChainSyncState = Schema.Literals([
+  "Idle",
+  "CanAwait",
+  "MustReply",
+  "Intersect",
+  "Done",
+]);
 export type ChainSyncState = typeof ChainSyncState.Type;
 
 export const ChainSyncMachineEvent = Schema.Union([

@@ -12,11 +12,11 @@ import { LedgerDBError } from "../errors.ts";
 import { BlobStore } from "../blob-store";
 
 /** Convert Uint8Array to Buffer for Drizzle blob columns. */
-const buf = (data: Uint8Array): Buffer => Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+const buf = (data: Uint8Array): Buffer =>
+  Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 
 /** Convert Buffer from Drizzle back to plain Uint8Array for domain types. */
 const u8 = (b: Buffer): Uint8Array => new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
-
 
 /** BlobStore key for a ledger snapshot: "snap" + slot (8B BE). */
 const snapshotBlobKey = (slot: bigint): Uint8Array => {
@@ -34,22 +34,25 @@ export const writeSnapshot = (snapshot: LedgerStateSnapshot) =>
     const store = yield* BlobStore;
 
     // BlobStore put + SQL insert are independent — run in parallel
-    yield* Effect.all([
-      store.put(snapshotBlobKey(snapshot.slot), snapshot.stateBytes),
-      query(
-        db
-          .insert(schema.ledgerSnapshots)
-          .values({
-            slot: Number(snapshot.slot),
-            hash: buf(snapshot.point.hash),
-            epoch: Number(snapshot.epoch),
-          })
-          .onConflictDoUpdate({
-            target: schema.ledgerSnapshots.slot,
-            set: { hash: buf(snapshot.point.hash) },
-          }),
-      ),
-    ], { concurrency: "unbounded" });
+    yield* Effect.all(
+      [
+        store.put(snapshotBlobKey(snapshot.slot), snapshot.stateBytes),
+        query(
+          db
+            .insert(schema.ledgerSnapshots)
+            .values({
+              slot: Number(snapshot.slot),
+              hash: buf(snapshot.point.hash),
+              epoch: Number(snapshot.epoch),
+            })
+            .onConflictDoUpdate({
+              target: schema.ledgerSnapshots.slot,
+              set: { hash: buf(snapshot.point.hash) },
+            }),
+        ),
+      ],
+      { concurrency: "unbounded" },
+    );
   }).pipe(Effect.mapError((cause) => new LedgerDBError({ operation: "writeSnapshot", cause })));
 
 export const readLatestSnapshot = Effect.gen(function* () {

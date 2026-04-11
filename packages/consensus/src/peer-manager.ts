@@ -23,7 +23,13 @@ export class PeerManagerError extends Schema.TaggedErrorClass<PeerManagerError>(
 ) {}
 
 /** Connection status for a tracked peer. */
-export const PeerStatus = Schema.Literals(["connecting", "syncing", "synced", "stalled", "disconnected"]);
+export const PeerStatus = Schema.Literals([
+  "connecting",
+  "syncing",
+  "synced",
+  "stalled",
+  "disconnected",
+]);
 export type PeerStatus = typeof PeerStatus.Type;
 
 /** Per-peer tracked state. */
@@ -38,10 +44,7 @@ export const PeerState = Schema.Struct({
 export type PeerState = typeof PeerState.Type;
 
 /** Stall timeout — configurable via PEER_STALL_TIMEOUT_MS, defaults to 120000 (2 min). */
-const StallTimeoutMs = Config.int("PEER_STALL_TIMEOUT_MS").pipe(
-  Config.withDefault(2 * 60 * 1000),
-);
-
+const StallTimeoutMs = Config.int("PEER_STALL_TIMEOUT_MS").pipe(Config.withDefault(2 * 60 * 1000));
 
 export class PeerManager extends ServiceMap.Service<
   PeerManager,
@@ -49,7 +52,10 @@ export class PeerManager extends ServiceMap.Service<
     /** Register a new peer connection. */
     readonly addPeer: (peerId: string, address?: string) => Effect.Effect<void, PeerManagerError>;
     /** Update a peer's tip after receiving a header. */
-    readonly updatePeerTip: (peerId: string, tip: ChainTip) => Effect.Effect<void, PeerManagerError>;
+    readonly updatePeerTip: (
+      peerId: string,
+      tip: ChainTip,
+    ) => Effect.Effect<void, PeerManagerError>;
     /** Mark a peer as disconnected. */
     readonly removePeer: (peerId: string) => Effect.Effect<void, PeerManagerError>;
     /** Get the current best peer (highest tip by Praos rules). */

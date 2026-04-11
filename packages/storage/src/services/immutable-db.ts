@@ -8,17 +8,15 @@ import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 import { ImmutableDBError } from "../errors.ts";
 import { BlobStore, PREFIX_BLK } from "../blob-store";
 import { SqliteDrizzle } from "../db";
-import {
-  writeImmutableBlock,
-  readImmutableBlock,
-  getImmutableTip,
-} from "../operations/blocks.ts";
+import { writeImmutableBlock, readImmutableBlock, getImmutableTip } from "../operations/blocks.ts";
 
 export class ImmutableDB extends ServiceMap.Service<
   ImmutableDB,
   {
     readonly appendBlock: (block: StoredBlock) => Effect.Effect<void, ImmutableDBError>;
-    readonly readBlock: (point: RealPoint) => Effect.Effect<Option.Option<StoredBlock>, ImmutableDBError>;
+    readonly readBlock: (
+      point: RealPoint,
+    ) => Effect.Effect<Option.Option<StoredBlock>, ImmutableDBError>;
     readonly getTip: Effect.Effect<Option.Option<RealPoint>, ImmutableDBError>;
     readonly streamBlocks: (
       fromSlot: bigint,

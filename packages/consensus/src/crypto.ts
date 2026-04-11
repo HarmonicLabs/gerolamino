@@ -24,7 +24,11 @@ export class CryptoService extends ServiceMap.Service<
   CryptoService,
   {
     readonly blake2b256: (data: Uint8Array) => Uint8Array;
-    readonly ed25519Verify: (message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array) => boolean;
+    readonly ed25519Verify: (
+      message: Uint8Array,
+      signature: Uint8Array,
+      publicKey: Uint8Array,
+    ) => boolean;
     readonly kesSum6Verify: (
       signature: Uint8Array,
       period: number,
@@ -60,10 +64,13 @@ const bunBlake2b256 = (data: Uint8Array): Uint8Array => {
  */
 export const CryptoServiceBunNative = {
   blake2b256: bunBlake2b256,
-  ed25519Verify: (_message: Uint8Array, _signature: Uint8Array, _publicKey: Uint8Array): boolean => true,
-  kesSum6Verify: (_sig: Uint8Array, _period: number, _pk: Uint8Array, _msg: Uint8Array): boolean => true,
+  ed25519Verify: (_message: Uint8Array, _signature: Uint8Array, _publicKey: Uint8Array): boolean =>
+    true,
+  kesSum6Verify: (_sig: Uint8Array, _period: number, _pk: Uint8Array, _msg: Uint8Array): boolean =>
+    true,
   checkVrfLeader: (_v: string, _sn: string, _sd: string, _cn: string, _cd: string): boolean => true,
-  vrfVerifyProof: (_vkey: Uint8Array, _proof: Uint8Array, _input: Uint8Array): Uint8Array => new Uint8Array(64),
+  vrfVerifyProof: (_vkey: Uint8Array, _proof: Uint8Array, _input: Uint8Array): Uint8Array =>
+    new Uint8Array(64),
   vrfProofToHash: (_proof: Uint8Array): Uint8Array => new Uint8Array(64),
 };
 
@@ -82,8 +89,12 @@ export const CryptoServiceLive: Layer.Layer<CryptoService> = Layer.effect(
       blake2b256: bunBlake2b256,
       ed25519Verify: (message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean =>
         ed25519_verify(message, signature, publicKey),
-      kesSum6Verify: (signature: Uint8Array, period: number, publicKey: Uint8Array, message: Uint8Array): boolean =>
-        kes_sum6_verify(signature, period, publicKey, message),
+      kesSum6Verify: (
+        signature: Uint8Array,
+        period: number,
+        publicKey: Uint8Array,
+        message: Uint8Array,
+      ): boolean => kes_sum6_verify(signature, period, publicKey, message),
       checkVrfLeader: (
         vrfOutputHex: string,
         sigmaNumerator: string,
@@ -91,11 +102,19 @@ export const CryptoServiceLive: Layer.Layer<CryptoService> = Layer.effect(
         activeSlotCoeffNum: string,
         activeSlotCoeffDen: string,
       ): boolean =>
-        check_vrf_leader(vrfOutputHex, sigmaNumerator, sigmaDenominator, activeSlotCoeffNum, activeSlotCoeffDen),
-      vrfVerifyProof: (vrfVkey: Uint8Array, vrfProof: Uint8Array, vrfInput: Uint8Array): Uint8Array =>
-        vrf_verify_proof(vrfVkey, vrfProof, vrfInput),
-      vrfProofToHash: (vrfProof: Uint8Array): Uint8Array =>
-        vrf_proof_to_hash(vrfProof),
+        check_vrf_leader(
+          vrfOutputHex,
+          sigmaNumerator,
+          sigmaDenominator,
+          activeSlotCoeffNum,
+          activeSlotCoeffDen,
+        ),
+      vrfVerifyProof: (
+        vrfVkey: Uint8Array,
+        vrfProof: Uint8Array,
+        vrfInput: Uint8Array,
+      ): Uint8Array => vrf_verify_proof(vrfVkey, vrfProof, vrfInput),
+      vrfProofToHash: (vrfProof: Uint8Array): Uint8Array => vrf_proof_to_hash(vrfProof),
     };
   }),
 );

@@ -9,12 +9,7 @@
  */
 import { Clock, Effect } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
-import {
-  nodeStateAtom,
-  bootstrapAtom,
-  networkInfoAtom,
-  peersAtom,
-} from "dashboard";
+import { nodeStateAtom, bootstrapAtom, networkInfoAtom, peersAtom } from "dashboard";
 import type { NodeState, BootstrapProgress, NetworkInfo, PeerInfo } from "dashboard";
 
 /** Shared AtomRegistry for the TUI process. */

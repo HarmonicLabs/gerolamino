@@ -80,13 +80,17 @@ describe("Chrome Extension Background", () => {
       await fakeBrowser.storage.session.set({ syncState: state });
 
       // Register the handler
-      fakeBrowser.runtime.onMessage.addListener((msg: Record<string, unknown>, _sender: unknown) => {
-        if (msg.type === "GET_STATE") {
-          return fakeBrowser.storage.session.get("syncState").then((result: Record<string, unknown>) => ({
-            state: result.syncState,
-          }));
-        }
-      });
+      fakeBrowser.runtime.onMessage.addListener(
+        (msg: Record<string, unknown>, _sender: unknown) => {
+          if (msg.type === "GET_STATE") {
+            return fakeBrowser.storage.session
+              .get("syncState")
+              .then((result: Record<string, unknown>) => ({
+                state: result.syncState,
+              }));
+          }
+        },
+      );
 
       // Send message and get response
       const response = await fakeBrowser.runtime.sendMessage({ type: "GET_STATE" });
@@ -130,13 +134,20 @@ describe("Bootstrap Protocol (browser-compatible)", () => {
     const payload = new Uint8Array(4 + 8 + 4 + 4 + 4 + 2 + 2 + prefix.length);
     const dv = new DataView(payload.buffer);
     let off = 0;
-    dv.setUint32(off, 1, false); off += 4; // magic
-    dv.setBigUint64(off, 12345n, false); off += 8; // slot
-    dv.setUint32(off, 100, false); off += 4; // chunks
-    dv.setUint32(off, 50, false); off += 4; // blocks
-    dv.setUint32(off, 1000, false); off += 4; // blobs
-    dv.setUint16(off, 1, false); off += 2; // prefix count
-    dv.setUint16(off, prefix.length, false); off += 2;
+    dv.setUint32(off, 1, false);
+    off += 4; // magic
+    dv.setBigUint64(off, 12345n, false);
+    off += 8; // slot
+    dv.setUint32(off, 100, false);
+    off += 4; // chunks
+    dv.setUint32(off, 50, false);
+    off += 4; // blocks
+    dv.setUint32(off, 1000, false);
+    off += 4; // blobs
+    dv.setUint16(off, 1, false);
+    off += 2; // prefix count
+    dv.setUint16(off, prefix.length, false);
+    off += 2;
     payload.set(prefix, off);
 
     const frame = encodeFrame(MessageTag.Init, payload);

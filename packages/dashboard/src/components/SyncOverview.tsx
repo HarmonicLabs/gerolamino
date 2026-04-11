@@ -14,33 +14,48 @@ import { usePrimitives } from "../primitives.ts";
 
 const statusVariant = (status: string) => {
   switch (status) {
-    case "caught-up": return "success" as const;
+    case "caught-up":
+      return "success" as const;
     case "syncing":
     case "bootstrapping":
-    case "connecting": return "warning" as const;
-    case "error": return "error" as const;
-    default: return "default" as const;
+    case "connecting":
+      return "warning" as const;
+    case "error":
+      return "error" as const;
+    default:
+      return "default" as const;
   }
 };
 
 const statusLabel = (status: string) => {
   switch (status) {
-    case "caught-up": return "Caught Up";
-    case "syncing": return "Syncing";
-    case "bootstrapping": return "Bootstrapping";
-    case "connecting": return "Connecting";
-    case "error": return "Error";
-    default: return "Idle";
+    case "caught-up":
+      return "Caught Up";
+    case "syncing":
+      return "Syncing";
+    case "bootstrapping":
+      return "Bootstrapping";
+    case "connecting":
+      return "Connecting";
+    case "error":
+      return "Error";
+    default:
+      return "Idle";
   }
 };
 
 const phaseLabel = (phase: string, status: string) => {
   switch (phase) {
-    case "ledger-state": return "Receiving ledger state";
-    case "utxo-entries": return "Syncing UTxO set";
-    case "blocks": return "Syncing blocks";
-    case "complete": return "Complete";
-    default: return status === "connecting" ? "Connecting..." : "Starting...";
+    case "ledger-state":
+      return "Receiving ledger state";
+    case "utxo-entries":
+      return "Syncing UTxO set";
+    case "blocks":
+      return "Syncing blocks";
+    case "complete":
+      return "Complete";
+    default:
+      return status === "connecting" ? "Connecting..." : "Starting...";
   }
 };
 
@@ -55,10 +70,10 @@ export const SyncOverview = () => {
     <Box direction="column" gap={1}>
       {/* Header */}
       <Box direction="row" gap={1}>
-        <Text size="lg" weight="bold">Gerolamino</Text>
-        <Badge variant={statusVariant(state().status)}>
-          {statusLabel(state().status)}
-        </Badge>
+        <Text size="lg" weight="bold">
+          Gerolamino
+        </Text>
+        <Badge variant={statusVariant(state().status)}>{statusLabel(state().status)}</Badge>
       </Box>
 
       <Separator />
@@ -75,15 +90,8 @@ export const SyncOverview = () => {
           value={syncLabel()}
           trend={state().syncPercent >= 99 ? "up" : "neutral"}
         />
-        <Stat
-          label="Blocks"
-          value={state().blocksProcessed.toLocaleString()}
-        />
-        <Stat
-          label="Behind"
-          value={slotsBehind().toString()}
-          description="slots"
-        />
+        <Stat label="Blocks" value={state().blocksProcessed.toLocaleString()} />
+        <Stat label="Behind" value={slotsBehind().toString()} description="slots" />
       </Box>
 
       {/* Sync progress bar (relay sync phase) */}
@@ -92,7 +100,13 @@ export const SyncOverview = () => {
       </Show>
 
       {/* Bootstrap progress — show during connecting, bootstrapping, or when phase is active */}
-      <Show when={state().status === "connecting" || state().status === "bootstrapping" || (bootstrap().phase !== "idle" && bootstrap().phase !== "complete")}>
+      <Show
+        when={
+          state().status === "connecting" ||
+          state().status === "bootstrapping" ||
+          (bootstrap().phase !== "idle" && bootstrap().phase !== "complete")
+        }
+      >
         <Card title={`Bootstrap — ${phaseLabel(bootstrap().phase, state().status)}`}>
           <Box direction="column" gap={1}>
             <Show when={bootstrap().snapshotSlot !== "0"}>
@@ -104,7 +118,9 @@ export const SyncOverview = () => {
             {/* Ledger state */}
             <Box direction="row" gap={1}>
               <Badge variant={bootstrap().ledgerStateReceived ? "success" : "outline"}>
-                {bootstrap().ledgerStateReceived ? "Ledger state received" : "Awaiting ledger state"}
+                {bootstrap().ledgerStateReceived
+                  ? "Ledger state received"
+                  : "Awaiting ledger state"}
               </Badge>
             </Box>
 
@@ -112,7 +128,9 @@ export const SyncOverview = () => {
             <Show when={bootstrap().blobEntriesReceived > 0 || bootstrap().totalBlobEntries > 0}>
               <Box direction="column" gap={0}>
                 <Box direction="row" gap={1}>
-                  <Text size="sm" weight="bold">UTxO entries</Text>
+                  <Text size="sm" weight="bold">
+                    UTxO entries
+                  </Text>
                   <Text size="sm" color="muted">
                     {bootstrap().blobEntriesReceived.toLocaleString()}
                     {bootstrap().totalBlobEntries > 0
@@ -133,7 +151,9 @@ export const SyncOverview = () => {
             <Show when={bootstrap().blocksReceived > 0}>
               <Box direction="column" gap={0}>
                 <Box direction="row" gap={1}>
-                  <Text size="sm" weight="bold">Blocks</Text>
+                  <Text size="sm" weight="bold">
+                    Blocks
+                  </Text>
                   <Text size="sm" color="muted">
                     {bootstrap().blocksReceived.toLocaleString()}
                   </Text>
@@ -152,7 +172,9 @@ export const SyncOverview = () => {
       {/* Error display */}
       <Show when={state().lastError}>
         <Card title="Error">
-          <Text size="sm" color="error">{state().lastError}</Text>
+          <Text size="sm" color="error">
+            {state().lastError}
+          </Text>
         </Card>
       </Show>
     </Box>

@@ -836,7 +836,8 @@ export interface ShelleyTip {
 function decodeShelleyTip(
   cbor: CborSchemaType,
 ): Effect.Effect<Option.Option<ShelleyTip>, StateDecodeError> {
-  if (cbor._tag === CborKinds.Array && cbor.items.length === 0) return Effect.succeed(Option.none());
+  if (cbor._tag === CborKinds.Array && cbor.items.length === 0)
+    return Effect.succeed(Option.none());
   if (cbor._tag === CborKinds.Array && cbor.items.length === 1) {
     return Effect.gen(function* () {
       const inner = yield* expectArray(cbor.items[0]!, "ShelleyTip", 3);

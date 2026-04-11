@@ -178,7 +178,9 @@ impl VrfProof03 {
     /// Generate a `VrfProof` from an array of bytes with the correct size. This function does not
     /// check the validity of the proof.
     pub fn from_bytes(bytes: &[u8; PROOF_SIZE]) -> Result<Self, VrfError> {
-        let gamma = CompressedEdwardsY::from_slice(&bytes[..32]).decompress().ok_or(VrfError::DecompressionFailed)?;
+        let gamma = CompressedEdwardsY::from_slice(&bytes[..32])
+            .decompress()
+            .ok_or(VrfError::DecompressionFailed)?;
 
         let mut challenge_bytes = [0u8; 32];
         challenge_bytes[..16].copy_from_slice(&bytes[32..48]);
@@ -188,7 +190,11 @@ impl VrfProof03 {
         response_bytes.copy_from_slice(&bytes[48..]);
         let response = Scalar::from_bytes_mod_order(response_bytes);
 
-        Ok(Self { gamma, challenge, response })
+        Ok(Self {
+            gamma,
+            challenge,
+            response,
+        })
     }
 
     /// Convert the proof into its byte representation. As specified in the 03 specification, the
@@ -224,7 +230,11 @@ impl VrfProof03 {
     /// - Compute `Gamma = secret_scalar *  H`
     /// - Generate a proof of discrete logarithm equality between `PK` and `Gamma` with
     ///   bases `generator` and `H` respectively.
-    pub fn generate(public_key: &PublicKey03, secret_key: &SecretKey03, alpha_string: &[u8]) -> Self {
+    pub fn generate(
+        public_key: &PublicKey03,
+        secret_key: &SecretKey03,
+        alpha_string: &[u8],
+    ) -> Self {
         let (secret_scalar, secret_extension) = secret_key.extend();
 
         let h = Self::hash_to_curve(public_key, alpha_string);
@@ -238,26 +248,41 @@ impl VrfProof03 {
         let announcement_h = k * h;
 
         // Now we compute the challenge
-        let challenge = Self::compute_challenge(&compressed_h, &gamma, &announcement_base, &announcement_h);
+        let challenge =
+            Self::compute_challenge(&compressed_h, &gamma, &announcement_base, &announcement_h);
 
         // And finally the response of the sigma protocol
         let response = k + challenge * secret_scalar;
-        Self { gamma, challenge, response }
+        Self {
+            gamma,
+            challenge,
+            response,
+        }
     }
 
     /// Verify VRF function, following the 03 specification.
-    pub fn verify(&self, public_key: &PublicKey03, alpha_string: &[u8]) -> Result<[u8; OUTPUT_SIZE], VrfError> {
+    pub fn verify(
+        &self,
+        public_key: &PublicKey03,
+        alpha_string: &[u8],
+    ) -> Result<[u8; OUTPUT_SIZE], VrfError> {
         let h = Self::hash_to_curve(public_key, alpha_string);
         let compressed_h = h.compress();
 
-        let decompressed_pk = public_key.0.decompress().ok_or(VrfError::DecompressionFailed)?;
+        let decompressed_pk = public_key
+            .0
+            .decompress()
+            .ok_or(VrfError::DecompressionFailed)?;
 
         if decompressed_pk.is_small_order() {
             return Err(VrfError::PkSmallOrder);
         }
 
-        let U =
-            EdwardsPoint::vartime_double_scalar_mul_basepoint(&self.challenge.neg(), &decompressed_pk, &self.response);
+        let U = EdwardsPoint::vartime_double_scalar_mul_basepoint(
+            &self.challenge.neg(),
+            &decompressed_pk,
+            &self.response,
+        );
         let V = EdwardsPoint::vartime_multiscalar_mul(
             iter::once(self.response).chain(iter::once(self.challenge.neg())),
             iter::once(h).chain(iter::once(self.gamma)),

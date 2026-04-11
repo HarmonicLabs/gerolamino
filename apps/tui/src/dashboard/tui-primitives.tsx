@@ -127,9 +127,7 @@ export const tuiPrimitives: DashboardPrimitives = {
         <box style={{ flexDirection: "row", gap: 2 }}>
           <For each={[...cols]}>
             {(col) => (
-              <text style={{ fg: "#888888", attributes: { bold: true } }}>
-                {col.header}
-              </text>
+              <text style={{ fg: "#888888", attributes: { bold: true } }}>{col.header}</text>
             )}
           </For>
         </box>
@@ -137,9 +135,7 @@ export const tuiPrimitives: DashboardPrimitives = {
         <For each={[...rows]}>
           {(row) => (
             <box style={{ flexDirection: "row", gap: 2 }}>
-              <For each={[...cols]}>
-                {(col) => <text>{String(col.accessor(row))}</text>}
-              </For>
+              <For each={[...cols]}>{(col) => <text>{String(col.accessor(row))}</text>}</For>
             </box>
           )}
         </For>
@@ -148,17 +144,10 @@ export const tuiPrimitives: DashboardPrimitives = {
   },
 
   ScrollArea: (props) => (
-    <scrollbox
-      style={{ flexGrow: 1 }}
-      scrollbarOptions={{ visible: true }}
-    >
+    <scrollbox style={{ flexGrow: 1 }} scrollbarOptions={{ visible: true }}>
       {props.children}
     </scrollbox>
   ),
 
-  Separator: () => (
-    <text style={{ fg: "#444444" }}>
-      {"\u2500".repeat(60)}
-    </text>
-  ),
+  Separator: () => <text style={{ fg: "#444444" }}>{"\u2500".repeat(60)}</text>,
 };

@@ -26,11 +26,16 @@ const decodeSyncState = Schema.decodeUnknownOption(SyncState);
 /** Map SyncState from chrome.storage → dashboard atoms. */
 const pushSyncState = (s: SyncState) => {
   const nodeUpdate: Partial<NodeState> = {
-    status: s.status === "bootstrapping" ? "bootstrapping"
-      : s.status === "syncing" ? "syncing"
-      : s.status === "connecting" ? "connecting"
-      : s.status === "error" ? "error"
-      : "idle",
+    status:
+      s.status === "bootstrapping"
+        ? "bootstrapping"
+        : s.status === "syncing"
+          ? "syncing"
+          : s.status === "connecting"
+            ? "connecting"
+            : s.status === "error"
+              ? "error"
+              : "idle",
     blocksProcessed: s.blocksReceived,
     lastError: s.lastError,
     lastUpdated: s.lastUpdated,
@@ -38,11 +43,15 @@ const pushSyncState = (s: SyncState) => {
   registry.update(nodeStateAtom, (prev) => ({ ...prev, ...nodeUpdate }));
 
   const bootstrapUpdate: Partial<BootstrapProgress> = {
-    phase: s.bootstrapComplete ? "complete"
-      : s.ledgerStateReceived ? "blocks"
-      : s.blobEntriesReceived > 0 ? "utxo-entries"
-      : s.status === "bootstrapping" ? "ledger-state"
-      : "idle",
+    phase: s.bootstrapComplete
+      ? "complete"
+      : s.ledgerStateReceived
+        ? "blocks"
+        : s.blobEntriesReceived > 0
+          ? "utxo-entries"
+          : s.status === "bootstrapping"
+            ? "ledger-state"
+            : "idle",
     protocolMagic: s.protocolMagic,
     snapshotSlot: s.snapshotSlot,
     totalChunks: s.totalChunks,
@@ -64,10 +73,7 @@ const pushSyncState = (s: SyncState) => {
 const StorageBridge = () => {
   createEffect(() => {
     // Event-driven: fires whenever background calls chrome.storage.session.set()
-    const onChange = (
-      changes: { [key: string]: chrome.storage.StorageChange },
-      area: string,
-    ) => {
+    const onChange = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
       if (area !== "session" || !changes.syncState) return;
       const parsed = decodeSyncState(changes.syncState.newValue);
       if (Option.isSome(parsed)) {

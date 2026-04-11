@@ -13,7 +13,13 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 // Sync State Schema
 // ---------------------------------------------------------------------------
 
-export const SyncStatus = Schema.Literals(["idle", "connecting", "bootstrapping", "syncing", "error"]);
+export const SyncStatus = Schema.Literals([
+  "idle",
+  "connecting",
+  "bootstrapping",
+  "syncing",
+  "error",
+]);
 export type SyncStatus = typeof SyncStatus.Type;
 
 export class SyncState extends Schema.Class<SyncState>("SyncState")({
@@ -73,8 +79,4 @@ class StreamSyncState extends Rpc.make("StreamSyncState", {
  * Background service worker implements the server.
  * Popup implements the client.
  */
-export const NodeRpcs = RpcGroup.make(
-  GetSyncState,
-  StartSync,
-  StreamSyncState,
-);
+export const NodeRpcs = RpcGroup.make(GetSyncState, StartSync, StreamSyncState);

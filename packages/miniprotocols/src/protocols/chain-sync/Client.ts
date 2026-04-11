@@ -1,4 +1,15 @@
-import { Cause, Config, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
+import {
+  Cause,
+  Config,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Schema,
+  Scope,
+  ServiceMap,
+  Stream,
+} from "effect";
 import { Socket } from "effect/unstable/socket";
 import { TimeoutError } from "effect/Cause";
 
@@ -103,8 +114,7 @@ export class ChainSyncClient extends ServiceMap.Service<
           Effect.timeout(timeout),
           Effect.flatMap(
             Option.match({
-              onNone: () =>
-                Effect.fail(new ChainSyncError({ cause: `No response in ${phase}` })),
+              onNone: () => Effect.fail(new ChainSyncError({ cause: `No response in ${phase}` })),
               onSome: Effect.succeed,
             }),
           ),
@@ -118,8 +128,8 @@ export class ChainSyncClient extends ServiceMap.Service<
               nextMessage(Duration.seconds(10), "StCanAwait").pipe(
                 Effect.flatMap((msg) =>
                   Schemas.ChainSyncMessage.guards.AwaitReply(msg)
-                    // StMustReply: at tip, wait for new block (up to 900s)
-                    ? nextMessage(mustReplyTimeout, "StMustReply").pipe(
+                    ? // StMustReply: at tip, wait for new block (up to 900s)
+                      nextMessage(mustReplyTimeout, "StMustReply").pipe(
                         Effect.flatMap(matchRollResult),
                       )
                     : matchRollResult(msg),

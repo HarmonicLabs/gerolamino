@@ -74,21 +74,24 @@ export const CryptoWorkerPoolLive: Layer.Layer<
 
           // Start listening for response, then send request
           yield* Effect.forkChild(
-            worker.run(
-              (response) => Deferred.succeed(result, response),
-              { onSpawn: Effect.void },
-            ),
+            worker.run((response) => Deferred.succeed(result, response), { onSpawn: Effect.void }),
           );
 
           // Transfer ArrayBuffer ownership for zero-copy send.
           // Collect Uint8Array fields per request kind for transfer.
           const collectBuffers = (bufs: ArrayBufferLike[]): ArrayBuffer[] =>
-            bufs.flatMap((b) => { const t = toTransferable(b); return t ? [t] : []; });
+            bufs.flatMap((b) => {
+              const t = toTransferable(b);
+              return t ? [t] : [];
+            });
 
           const transfers: ArrayBuffer[] = CryptoRequest.match(request, {
-            VrfVerifyProof: (r) => collectBuffers([r.vrfVk.buffer, r.vrfProof.buffer, r.vrfInput.buffer]),
-            KesSum6Verify: (r) => collectBuffers([r.signature.buffer, r.publicKey.buffer, r.message.buffer]),
-            Ed25519Verify: (r) => collectBuffers([r.message.buffer, r.signature.buffer, r.publicKey.buffer]),
+            VrfVerifyProof: (r) =>
+              collectBuffers([r.vrfVk.buffer, r.vrfProof.buffer, r.vrfInput.buffer]),
+            KesSum6Verify: (r) =>
+              collectBuffers([r.signature.buffer, r.publicKey.buffer, r.message.buffer]),
+            Ed25519Verify: (r) =>
+              collectBuffers([r.message.buffer, r.signature.buffer, r.publicKey.buffer]),
             VrfProofToHash: (r) => collectBuffers([r.vrfProof.buffer]),
             CheckVrfLeader: () => [],
           });
@@ -111,5 +114,4 @@ export const CryptoWorkerPoolLive: Layer.Layer<
  */
 export const CryptoWorkerPoolWithSpawner = (
   workerLayer: Layer.Layer<Worker.WorkerPlatform | Worker.Spawner>,
-): Layer.Layer<CryptoWorkerPool> =>
-  CryptoWorkerPoolLive.pipe(Layer.provide(workerLayer));
+): Layer.Layer<CryptoWorkerPool> => CryptoWorkerPoolLive.pipe(Layer.provide(workerLayer));

@@ -80,10 +80,9 @@ export class BlockFetchClient extends ServiceMap.Service<
                       Schemas.BlockFetchMessage.match(v, {
                         StartBatch: () =>
                           messages.pipe(
-                            Stream.takeUntil(
-                              Schemas.BlockFetchMessage.guards.BatchDone,
-                              { excludeLast: true },
-                            ),
+                            Stream.takeUntil(Schemas.BlockFetchMessage.guards.BatchDone, {
+                              excludeLast: true,
+                            }),
                             Stream.filterMap((msg) =>
                               Schemas.BlockFetchMessage.guards.Block(msg)
                                 ? Result.succeed(msg.block)

@@ -35,7 +35,8 @@ describe("evolveNonce", () => {
   // Ported from Amaru praos/nonce.rs — formula: blake2b(current ∥ blake2b(vrfOutput))
   it("follows Praos evolve formula: blake2b(current ∥ blake2b(vrfOutput))", async () => {
     const hasher = new Bun.CryptoHasher("blake2b256");
-    const innerHash = (data: Uint8Array) => new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
+    const innerHash = (data: Uint8Array) =>
+      new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
 
     const current = new Uint8Array(32).fill(0x42);
     const vrfOutput = new Uint8Array(32).fill(0x07);
@@ -67,7 +68,8 @@ describe("deriveEpochNonce", () => {
 
   // Ported from Dingo epoch_nonce_test.go — TestEpochNonceFormula
   it("follows Praos formula: blake2b(candidate ∥ parentHash)", async () => {
-    const innerHash = (data: Uint8Array) => new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
+    const innerHash = (data: Uint8Array) =>
+      new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
 
     const candidate = new Uint8Array(32).fill(0xaa);
     const parentHash = new Uint8Array(32).fill(0xbb);

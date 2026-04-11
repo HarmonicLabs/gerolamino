@@ -37,7 +37,12 @@ impl From<ExtendedPoint> for edwards::EdwardsPoint {
     fn from(P: ExtendedPoint) -> edwards::EdwardsPoint {
         let reduced = F51x4Reduced::from(P.0);
         let tmp = F51x4Unreduced::from(reduced).split();
-        edwards::EdwardsPoint { X: tmp[0], Y: tmp[1], Z: tmp[2], T: tmp[3] }
+        edwards::EdwardsPoint {
+            X: tmp[0],
+            Y: tmp[1],
+            Z: tmp[2],
+            T: tmp[3],
+        }
     }
 }
 

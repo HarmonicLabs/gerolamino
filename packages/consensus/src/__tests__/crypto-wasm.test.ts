@@ -34,7 +34,8 @@ describe("CryptoServiceLive (WASM)", () => {
 
   it("ed25519 sign + verify round-trip", async () => {
     // Import sign/key functions from wasm-utils for test setup
-    const { ed25519_sign, ed25519_public_key, ed25519_secret_key_from_seed } = await import("wasm-utils");
+    const { ed25519_sign, ed25519_public_key, ed25519_secret_key_from_seed } =
+      await import("wasm-utils");
     const seed = new Uint8Array(32);
     seed[0] = 42;
     const sk = ed25519_secret_key_from_seed(seed);
@@ -52,7 +53,8 @@ describe("CryptoServiceLive (WASM)", () => {
   });
 
   it("ed25519 verify rejects wrong message", async () => {
-    const { ed25519_sign, ed25519_public_key, ed25519_secret_key_from_seed } = await import("wasm-utils");
+    const { ed25519_sign, ed25519_public_key, ed25519_secret_key_from_seed } =
+      await import("wasm-utils");
     const seed = new Uint8Array(32);
     seed[0] = 7;
     const sk = ed25519_secret_key_from_seed(seed);
@@ -69,7 +71,8 @@ describe("CryptoServiceLive (WASM)", () => {
   });
 
   it("ed25519 verify rejects wrong public key", async () => {
-    const { ed25519_sign, ed25519_public_key, ed25519_secret_key_from_seed } = await import("wasm-utils");
+    const { ed25519_sign, ed25519_public_key, ed25519_secret_key_from_seed } =
+      await import("wasm-utils");
     const seed = new Uint8Array(32);
     seed[0] = 3;
     const sk = ed25519_secret_key_from_seed(seed);

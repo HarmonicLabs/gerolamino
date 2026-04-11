@@ -194,49 +194,64 @@ export const CborSchemaFromBytes = Schema.Uint8Array.pipe(
 
 /** Extract the `num` field from a CBOR UInt node. Throws if not UInt. */
 export const cborUint = (node: CborSchemaType, label?: string): bigint => {
-  if (node._tag !== CborKinds.UInt) throw new Error(`Expected CBOR UInt${label ? ` for ${label}` : ""}`);
+  if (node._tag !== CborKinds.UInt)
+    throw new Error(`Expected CBOR UInt${label ? ` for ${label}` : ""}`);
   return node.num;
 };
 
 /** Extract the `num` field from a CBOR NegInt node. Throws if not NegInt. */
 export const cborNegInt = (node: CborSchemaType, label?: string): bigint => {
-  if (node._tag !== CborKinds.NegInt) throw new Error(`Expected CBOR NegInt${label ? ` for ${label}` : ""}`);
+  if (node._tag !== CborKinds.NegInt)
+    throw new Error(`Expected CBOR NegInt${label ? ` for ${label}` : ""}`);
   return node.num;
 };
 
 /** Extract the `bytes` field from a CBOR Bytes node. Throws if not Bytes. */
 export const cborBytes = (node: CborSchemaType, label?: string): Uint8Array => {
-  if (node._tag !== CborKinds.Bytes) throw new Error(`Expected CBOR Bytes${label ? ` for ${label}` : ""}`);
+  if (node._tag !== CborKinds.Bytes)
+    throw new Error(`Expected CBOR Bytes${label ? ` for ${label}` : ""}`);
   return node.bytes;
 };
 
 /** Extract the `text` field from a CBOR Text node. Throws if not Text. */
 export const cborText = (node: CborSchemaType, label?: string): string => {
-  if (node._tag !== CborKinds.Text) throw new Error(`Expected CBOR Text${label ? ` for ${label}` : ""}`);
+  if (node._tag !== CborKinds.Text)
+    throw new Error(`Expected CBOR Text${label ? ` for ${label}` : ""}`);
   return node.text;
 };
 
 /** Extract the `items` array from a CBOR Array node. Throws if not Array. */
 export const cborArray = (node: CborSchemaType, label?: string): readonly CborSchemaType[] => {
-  if (node._tag !== CborKinds.Array) throw new Error(`Expected CBOR Array${label ? ` for ${label}` : ""}`);
+  if (node._tag !== CborKinds.Array)
+    throw new Error(`Expected CBOR Array${label ? ` for ${label}` : ""}`);
   return node.items;
 };
 
 /** Extract the `entries` from a CBOR Map node. Throws if not Map. */
-export const cborMap = (node: CborSchemaType, label?: string): readonly { readonly k: CborSchemaType; readonly v: CborSchemaType }[] => {
-  if (node._tag !== CborKinds.Map) throw new Error(`Expected CBOR Map${label ? ` for ${label}` : ""}`);
+export const cborMap = (
+  node: CborSchemaType,
+  label?: string,
+): readonly { readonly k: CborSchemaType; readonly v: CborSchemaType }[] => {
+  if (node._tag !== CborKinds.Map)
+    throw new Error(`Expected CBOR Map${label ? ` for ${label}` : ""}`);
   return node.entries;
 };
 
 /** Extract the `value` field from a CBOR Simple node. Throws if not Simple. */
-export const cborSimple = (node: CborSchemaType, label?: string): boolean | null | BigDecimal.BigDecimal | undefined => {
-  if (node._tag !== CborKinds.Simple) throw new Error(`Expected CBOR Simple${label ? ` for ${label}` : ""}`);
+export const cborSimple = (
+  node: CborSchemaType,
+  label?: string,
+): boolean | null | BigDecimal.BigDecimal | undefined => {
+  if (node._tag !== CborKinds.Simple)
+    throw new Error(`Expected CBOR Simple${label ? ` for ${label}` : ""}`);
   return node.value;
 };
 
 /** Extract boolean from a CBOR Simple node. Throws if not a boolean Simple. */
 export const cborBool = (node: CborSchemaType, label?: string): boolean => {
-  if (node._tag !== CborKinds.Simple) throw new Error(`Expected CBOR Simple${label ? ` for ${label}` : ""}`);
-  if (typeof node.value !== "boolean") throw new Error(`Expected boolean Simple${label ? ` for ${label}` : ""}`);
+  if (node._tag !== CborKinds.Simple)
+    throw new Error(`Expected CBOR Simple${label ? ` for ${label}` : ""}`);
+  if (typeof node.value !== "boolean")
+    throw new Error(`Expected boolean Simple${label ? ` for ${label}` : ""}`);
   return node.value;
 };

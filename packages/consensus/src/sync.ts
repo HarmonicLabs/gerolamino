@@ -21,10 +21,10 @@ import { SlotClock } from "./clock";
 import { verifyBodyHash } from "./validate-block";
 import type { BlockHeader, LedgerView } from "./validate-header";
 
-export class SyncError extends Schema.TaggedErrorClass<SyncError>()(
-  "SyncError",
-  { message: Schema.String, cause: Schema.Defect },
-) {}
+export class SyncError extends Schema.TaggedErrorClass<SyncError>()("SyncError", {
+  message: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
 export const SyncState = Schema.Struct({
   tip: Schema.optional(RealPoint),
@@ -61,18 +61,19 @@ export const processBlock = (
 
     // 3. Epoch transition — derive new epoch nonce at boundary
     const blockEpoch = slotClock.slotToEpoch(header.slot);
-    const nonces = blockEpoch > currentNonces.epoch
-      ? (() => {
-          // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
-          const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash);
-          return new Nonces({
-            active: newEpochNonce,
-            evolving: newEpochNonce,
-            candidate: newEpochNonce,
-            epoch: blockEpoch,
-          });
-        })()
-      : currentNonces;
+    const nonces =
+      blockEpoch > currentNonces.epoch
+        ? (() => {
+            // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
+            const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash);
+            return new Nonces({
+              active: newEpochNonce,
+              evolving: newEpochNonce,
+              candidate: newEpochNonce,
+              epoch: blockEpoch,
+            });
+          })()
+        : currentNonces;
 
     // 4. Evolve nonces using nonce-tagged VRF output (not leader VRF output)
     const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
@@ -87,9 +88,7 @@ export const processBlock = (
     );
 
     // Candidate nonce freezes at (epochLength - 4k/f) — only update if still collecting
-    const newCandidate = pastCollection
-      ? nonces.candidate
-      : newEvolving;
+    const newCandidate = pastCollection ? nonces.candidate : newEvolving;
 
     return new Nonces({
       active: nonces.active,
@@ -152,11 +151,7 @@ export const getSyncState = Effect.gen(function* () {
  * Promote volatile blocks to immutable when the chain grows beyond k.
  * Returns the new volatile length after promotion + GC.
  */
-const maybePromote = (
-  k: number,
-  volatileLength: number,
-  immutableTip: Option.Option<RealPoint>,
-) =>
+const maybePromote = (k: number, volatileLength: number, immutableTip: Option.Option<RealPoint>) =>
   Effect.gen(function* () {
     if (volatileLength <= k) return volatileLength;
 

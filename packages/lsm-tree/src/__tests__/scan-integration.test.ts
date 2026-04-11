@@ -48,14 +48,18 @@ describe.skipIf(skip)("LSM scan integration (UTxO simulation)", () => {
 
         // Also insert some non-UTxO entries
         yield* store.putBatch([
-          { key: new Uint8Array([0x62, 0x6c, 0x6b, 0x3a, 0, 0, 0, 1]), value: new Uint8Array([99]) }, // blk: prefix
+          {
+            key: new Uint8Array([0x62, 0x6c, 0x6b, 0x3a, 0, 0, 0, 1]),
+            value: new Uint8Array([99]),
+          }, // blk: prefix
         ]);
 
         // Scan UTxO prefix — should get exactly 1000
         let count = 0;
-        yield* Stream.runForEach(
-          store.scan(PREFIX_UTXO),
-          (_entry) => Effect.sync(() => { count++; }),
+        yield* Stream.runForEach(store.scan(PREFIX_UTXO), (_entry) =>
+          Effect.sync(() => {
+            count++;
+          }),
         );
         return count;
       }),
@@ -78,9 +82,10 @@ describe.skipIf(skip)("LSM scan integration (UTxO simulation)", () => {
 
         // Scan should return in sorted key order
         const values: number[] = [];
-        yield* Stream.runForEach(
-          store.scan(PREFIX_UTXO),
-          (e) => Effect.sync(() => { values.push(e.value[0]!); }),
+        yield* Stream.runForEach(store.scan(PREFIX_UTXO), (e) =>
+          Effect.sync(() => {
+            values.push(e.value[0]!);
+          }),
         );
         return values;
       }),

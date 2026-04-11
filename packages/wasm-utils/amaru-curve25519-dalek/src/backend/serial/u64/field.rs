@@ -136,11 +136,16 @@ impl<'a, 'b> Mul<&'b FieldElement51> for &'a FieldElement51 {
         let b4_19 = b[4] * 19;
 
         // Multiply to get 128-bit coefficients of output
-        let c0: u128 = m(a[0], b[0]) + m(a[4], b1_19) + m(a[3], b2_19) + m(a[2], b3_19) + m(a[1], b4_19);
-        let mut c1: u128 = m(a[1], b[0]) + m(a[0], b[1]) + m(a[4], b2_19) + m(a[3], b3_19) + m(a[2], b4_19);
-        let mut c2: u128 = m(a[2], b[0]) + m(a[1], b[1]) + m(a[0], b[2]) + m(a[4], b3_19) + m(a[3], b4_19);
-        let mut c3: u128 = m(a[3], b[0]) + m(a[2], b[1]) + m(a[1], b[2]) + m(a[0], b[3]) + m(a[4], b4_19);
-        let mut c4: u128 = m(a[4], b[0]) + m(a[3], b[1]) + m(a[2], b[2]) + m(a[1], b[3]) + m(a[0], b[4]);
+        let c0: u128 =
+            m(a[0], b[0]) + m(a[4], b1_19) + m(a[3], b2_19) + m(a[2], b3_19) + m(a[1], b4_19);
+        let mut c1: u128 =
+            m(a[1], b[0]) + m(a[0], b[1]) + m(a[4], b2_19) + m(a[3], b3_19) + m(a[2], b4_19);
+        let mut c2: u128 =
+            m(a[2], b[0]) + m(a[1], b[1]) + m(a[0], b[2]) + m(a[4], b3_19) + m(a[3], b4_19);
+        let mut c3: u128 =
+            m(a[3], b[0]) + m(a[2], b[1]) + m(a[1], b[2]) + m(a[0], b[3]) + m(a[4], b4_19);
+        let mut c4: u128 =
+            m(a[4], b[0]) + m(a[3], b[1]) + m(a[2], b[2]) + m(a[1], b[3]) + m(a[0], b[4]);
 
         // How big are the c[i]? We have
         //
@@ -223,7 +228,11 @@ impl<'a> Neg for &'a FieldElement51 {
 }
 
 impl ConditionallySelectable for FieldElement51 {
-    fn conditional_select(a: &FieldElement51, b: &FieldElement51, choice: Choice) -> FieldElement51 {
+    fn conditional_select(
+        a: &FieldElement51,
+        b: &FieldElement51,
+        choice: Choice,
+    ) -> FieldElement51 {
         FieldElement51([
             u64::conditional_select(&a.0[0], &b.0[0], choice),
             u64::conditional_select(&a.0[1], &b.0[1], choice),
@@ -276,7 +285,13 @@ impl FieldElement51 {
 
     /// Construct -1.
     pub fn minus_one() -> FieldElement51 {
-        FieldElement51([2251799813685228, 2251799813685247, 2251799813685247, 2251799813685247, 2251799813685247])
+        FieldElement51([
+            2251799813685228,
+            2251799813685247,
+            2251799813685247,
+            2251799813685247,
+            2251799813685247,
+        ])
     }
 
     /// Given 64-bit input limbs, reduce to enforce the bound 2^(51 + epsilon).

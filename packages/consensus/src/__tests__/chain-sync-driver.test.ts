@@ -2,11 +2,7 @@ import { describe, expect } from "vitest";
 import { it, layer } from "@effect/vitest";
 import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
 import { encodeSync, CborKinds, type CborSchemaType } from "cbor-schema";
-import {
-  handleRollForward,
-  handleRollBackward,
-  initialVolatileState,
-} from "../chain-sync-driver";
+import { handleRollForward, handleRollBackward, initialVolatileState } from "../chain-sync-driver";
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { PeerManager, PeerManagerLive } from "../peer-manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
@@ -87,14 +83,14 @@ const makeBabbageHeader = (
   const kesSig = new Uint8Array(448); // Sum6 KES sig
 
   const headerBody = arr(
-    uint(blockNo),        // [0] blockNo
-    uint(slot),           // [1] slot
-    bytes(prevHash),      // [2] prevHash
-    bytes(issuerVk),      // [3] issuerVKey
-    bytes(vrf),           // [4] vrfVKey
+    uint(blockNo), // [0] blockNo
+    uint(slot), // [1] slot
+    bytes(prevHash), // [2] prevHash
+    bytes(issuerVk), // [3] issuerVKey
+    bytes(vrf), // [4] vrfVKey
     arr(bytes(vrfOutput), bytes(vrfProof)), // [5] vrfResult
-    uint(100n),           // [6] bodySize
-    bytes(bodyHash),      // [7] bodyHash
+    uint(100n), // [6] bodySize
+    bytes(bodyHash), // [7] bodyHash
     arr(bytes(hotVKey), uint(0n), uint(0n), bytes(opcertSig)), // [8] opCert
     arr(uint(9n), uint(0n)), // [9] protVer
   );
@@ -110,8 +106,16 @@ const poolIdFromVk = (vk: Uint8Array): string => {
   return hex(new Uint8Array(hasher.update(vk).digest().buffer));
 };
 
-const TEST_ISSUER_VK = (() => { const vk = new Uint8Array(32); vk[0] = 1; return vk; })();
-const TEST_VRF_VK = (() => { const vk = new Uint8Array(32); vk[0] = 2; return vk; })();
+const TEST_ISSUER_VK = (() => {
+  const vk = new Uint8Array(32);
+  vk[0] = 1;
+  return vk;
+})();
+const TEST_VRF_VK = (() => {
+  const vk = new Uint8Array(32);
+  vk[0] = 2;
+  return vk;
+})();
 
 const makeLedgerView = (): LedgerView => {
   const poolId = poolIdFromVk(TEST_ISSUER_VK);
@@ -186,10 +190,7 @@ describe("ChainSync driver", () => {
     it.effect("handleRollBackward reverts tip to rollback point", () =>
       Effect.gen(function* () {
         const nonces = makeNonces();
-        const state = initialVolatileState(
-          { slot: 100n, hash: new Uint8Array(32) },
-          nonces,
-        );
+        const state = initialVolatileState({ slot: 100n, hash: new Uint8Array(32) }, nonces);
 
         const pm = yield* PeerManager;
         yield* pm.addPeer("peer1", "tcp://relay:3001");
@@ -210,7 +211,12 @@ describe("ChainSync driver", () => {
         let state = initialVolatileState(undefined, nonces);
 
         for (let i = 0; i < 5; i++) {
-          const headerBytes = makeBabbageHeader(BigInt(i + 1), BigInt(i + 1), TEST_ISSUER_VK, TEST_VRF_VK);
+          const headerBytes = makeBabbageHeader(
+            BigInt(i + 1),
+            BigInt(i + 1),
+            TEST_ISSUER_VK,
+            TEST_VRF_VK,
+          );
           state = yield* handleRollForward(
             headerBytes,
             BABBAGE_ERA_VARIANT,

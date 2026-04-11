@@ -5,7 +5,6 @@ import { describe, it, expect } from "@effect/vitest";
 import { createActor } from "xstate";
 import { chainDBMachine } from "../machines/chaindb.ts";
 
-
 describe("ChainDB Machine", () => {
   it("starts in idle state with correct context", () => {
     const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });

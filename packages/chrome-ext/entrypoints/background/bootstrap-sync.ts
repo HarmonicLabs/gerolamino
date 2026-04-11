@@ -165,10 +165,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
           }
 
           case MessageTag.Block: {
-            yield* store.put(
-              blockKey(msg.slotNo, msg.headerHash),
-              msg.blockCbor,
-            );
+            yield* store.put(blockKey(msg.slotNo, msg.headerHash), msg.blockCbor);
             const newBlockCount = yield* Ref.updateAndGet(blockCountRef, (n) => n + 1);
             if (newBlockCount % 1000 === 0) {
               yield* Effect.log(`[bootstrap] Blocks: ${newBlockCount}`);
@@ -204,7 +201,10 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   const ledgerView = yield* Ref.get(ledgerViewRef);
   const snapshotState = yield* Ref.get(snapshotStateRef);
   if (!ledgerView) {
-    yield* syncState.update({ status: "error", lastError: "Bootstrap completed without LedgerState" });
+    yield* syncState.update({
+      status: "error",
+      lastError: "Bootstrap completed without LedgerState",
+    });
     return yield* Effect.die("Bootstrap completed without receiving LedgerState");
   }
 
@@ -252,10 +252,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
       }),
     ),
   );
-}).pipe(
-  Effect.scoped,
-  Effect.provide(browserLayers()),
-);
+}).pipe(Effect.scoped, Effect.provide(browserLayers()));
 
 // ---------------------------------------------------------------------------
 // Browser service layers
@@ -275,9 +272,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
 function browserLayers() {
   const wsConstructorLayer = Socket.layerWebSocketConstructorGlobal;
 
-  const consensusLayer = ConsensusEngineLive.pipe(
-    Layer.provideMerge(CryptoServiceBrowser),
-  );
+  const consensusLayer = ConsensusEngineLive.pipe(Layer.provideMerge(CryptoServiceBrowser));
 
   const slotClockLayer = Layer.effect(SlotClock, SlotClockLive(PREPROD_CONFIG));
 
@@ -294,10 +289,7 @@ function browserLayers() {
       IDBKeyRange: globalThis.IDBKeyRange,
     }),
   );
-  const storageLayer = BrowserStorageLayers().pipe(
-    Layer.provide(indexedDbLayer),
-    Layer.orDie,
-  );
+  const storageLayer = BrowserStorageLayers().pipe(Layer.provide(indexedDbLayer), Layer.orDie);
 
   return Layer.mergeAll(
     wsConstructorLayer,
@@ -322,8 +314,6 @@ export const bootstrapSyncWithStateUpdates = Effect.gen(function* () {
   yield* syncState.update({ status: "connecting" });
 
   yield* bootstrapSyncPipeline.pipe(
-    Effect.tapError((err) =>
-      syncState.update({ status: "error", lastError: String(err) }),
-    ),
+    Effect.tapError((err) => syncState.update({ status: "error", lastError: String(err) })),
   );
 });

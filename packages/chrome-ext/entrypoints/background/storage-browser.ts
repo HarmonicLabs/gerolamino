@@ -52,13 +52,30 @@ const blobSchema = Schema.Struct({
 
 const UtxoTable = IndexedDbTable.make({ name: "utxo", schema: blobSchema, keyPath: "hexKey" });
 const BlocksTable = IndexedDbTable.make({ name: "blocks", schema: blobSchema, keyPath: "hexKey" });
-const BlockIndexTable = IndexedDbTable.make({ name: "block_index", schema: blobSchema, keyPath: "hexKey" });
+const BlockIndexTable = IndexedDbTable.make({
+  name: "block_index",
+  schema: blobSchema,
+  keyPath: "hexKey",
+});
 const StakeTable = IndexedDbTable.make({ name: "stake", schema: blobSchema, keyPath: "hexKey" });
-const AccountsTable = IndexedDbTable.make({ name: "accounts", schema: blobSchema, keyPath: "hexKey" });
-const OffsetsTable = IndexedDbTable.make({ name: "offsets", schema: blobSchema, keyPath: "hexKey" });
+const AccountsTable = IndexedDbTable.make({
+  name: "accounts",
+  schema: blobSchema,
+  keyPath: "hexKey",
+});
+const OffsetsTable = IndexedDbTable.make({
+  name: "offsets",
+  schema: blobSchema,
+  keyPath: "hexKey",
+});
 
 const BlobDbV1 = IndexedDbVersion.make(
-  UtxoTable, BlocksTable, BlockIndexTable, StakeTable, AccountsTable, OffsetsTable,
+  UtxoTable,
+  BlocksTable,
+  BlockIndexTable,
+  StakeTable,
+  AccountsTable,
+  OffsetsTable,
 );
 
 const BlobDbSchema = IndexedDbDatabase.make(BlobDbV1, (query) =>
@@ -81,7 +98,10 @@ type TableName = "utxo" | "blocks" | "block_index" | "stake" | "accounts" | "off
 /** Route a binary key to the correct object store based on its 4-byte prefix. */
 const resolveTableName = (key: Uint8Array): TableName => {
   if (key.length < 4) return "utxo";
-  const p0 = key[0]!, p1 = key[1]!, p2 = key[2]!, p3 = key[3]!;
+  const p0 = key[0]!,
+    p1 = key[1]!,
+    p2 = key[2]!,
+    p3 = key[3]!;
   // "utxo" = 75 74 78 6f
   if (p0 === 0x75 && p1 === 0x74 && p2 === 0x78 && p3 === 0x6f) return "utxo";
   // "blk:" = 62 6c 6b 3a
@@ -101,8 +121,7 @@ const resolveTableName = (key: Uint8Array): TableName => {
 // IndexedDB BlobStore — separate object stores per prefix
 // ---------------------------------------------------------------------------
 
-const fail = (operation: string, cause: unknown) =>
-  new BlobStoreError({ operation, cause });
+const fail = (operation: string, cause: unknown) => new BlobStoreError({ operation, cause });
 
 /**
  * IndexedDB-backed BlobStore with per-prefix object stores.
@@ -138,16 +157,12 @@ export const BlobStoreIndexedDB: Layer.Layer<
         Effect.gen(function* () {
           const entries = yield* tableFor(key).select().equals(toHex(key));
           return Option.fromNullishOr(entries[0]?.value);
-        }).pipe(
-          Effect.mapError((cause) => fail("get", cause)),
-        ),
+        }).pipe(Effect.mapError((cause) => fail("get", cause))),
 
       put: (key: Uint8Array, value: Uint8Array) =>
         Effect.gen(function* () {
           yield* tableFor(key).upsert({ hexKey: toHex(key), value });
-        }).pipe(
-          Effect.mapError((cause) => fail("put", cause)),
-        ),
+        }).pipe(Effect.mapError((cause) => fail("put", cause))),
 
       delete: (key: Uint8Array) =>
         Effect.gen(function* () {
@@ -161,9 +176,7 @@ export const BlobStoreIndexedDB: Layer.Layer<
         Effect.gen(function* () {
           const count: number = yield* tableFor(key).count().equals(toHex(key));
           return count > 0;
-        }).pipe(
-          Effect.mapError((cause) => fail("has", cause)),
-        ),
+        }).pipe(Effect.mapError((cause) => fail("has", cause))),
 
       scan: (prefix: Uint8Array) => {
         const table = tableFor(prefix);
@@ -185,7 +198,9 @@ export const BlobStoreIndexedDB: Layer.Layer<
         );
       },
 
-      putBatch: (entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>) =>
+      putBatch: (
+        entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
+      ) =>
         Effect.gen(function* () {
           // Group entries by target table, then bulk-upsert per table.
           // During bootstrap, batches are typically single-prefix (all UTxO or all blocks).
@@ -193,7 +208,10 @@ export const BlobStoreIndexedDB: Layer.Layer<
           for (const e of entries) {
             const name = resolveTableName(e.key);
             let group = groups.get(name);
-            if (!group) { group = []; groups.set(name, group); }
+            if (!group) {
+              group = [];
+              groups.set(name, group);
+            }
             group.push({ hexKey: toHex(e.key), value: e.value });
           }
           for (const [name, group] of groups) {
@@ -215,9 +233,7 @@ export const BlobStoreIndexedDB: Layer.Layer<
         ),
     };
   }),
-).pipe(
-  Layer.provide(BlobDbSchema.layer("gerolamino-blobs")),
-);
+).pipe(Layer.provide(BlobDbSchema.layer("gerolamino-blobs")));
 
 // ---------------------------------------------------------------------------
 // SQLite WASM (in-memory) SqlClient — for ChainDB relational storage
@@ -244,6 +260,4 @@ const SqliteWasmLayer = SqliteDrizzle.layerProxy.pipe(
  * Requires IndexedDb service in the environment.
  */
 export const BrowserStorageLayers = () =>
-  ChainDBLive.pipe(
-    Layer.provideMerge(Layer.merge(BlobStoreIndexedDB, SqliteWasmLayer)),
-  );
+  ChainDBLive.pipe(Layer.provideMerge(Layer.merge(BlobStoreIndexedDB, SqliteWasmLayer)));

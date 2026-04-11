@@ -39,9 +39,7 @@ export class SyncStateRef extends ServiceMap.Service<
           yield* PubSub.publish(pubsub, next);
 
           // Also persist to chrome.storage.session for non-RPC consumers
-          yield* Effect.promise(() =>
-            globalThis.chrome.storage.session.set({ syncState: next }),
-          );
+          yield* Effect.promise(() => globalThis.chrome.storage.session.set({ syncState: next }));
         });
 
       const subscribe: Effect.Effect<Queue.Queue<SyncState>> = Effect.gen(function* () {

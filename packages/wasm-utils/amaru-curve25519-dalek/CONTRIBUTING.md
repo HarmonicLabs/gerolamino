@@ -1,10 +1,10 @@
 # Contributing to curve25519-dalek
 
 If you have questions or comments, please feel free to email the
-authors. 
+authors.
 
 For feature requests, suggestions, and bug reports, please open an issue on
-[our Github](https://github.com/dalek-cryptography/curve25519-dalek).  (Or, send us
+[our Github](https://github.com/dalek-cryptography/curve25519-dalek). (Or, send us
 an email if you're opposed to using Github for whatever reason.)
 
 Patches are welcomed as pull requests on

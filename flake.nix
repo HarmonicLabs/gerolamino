@@ -282,7 +282,7 @@
                     bootstrapPeers = [
                       { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
                     ];
-                    localRoots = [];
+                    localRoots = [ ];
                     publicRoots = [{
                       accessPoints = [
                         { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
@@ -292,27 +292,28 @@
                     }];
                     useLedgerAfterSlot = -1;
                   }));
-                in {
-                exec = ''
-                  NODE_DB="$DEVENV_STATE/cardano-node"
-                  mkdir -p "$NODE_DB"
+                in
+                {
+                  exec = ''
+                    NODE_DB="$DEVENV_STATE/cardano-node"
+                    mkdir -p "$NODE_DB"
 
-                  exec ${cardanoNodePkg}/bin/cardano-node run \
-                    --topology ${topologyFile} \
-                    --database-path "$NODE_DB/db" \
-                    --socket-path "$NODE_DB/node.socket" \
-                    --host-addr 0.0.0.0 \
-                    --port 3001 \
-                    --config ${configFile} \
-                    +RTS -N2 -I0 -A16m -RTS
-                '';
-                process-compose = {
-                  availability = {
-                    restart = "on_failure";
-                    max_restarts = 3;
+                    exec ${cardanoNodePkg}/bin/cardano-node run \
+                      --topology ${topologyFile} \
+                      --database-path "$NODE_DB/db" \
+                      --socket-path "$NODE_DB/node.socket" \
+                      --host-addr 0.0.0.0 \
+                      --port 3001 \
+                      --config ${configFile} \
+                      +RTS -N2 -I0 -A16m -RTS
+                  '';
+                  process-compose = {
+                    availability = {
+                      restart = "on_failure";
+                      max_restarts = 3;
+                    };
                   };
                 };
-              };
 
               # Bootstrap server — serves from cardano-node db when available,
               # falls back to Mithril snapshot if no node db exists.

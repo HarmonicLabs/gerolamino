@@ -81,15 +81,24 @@ export const computeHeaderHash = (
   Effect.gen(function* () {
     const top = parseSync(blockCbor);
     if (top._tag !== CborKinds.Array || top.items.length < 2)
-      return yield* new HeaderBridgeError({ operation: "computeHeaderHash", cause: "Invalid block CBOR: expected [era, blockBody]" });
+      return yield* new HeaderBridgeError({
+        operation: "computeHeaderHash",
+        cause: "Invalid block CBOR: expected [era, blockBody]",
+      });
 
     const blockBody = top.items[1]!;
     if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 1)
-      return yield* new HeaderBridgeError({ operation: "computeHeaderHash", cause: "Invalid block body: expected array" });
+      return yield* new HeaderBridgeError({
+        operation: "computeHeaderHash",
+        cause: "Invalid block body: expected array",
+      });
 
     const header = blockBody.items[0]!;
     if (header._tag !== CborKinds.Array || header.items.length < 2)
-      return yield* new HeaderBridgeError({ operation: "computeHeaderHash", cause: "Invalid header: expected [headerBody, kesSig]" });
+      return yield* new HeaderBridgeError({
+        operation: "computeHeaderHash",
+        cause: "Invalid header: expected [headerBody, kesSig]",
+      });
 
     const headerBody = header.items[0]!;
     return crypto.blake2b256(encodeSync(headerBody));
@@ -107,7 +116,10 @@ export const computeHeaderHashFromHeader = (
   Effect.gen(function* () {
     const parsed = parseSync(headerCbor);
     if (parsed._tag !== CborKinds.Array || parsed.items.length < 2)
-      return yield* new HeaderBridgeError({ operation: "computeHeaderHashFromHeader", cause: "Invalid header CBOR: expected [headerBody, kesSig]" });
+      return yield* new HeaderBridgeError({
+        operation: "computeHeaderHashFromHeader",
+        cause: "Invalid header CBOR: expected [headerBody, kesSig]",
+      });
 
     const headerBody = parsed.items[0]!;
     return crypto.blake2b256(encodeSync(headerBody));
@@ -181,35 +193,53 @@ export const bridgeMultiEraHeader = (
   if (isShelleyLikeHeader(multiEraHeader)) {
     const h = multiEraHeader;
     return Effect.succeed({
-      slot: h.slot, blockNo: h.blockNo, hash: headerHash,
+      slot: h.slot,
+      blockNo: h.blockNo,
+      hash: headerHash,
       prevHash: h.prevHash ?? new Uint8Array(32),
-      issuerVk: h.issuerVKey, vrfVk: h.vrfVKey,
-      vrfProof: h.vrfResult.proof, vrfOutput: h.vrfResult.output,
+      issuerVk: h.issuerVKey,
+      vrfVk: h.vrfVKey,
+      vrfProof: h.vrfResult.proof,
+      vrfOutput: h.vrfResult.output,
       nonceVrfOutput: h.nonceVrf.output,
-      kesSig: h.kesSignature, kesPeriod: Math.floor(Number(h.slot) / slotsPerKesPeriod),
-      opcertSig: h.opCert.sigma, opcertVkHot: h.opCert.hotVKey,
-      opcertSeqNo: Number(h.opCert.seqNo), opcertKesPeriod: Number(h.opCert.kesPeriod),
-      bodyHash: h.bodyHash, headerBodyCbor,
+      kesSig: h.kesSignature,
+      kesPeriod: Math.floor(Number(h.slot) / slotsPerKesPeriod),
+      opcertSig: h.opCert.sigma,
+      opcertVkHot: h.opCert.hotVKey,
+      opcertSeqNo: Number(h.opCert.seqNo),
+      opcertKesPeriod: Number(h.opCert.kesPeriod),
+      bodyHash: h.bodyHash,
+      headerBodyCbor,
     });
   }
 
   if (isBabbageLikeHeader(multiEraHeader)) {
     const h = multiEraHeader;
     return Effect.succeed({
-      slot: h.slot, blockNo: h.blockNo, hash: headerHash,
+      slot: h.slot,
+      blockNo: h.blockNo,
+      hash: headerHash,
       prevHash: h.prevHash ?? new Uint8Array(32),
-      issuerVk: h.issuerVKey, vrfVk: h.vrfVKey,
+      issuerVk: h.issuerVKey,
+      vrfVk: h.vrfVKey,
       vrfProof: h.vrfResult.proof,
       vrfOutput: blake2b256(concat(new Uint8Array([0x4c]), h.vrfResult.output)),
       nonceVrfOutput: blake2b256(concat(new Uint8Array([0x4e]), h.vrfResult.output)),
-      kesSig: h.kesSignature, kesPeriod: Math.floor(Number(h.slot) / slotsPerKesPeriod),
-      opcertSig: h.opCert.sigma, opcertVkHot: h.opCert.hotVKey,
-      opcertSeqNo: Number(h.opCert.seqNo), opcertKesPeriod: Number(h.opCert.kesPeriod),
-      bodyHash: h.bodyHash, headerBodyCbor,
+      kesSig: h.kesSignature,
+      kesPeriod: Math.floor(Number(h.slot) / slotsPerKesPeriod),
+      opcertSig: h.opCert.sigma,
+      opcertVkHot: h.opCert.hotVKey,
+      opcertSeqNo: Number(h.opCert.seqNo),
+      opcertKesPeriod: Number(h.opCert.kesPeriod),
+      bodyHash: h.bodyHash,
+      headerBodyCbor,
     });
   }
 
-  return new HeaderBridgeError({ operation: "bridgeMultiEraHeader", cause: "Byron headers should use the Byron path" });
+  return new HeaderBridgeError({
+    operation: "bridgeMultiEraHeader",
+    cause: "Byron headers should use the Byron path",
+  });
 };
 
 /**
@@ -217,10 +247,7 @@ export const bridgeMultiEraHeader = (
  * Returns undefined for Byron blocks (skip consensus validation).
  * Reads CARDANO_SLOTS_PER_KES_PERIOD from Config (default 129600).
  */
-export const decodeAndBridge = (
-  blockCbor: Uint8Array,
-  headerHash: Uint8Array,
-) =>
+export const decodeAndBridge = (blockCbor: Uint8Array, headerHash: Uint8Array) =>
   Effect.gen(function* () {
     const slotsPerKesPeriod = yield* SlotsPerKesPeriod;
     const crypto = yield* CryptoService;
@@ -234,16 +261,31 @@ export const decodeAndBridge = (
     // Header = [headerBody, kesSig]
     const top = parseSync(blockCbor);
     if (top._tag !== CborKinds.Array)
-      return yield* new HeaderBridgeError({ operation: "decodeAndBridge", cause: "Invalid block CBOR" });
+      return yield* new HeaderBridgeError({
+        operation: "decodeAndBridge",
+        cause: "Invalid block CBOR",
+      });
     const blockBody = top.items[1];
     if (!blockBody || blockBody._tag !== CborKinds.Array)
-      return yield* new HeaderBridgeError({ operation: "decodeAndBridge", cause: "Invalid block body" });
+      return yield* new HeaderBridgeError({
+        operation: "decodeAndBridge",
+        cause: "Invalid block body",
+      });
     const headerNode = blockBody.items[0];
     if (!headerNode || headerNode._tag !== CborKinds.Array)
-      return yield* new HeaderBridgeError({ operation: "decodeAndBridge", cause: "Invalid header" });
+      return yield* new HeaderBridgeError({
+        operation: "decodeAndBridge",
+        cause: "Invalid header",
+      });
     const headerBodyCbor = encodeSync(headerNode.items[0]!);
 
-    const header = yield* bridgeMultiEraHeader(block.multiEraHeader, headerHash, headerBodyCbor, crypto.blake2b256, slotsPerKesPeriod);
+    const header = yield* bridgeMultiEraHeader(
+      block.multiEraHeader,
+      headerHash,
+      headerBodyCbor,
+      crypto.blake2b256,
+      slotsPerKesPeriod,
+    );
     return { header, era: block.era, txCount: block.txBodies.length };
   });
 
@@ -278,27 +320,44 @@ export const decodeWrappedHeader = (
 
     // Handle potential Tag(24) wrapping — some paths may still have it
     let headerNode: CborSchemaType;
-    if (parsed._tag === CborKinds.Tag && parsed.tag === 24n && parsed.data._tag === CborKinds.Bytes) {
+    if (
+      parsed._tag === CborKinds.Tag &&
+      parsed.tag === 24n &&
+      parsed.data._tag === CborKinds.Bytes
+    ) {
       headerNode = parseSync(parsed.data.bytes);
     } else {
       headerNode = parsed;
     }
 
     if (headerNode._tag !== CborKinds.Array || headerNode.items.length < 2)
-      return yield* new HeaderBridgeError({ operation: "decodeWrappedHeader", cause: `Invalid Shelley+ header: expected [headerBody, kesSig], got ${headerNode._tag} with ${headerNode._tag === CborKinds.Array ? headerNode.items.length : 0} items` });
+      return yield* new HeaderBridgeError({
+        operation: "decodeWrappedHeader",
+        cause: `Invalid Shelley+ header: expected [headerBody, kesSig], got ${headerNode._tag} with ${headerNode._tag === CborKinds.Array ? headerNode.items.length : 0} items`,
+      });
 
     // Map N2N era variant to ledger era: N2N 1→Shelley(2), 2→Allegra(3), etc.
     const ledgerEra = eraVariant + 1;
     const multiEraHeader = yield* Effect.mapError(
       decodeMultiEraHeader(headerNode, ledgerEra),
-      (issue) => new HeaderBridgeError({ operation: "decodeWrappedHeader", cause: `Header decode failed: ${String(issue)}` }),
+      (issue) =>
+        new HeaderBridgeError({
+          operation: "decodeWrappedHeader",
+          cause: `Header decode failed: ${String(issue)}`,
+        }),
     );
 
     // Header hash = blake2b-256(CBOR(headerBody))
     const headerBodyCbor = encodeSync(headerNode.items[0]!);
     const headerHash = crypto.blake2b256(headerBodyCbor);
 
-    const header = yield* bridgeMultiEraHeader(multiEraHeader, headerHash, headerBodyCbor, crypto.blake2b256, slotsPerKesPeriod);
+    const header = yield* bridgeMultiEraHeader(
+      multiEraHeader,
+      headerHash,
+      headerBodyCbor,
+      crypto.blake2b256,
+      slotsPerKesPeriod,
+    );
     return {
       _tag: "shelley" as const,
       header,
@@ -332,18 +391,23 @@ const decodeByronWrappedHeader = (
   Effect.gen(function* () {
     const parsed = parseSync(headerBytes);
     if (parsed._tag !== CborKinds.Array || parsed.items.length < 4)
-      return yield* new HeaderBridgeError({ operation: "decodeByronHeader", cause: `Invalid Byron header: expected 5-element array, got ${parsed._tag}` });
+      return yield* new HeaderBridgeError({
+        operation: "decodeByronHeader",
+        cause: `Invalid Byron header: expected 5-element array, got ${parsed._tag}`,
+      });
 
     // prevHash is always at index 1
     const prevHashNode = parsed.items[1]!;
-    const prevHash = prevHashNode._tag === CborKinds.Bytes
-      ? prevHashNode.bytes
-      : new Uint8Array(32);
+    const prevHash =
+      prevHashNode._tag === CborKinds.Bytes ? prevHashNode.bytes : new Uint8Array(32);
 
     // consensusData is at index 3
     const consensusData = parsed.items[3]!;
     if (consensusData._tag !== CborKinds.Array)
-      return yield* new HeaderBridgeError({ operation: "decodeByronHeader", cause: "Byron header: consensus_data is not an array" });
+      return yield* new HeaderBridgeError({
+        operation: "decodeByronHeader",
+        cause: "Byron header: consensus_data is not an array",
+      });
 
     const isEbb = consensusData.items.length === 2;
 
@@ -354,14 +418,21 @@ const decodeByronWrappedHeader = (
       // EBB: consensus_data = [epochId: uint, difficulty: [uint]]
       const epochNode = consensusData.items[0]!;
       if (epochNode._tag !== CborKinds.UInt)
-        return yield* new HeaderBridgeError({ operation: "decodeByronHeader", cause: "Byron EBB: epochId is not uint" });
+        return yield* new HeaderBridgeError({
+          operation: "decodeByronHeader",
+          cause: "Byron EBB: epochId is not uint",
+        });
 
       const epoch = epochNode.num;
       slot = epoch * BigInt(byronEpochLength);
 
       // Difficulty = [uint] — the block number
       const diffNode = consensusData.items[1]!;
-      if (diffNode._tag === CborKinds.Array && diffNode.items.length > 0 && diffNode.items[0]!._tag === CborKinds.UInt) {
+      if (
+        diffNode._tag === CborKinds.Array &&
+        diffNode.items.length > 0 &&
+        diffNode.items[0]!._tag === CborKinds.UInt
+      ) {
         blockNo = diffNode.items[0]!.num;
       } else {
         blockNo = 0n;
@@ -371,18 +442,28 @@ const decodeByronWrappedHeader = (
       // slotId = [epoch: uint, slot_in_epoch: uint]
       const slotIdNode = consensusData.items[0]!;
       if (slotIdNode._tag !== CborKinds.Array || slotIdNode.items.length < 2)
-        return yield* new HeaderBridgeError({ operation: "decodeByronHeader", cause: "Byron main: slotId is not [epoch, slot]" });
+        return yield* new HeaderBridgeError({
+          operation: "decodeByronHeader",
+          cause: "Byron main: slotId is not [epoch, slot]",
+        });
 
       const epochNode = slotIdNode.items[0]!;
       const slotInEpochNode = slotIdNode.items[1]!;
       if (epochNode._tag !== CborKinds.UInt || slotInEpochNode._tag !== CborKinds.UInt)
-        return yield* new HeaderBridgeError({ operation: "decodeByronHeader", cause: "Byron main: epoch/slot not uint" });
+        return yield* new HeaderBridgeError({
+          operation: "decodeByronHeader",
+          cause: "Byron main: epoch/slot not uint",
+        });
 
       slot = epochNode.num * BigInt(byronEpochLength) + slotInEpochNode.num;
 
       // Difficulty (index 2) = [uint]
       const diffNode = consensusData.items[2]!;
-      if (diffNode._tag === CborKinds.Array && diffNode.items.length > 0 && diffNode.items[0]!._tag === CborKinds.UInt) {
+      if (
+        diffNode._tag === CborKinds.Array &&
+        diffNode.items.length > 0 &&
+        diffNode.items[0]!._tag === CborKinds.UInt
+      ) {
         blockNo = diffNode.items[0]!.num;
       } else {
         blockNo = 0n;

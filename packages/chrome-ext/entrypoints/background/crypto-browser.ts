@@ -7,11 +7,7 @@
  */
 import { Effect, Layer } from "effect";
 import { CryptoService } from "consensus";
-import init, {
-  blake2b_256,
-  ed25519_verify,
-  kes_sum6_verify,
-} from "wasm-utils";
+import init, { blake2b_256, ed25519_verify, kes_sum6_verify } from "wasm-utils";
 
 /** Initialize WASM once — cached after first call. */
 export const initWasm = Effect.promise(() => init());
@@ -39,18 +35,24 @@ export const CryptoServiceBrowser: Layer.Layer<CryptoService> = Layer.effect(
       ed25519Verify: (message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean =>
         ed25519_verify(message, signature, publicKey),
 
-      kesSum6Verify: (signature: Uint8Array, period: number, publicKey: Uint8Array, message: Uint8Array): boolean =>
-        kes_sum6_verify(signature, period, publicKey, message),
+      kesSum6Verify: (
+        signature: Uint8Array,
+        period: number,
+        publicKey: Uint8Array,
+        message: Uint8Array,
+      ): boolean => kes_sum6_verify(signature, period, publicKey, message),
 
       // VRF and leader check are only needed for Shelley+ with pool keys.
       // During genesis sync (Byron), these are never called (poolVrfKeys is empty).
       // Stubs return sentinel values: all-zeros (skipped by validate-header) or false.
       // TODO: Wire VRF WASM (libsodium-vrf) for full Shelley+ validation in browser.
-      vrfVerifyProof: (_vrfVkey: Uint8Array, _vrfProof: Uint8Array, _vrfInput: Uint8Array): Uint8Array =>
-        new Uint8Array(64),
+      vrfVerifyProof: (
+        _vrfVkey: Uint8Array,
+        _vrfProof: Uint8Array,
+        _vrfInput: Uint8Array,
+      ): Uint8Array => new Uint8Array(64),
 
-      vrfProofToHash: (_vrfProof: Uint8Array): Uint8Array =>
-        new Uint8Array(32),
+      vrfProofToHash: (_vrfProof: Uint8Array): Uint8Array => new Uint8Array(32),
 
       checkVrfLeader: (
         _vrfOutputHex: string,

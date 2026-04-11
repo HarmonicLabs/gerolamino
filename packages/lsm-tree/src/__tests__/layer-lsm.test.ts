@@ -104,11 +104,7 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
         return [v1, v2, v3];
       }),
     );
-    expect(result).toEqual([
-      new Uint8Array([10]),
-      new Uint8Array([20]),
-      new Uint8Array([30]),
-    ]);
+    expect(result).toEqual([new Uint8Array([10]), new Uint8Array([20]), new Uint8Array([30])]);
   });
 
   it("deleteBatch removes multiple keys", async () => {

@@ -27,7 +27,9 @@ export const NetworkPanel = () => {
         <Stat
           label="GSM"
           value={state().gsmState}
-          description={state().gsmState === "CaughtUp" ? "Node is synchronized" : "Catching up to tip"}
+          description={
+            state().gsmState === "CaughtUp" ? "Node is synchronized" : "Catching up to tip"
+          }
         />
       </Box>
     </Card>

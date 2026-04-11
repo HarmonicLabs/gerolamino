@@ -22,9 +22,7 @@ const withClockAt = (ms: number) => {
   };
   return Layer.effect(
     SlotClock,
-    SlotClockLive(TEST_CONFIG).pipe(
-      Effect.provideService(Clock.Clock, fixedClock),
-    ),
+    SlotClockLive(TEST_CONFIG).pipe(Effect.provideService(Clock.Clock, fixedClock)),
   );
 };
 
@@ -33,76 +31,100 @@ const run = <A>(ms: number, effect: Effect.Effect<A, unknown, SlotClock>) =>
 
 describe("SlotClock", () => {
   it("slot 0 at system start", async () => {
-    const slot = await run(0, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      return yield* clock.currentSlot;
-    }));
+    const slot = await run(
+      0,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        return yield* clock.currentSlot;
+      }),
+    );
     expect(slot).toBe(0n);
   });
 
   it("slot 1 after 1 second", async () => {
-    const slot = await run(1000, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      return yield* clock.currentSlot;
-    }));
+    const slot = await run(
+      1000,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        return yield* clock.currentSlot;
+      }),
+    );
     expect(slot).toBe(1n);
   });
 
   it("slot 99 at end of first epoch", async () => {
-    const slot = await run(99_000, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      return yield* clock.currentSlot;
-    }));
+    const slot = await run(
+      99_000,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        return yield* clock.currentSlot;
+      }),
+    );
     expect(slot).toBe(99n);
   });
 
   it("epoch 1 starts at slot 100", async () => {
-    const result = await run(100_000, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      return {
-        slot: yield* clock.currentSlot,
-        epoch: yield* clock.currentEpoch,
-        slotInEpoch: yield* clock.slotInEpoch,
-      };
-    }));
+    const result = await run(
+      100_000,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        return {
+          slot: yield* clock.currentSlot,
+          epoch: yield* clock.currentEpoch,
+          slotInEpoch: yield* clock.slotInEpoch,
+        };
+      }),
+    );
     expect(result.slot).toBe(100n);
     expect(result.epoch).toBe(1n);
     expect(result.slotInEpoch).toBe(0n);
   });
 
   it("returns 0 for time before system start", async () => {
-    const slot = await run(-5000, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      return yield* clock.currentSlot;
-    }));
+    const slot = await run(
+      -5000,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        return yield* clock.currentSlot;
+      }),
+    );
     expect(slot).toBe(0n);
   });
 
   it("slotToMs is inverse of msToSlot", async () => {
-    const result = await run(42_500, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      const slot = clock.msToSlot(42_500);
-      const ms = clock.slotToMs(slot);
-      return { slot, ms };
-    }));
+    const result = await run(
+      42_500,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        const slot = clock.msToSlot(42_500);
+        const ms = clock.slotToMs(slot);
+        return { slot, ms };
+      }),
+    );
     expect(result.slot).toBe(42n);
     expect(result.ms).toBe(42_000); // floor of 42.5s
   });
 
   it("stability window is 3k/f", async () => {
-    const sw = await run(0, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      return clock.stabilityWindow;
-    }));
+    const sw = await run(
+      0,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        return clock.stabilityWindow;
+      }),
+    );
     // k=10, f=0.5 → ceil(3*10/0.5) = 60
     expect(sw).toBe(60n);
   });
 
   it("randomness stabilization window is 4k/f", async () => {
-    const rsw = await run(0, Effect.gen(function* () {
-      const clock = yield* SlotClock;
-      return clock.randomnessStabilizationWindow;
-    }));
+    const rsw = await run(
+      0,
+      Effect.gen(function* () {
+        const clock = yield* SlotClock;
+        return clock.randomnessStabilizationWindow;
+      }),
+    );
     // k=10, f=0.5 → ceil(4*10/0.5) = 80
     expect(rsw).toBe(80n);
   });

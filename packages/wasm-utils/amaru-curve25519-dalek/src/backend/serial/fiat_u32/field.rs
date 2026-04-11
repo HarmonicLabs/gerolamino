@@ -132,7 +132,11 @@ impl<'a> Neg for &'a FieldElement2625 {
 }
 
 impl ConditionallySelectable for FieldElement2625 {
-    fn conditional_select(a: &FieldElement2625, b: &FieldElement2625, choice: Choice) -> FieldElement2625 {
+    fn conditional_select(
+        a: &FieldElement2625,
+        b: &FieldElement2625,
+        choice: Choice,
+    ) -> FieldElement2625 {
         let mut output = [0u32; 10];
         fiat_25519_selectznz(&mut output, choice.unwrap_u8() as fiat_25519_u1, &a.0, &b.0);
         FieldElement2625(output)
@@ -188,8 +192,8 @@ impl FieldElement2625 {
     /// Construct -1.
     pub fn minus_one() -> FieldElement2625 {
         FieldElement2625([
-            0x3ffffec, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff,
-            0x1ffffff,
+            0x3ffffec, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff,
+            0x3ffffff, 0x1ffffff,
         ])
     }
 

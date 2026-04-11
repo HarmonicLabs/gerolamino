@@ -69,11 +69,19 @@ test.describe("Popup UI", () => {
     await expect(popup.locator(".stat-row").filter({ hasText: "Snapshot Slot" })).toBeVisible();
     await expect(popup.locator(".stat-row").filter({ hasText: "Blocks" })).toBeVisible();
     await expect(popup.locator(".stat-row").filter({ hasText: "UTxO Entries" })).toBeVisible();
-    await expect(popup.locator(".stat-row").filter({ hasText: "Ledger State" }).locator(".stat-value")).toHaveText("pending");
-    await expect(popup.locator(".stat-row").filter({ hasText: "Bootstrap" }).locator(".stat-value")).toHaveText("in progress");
+    await expect(
+      popup.locator(".stat-row").filter({ hasText: "Ledger State" }).locator(".stat-value"),
+    ).toHaveText("pending");
+    await expect(
+      popup.locator(".stat-row").filter({ hasText: "Bootstrap" }).locator(".stat-value"),
+    ).toHaveText("in progress");
   });
 
-  test("shows preprod badge when protocolMagic is 1", async ({ context, extensionId, serviceWorker }) => {
+  test("shows preprod badge when protocolMagic is 1", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
     await serviceWorker.evaluate(async () => {
       await chrome.storage.session.set({
         syncState: {
@@ -121,7 +129,11 @@ test.describe("Popup UI", () => {
     await expect(popup.locator(".error-box")).toContainText("WebSocket connection failed");
   });
 
-  test("displays footer with last-updated timestamp", async ({ context, extensionId, serviceWorker }) => {
+  test("displays footer with last-updated timestamp", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
     const now = Date.now();
     await serviceWorker.evaluate(async (ts) => {
       await chrome.storage.session.set({
@@ -168,7 +180,11 @@ test.describe("Popup UI", () => {
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
 
-    await expect(popup.locator(".stat-row").filter({ hasText: "Ledger State" }).locator(".stat-value")).toHaveText("received");
-    await expect(popup.locator(".stat-row").filter({ hasText: "Bootstrap" }).locator(".stat-value")).toHaveText("complete");
+    await expect(
+      popup.locator(".stat-row").filter({ hasText: "Ledger State" }).locator(".stat-value"),
+    ).toHaveText("received");
+    await expect(
+      popup.locator(".stat-row").filter({ hasText: "Bootstrap" }).locator(".stat-value"),
+    ).toHaveText("complete");
   });
 });

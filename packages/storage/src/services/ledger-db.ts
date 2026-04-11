@@ -16,20 +16,19 @@ export class LedgerDB extends ServiceMap.Service<
   }
 >()("storage/LedgerDB") {}
 
-export const LedgerDBLive: Layer.Layer<LedgerDB, never, BlobStore | SqliteDrizzle> =
-  Layer.effect(
-    LedgerDB,
-    Effect.gen(function* () {
-      const store = yield* BlobStore;
-      const drizzle = yield* SqliteDrizzle;
-      const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqliteDrizzle>) =>
-        effect.pipe(
-          Effect.provideService(BlobStore, store),
-          Effect.provideService(SqliteDrizzle, drizzle),
-        );
-      return {
-        writeSnapshot: (snapshot: LedgerStateSnapshot) => provide(writeSnapshot(snapshot)),
-        readLatestSnapshot: provide(readLatestSnapshot),
-      };
-    }),
-  );
+export const LedgerDBLive: Layer.Layer<LedgerDB, never, BlobStore | SqliteDrizzle> = Layer.effect(
+  LedgerDB,
+  Effect.gen(function* () {
+    const store = yield* BlobStore;
+    const drizzle = yield* SqliteDrizzle;
+    const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqliteDrizzle>) =>
+      effect.pipe(
+        Effect.provideService(BlobStore, store),
+        Effect.provideService(SqliteDrizzle, drizzle),
+      );
+    return {
+      writeSnapshot: (snapshot: LedgerStateSnapshot) => provide(writeSnapshot(snapshot)),
+      readLatestSnapshot: provide(readLatestSnapshot),
+    };
+  }),
+);

@@ -231,13 +231,10 @@ pub fn vrf_verify_proof(
         return Err(JsValue::from_str("VRF proof must be 80 bytes"));
     }
 
-    let pk = PublicKey03::from_bytes(
-        <&[u8; 32]>::try_from(vrf_vkey).unwrap(),
-    );
+    let pk = PublicKey03::from_bytes(<&[u8; 32]>::try_from(vrf_vkey).unwrap());
 
-    let proof = VrfProof03::from_bytes(
-        <&[u8; 80]>::try_from(vrf_proof).unwrap(),
-    ).map_err(|e| JsValue::from_str(&format!("invalid VRF proof: {:?}", e)))?;
+    let proof = VrfProof03::from_bytes(<&[u8; 80]>::try_from(vrf_proof).unwrap())
+        .map_err(|e| JsValue::from_str(&format!("invalid VRF proof: {:?}", e)))?;
 
     let proof_hash = proof
         .verify(&pk, vrf_input)
@@ -261,9 +258,8 @@ pub fn vrf_proof_to_hash(vrf_proof: &[u8]) -> Result<Vec<u8>, JsValue> {
         return Err(JsValue::from_str("VRF proof must be 80 bytes"));
     }
 
-    let proof = VrfProof03::from_bytes(
-        <&[u8; 80]>::try_from(vrf_proof).unwrap(),
-    ).map_err(|e| JsValue::from_str(&format!("invalid VRF proof: {:?}", e)))?;
+    let proof = VrfProof03::from_bytes(<&[u8; 80]>::try_from(vrf_proof).unwrap())
+        .map_err(|e| JsValue::from_str(&format!("invalid VRF proof: {:?}", e)))?;
 
     Ok(proof.proof_to_hash().to_vec())
 }

@@ -18,8 +18,7 @@ const makeInMemoryChainDB = () => {
     Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
 
   return {
-    getBlock: (hash: Uint8Array) =>
-      Effect.succeed(Option.fromNullishOr(blocks.get(hashKey(hash)))),
+    getBlock: (hash: Uint8Array) => Effect.succeed(Option.fromNullishOr(blocks.get(hashKey(hash)))),
 
     getBlockAt: (point: RealPoint) =>
       Effect.succeed(Option.fromNullishOr(blocks.get(hashKey(point.hash)))),
@@ -47,7 +46,9 @@ const makeInMemoryChainDB = () => {
     }),
 
     addBlock: (block: StoredBlock) =>
-      Effect.sync(() => { blocks.set(hashKey(block.hash), block); }),
+      Effect.sync(() => {
+        blocks.set(hashKey(block.hash), block);
+      }),
 
     rollback: (point: RealPoint) =>
       Effect.sync(() => {
@@ -197,9 +198,10 @@ describe("ChainDB unified service", () => {
         yield* db.addBlock(makeBlock(100n, 50n));
         yield* db.addBlock(makeBlock(200n, 100n));
         const blocks: StoredBlock[] = [];
-        yield* Stream.runForEach(
-          db.streamFrom({ slot: 0n, hash: new Uint8Array(32) }),
-          (b) => Effect.sync(() => { blocks.push(b); }),
+        yield* Stream.runForEach(db.streamFrom({ slot: 0n, hash: new Uint8Array(32) }), (b) =>
+          Effect.sync(() => {
+            blocks.push(b);
+          }),
         );
         return blocks.map((b) => Number(b.slot));
       }),
@@ -211,8 +213,16 @@ describe("ChainDB unified service", () => {
     const parent = makeBlock(100n, 50n);
     const child1Hash = new Uint8Array(32).fill(0x01);
     const child2Hash = new Uint8Array(32).fill(0x02);
-    const child1: StoredBlock = { ...makeBlock(101n, 51n), hash: child1Hash, prevHash: parent.hash };
-    const child2: StoredBlock = { ...makeBlock(102n, 52n), hash: child2Hash, prevHash: parent.hash };
+    const child1: StoredBlock = {
+      ...makeBlock(101n, 51n),
+      hash: child1Hash,
+      prevHash: parent.hash,
+    };
+    const child2: StoredBlock = {
+      ...makeBlock(102n, 52n),
+      hash: child2Hash,
+      prevHash: parent.hash,
+    };
 
     const result = await run(
       Effect.gen(function* () {

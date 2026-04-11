@@ -110,13 +110,18 @@ impl MultiscalarMul for Straus {
         use window::LookupTable;
         use zeroize::Zeroizing;
 
-        let lookup_tables: Vec<_> =
-            points.into_iter().map(|point| LookupTable::<ProjectiveNielsPoint>::from(point.borrow())).collect();
+        let lookup_tables: Vec<_> = points
+            .into_iter()
+            .map(|point| LookupTable::<ProjectiveNielsPoint>::from(point.borrow()))
+            .collect();
 
         // This puts the scalar digits into a heap-allocated Vec.
         // To ensure that these are erased, pass ownership of the Vec into a
         // Zeroizing wrapper.
-        let scalar_digits_vec: Vec<_> = scalars.into_iter().map(|s| s.borrow().to_radix_16()).collect();
+        let scalar_digits_vec: Vec<_> = scalars
+            .into_iter()
+            .map(|s| s.borrow().to_radix_16())
+            .collect();
         let scalar_digits = Zeroizing::new(scalar_digits_vec);
 
         let mut Q = EdwardsPoint::identity();
@@ -153,11 +158,16 @@ impl VartimeMultiscalarMul for Straus {
         I::Item: Borrow<Scalar>,
         J: IntoIterator<Item = Option<EdwardsPoint>>,
     {
-        use backend::serial::curve_models::{CompletedPoint, ProjectiveNielsPoint, ProjectivePoint};
+        use backend::serial::curve_models::{
+            CompletedPoint, ProjectiveNielsPoint, ProjectivePoint,
+        };
         use traits::Identity;
         use window::NafLookupTable5;
 
-        let nafs: Vec<_> = scalars.into_iter().map(|c| c.borrow().non_adjacent_form(5)).collect();
+        let nafs: Vec<_> = scalars
+            .into_iter()
+            .map(|c| c.borrow().non_adjacent_form(5))
+            .collect();
 
         let lookup_tables = points
             .into_iter()

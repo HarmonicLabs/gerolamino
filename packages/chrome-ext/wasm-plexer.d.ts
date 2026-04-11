@@ -11,6 +11,10 @@ declare module "wasm-plexer" {
     buffer_len(): number;
   }
 
-  export function wrap_multiplexer_message(data: Uint8Array, miniProtocol: number, isResponder: boolean): Uint8Array;
+  export function wrap_multiplexer_message(
+    data: Uint8Array,
+    miniProtocol: number,
+    isResponder: boolean,
+  ): Uint8Array;
   export function unwrap_multiplexer_message(data: Uint8Array): unknown;
 }

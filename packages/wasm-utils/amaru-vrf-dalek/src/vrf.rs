@@ -65,7 +65,12 @@ mod test {
         let deserialised_proof = VrfProof::from_bytes(&serialised_proof);
         assert!(deserialised_proof.is_ok());
 
-        assert!(deserialised_proof.unwrap().verify(&public_key, &alpha_string).is_ok());
+        assert!(
+            deserialised_proof
+                .unwrap()
+                .verify(&public_key, &alpha_string)
+                .is_ok()
+        );
     }
 
     #[test]

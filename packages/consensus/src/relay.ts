@@ -30,11 +30,7 @@ import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
 import { SlotClock } from "./clock";
 import { Nonces } from "./nonce";
-import {
-  handleRollForward,
-  handleRollBackward,
-  initialVolatileState,
-} from "./chain-sync-driver";
+import { handleRollForward, handleRollBackward, initialVolatileState } from "./chain-sync-driver";
 import type { LedgerView } from "./validate-header";
 
 /** Network magic for known Cardano networks. */
@@ -44,10 +40,10 @@ export const MAINNET_MAGIC = 764824073;
 /** N2N protocol version to negotiate (preprod/mainnet accept 14+). */
 const N2N_VERSION = 14;
 
-export class RelayError extends Schema.TaggedErrorClass<RelayError>()(
-  "RelayError",
-  { message: Schema.String, cause: Schema.Defect },
-) {}
+export class RelayError extends Schema.TaggedErrorClass<RelayError>()("RelayError", {
+  message: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
 /**
  * Exponential backoff schedule for relay reconnection.
@@ -86,7 +82,10 @@ const runHandshake = (networkMagic: number) =>
         }),
       [HandshakeMessageType.MsgRefuse]: (msg) =>
         Effect.fail(
-          new RelayError({ message: `Handshake refused: ${JSON.stringify(msg.reason)}`, cause: msg }),
+          new RelayError({
+            message: `Handshake refused: ${JSON.stringify(msg.reason)}`,
+            cause: msg,
+          }),
         ),
       [HandshakeMessageType.MsgProposeVersions]: (msg) =>
         Effect.fail(
@@ -182,11 +181,21 @@ const chainSyncLoop = (
 
           // Process block: validate + store + evolve nonces
           const state = yield* Ref.get(stateRef);
-          yield* handleRollForward(msg.header, msg.eraVariant, serverTip, state, peerId, ledgerView).pipe(
+          yield* handleRollForward(
+            msg.header,
+            msg.eraVariant,
+            serverTip,
+            state,
+            peerId,
+            ledgerView,
+          ).pipe(
             Effect.tap((newState) => Ref.set(stateRef, newState)),
             Effect.matchEffect({
               onSuccess: () => Effect.void,
-              onFailure: (err) => Effect.logWarning(`[sync] Block processing failed (era ${msg.eraVariant}, tip ${serverTip.slot}): ${err}`),
+              onFailure: (err) =>
+                Effect.logWarning(
+                  `[sync] Block processing failed (era ${msg.eraVariant}, tip ${serverTip.slot}): ${err}`,
+                ),
             }),
             // Guarantee gate signaling even on failure — prevents downstream deadlock
             Effect.ensuring(Deferred.succeed(thisCommitDone, undefined)),
@@ -264,15 +273,17 @@ export const connectToRelay = (
     // NOTE: Nonces are not persisted in ChainDB yet. On reconnection, snapshot
     // nonces are stale but still better than zeros. Nonce evolution will
     // catch up after the first epoch transition. TODO: persist nonces in ChainDB.
-    const nonces = snapshotState?.nonces ?? (() => {
-      const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
-      return new Nonces({
-        active: new Uint8Array(32),
-        evolving: new Uint8Array(32),
-        candidate: new Uint8Array(32),
-        epoch,
-      });
-    })();
+    const nonces =
+      snapshotState?.nonces ??
+      (() => {
+        const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
+        return new Nonces({
+          active: new Uint8Array(32),
+          evolving: new Uint8Array(32),
+          candidate: new Uint8Array(32),
+          epoch,
+        });
+      })();
 
     // 4. Run ChainSync + KeepAlive in parallel
     yield* Effect.all(
@@ -287,11 +298,9 @@ export const connectToRelay = (
     );
   }).pipe(
     // Provide protocol client layers (require Multiplexer in environment)
-    Effect.provide(Layer.mergeAll(
-      HandshakeClient.layer,
-      ChainSyncClient.layer,
-      KeepAliveClient.layer,
-    )),
+    Effect.provide(
+      Layer.mergeAll(HandshakeClient.layer, ChainSyncClient.layer, KeepAliveClient.layer),
+    ),
     // Provide Multiplexer + Buffer layers (requires Socket in environment)
     Effect.provide(Multiplexer.layer.pipe(Layer.provide(MultiplexerBuffer.layer))),
   );

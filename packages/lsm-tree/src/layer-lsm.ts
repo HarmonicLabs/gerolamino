@@ -10,13 +10,10 @@ import { Config, Effect, Layer, Option, Schema, Stream } from "effect";
 import { BlobStore, prefixEnd } from "storage";
 
 /** Typed error for LSM bridge FFI failures. */
-export class LsmBridgeError extends Schema.TaggedErrorClass<LsmBridgeError>()(
-  "LsmBridgeError",
-  {
-    operation: Schema.String,
-    cause: Schema.Defect,
-  },
-) {}
+export class LsmBridgeError extends Schema.TaggedErrorClass<LsmBridgeError>()("LsmBridgeError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
 /** Config key for the path to liblsm-bridge.so. Yieldable in Effect.gen. */
 export const LsmBridgePath = Config.string("LIBLSM_BRIDGE_PATH");
@@ -47,7 +44,15 @@ const BRIDGE_SYMBOLS = {
     returns: FFIType.int,
   },
   lsm_bridge_scan: {
-    args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+    args: [
+      FFIType.ptr,
+      FFIType.u64,
+      FFIType.ptr,
+      FFIType.u64,
+      FFIType.ptr,
+      FFIType.ptr,
+      FFIType.ptr,
+    ],
     returns: FFIType.int,
   },
   lsm_bridge_snapshot: {
@@ -75,18 +80,29 @@ const lenBuf = new BigUint64Array(1);
 /** Number of entries to read per cursor batch. */
 const CURSOR_BATCH_SIZE = 256;
 
-const lsmGet = (ffi: BridgeLib, key: Uint8Array): Effect.Effect<Option.Option<Uint8Array>, LsmBridgeError> =>
+const lsmGet = (
+  ffi: BridgeLib,
+  key: Uint8Array,
+): Effect.Effect<Option.Option<Uint8Array>, LsmBridgeError> =>
   Effect.gen(function* () {
     lenBuf[0] = 0n;
     const rc1 = ffi.lsm_bridge_get(ptr(key), key.byteLength, null, 0, lenBuf);
     if (rc1 === 1) return Option.none();
-    if (rc1 !== 0) return yield* new LsmBridgeError({ operation: "get", cause: `lsm_bridge_get phase 1 returned ${rc1}` });
+    if (rc1 !== 0)
+      return yield* new LsmBridgeError({
+        operation: "get",
+        cause: `lsm_bridge_get phase 1 returned ${rc1}`,
+      });
     const len = Number(lenBuf[0]);
     if (len === 0) return Option.some(new Uint8Array(0));
     const outBuf = new Uint8Array(len);
     lenBuf[0] = 0n;
     const rc2 = ffi.lsm_bridge_get(ptr(key), key.byteLength, ptr(outBuf), len, lenBuf);
-    if (rc2 !== 0) return yield* new LsmBridgeError({ operation: "get", cause: `lsm_bridge_get phase 2 returned ${rc2}` });
+    if (rc2 !== 0)
+      return yield* new LsmBridgeError({
+        operation: "get",
+        cause: `lsm_bridge_get phase 2 returned ${rc2}`,
+      });
     return Option.some(outBuf);
   });
 
@@ -124,10 +140,14 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
   get: (key: Uint8Array) => lsmGet(ffi, key),
 
   put: (key: Uint8Array, value: Uint8Array) =>
-    Effect.sync(() => { ffi.lsm_bridge_put(ptr(key), key.byteLength, ptr(value), value.byteLength); }),
+    Effect.sync(() => {
+      ffi.lsm_bridge_put(ptr(key), key.byteLength, ptr(value), value.byteLength);
+    }),
 
   delete: (key: Uint8Array) =>
-    Effect.sync(() => { ffi.lsm_bridge_delete(ptr(key), key.byteLength); }),
+    Effect.sync(() => {
+      ffi.lsm_bridge_delete(ptr(key), key.byteLength);
+    }),
 
   has: (key: Uint8Array) =>
     Effect.sync(() => {
@@ -140,13 +160,20 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
 
     const openCursor = Effect.gen(function* () {
       const handleBuf = new BigUint64Array(1);
-      const openRc = prefix.byteLength > 0
-        ? ffi.lsm_bridge_cursor_open(ptr(prefix), prefix.byteLength, handleBuf)
-        : ffi.lsm_bridge_cursor_open(null, 0, handleBuf);
-      if (openRc !== 0) return yield* new LsmBridgeError({ operation: "cursor_open", cause: `lsm_bridge_cursor_open returned ${openRc}` });
+      const openRc =
+        prefix.byteLength > 0
+          ? ffi.lsm_bridge_cursor_open(ptr(prefix), prefix.byteLength, handleBuf)
+          : ffi.lsm_bridge_cursor_open(null, 0, handleBuf);
+      if (openRc !== 0)
+        return yield* new LsmBridgeError({
+          operation: "cursor_open",
+          cause: `lsm_bridge_cursor_open returned ${openRc}`,
+        });
       const handle = handleBuf[0]!;
       yield* Effect.addFinalizer(() =>
-        Effect.sync(() => { ffi.lsm_bridge_cursor_close(handle); }),
+        Effect.sync(() => {
+          ffi.lsm_bridge_cursor_close(handle);
+        }),
       );
       return handle;
     });
@@ -157,13 +184,27 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
         const outCount = new BigUint64Array(1);
         const rc1 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, null, outLen, outCount);
         if (rc1 === 1) return undefined;
-        if (rc1 !== 0) return yield* new LsmBridgeError({ operation: "cursor_read", cause: `lsm_bridge_cursor_read phase 1 returned ${rc1}` });
+        if (rc1 !== 0)
+          return yield* new LsmBridgeError({
+            operation: "cursor_read",
+            cause: `lsm_bridge_cursor_read phase 1 returned ${rc1}`,
+          });
         const count = Number(outCount[0]);
         const totalLen = Number(outLen[0]);
         if (count === 0 || totalLen === 0) return undefined;
         const buf = new Uint8Array(totalLen);
-        const rc2 = ffi.lsm_bridge_cursor_read(handle, CURSOR_BATCH_SIZE, ptr(buf), outLen, outCount);
-        if (rc2 !== 0) return yield* new LsmBridgeError({ operation: "cursor_read", cause: `lsm_bridge_cursor_read phase 2 returned ${rc2}` });
+        const rc2 = ffi.lsm_bridge_cursor_read(
+          handle,
+          CURSOR_BATCH_SIZE,
+          ptr(buf),
+          outLen,
+          outCount,
+        );
+        if (rc2 !== 0)
+          return yield* new LsmBridgeError({
+            operation: "cursor_read",
+            cause: `lsm_bridge_cursor_read phase 2 returned ${rc2}`,
+          });
         return parseBatch(buf, count);
       });
 
@@ -173,9 +214,7 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
           readBatch(h).pipe(
             Effect.map((batch) => {
               if (batch === undefined) return undefined;
-              const filtered = hi.byteLength > 0
-                ? batch.filter((e) => lessThan(e.key, hi))
-                : batch;
+              const filtered = hi.byteLength > 0 ? batch.filter((e) => lessThan(e.key, hi)) : batch;
               if (filtered.length === 0) return undefined;
               return [filtered, h] as const;
             }),
@@ -226,7 +265,11 @@ const DEFAULT_SNAPSHOT_LABEL = "UTxO table";
  * @param snapshotName Name of the snapshot to restore
  * @param label Snapshot label for validation (default: "UTxO table" for cardano-node compatibility)
  */
-export const layerLsmFromSnapshot = (sessionDir: string, snapshotName: string, label = DEFAULT_SNAPSHOT_LABEL) =>
+export const layerLsmFromSnapshot = (
+  sessionDir: string,
+  snapshotName: string,
+  label = DEFAULT_SNAPSHOT_LABEL,
+) =>
   Layer.effect(
     BlobStore,
     Effect.gen(function* () {
@@ -236,9 +279,12 @@ export const layerLsmFromSnapshot = (sessionDir: string, snapshotName: string, l
       const nameBytes = new TextEncoder().encode(snapshotName);
       const labelBytes = new TextEncoder().encode(label);
       ffi.lsm_bridge_init_from_snapshot(
-        ptr(pathBytes), pathBytes.byteLength,
-        ptr(nameBytes), nameBytes.byteLength,
-        ptr(labelBytes), labelBytes.byteLength,
+        ptr(pathBytes),
+        pathBytes.byteLength,
+        ptr(nameBytes),
+        nameBytes.byteLength,
+        ptr(labelBytes),
+        labelBytes.byteLength,
       );
       return makeBlobStoreOps(ffi);
     }),

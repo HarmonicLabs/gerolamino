@@ -26,8 +26,7 @@ describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
     lsmLayer = layerLsm(`${SNAPSHOT_PATH!}/lsm`);
   });
 
-  const testLayers = () =>
-    Layer.mergeAll(BunFileSystem.layer, BunPath.layer, lsmLayer);
+  const testLayers = () => Layer.mergeAll(BunFileSystem.layer, BunPath.layer, lsmLayer);
 
   it("reads snapshot metadata with LSM backend", async () => {
     const result = await Effect.runPromise(
@@ -42,9 +41,7 @@ describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
   it("bootstrap stream starts with Init frame", async () => {
     const frames = await Effect.runPromise(
       readSnapshotMeta(SNAPSHOT_PATH!).pipe(
-        Effect.flatMap((meta) =>
-          bootstrapStream(meta).pipe(Stream.take(1), Stream.runCollect),
-        ),
+        Effect.flatMap((meta) => bootstrapStream(meta).pipe(Stream.take(1), Stream.runCollect)),
         Effect.provide(testLayers()),
       ),
     );

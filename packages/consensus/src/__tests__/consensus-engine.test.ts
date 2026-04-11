@@ -19,11 +19,22 @@ const poolIdFromVk = (vk: Uint8Array): string => {
 const makeHeader = (): BlockHeader => {
   const issuerVk = makeVk(1);
   return {
-    slot: 100n, blockNo: 50n, hash: new Uint8Array(32), prevHash: new Uint8Array(32),
-    issuerVk, vrfVk: makeVk(2), vrfProof: new Uint8Array(80), vrfOutput: new Uint8Array(32),
-    nonceVrfOutput: new Uint8Array(32), kesSig: new Uint8Array(448), kesPeriod: 10,
-    opcertSig: new Uint8Array(64), opcertVkHot: new Uint8Array(32),
-    opcertSeqNo: 5, opcertKesPeriod: 5, bodyHash: new Uint8Array(32),
+    slot: 100n,
+    blockNo: 50n,
+    hash: new Uint8Array(32),
+    prevHash: new Uint8Array(32),
+    issuerVk,
+    vrfVk: makeVk(2),
+    vrfProof: new Uint8Array(80),
+    vrfOutput: new Uint8Array(32),
+    nonceVrfOutput: new Uint8Array(32),
+    kesSig: new Uint8Array(448),
+    kesPeriod: 10,
+    opcertSig: new Uint8Array(64),
+    opcertVkHot: new Uint8Array(32),
+    opcertSeqNo: 5,
+    opcertKesPeriod: 5,
+    bodyHash: new Uint8Array(32),
     headerBodyCbor: new Uint8Array(32),
   };
 };
@@ -34,7 +45,9 @@ const makeView = (header: BlockHeader): LedgerView => {
     epochNonce: new Uint8Array(32),
     poolVrfKeys: HashMap.make([poolId, header.vrfVk]),
     poolStake: HashMap.make([poolId, 1_000_000n]),
-    totalStake: 10_000_000n, activeSlotsCoeff: 0.05, maxKesEvolutions: 62,
+    totalStake: 10_000_000n,
+    activeSlotsCoeff: 0.05,
+    maxKesEvolutions: 62,
   };
 };
 

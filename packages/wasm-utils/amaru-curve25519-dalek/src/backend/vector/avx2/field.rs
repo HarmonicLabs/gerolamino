@@ -44,9 +44,9 @@ use core::ops::{Add, Mul, Neg};
 
 use backend::{
     serial::u64::field::FieldElement51,
-    vector::avx2::constants::{P_TIMES_16_HI, P_TIMES_16_LO, P_TIMES_2_HI, P_TIMES_2_LO},
+    vector::avx2::constants::{P_TIMES_2_HI, P_TIMES_2_LO, P_TIMES_16_HI, P_TIMES_16_LO},
 };
-use packed_simd::{i32x8, u32x8, u64x4, IntoBits};
+use packed_simd::{IntoBits, i32x8, u32x8, u64x4};
 
 /// Unpack 32-bit lanes into 64-bit lanes:
 /// ```ascii,no_run
@@ -147,7 +147,11 @@ pub struct FieldElement2625x4(pub(crate) [u32x8; 5]);
 use subtle::{Choice, ConditionallySelectable};
 
 impl ConditionallySelectable for FieldElement2625x4 {
-    fn conditional_select(a: &FieldElement2625x4, b: &FieldElement2625x4, choice: Choice) -> FieldElement2625x4 {
+    fn conditional_select(
+        a: &FieldElement2625x4,
+        b: &FieldElement2625x4,
+        choice: Choice,
+    ) -> FieldElement2625x4 {
         let mask = (-(choice.unwrap_u8() as i32)) as u32;
         let mask_vec = u32x8::splat(mask);
         FieldElement2625x4([
@@ -267,27 +271,38 @@ impl FieldElement2625x4 {
                 // which does not require a shuffle immediate but *is* lowered
                 // to immediate shuffles anyways).
                 match control {
-                    Lanes::C => _mm256_blend_epi32(x.into_bits(), y.into_bits(), C_LANES as i32).into_bits(),
-                    Lanes::D => _mm256_blend_epi32(x.into_bits(), y.into_bits(), D_LANES as i32).into_bits(),
+                    Lanes::C => {
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), C_LANES as i32).into_bits()
+                    }
+                    Lanes::D => {
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), D_LANES as i32).into_bits()
+                    }
                     Lanes::AD => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | D_LANES) as i32).into_bits()
-                    }
-                    Lanes::AB => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | B_LANES) as i32).into_bits()
-                    }
-                    Lanes::AC => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | C_LANES) as i32).into_bits()
-                    }
-                    Lanes::CD => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (C_LANES | D_LANES) as i32).into_bits()
-                    }
-                    Lanes::BC => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (B_LANES | C_LANES) as i32).into_bits()
-                    }
-                    Lanes::ABCD => {
-                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | B_LANES | C_LANES | D_LANES) as i32)
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | D_LANES) as i32)
                             .into_bits()
                     }
+                    Lanes::AB => {
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | B_LANES) as i32)
+                            .into_bits()
+                    }
+                    Lanes::AC => {
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (A_LANES | C_LANES) as i32)
+                            .into_bits()
+                    }
+                    Lanes::CD => {
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (C_LANES | D_LANES) as i32)
+                            .into_bits()
+                    }
+                    Lanes::BC => {
+                        _mm256_blend_epi32(x.into_bits(), y.into_bits(), (B_LANES | C_LANES) as i32)
+                            .into_bits()
+                    }
+                    Lanes::ABCD => _mm256_blend_epi32(
+                        x.into_bits(),
+                        y.into_bits(),
+                        (A_LANES | B_LANES | C_LANES | D_LANES) as i32,
+                    )
+                    .into_bits(),
                 }
             }
         }
@@ -617,17 +632,39 @@ impl FieldElement2625x4 {
         let x8_19 = m_lo(v19, x8);
         let x9_19 = m_lo(v19, x9);
 
-        let mut z0 =
-            m(x0, x0) + m(x2_2, x8_19) + m(x4_2, x6_19) + ((m(x1_2, x9_19) + m(x3_2, x7_19) + m(x5, x5_19)) << 1);
-        let mut z1 = m(x0_2, x1) + m(x3_2, x8_19) + m(x5_2, x6_19) + ((m(x2, x9_19) + m(x4, x7_19)) << 1);
-        let mut z2 =
-            m(x0_2, x2) + m(x1_2, x1) + m(x4_2, x8_19) + m(x6, x6_19) + ((m(x3_2, x9_19) + m(x5_2, x7_19)) << 1);
-        let mut z3 = m(x0_2, x3) + m(x1_2, x2) + m(x5_2, x8_19) + ((m(x4, x9_19) + m(x6, x7_19)) << 1);
-        let mut z4 = m(x0_2, x4) + m(x1_2, x3_2) + m(x2, x2) + m(x6_2, x8_19) + ((m(x5_2, x9_19) + m(x7, x7_19)) << 1);
-        let mut z5 = m(x0_2, x5) + m(x1_2, x4) + m(x2_2, x3) + m(x7_2, x8_19) + ((m(x6, x9_19)) << 1);
-        let mut z6 = m(x0_2, x6) + m(x1_2, x5_2) + m(x2_2, x4) + m(x3_2, x3) + m(x8, x8_19) + ((m(x7_2, x9_19)) << 1);
+        let mut z0 = m(x0, x0)
+            + m(x2_2, x8_19)
+            + m(x4_2, x6_19)
+            + ((m(x1_2, x9_19) + m(x3_2, x7_19) + m(x5, x5_19)) << 1);
+        let mut z1 =
+            m(x0_2, x1) + m(x3_2, x8_19) + m(x5_2, x6_19) + ((m(x2, x9_19) + m(x4, x7_19)) << 1);
+        let mut z2 = m(x0_2, x2)
+            + m(x1_2, x1)
+            + m(x4_2, x8_19)
+            + m(x6, x6_19)
+            + ((m(x3_2, x9_19) + m(x5_2, x7_19)) << 1);
+        let mut z3 =
+            m(x0_2, x3) + m(x1_2, x2) + m(x5_2, x8_19) + ((m(x4, x9_19) + m(x6, x7_19)) << 1);
+        let mut z4 = m(x0_2, x4)
+            + m(x1_2, x3_2)
+            + m(x2, x2)
+            + m(x6_2, x8_19)
+            + ((m(x5_2, x9_19) + m(x7, x7_19)) << 1);
+        let mut z5 =
+            m(x0_2, x5) + m(x1_2, x4) + m(x2_2, x3) + m(x7_2, x8_19) + ((m(x6, x9_19)) << 1);
+        let mut z6 = m(x0_2, x6)
+            + m(x1_2, x5_2)
+            + m(x2_2, x4)
+            + m(x3_2, x3)
+            + m(x8, x8_19)
+            + ((m(x7_2, x9_19)) << 1);
         let mut z7 = m(x0_2, x7) + m(x1_2, x6) + m(x2_2, x5) + m(x3_2, x4) + ((m(x8, x9_19)) << 1);
-        let mut z8 = m(x0_2, x8) + m(x1_2, x7_2) + m(x2_2, x6) + m(x3_2, x5_2) + m(x4, x4) + ((m(x9, x9_19)) << 1);
+        let mut z8 = m(x0_2, x8)
+            + m(x1_2, x7_2)
+            + m(x2_2, x6)
+            + m(x3_2, x5_2)
+            + m(x4, x4)
+            + ((m(x9, x9_19)) << 1);
         let mut z9 = m(x0_2, x9) + m(x1_2, x8) + m(x2_2, x7) + m(x3_2, x6) + m(x4_2, x5);
 
         // The biggest z_i is bounded as z_i < 249*2^(51 + 2*b);

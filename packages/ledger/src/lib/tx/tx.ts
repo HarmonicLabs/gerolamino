@@ -201,7 +201,7 @@ const eraToTxOutTag: Record<number, MultiEraTxOut["_tag"]> = {
   [2]: "shelleyMary", // Shelley
   [3]: "shelleyMary", // Allegra
   [4]: "shelleyMary", // Mary
-  [5]: "alonzo",      // Alonzo
+  [5]: "alonzo", // Alonzo
   [6]: "babbageConway", // Babbage
   [7]: "babbageConway", // Conway
 };
@@ -215,20 +215,32 @@ export function decodeMultiEraTxOut(
   eraNum?: number,
 ): Effect.Effect<MultiEraTxOut, SchemaIssue.Issue> {
   // Determine tag from era number, or detect from CBOR structure
-  const tag = eraNum !== undefined
-    ? eraToTxOutTag[eraNum] ?? "babbageConway"
-    : cbor._tag === CborKinds.Map
-      ? "babbageConway"
-      : cbor._tag === CborKinds.Array && cbor.items.length === 3
-        ? "alonzo"
-        : "shelleyMary";
+  const tag =
+    eraNum !== undefined
+      ? (eraToTxOutTag[eraNum] ?? "babbageConway")
+      : cbor._tag === CborKinds.Map
+        ? "babbageConway"
+        : cbor._tag === CborKinds.Array && cbor.items.length === 3
+          ? "alonzo"
+          : "shelleyMary";
 
   return Effect.map(decodeTxOut(cbor), (txOut) =>
     tag === "shelleyMary"
       ? { _tag: "shelleyMary" as const, address: txOut.address, value: txOut.value }
       : tag === "alonzo"
-        ? { _tag: "alonzo" as const, address: txOut.address, value: txOut.value, datumOption: txOut.datumOption }
-        : { _tag: "babbageConway" as const, address: txOut.address, value: txOut.value, datumOption: txOut.datumOption, scriptRef: txOut.scriptRef },
+        ? {
+            _tag: "alonzo" as const,
+            address: txOut.address,
+            value: txOut.value,
+            datumOption: txOut.datumOption,
+          }
+        : {
+            _tag: "babbageConway" as const,
+            address: txOut.address,
+            value: txOut.value,
+            datumOption: txOut.datumOption,
+            scriptRef: txOut.scriptRef,
+          },
   );
 }
 
@@ -241,9 +253,24 @@ export const isPreBabbageTxOut = MultiEraTxOut.isAnyOf(["shelleyMary", "alonzo"]
 /** Convert a MultiEraTxOut to the canonical (flat) TxOut representation. */
 export function multiEraTxOutToTxOut(me: MultiEraTxOut): TxOut {
   return MultiEraTxOut.match(me, {
-    shelleyMary: (v) => ({ address: v.address, value: v.value, datumOption: undefined, scriptRef: undefined }),
-    alonzo: (v) => ({ address: v.address, value: v.value, datumOption: v.datumOption, scriptRef: undefined }),
-    babbageConway: (v) => ({ address: v.address, value: v.value, datumOption: v.datumOption, scriptRef: v.scriptRef }),
+    shelleyMary: (v) => ({
+      address: v.address,
+      value: v.value,
+      datumOption: undefined,
+      scriptRef: undefined,
+    }),
+    alonzo: (v) => ({
+      address: v.address,
+      value: v.value,
+      datumOption: v.datumOption,
+      scriptRef: undefined,
+    }),
+    babbageConway: (v) => ({
+      address: v.address,
+      value: v.value,
+      datumOption: v.datumOption,
+      scriptRef: v.scriptRef,
+    }),
   });
 }
 

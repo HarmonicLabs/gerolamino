@@ -47,11 +47,7 @@ const stubChainDb = Layer.succeed(ChainDB, {
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
 });
 
-const testLayers = Layer.mergeAll(
-  slotClockLayer,
-  peerManagerLayer,
-  stubChainDb,
-);
+const testLayers = Layer.mergeAll(slotClockLayer, peerManagerLayer, stubChainDb);
 
 layer(testLayers)("Node orchestrator", (it) => {
   it.effect("getNodeStatus reports tip and sync progress", () =>
@@ -70,7 +66,10 @@ layer(testLayers)("Node orchestrator", (it) => {
       const pm = yield* PeerManager;
       yield* pm.addPeer("p1", "tcp://p1:3001");
       yield* pm.addPeer("p2", "tcp://p2:3001");
-      yield* pm.updatePeerTip("p1", new ChainTip({ slot: 500n, blockNo: 250n, hash: new Uint8Array(32) }));
+      yield* pm.updatePeerTip(
+        "p1",
+        new ChainTip({ slot: 500n, blockNo: 250n, hash: new Uint8Array(32) }),
+      );
       const status = yield* getNodeStatus;
       expect(status.peerCount).toBe(2);
     }),

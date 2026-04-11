@@ -1,6 +1,13 @@
 import { Schema, SchemaGetter } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType, cborUint, cborBytes, cborArray } from "cbor-schema";
+import {
+  CborSchemaFromBytes,
+  CborKinds,
+  type CborSchemaType,
+  cborUint,
+  cborBytes,
+  cborArray,
+} from "cbor-schema";
 
 // ── PeerAddress types ──
 // IPv4 = [0, bytes4, port]

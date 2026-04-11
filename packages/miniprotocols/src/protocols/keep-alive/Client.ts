@@ -87,8 +87,7 @@ export class KeepAliveClient extends ServiceMap.Service<
               Effect.timeout(Duration.seconds(97)),
               Effect.flatMap(
                 Option.match({
-                  onNone: () =>
-                    Effect.fail(new KeepAliveError({ cause: "No response received" })),
+                  onNone: () => Effect.fail(new KeepAliveError({ cause: "No response received" })),
                   onSome: (v) =>
                     Schemas.KeepAliveMessage.match(v, {
                       KeepAliveResponse: (m) =>
@@ -110,7 +109,7 @@ export class KeepAliveClient extends ServiceMap.Service<
 
       return KeepAliveClient.of({
         keepAlive: (cookie) =>
-          cookie < 0 || cookie > 0xFFFF
+          cookie < 0 || cookie > 0xffff
             ? Effect.fail(
                 new KeepAliveError({ cause: `Cookie must be word16 (0-65535), got ${cookie}` }),
               )
@@ -119,7 +118,7 @@ export class KeepAliveClient extends ServiceMap.Service<
         run: () =>
           Effect.gen(function* () {
             const cookie = yield* Ref.make(0);
-            yield* Ref.getAndUpdate(cookie, (n) => (n + 1) & 0xFFFF).pipe(
+            yield* Ref.getAndUpdate(cookie, (n) => (n + 1) & 0xffff).pipe(
               Effect.flatMap(sendAndValidate),
               Effect.repeat(Schedule.spaced(keepAliveInterval)),
             );

@@ -121,7 +121,11 @@ impl<'a> Neg for &'a FieldElement51 {
 }
 
 impl ConditionallySelectable for FieldElement51 {
-    fn conditional_select(a: &FieldElement51, b: &FieldElement51, choice: Choice) -> FieldElement51 {
+    fn conditional_select(
+        a: &FieldElement51,
+        b: &FieldElement51,
+        choice: Choice,
+    ) -> FieldElement51 {
         let mut output = [0u64; 5];
         fiat_25519_selectznz(&mut output, choice.unwrap_u8() as fiat_25519_u1, &a.0, &b.0);
         FieldElement51(output)
@@ -160,7 +164,13 @@ impl FieldElement51 {
 
     /// Construct -1.
     pub fn minus_one() -> FieldElement51 {
-        FieldElement51([2251799813685228, 2251799813685247, 2251799813685247, 2251799813685247, 2251799813685247])
+        FieldElement51([
+            2251799813685228,
+            2251799813685247,
+            2251799813685247,
+            2251799813685247,
+            2251799813685247,
+        ])
     }
 
     /// Given 64-bit input limbs, reduce to enforce the bound 2^(51 + epsilon).

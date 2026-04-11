@@ -37,23 +37,26 @@ export const verifyBodyHash = (
 
     const top = parseSync(blockCbor);
     if (top._tag !== CborKinds.Array || top.items.length < 2)
-      return yield* Effect.fail(new BlockValidationError({
-        assertion: "VerifyBodyHash",
-        cause: "Invalid block CBOR: expected [era, blockBody]",
-      }));
+      return yield* Effect.fail(
+        new BlockValidationError({
+          assertion: "VerifyBodyHash",
+          cause: "Invalid block CBOR: expected [era, blockBody]",
+        }),
+      );
 
     const eraNum = top.items[0]!;
-    if (eraNum._tag !== CborKinds.UInt || eraNum.num <= 1n)
-      return; // Byron — no body hash to verify
+    if (eraNum._tag !== CborKinds.UInt || eraNum.num <= 1n) return; // Byron — no body hash to verify
 
     const blockBody = top.items[1]!;
     if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 4)
-      return yield* Effect.fail(new BlockValidationError({
-        assertion: "VerifyBodyHash",
-        cause: `Invalid block body: expected >= 4 elements, got ${
-          blockBody._tag === CborKinds.Array ? blockBody.items.length : "non-array"
-        }`,
-      }));
+      return yield* Effect.fail(
+        new BlockValidationError({
+          assertion: "VerifyBodyHash",
+          cause: `Invalid block body: expected >= 4 elements, got ${
+            blockBody._tag === CborKinds.Array ? blockBody.items.length : "non-array"
+          }`,
+        }),
+      );
 
     // Body = [header, txBodies, witnesses, auxData, invalidTxs?]
     const txBodiesBytes = encodeSync(blockBody.items[1]!);
@@ -61,16 +64,19 @@ export const verifyBodyHash = (
     const auxDataBytes = encodeSync(blockBody.items[3]!);
 
     // Alonzo+ (era >= 4) includes invalidTxs as 5th element
-    const bodyBytes = blockBody.items.length >= 5
-      ? concat(txBodiesBytes, witnessesBytes, auxDataBytes, encodeSync(blockBody.items[4]!))
-      : concat(txBodiesBytes, witnessesBytes, auxDataBytes);
+    const bodyBytes =
+      blockBody.items.length >= 5
+        ? concat(txBodiesBytes, witnessesBytes, auxDataBytes, encodeSync(blockBody.items[4]!))
+        : concat(txBodiesBytes, witnessesBytes, auxDataBytes);
 
     const computedHash = crypto.blake2b256(bodyBytes);
     if (hex(computedHash) !== hex(declaredBodyHash))
-      return yield* Effect.fail(new BlockValidationError({
-        assertion: "VerifyBodyHash",
-        cause: `Body hash mismatch: expected ${hex(declaredBodyHash)}, got ${hex(computedHash)}`,
-      }));
+      return yield* Effect.fail(
+        new BlockValidationError({
+          assertion: "VerifyBodyHash",
+          cause: `Body hash mismatch: expected ${hex(declaredBodyHash)}, got ${hex(computedHash)}`,
+        }),
+      );
   });
 
 /**
@@ -87,9 +93,11 @@ export const validateBlock = (
     yield* verifyBodyHash(blockCbor, declaredBodyHash);
 
     if (maxBlockBodySize > 0 && blockCbor.byteLength > maxBlockBodySize) {
-      yield* Effect.fail(new BlockValidationError({
-        assertion: "BlockSizeLimit",
-        cause: `Block size ${blockCbor.byteLength} exceeds max ${maxBlockBodySize}`,
-      }));
+      yield* Effect.fail(
+        new BlockValidationError({
+          assertion: "BlockSizeLimit",
+          cause: `Block size ${blockCbor.byteLength} exceeds max ${maxBlockBodySize}`,
+        }),
+      );
     }
   });

@@ -93,7 +93,12 @@ test.describe("Messaging", () => {
     await serviceWorker.evaluate(async () => {
       const result = await chrome.storage.session.get("syncState");
       const current = result.syncState ?? {};
-      const next = { ...Object(current), status: "bootstrapping", protocolMagic: 1, lastUpdated: Date.now() };
+      const next = {
+        ...Object(current),
+        status: "bootstrapping",
+        protocolMagic: 1,
+        lastUpdated: Date.now(),
+      };
       await chrome.storage.session.set({ syncState: next });
       // Broadcast via runtime message (the popup also listens on onMessage)
       await chrome.runtime.sendMessage({ type: "SYNC_STATE", state: next }).catch(() => {});
@@ -116,7 +121,11 @@ test.describe("Messaging", () => {
     await expect(popup.locator(".status-label")).toHaveText("idle", { timeout: 5_000 });
   });
 
-  test("storage.session persists state across popup opens", async ({ context, extensionId, serviceWorker }) => {
+  test("storage.session persists state across popup opens", async ({
+    context,
+    extensionId,
+    serviceWorker,
+  }) => {
     // Set state before opening popup
     await serviceWorker.evaluate(async () => {
       await chrome.storage.session.set({
@@ -142,7 +151,10 @@ test.describe("Messaging", () => {
     await expect(popup.locator(".network-badge")).toHaveText("preprod");
   });
 
-  test("unknown message types do not crash the service worker", async ({ context, extensionId }) => {
+  test("unknown message types do not crash the service worker", async ({
+    context,
+    extensionId,
+  }) => {
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
 

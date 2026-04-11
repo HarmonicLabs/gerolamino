@@ -1,11 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ChainTip, preferCandidate, gsmState } from "../chain-selection";
 
-const makeTip = (
-  slot: bigint,
-  blockNo: bigint,
-  vrfOutput?: Uint8Array,
-): ChainTip =>
+const makeTip = (slot: bigint, blockNo: bigint, vrfOutput?: Uint8Array): ChainTip =>
   new ChainTip({ slot, blockNo, hash: new Uint8Array(32), vrfOutput });
 
 describe("preferCandidate", () => {
@@ -33,13 +29,17 @@ describe("preferCandidate", () => {
   it("prefers lower VRF output at equal slot and blockNo", () => {
     const vrfLow = new Uint8Array(32).fill(0x01);
     const vrfHigh = new Uint8Array(32).fill(0xff);
-    expect(preferCandidate(makeTip(100n, 50n, vrfHigh), makeTip(100n, 50n, vrfLow), 1, k)).toBe(true);
+    expect(preferCandidate(makeTip(100n, 50n, vrfHigh), makeTip(100n, 50n, vrfLow), 1, k)).toBe(
+      true,
+    );
   });
 
   it("rejects higher VRF output at equal slot and blockNo", () => {
     const vrfLow = new Uint8Array(32).fill(0x01);
     const vrfHigh = new Uint8Array(32).fill(0xff);
-    expect(preferCandidate(makeTip(100n, 50n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(false);
+    expect(preferCandidate(makeTip(100n, 50n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(
+      false,
+    );
   });
 
   it("sticks with current when VRF outputs are equal", () => {
@@ -68,7 +68,9 @@ describe("preferCandidate", () => {
     const vrfHigh = new Uint8Array(32).fill(0xff);
     const vrfLow = new Uint8Array(32).fill(0x00);
     // candidate has higher blockNo but worse VRF — should still win
-    expect(preferCandidate(makeTip(100n, 40n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(true);
+    expect(preferCandidate(makeTip(100n, 40n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(
+      true,
+    );
   });
 
   // TestCompareChainsWithVRF: "equal block number - lower slot wins"
@@ -76,7 +78,9 @@ describe("preferCandidate", () => {
     const vrfHigh = new Uint8Array(32).fill(0xff);
     const vrfLow = new Uint8Array(32).fill(0x00);
     // candidate has lower slot (denser) but worse VRF — slot wins
-    expect(preferCandidate(makeTip(200n, 50n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(true);
+    expect(preferCandidate(makeTip(200n, 50n, vrfLow), makeTip(100n, 50n, vrfHigh), 1, k)).toBe(
+      true,
+    );
   });
 
   // TestCompareVRFOutputs: equal VRF → falls to slot tiebreaker

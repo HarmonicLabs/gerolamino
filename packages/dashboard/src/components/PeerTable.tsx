@@ -12,7 +12,7 @@ const columns: readonly TableColumn<PeerInfo>[] = [
   { header: "Peer", accessor: (p) => p.id },
   { header: "Status", accessor: (p) => p.status },
   { header: "Tip Slot", accessor: (p) => p.tipSlot.toString(), align: "right" },
-  { header: "Latency", accessor: (p) => p.latencyMs ? `${p.latencyMs}ms` : "--", align: "right" },
+  { header: "Latency", accessor: (p) => (p.latencyMs ? `${p.latencyMs}ms` : "--"), align: "right" },
 ];
 
 export const PeerTable = () => {
@@ -21,7 +21,9 @@ export const PeerTable = () => {
 
   return (
     <Box direction="column" gap={1}>
-      <Text size="md" weight="bold">Peers</Text>
+      <Text size="md" weight="bold">
+        Peers
+      </Text>
       <Table columns={columns} data={peers()} />
     </Box>
   );

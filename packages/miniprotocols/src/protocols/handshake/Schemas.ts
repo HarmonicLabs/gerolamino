@@ -1,7 +1,15 @@
 import { MultiplexerProtocolTypeSchema } from "../../multiplexer";
 import { Equivalence, Schema, SchemaGetter } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType, cborUint, cborArray, cborBool, cborText } from "cbor-schema";
+import {
+  CborSchemaFromBytes,
+  CborKinds,
+  type CborSchemaType,
+  cborUint,
+  cborArray,
+  cborBool,
+  cborText,
+} from "cbor-schema";
 
 // Base types
 export const VersionNumber = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0));
@@ -99,26 +107,28 @@ const isN2NVersionData = (
 
 const versionTableToCbor = (vt: VersionTable): CborSchemaType => ({
   _tag: CborKinds.Map,
-  entries: Object.entries(vt.data).map(([ver, vData]): { k: CborSchemaType; v: CborSchemaType } => ({
-    k: { _tag: CborKinds.UInt, num: BigInt(parseInt(ver, 10)) },
-    v: isN2NVersionData(vData)
-      ? {
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: BigInt(vData.networkMagic) },
-            { _tag: CborKinds.Simple, value: vData.initiatorOnlyDiffusionMode },
-            { _tag: CborKinds.UInt, num: BigInt(vData.peerSharing) },
-            { _tag: CborKinds.Simple, value: vData.query },
-          ],
-        }
-      : {
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: BigInt(vData.networkMagic) },
-            { _tag: CborKinds.Simple, value: vData.query },
-          ],
-        },
-  })),
+  entries: Object.entries(vt.data).map(
+    ([ver, vData]): { k: CborSchemaType; v: CborSchemaType } => ({
+      k: { _tag: CborKinds.UInt, num: BigInt(parseInt(ver, 10)) },
+      v: isN2NVersionData(vData)
+        ? {
+            _tag: CborKinds.Array,
+            items: [
+              { _tag: CborKinds.UInt, num: BigInt(vData.networkMagic) },
+              { _tag: CborKinds.Simple, value: vData.initiatorOnlyDiffusionMode },
+              { _tag: CborKinds.UInt, num: BigInt(vData.peerSharing) },
+              { _tag: CborKinds.Simple, value: vData.query },
+            ],
+          }
+        : {
+            _tag: CborKinds.Array,
+            items: [
+              { _tag: CborKinds.UInt, num: BigInt(vData.networkMagic) },
+              { _tag: CborKinds.Simple, value: vData.query },
+            ],
+          },
+    }),
+  ),
 });
 
 // CBOR Map { ver: [fields...] } → application { _tag, data: { ver: structFields } }

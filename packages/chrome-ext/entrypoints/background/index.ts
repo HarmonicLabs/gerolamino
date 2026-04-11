@@ -78,9 +78,7 @@ export default defineBackground({
         ),
         Schedule.exponential("5 seconds", 2).pipe(Schedule.take(5)),
       );
-    }).pipe(
-      Effect.provide(SyncStateRef.Live),
-    );
+    }).pipe(Effect.provide(SyncStateRef.Live));
 
     Effect.runFork(main);
   },

@@ -47,11 +47,16 @@ export const browserPrimitives: DashboardPrimitives = {
       style={{
         color: colorMap[props.color ?? "default"],
         "font-weight": props.weight === "bold" ? "bold" : "normal",
-        "font-size": props.size === "xs" ? "10px"
-          : props.size === "sm" ? "12px"
-          : props.size === "lg" ? "18px"
-          : props.size === "xl" ? "24px"
-          : "14px",
+        "font-size":
+          props.size === "xs"
+            ? "10px"
+            : props.size === "sm"
+              ? "12px"
+              : props.size === "lg"
+                ? "18px"
+                : props.size === "xl"
+                  ? "24px"
+                  : "14px",
       }}
     >
       {props.children}
@@ -231,7 +236,10 @@ export const browserPrimitives: DashboardPrimitives = {
   ScrollArea: (props) => (
     <div
       style={{
-        "max-height": typeof props.maxHeight === "number" ? `${props.maxHeight}px` : props.maxHeight ?? "400px",
+        "max-height":
+          typeof props.maxHeight === "number"
+            ? `${props.maxHeight}px`
+            : (props.maxHeight ?? "400px"),
         "overflow-y": "auto",
       }}
     >

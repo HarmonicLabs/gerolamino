@@ -47,8 +47,7 @@ export const getNodeStatus = Effect.gen(function* () {
   const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
   const tipBlock = Option.isSome(tipOpt) ? yield* chainDb.getBlockAt(tipOpt.value) : Option.none();
   const tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
-  const syncPercent =
-    currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
+  const syncPercent = currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
 
   const result: NodeStatus = {
     tipSlot,

@@ -37,7 +37,7 @@ let
         bootstrapPeers = [
           { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
         ];
-        localRoots = [];
+        localRoots = [ ];
         publicRoots = [{
           accessPoints = [
             { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
@@ -47,7 +47,8 @@ let
         }];
         useLedgerAfterSlot = -1;
       });
-    in lib.mkMerge [
+    in
+    lib.mkMerge [
       # =====================================================================
       # Base system — always included (no haskell.nix deps)
       # =====================================================================
@@ -192,42 +193,44 @@ let
         # --- Bootstrap Server Container ---
         # nix2container's copyToPodman uses skopeo (not Docker archive stream),
         # so we manage the container via systemd directly instead of oci-containers.
-        systemd.services."podman-bootstrap" = let
-          copyToPodman = self.packages.${pkgs.system}.bootstrap-image.copyToPodman;
-          bootstrapApp = self.packages.${pkgs.system}.bootstrap-app;
-        in {
-          description = "Bootstrap server (Podman)";
-          wantedBy = [ "multi-user.target" ];
-          after = [ "cardano-node.service" "podman.socket" ];
-          requires = [ "cardano-node.service" ];
-          unitConfig.ConditionPathIsDirectory = "/data/cardano-node/db/lsm";
+        systemd.services."podman-bootstrap" =
+          let
+            copyToPodman = self.packages.${pkgs.system}.bootstrap-image.copyToPodman;
+            bootstrapApp = self.packages.${pkgs.system}.bootstrap-app;
+          in
+          {
+            description = "Bootstrap server (Podman)";
+            wantedBy = [ "multi-user.target" ];
+            after = [ "cardano-node.service" "podman.socket" ];
+            requires = [ "cardano-node.service" ];
+            unitConfig.ConditionPathIsDirectory = "/data/cardano-node/db/lsm";
 
-          serviceConfig = {
-            Type = "simple";
-            TimeoutStartSec = "5min";
-            TimeoutStopSec = "30s";
-            Restart = "on-failure";
-            RestartSec = 60;
-            # Keep retrying — node may need hours to sync from genesis
-            StartLimitBurst = 0;
-            ExecStartPre = [
-              "-${pkgs.podman}/bin/podman rm -f bootstrap"
-              "${copyToPodman}/bin/copy-to-podman"
-            ];
-            ExecStart = lib.concatStringsSep " " [
-              "${pkgs.podman}/bin/podman run --rm --name bootstrap"
-              "-p 0.0.0.0:3040:3040"
-              "-v /data/cardano-node/db:/node-db:ro"
-              "-e PORT=3040"
-              "-e NODE_DB_PATH=/node-db"
-              "-e NETWORK=preprod"
-              "-e UPSTREAM_URL=tcp://127.0.0.1:3001"
-              "ghcr.io/harmoniclabs/bootstrap:latest"
-              "${bootstrapApp}/bin/bootstrap --db-path /node-db --network preprod"
-            ];
-            ExecStop = "${pkgs.podman}/bin/podman stop -t 10 bootstrap";
+            serviceConfig = {
+              Type = "simple";
+              TimeoutStartSec = "5min";
+              TimeoutStopSec = "30s";
+              Restart = "on-failure";
+              RestartSec = 60;
+              # Keep retrying — node may need hours to sync from genesis
+              StartLimitBurst = 0;
+              ExecStartPre = [
+                "-${pkgs.podman}/bin/podman rm -f bootstrap"
+                "${copyToPodman}/bin/copy-to-podman"
+              ];
+              ExecStart = lib.concatStringsSep " " [
+                "${pkgs.podman}/bin/podman run --rm --name bootstrap"
+                "-p 0.0.0.0:3040:3040"
+                "-v /data/cardano-node/db:/node-db:ro"
+                "-e PORT=3040"
+                "-e NODE_DB_PATH=/node-db"
+                "-e NETWORK=preprod"
+                "-e UPSTREAM_URL=tcp://127.0.0.1:3001"
+                "ghcr.io/harmoniclabs/bootstrap:latest"
+                "${bootstrapApp}/bin/bootstrap --db-path /node-db --network preprod"
+              ];
+              ExecStop = "${pkgs.podman}/bin/podman stop -t 10 bootstrap";
+            };
           };
-        };
       })
     ];
 
@@ -242,7 +245,8 @@ let
       (productionModule args)
     ];
   };
-in {
+in
+{
   # Full config — includes bootstrap server (triggers haskell.nix).
   # Used by deploy-rs with remoteBuild = true.
   flake.nixosConfigurations.production = mkSystem { enableBootstrap = true; };

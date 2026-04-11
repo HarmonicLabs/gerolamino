@@ -80,7 +80,9 @@ export const BlockHeader = Schema.Struct({
 });
 export type BlockHeader = typeof BlockHeader.Type;
 
-export function decodeBlockHeader(cbor: CborSchemaType): Effect.Effect<BlockHeader, SchemaIssue.Issue> {
+export function decodeBlockHeader(
+  cbor: CborSchemaType,
+): Effect.Effect<BlockHeader, SchemaIssue.Issue> {
   return Effect.gen(function* () {
     // Header: [headerBody, kesSignature]
     const headerItems = yield* expectArray(cbor, "Header", 2);
@@ -190,12 +192,16 @@ export type ByronMainHeader = typeof ByronMainHeader.Type;
  * Decode a Byron EBB header from CBOR AST.
  * CBOR: [protocolMagic, prevHash, bodyProof, [epochId, [difficulty]], extraData]
  */
-function decodeByronEbbHeader(cbor: CborSchemaType): Effect.Effect<ByronEbbHeader, SchemaIssue.Issue> {
+function decodeByronEbbHeader(
+  cbor: CborSchemaType,
+): Effect.Effect<ByronEbbHeader, SchemaIssue.Issue> {
   return Effect.gen(function* () {
     const items = yield* expectArray(cbor, "ByronEbbHeader");
     if (items.length < 4)
       return yield* Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `ByronEbbHeader: expected >=4 items, got ${items.length}` }),
+        new SchemaIssue.InvalidValue(Option.some(cbor), {
+          message: `ByronEbbHeader: expected >=4 items, got ${items.length}`,
+        }),
       );
 
     const protocolMagic = yield* expectUint(items[0]!, "ByronEbbHeader.protocolMagic");
@@ -207,9 +213,8 @@ function decodeByronEbbHeader(cbor: CborSchemaType): Effect.Effect<ByronEbbHeade
 
     // difficulty = [uint]
     const diffItems = yield* expectArray(consensusItems[1]!, "ByronEbbHeader.difficulty");
-    const blockNo = diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt
-      ? diffItems[0]!.num
-      : 0n;
+    const blockNo =
+      diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt ? diffItems[0]!.num : 0n;
 
     return { protocolMagic, prevHash, epoch, blockNo };
   });
@@ -219,12 +224,16 @@ function decodeByronEbbHeader(cbor: CborSchemaType): Effect.Effect<ByronEbbHeade
  * Decode a Byron main block header from CBOR AST.
  * CBOR: [protocolMagic, prevHash, bodyProof, [slotId, pubKey, difficulty, blockSig], extraData]
  */
-function decodeByronMainHeader(cbor: CborSchemaType): Effect.Effect<ByronMainHeader, SchemaIssue.Issue> {
+function decodeByronMainHeader(
+  cbor: CborSchemaType,
+): Effect.Effect<ByronMainHeader, SchemaIssue.Issue> {
   return Effect.gen(function* () {
     const items = yield* expectArray(cbor, "ByronMainHeader");
     if (items.length < 4)
       return yield* Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `ByronMainHeader: expected >=4 items, got ${items.length}` }),
+        new SchemaIssue.InvalidValue(Option.some(cbor), {
+          message: `ByronMainHeader: expected >=4 items, got ${items.length}`,
+        }),
       );
 
     const protocolMagic = yield* expectUint(items[0]!, "ByronMainHeader.protocolMagic");
@@ -234,7 +243,9 @@ function decodeByronMainHeader(cbor: CborSchemaType): Effect.Effect<ByronMainHea
     const consensusItems = yield* expectArray(items[3]!, "ByronMainHeader.consensusData");
     if (consensusItems.length < 3)
       return yield* Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(items[3]!), { message: `ByronMainHeader.consensusData: expected >=3 items, got ${consensusItems.length}` }),
+        new SchemaIssue.InvalidValue(Option.some(items[3]!), {
+          message: `ByronMainHeader.consensusData: expected >=3 items, got ${consensusItems.length}`,
+        }),
       );
 
     // slotId = [epoch, slotInEpoch]
@@ -244,9 +255,8 @@ function decodeByronMainHeader(cbor: CborSchemaType): Effect.Effect<ByronMainHea
 
     // difficulty (index 2) = [uint]
     const diffItems = yield* expectArray(consensusItems[2]!, "ByronMainHeader.difficulty");
-    const blockNo = diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt
-      ? diffItems[0]!.num
-      : 0n;
+    const blockNo =
+      diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt ? diffItems[0]!.num : 0n;
 
     return { protocolMagic, prevHash, epoch, slotInEpoch, blockNo };
   });
@@ -387,7 +397,9 @@ export function decodeMultiEraHeader(
     // Babbage-like (10-element, no nonceVrf) — only "babbage" | "conway" can reach here
     if (tag !== "babbage" && tag !== "conway") {
       return yield* Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), { message: `Unexpected tag in Babbage path: ${tag}` }),
+        new SchemaIssue.InvalidValue(Option.some(cbor), {
+          message: `Unexpected tag in Babbage path: ${tag}`,
+        }),
       );
     }
 

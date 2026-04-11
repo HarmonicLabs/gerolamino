@@ -201,7 +201,10 @@ struct ProjectivePoint {
 
 impl Identity for ProjectivePoint {
     fn identity() -> ProjectivePoint {
-        ProjectivePoint { U: FieldElement::one(), W: FieldElement::zero() }
+        ProjectivePoint {
+            U: FieldElement::one(),
+            W: FieldElement::zero(),
+        }
     }
 }
 
@@ -212,7 +215,11 @@ impl Default for ProjectivePoint {
 }
 
 impl ConditionallySelectable for ProjectivePoint {
-    fn conditional_select(a: &ProjectivePoint, b: &ProjectivePoint, choice: Choice) -> ProjectivePoint {
+    fn conditional_select(
+        a: &ProjectivePoint,
+        b: &ProjectivePoint,
+        choice: Choice,
+    ) -> ProjectivePoint {
         ProjectivePoint {
             U: FieldElement::conditional_select(&a.U, &b.U, choice),
             W: FieldElement::conditional_select(&a.W, &b.W, choice),
@@ -247,7 +254,11 @@ impl ProjectivePoint {
 /// $$
 ///     (U\_Q : W\_Q) \gets u(P + Q).
 /// $$
-fn differential_add_and_double(P: &mut ProjectivePoint, Q: &mut ProjectivePoint, affine_PmQ: &FieldElement) {
+fn differential_add_and_double(
+    P: &mut ProjectivePoint,
+    Q: &mut ProjectivePoint,
+    affine_PmQ: &FieldElement,
+) {
     let t0 = &P.U + &P.W;
     let t1 = &P.U - &P.W;
     let t2 = &Q.U + &Q.W;
@@ -285,8 +296,16 @@ fn differential_add_and_double(P: &mut ProjectivePoint, Q: &mut ProjectivePoint,
 
 define_mul_assign_variants!(LHS = MontgomeryPoint, RHS = Scalar);
 
-define_mul_variants!(LHS = MontgomeryPoint, RHS = Scalar, Output = MontgomeryPoint);
-define_mul_variants!(LHS = Scalar, RHS = MontgomeryPoint, Output = MontgomeryPoint);
+define_mul_variants!(
+    LHS = MontgomeryPoint,
+    RHS = Scalar,
+    Output = MontgomeryPoint
+);
+define_mul_variants!(
+    LHS = Scalar,
+    RHS = MontgomeryPoint,
+    Output = MontgomeryPoint
+);
 
 /// Multiply this `MontgomeryPoint` by a `Scalar`.
 impl<'a, 'b> Mul<&'b Scalar> for &'a MontgomeryPoint {
@@ -297,7 +316,10 @@ impl<'a, 'b> Mul<&'b Scalar> for &'a MontgomeryPoint {
         // Algorithm 8 of Costello-Smith 2017
         let affine_u = FieldElement::from_bytes(&self.0);
         let mut x0 = ProjectivePoint::identity();
-        let mut x1 = ProjectivePoint { U: affine_u, W: FieldElement::one() };
+        let mut x1 = ProjectivePoint {
+            U: affine_u,
+            W: FieldElement::one(),
+        };
 
         let bits: [i8; 256] = scalar.bits();
 
@@ -375,15 +397,24 @@ mod test {
     #[test]
     fn basepoint_montgomery_to_edwards() {
         // sign bit = 0 => basepoint
-        assert_eq!(constants::ED25519_BASEPOINT_POINT, constants::X25519_BASEPOINT.to_edwards(0).unwrap());
+        assert_eq!(
+            constants::ED25519_BASEPOINT_POINT,
+            constants::X25519_BASEPOINT.to_edwards(0).unwrap()
+        );
         // sign bit = 1 => minus basepoint
-        assert_eq!(-constants::ED25519_BASEPOINT_POINT, constants::X25519_BASEPOINT.to_edwards(1).unwrap());
+        assert_eq!(
+            -constants::ED25519_BASEPOINT_POINT,
+            constants::X25519_BASEPOINT.to_edwards(1).unwrap()
+        );
     }
 
     /// Test Edwards -> Montgomery on the X/Ed25519 basepoint
     #[test]
     fn basepoint_edwards_to_montgomery() {
-        assert_eq!(constants::ED25519_BASEPOINT_POINT.to_montgomery(), constants::X25519_BASEPOINT);
+        assert_eq!(
+            constants::ED25519_BASEPOINT_POINT.to_montgomery(),
+            constants::X25519_BASEPOINT
+        );
     }
 
     /// Check that Montgomery -> Edwards fails for points on the twist.
@@ -429,8 +460,9 @@ mod test {
     }
 
     const ELLIGATOR_CORRECT_OUTPUT: [u8; 32] = [
-        0x5f, 0x35, 0x20, 0x00, 0x1c, 0x6c, 0x99, 0x36, 0xa3, 0x12, 0x06, 0xaf, 0xe7, 0xc7, 0xac, 0x22, 0x4e, 0x88,
-        0x61, 0x61, 0x9b, 0xf9, 0x88, 0x72, 0x44, 0x49, 0x15, 0x89, 0x9d, 0x95, 0xf4, 0x6e,
+        0x5f, 0x35, 0x20, 0x00, 0x1c, 0x6c, 0x99, 0x36, 0xa3, 0x12, 0x06, 0xaf, 0xe7, 0xc7, 0xac,
+        0x22, 0x4e, 0x88, 0x61, 0x61, 0x9b, 0xf9, 0x88, 0x72, 0x44, 0x49, 0x15, 0x89, 0x9d, 0x95,
+        0xf4, 0x6e,
     ];
 
     #[test]

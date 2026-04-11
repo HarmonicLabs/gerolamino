@@ -44,9 +44,7 @@ export const NodeRpcHandlers = NodeRpcs.toLayer(
           return { ok: true };
         }),
 
-      StreamSyncState: () => Stream.unwrap(
-        Effect.map(syncState.subscribe, Stream.fromQueue),
-      ),
+      StreamSyncState: () => Stream.unwrap(Effect.map(syncState.subscribe, Stream.fromQueue)),
     });
   }),
 );
@@ -65,7 +63,4 @@ export const NodeRpcHandlers = NodeRpcs.toLayer(
  */
 export const RpcServerLive = RpcServer.layer(NodeRpcs, {
   disableFatalDefects: true,
-}).pipe(
-  Layer.provide(NodeRpcHandlers),
-  Layer.provide(layerServerProtocolChromePort),
-);
+}).pipe(Layer.provide(NodeRpcHandlers), Layer.provide(layerServerProtocolChromePort));

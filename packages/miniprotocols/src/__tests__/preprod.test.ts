@@ -97,17 +97,15 @@ it.live(
       const client = yield* ChainSyncClient;
       const intersect = yield* client.findIntersect([{ _tag: ChainPointType.Origin }]);
 
-      expect(
-        ChainSyncMessage.isAnyOf(["IntersectFound", "IntersectNotFound"])(intersect),
-      ).toBe(true);
+      expect(ChainSyncMessage.isAnyOf(["IntersectFound", "IntersectNotFound"])(intersect)).toBe(
+        true,
+      );
 
       yield* Effect.log(`FindIntersect: ${intersect._tag}`);
 
       const next = yield* client.requestNext();
 
-      expect(
-        ChainSyncMessage.isAnyOf(["RollForward", "RollBackward"])(next),
-      ).toBe(true);
+      expect(ChainSyncMessage.isAnyOf(["RollForward", "RollBackward"])(next)).toBe(true);
 
       if (ChainSyncMessage.guards.RollForward(next)) {
         expect(next.header).toBeInstanceOf(Uint8Array);

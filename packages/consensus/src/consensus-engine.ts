@@ -32,21 +32,20 @@ export class ConsensusEngine extends ServiceMap.Service<
 >()("consensus/ConsensusEngine") {}
 
 /** Default ConsensusEngine layer. Requires CryptoService. */
-export const ConsensusEngineLive: Layer.Layer<ConsensusEngine, never, CryptoService> =
-  Layer.effect(
-    ConsensusEngine,
-    Effect.gen(function* () {
-      const crypto = yield* CryptoService;
-      return {
-        validateHeader: (header: BlockHeader, view: LedgerView) =>
-          validateHeader(header, view).pipe(Effect.provideService(CryptoService, crypto)),
-        selectChain: (ours: ChainTip, candidate: ChainTip, forkDepth: number, k: number) =>
-          preferCandidate(ours, candidate, forkDepth, k),
-        getGsmState: (tipSlot: bigint, wallclockSlot: bigint, stabilityWindow: bigint) =>
-          gsmState(tipSlot, wallclockSlot, stabilityWindow),
-      };
-    }),
-  );
+export const ConsensusEngineLive: Layer.Layer<ConsensusEngine, never, CryptoService> = Layer.effect(
+  ConsensusEngine,
+  Effect.gen(function* () {
+    const crypto = yield* CryptoService;
+    return {
+      validateHeader: (header: BlockHeader, view: LedgerView) =>
+        validateHeader(header, view).pipe(Effect.provideService(CryptoService, crypto)),
+      selectChain: (ours: ChainTip, candidate: ChainTip, forkDepth: number, k: number) =>
+        preferCandidate(ours, candidate, forkDepth, k),
+      getGsmState: (tipSlot: bigint, wallclockSlot: bigint, stabilityWindow: bigint) =>
+        gsmState(tipSlot, wallclockSlot, stabilityWindow),
+    };
+  }),
+);
 
 /** Convenience: ConsensusEngine + CryptoService with Bun-native crypto (for testing). */
 export const ConsensusEngineWithBunCrypto: Layer.Layer<ConsensusEngine | CryptoService> =

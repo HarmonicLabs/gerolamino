@@ -320,7 +320,11 @@ impl<'a> Neg for &'a FieldElement2625 {
 }
 
 impl ConditionallySelectable for FieldElement2625 {
-    fn conditional_select(a: &FieldElement2625, b: &FieldElement2625, choice: Choice) -> FieldElement2625 {
+    fn conditional_select(
+        a: &FieldElement2625,
+        b: &FieldElement2625,
+        choice: Choice,
+    ) -> FieldElement2625 {
         FieldElement2625([
             u32::conditional_select(&a.0[0], &b.0[0], choice),
             u32::conditional_select(&a.0[1], &b.0[1], choice),
@@ -394,8 +398,8 @@ impl FieldElement2625 {
     /// Construct -1.
     pub fn minus_one() -> FieldElement2625 {
         FieldElement2625([
-            0x3ffffec, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff,
-            0x1ffffff,
+            0x3ffffec, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff, 0x3ffffff, 0x1ffffff,
+            0x3ffffff, 0x1ffffff,
         ])
     }
 
@@ -658,15 +662,38 @@ impl FieldElement2625 {
         // 64-bit multiplication by 2 on the results.  This is because lg(38) is too big: we would
         // have less than 1 bit of headroom left, which is too little.
         let mut z = [0u64; 10];
-        z[0] = m(x[0], x[0]) + m(x2_2, x8_19) + m(x4_2, x6_19) + (m(x1_2, x9_19) + m(x3_2, x7_19) + m(x[5], x5_19)) * 2;
-        z[1] = m(x0_2, x[1]) + m(x3_2, x8_19) + m(x5_2, x6_19) + (m(x[2], x9_19) + m(x[4], x7_19)) * 2;
-        z[2] = m(x0_2, x[2]) + m(x1_2, x[1]) + m(x4_2, x8_19) + m(x[6], x6_19) + (m(x3_2, x9_19) + m(x5_2, x7_19)) * 2;
-        z[3] = m(x0_2, x[3]) + m(x1_2, x[2]) + m(x5_2, x8_19) + (m(x[4], x9_19) + m(x[6], x7_19)) * 2;
-        z[4] = m(x0_2, x[4]) + m(x1_2, x3_2) + m(x[2], x[2]) + m(x6_2, x8_19) + (m(x5_2, x9_19) + m(x[7], x7_19)) * 2;
+        z[0] = m(x[0], x[0])
+            + m(x2_2, x8_19)
+            + m(x4_2, x6_19)
+            + (m(x1_2, x9_19) + m(x3_2, x7_19) + m(x[5], x5_19)) * 2;
+        z[1] =
+            m(x0_2, x[1]) + m(x3_2, x8_19) + m(x5_2, x6_19) + (m(x[2], x9_19) + m(x[4], x7_19)) * 2;
+        z[2] = m(x0_2, x[2])
+            + m(x1_2, x[1])
+            + m(x4_2, x8_19)
+            + m(x[6], x6_19)
+            + (m(x3_2, x9_19) + m(x5_2, x7_19)) * 2;
+        z[3] =
+            m(x0_2, x[3]) + m(x1_2, x[2]) + m(x5_2, x8_19) + (m(x[4], x9_19) + m(x[6], x7_19)) * 2;
+        z[4] = m(x0_2, x[4])
+            + m(x1_2, x3_2)
+            + m(x[2], x[2])
+            + m(x6_2, x8_19)
+            + (m(x5_2, x9_19) + m(x[7], x7_19)) * 2;
         z[5] = m(x0_2, x[5]) + m(x1_2, x[4]) + m(x2_2, x[3]) + m(x7_2, x8_19) + m(x[6], x9_19) * 2;
-        z[6] = m(x0_2, x[6]) + m(x1_2, x5_2) + m(x2_2, x[4]) + m(x3_2, x[3]) + m(x[8], x8_19) + m(x7_2, x9_19) * 2;
+        z[6] = m(x0_2, x[6])
+            + m(x1_2, x5_2)
+            + m(x2_2, x[4])
+            + m(x3_2, x[3])
+            + m(x[8], x8_19)
+            + m(x7_2, x9_19) * 2;
         z[7] = m(x0_2, x[7]) + m(x1_2, x[6]) + m(x2_2, x[5]) + m(x3_2, x[4]) + m(x[8], x9_19) * 2;
-        z[8] = m(x0_2, x[8]) + m(x1_2, x7_2) + m(x2_2, x[6]) + m(x3_2, x5_2) + m(x[4], x[4]) + m(x[9], x9_19) * 2;
+        z[8] = m(x0_2, x[8])
+            + m(x1_2, x7_2)
+            + m(x2_2, x[6])
+            + m(x3_2, x5_2)
+            + m(x[4], x[4])
+            + m(x[9], x9_19) * 2;
         z[9] = m(x0_2, x[9]) + m(x1_2, x[8]) + m(x2_2, x[7]) + m(x3_2, x[6]) + m(x4_2, x[5]);
 
         z

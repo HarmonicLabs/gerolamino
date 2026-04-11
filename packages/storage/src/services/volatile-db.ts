@@ -19,8 +19,12 @@ export class VolatileDB extends ServiceMap.Service<
   VolatileDB,
   {
     readonly addBlock: (block: StoredBlock) => Effect.Effect<void, VolatileDBError>;
-    readonly getBlock: (hash: Uint8Array) => Effect.Effect<Option.Option<StoredBlock>, VolatileDBError>;
-    readonly getSuccessors: (hash: Uint8Array) => Effect.Effect<ReadonlyArray<Uint8Array>, VolatileDBError>;
+    readonly getBlock: (
+      hash: Uint8Array,
+    ) => Effect.Effect<Option.Option<StoredBlock>, VolatileDBError>;
+    readonly getSuccessors: (
+      hash: Uint8Array,
+    ) => Effect.Effect<ReadonlyArray<Uint8Array>, VolatileDBError>;
     readonly garbageCollect: (belowSlot: number) => Effect.Effect<void, VolatileDBError>;
   }
 >()("storage/VolatileDB") {}

@@ -18,13 +18,10 @@
 import { Effect, Option, Schema, ServiceMap, Stream } from "effect";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
-export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()(
-  "ChainDBError",
-  {
-    operation: Schema.String,
-    cause: Schema.Defect,
-  },
-) {}
+export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()("ChainDBError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
 /** Result of a chain update — used by followers. */
 export type ChainUpdate =
@@ -37,10 +34,14 @@ export class ChainDB extends ServiceMap.Service<
     // --- Block lookups (volatile-first, then immutable) ---
 
     /** Get block by hash. Tries volatile first, then immutable. */
-    readonly getBlock: (hash: Uint8Array) => Effect.Effect<Option.Option<StoredBlock>, ChainDBError>;
+    readonly getBlock: (
+      hash: Uint8Array,
+    ) => Effect.Effect<Option.Option<StoredBlock>, ChainDBError>;
 
     /** Get block by slot + hash (exact point). */
-    readonly getBlockAt: (point: RealPoint) => Effect.Effect<Option.Option<StoredBlock>, ChainDBError>;
+    readonly getBlockAt: (
+      point: RealPoint,
+    ) => Effect.Effect<Option.Option<StoredBlock>, ChainDBError>;
 
     // --- Chain tip ---
 
@@ -61,14 +62,14 @@ export class ChainDB extends ServiceMap.Service<
     readonly rollback: (point: RealPoint) => Effect.Effect<void, ChainDBError>;
 
     /** Get all successor hashes of a block (for fork traversal). */
-    readonly getSuccessors: (hash: Uint8Array) => Effect.Effect<ReadonlyArray<Uint8Array>, ChainDBError>;
+    readonly getSuccessors: (
+      hash: Uint8Array,
+    ) => Effect.Effect<ReadonlyArray<Uint8Array>, ChainDBError>;
 
     // --- Iterators ---
 
     /** Stream blocks in slot order from a point to tip. Crosses immutable/volatile boundary. */
-    readonly streamFrom: (
-      from: RealPoint,
-    ) => Stream.Stream<StoredBlock, ChainDBError>;
+    readonly streamFrom: (from: RealPoint) => Stream.Stream<StoredBlock, ChainDBError>;
 
     // --- Immutable promotion ---
 

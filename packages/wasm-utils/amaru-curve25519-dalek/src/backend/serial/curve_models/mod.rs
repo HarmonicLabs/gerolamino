@@ -221,7 +221,11 @@ use traits::Identity;
 
 impl Identity for ProjectivePoint {
     fn identity() -> ProjectivePoint {
-        ProjectivePoint { X: FieldElement::zero(), Y: FieldElement::one(), Z: FieldElement::one() }
+        ProjectivePoint {
+            X: FieldElement::zero(),
+            Y: FieldElement::one(),
+            Z: FieldElement::one(),
+        }
     }
 }
 
@@ -244,7 +248,11 @@ impl Default for ProjectiveNielsPoint {
 
 impl Identity for AffineNielsPoint {
     fn identity() -> AffineNielsPoint {
-        AffineNielsPoint { y_plus_x: FieldElement::one(), y_minus_x: FieldElement::one(), xy2d: FieldElement::zero() }
+        AffineNielsPoint {
+            y_plus_x: FieldElement::one(),
+            y_minus_x: FieldElement::one(),
+            xy2d: FieldElement::zero(),
+        }
     }
 }
 
@@ -321,7 +329,12 @@ impl ProjectivePoint {
     ///
     /// This costs \\(3 \mathrm M + 1 \mathrm S\\).
     pub fn to_extended(&self) -> EdwardsPoint {
-        EdwardsPoint { X: &self.X * &self.Z, Y: &self.Y * &self.Z, Z: self.Z.square(), T: &self.X * &self.Y }
+        EdwardsPoint {
+            X: &self.X * &self.Z,
+            Y: &self.Y * &self.Z,
+            Z: self.Z.square(),
+            T: &self.X * &self.Y,
+        }
     }
 }
 
@@ -331,7 +344,11 @@ impl CompletedPoint {
     ///
     /// This costs \\(3 \mathrm M \\).
     pub fn to_projective(&self) -> ProjectivePoint {
-        ProjectivePoint { X: &self.X * &self.T, Y: &self.Y * &self.Z, Z: &self.Z * &self.T }
+        ProjectivePoint {
+            X: &self.X * &self.T,
+            Y: &self.Y * &self.Z,
+            Z: &self.Z * &self.T,
+        }
     }
 
     /// Convert this point from the \\( \mathbb P\^1 \times \mathbb P\^1
@@ -339,7 +356,12 @@ impl CompletedPoint {
     ///
     /// This costs \\(4 \mathrm M \\).
     pub fn to_extended(&self) -> EdwardsPoint {
-        EdwardsPoint { X: &self.X * &self.T, Y: &self.Y * &self.Z, Z: &self.Z * &self.T, T: &self.X * &self.Y }
+        EdwardsPoint {
+            X: &self.X * &self.T,
+            Y: &self.Y * &self.Z,
+            Z: &self.Z * &self.T,
+            T: &self.X * &self.Y,
+        }
     }
 }
 
@@ -359,7 +381,12 @@ impl ProjectivePoint {
         let YY_plus_XX = &YY + &XX;
         let YY_minus_XX = &YY - &XX;
 
-        CompletedPoint { X: &X_plus_Y_sq - &YY_plus_XX, Y: YY_plus_XX, Z: YY_minus_XX, T: &ZZ2 - &YY_minus_XX }
+        CompletedPoint {
+            X: &X_plus_Y_sq - &YY_plus_XX,
+            Y: YY_plus_XX,
+            Z: YY_minus_XX,
+            T: &ZZ2 - &YY_minus_XX,
+        }
     }
 }
 
@@ -386,7 +413,12 @@ impl<'a, 'b> Add<&'b ProjectiveNielsPoint> for &'a EdwardsPoint {
         let ZZ = &self.Z * &other.Z;
         let ZZ2 = &ZZ + &ZZ;
 
-        CompletedPoint { X: &PP - &MM, Y: &PP + &MM, Z: &ZZ2 + &TT2d, T: &ZZ2 - &TT2d }
+        CompletedPoint {
+            X: &PP - &MM,
+            Y: &PP + &MM,
+            Z: &ZZ2 + &TT2d,
+            T: &ZZ2 - &TT2d,
+        }
     }
 }
 
@@ -403,7 +435,12 @@ impl<'a, 'b> Sub<&'b ProjectiveNielsPoint> for &'a EdwardsPoint {
         let ZZ = &self.Z * &other.Z;
         let ZZ2 = &ZZ + &ZZ;
 
-        CompletedPoint { X: &PM - &MP, Y: &PM + &MP, Z: &ZZ2 - &TT2d, T: &ZZ2 + &TT2d }
+        CompletedPoint {
+            X: &PM - &MP,
+            Y: &PM + &MP,
+            Z: &ZZ2 - &TT2d,
+            T: &ZZ2 + &TT2d,
+        }
     }
 }
 
@@ -419,7 +456,12 @@ impl<'a, 'b> Add<&'b AffineNielsPoint> for &'a EdwardsPoint {
         let Txy2d = &self.T * &other.xy2d;
         let Z2 = &self.Z + &self.Z;
 
-        CompletedPoint { X: &PP - &MM, Y: &PP + &MM, Z: &Z2 + &Txy2d, T: &Z2 - &Txy2d }
+        CompletedPoint {
+            X: &PP - &MM,
+            Y: &PP + &MM,
+            Z: &Z2 + &Txy2d,
+            T: &Z2 - &Txy2d,
+        }
     }
 }
 
@@ -435,7 +477,12 @@ impl<'a, 'b> Sub<&'b AffineNielsPoint> for &'a EdwardsPoint {
         let Txy2d = &self.T * &other.xy2d;
         let Z2 = &self.Z + &self.Z;
 
-        CompletedPoint { X: &PM - &MP, Y: &PM + &MP, Z: &Z2 - &Txy2d, T: &Z2 + &Txy2d }
+        CompletedPoint {
+            X: &PM - &MP,
+            Y: &PM + &MP,
+            Z: &Z2 - &Txy2d,
+            T: &Z2 + &Txy2d,
+        }
     }
 }
 
@@ -447,7 +494,12 @@ impl<'a> Neg for &'a ProjectiveNielsPoint {
     type Output = ProjectiveNielsPoint;
 
     fn neg(self) -> ProjectiveNielsPoint {
-        ProjectiveNielsPoint { Y_plus_X: self.Y_minus_X, Y_minus_X: self.Y_plus_X, Z: self.Z, T2d: -(&self.T2d) }
+        ProjectiveNielsPoint {
+            Y_plus_X: self.Y_minus_X,
+            Y_minus_X: self.Y_plus_X,
+            Z: self.Z,
+            T2d: -(&self.T2d),
+        }
     }
 }
 
@@ -455,7 +507,11 @@ impl<'a> Neg for &'a AffineNielsPoint {
     type Output = AffineNielsPoint;
 
     fn neg(self) -> AffineNielsPoint {
-        AffineNielsPoint { y_plus_x: self.y_minus_x, y_minus_x: self.y_plus_x, xy2d: -(&self.xy2d) }
+        AffineNielsPoint {
+            y_plus_x: self.y_minus_x,
+            y_minus_x: self.y_plus_x,
+            xy2d: -(&self.xy2d),
+        }
     }
 }
 
@@ -465,7 +521,11 @@ impl<'a> Neg for &'a AffineNielsPoint {
 
 impl Debug for ProjectivePoint {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-        write!(f, "ProjectivePoint{{\n\tX: {:?},\n\tY: {:?},\n\tZ: {:?}\n}}", &self.X, &self.Y, &self.Z)
+        write!(
+            f,
+            "ProjectivePoint{{\n\tX: {:?},\n\tY: {:?},\n\tZ: {:?}\n}}",
+            &self.X, &self.Y, &self.Z
+        )
     }
 }
 

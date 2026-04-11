@@ -41,24 +41,20 @@ const be16 = (n: number): Uint8Array => {
 };
 
 /** UTxO key: `utxo` + TxIn (34B MemPack: 32B txId + 2B LE index). */
-export const utxoKey = (txIn: Uint8Array): Uint8Array =>
-  concat(PREFIX_UTXO, txIn);
+export const utxoKey = (txIn: Uint8Array): Uint8Array => concat(PREFIX_UTXO, txIn);
 
 /** Block blob key: `blk:` + slot (8B BE) + hash (32B). */
 export const blockKey = (slot: bigint, hash: Uint8Array): Uint8Array =>
   concat(PREFIX_BLK, be64(slot), hash);
 
 /** Block index key: `bidx` + blockNo (8B BE). */
-export const blockIndexKey = (blockNo: bigint): Uint8Array =>
-  concat(PREFIX_BIDX, be64(blockNo));
+export const blockIndexKey = (blockNo: bigint): Uint8Array => concat(PREFIX_BIDX, be64(blockNo));
 
 /** Stake distribution key: `stak` + pool_hash (28B). */
-export const stakeKey = (poolHash: Uint8Array): Uint8Array =>
-  concat(PREFIX_STAK, poolHash);
+export const stakeKey = (poolHash: Uint8Array): Uint8Array => concat(PREFIX_STAK, poolHash);
 
 /** Account key: `acct` + stake_addr (28B). */
-export const accountKey = (stakeAddr: Uint8Array): Uint8Array =>
-  concat(PREFIX_ACCT, stakeAddr);
+export const accountKey = (stakeAddr: Uint8Array): Uint8Array => concat(PREFIX_ACCT, stakeAddr);
 
 /** CBOR offset key: `coff` + slot (8B BE) + tx_idx (2B BE). */
 export const cborOffsetKey = (slot: bigint, txIdx: number): Uint8Array =>
@@ -77,11 +73,4 @@ export const prefixEnd = (prefix: Uint8Array): Uint8Array => {
   return new Uint8Array(0);
 };
 
-export {
-  PREFIX_UTXO,
-  PREFIX_BLK,
-  PREFIX_BIDX,
-  PREFIX_STAK,
-  PREFIX_ACCT,
-  PREFIX_COFF,
-};
+export { PREFIX_UTXO, PREFIX_BLK, PREFIX_BIDX, PREFIX_STAK, PREFIX_ACCT, PREFIX_COFF };

@@ -333,13 +333,20 @@ export function matchMessage<R>(
   },
 ): R {
   switch (msg.tag) {
-    case MessageTag.Init: return handlers.Init(msg);
-    case MessageTag.Block: return handlers.Block(msg);
-    case MessageTag.LedgerState: return handlers.LedgerState(msg);
-    case MessageTag.LedgerMeta: return handlers.LedgerMeta(msg);
-    case MessageTag.BlobEntries: return handlers.BlobEntries(msg);
-    case MessageTag.Progress: return handlers.Progress(msg);
-    case MessageTag.Complete: return handlers.Complete(msg);
+    case MessageTag.Init:
+      return handlers.Init(msg);
+    case MessageTag.Block:
+      return handlers.Block(msg);
+    case MessageTag.LedgerState:
+      return handlers.LedgerState(msg);
+    case MessageTag.LedgerMeta:
+      return handlers.LedgerMeta(msg);
+    case MessageTag.BlobEntries:
+      return handlers.BlobEntries(msg);
+    case MessageTag.Progress:
+      return handlers.Progress(msg);
+    case MessageTag.Complete:
+      return handlers.Complete(msg);
   }
 }
 

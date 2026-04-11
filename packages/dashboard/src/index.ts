@@ -33,10 +33,7 @@ export {
 } from "./atoms";
 
 // Primitives (platform abstraction)
-export {
-  PrimitivesProvider,
-  usePrimitives,
-} from "./primitives.ts";
+export { PrimitivesProvider, usePrimitives } from "./primitives.ts";
 export type {
   DashboardPrimitives,
   BoxProps,

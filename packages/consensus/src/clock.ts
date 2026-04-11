@@ -33,27 +33,20 @@ export class SlotConfig extends Schema.TaggedClass<SlotConfig>()("SlotConfig", {
 /** Read SlotConfig from Effect Config (environment variables). */
 export const SlotConfigFromEnv = Config.all({
   systemStartMs: Config.number("CARDANO_SYSTEM_START_MS"),
-  slotLengthMs: Config.number("CARDANO_SLOT_LENGTH_MS").pipe(
-    Config.withDefault(1000),
-  ),
-  epochLength: Config.number("CARDANO_EPOCH_LENGTH").pipe(
-    Config.withDefault(432000),
-  ),
-  securityParam: Config.number("CARDANO_SECURITY_PARAM").pipe(
-    Config.withDefault(2160),
-  ),
-  activeSlotsCoeff: Config.number("CARDANO_ACTIVE_SLOTS_COEFF").pipe(
-    Config.withDefault(0.05),
-  ),
+  slotLengthMs: Config.number("CARDANO_SLOT_LENGTH_MS").pipe(Config.withDefault(1000)),
+  epochLength: Config.number("CARDANO_EPOCH_LENGTH").pipe(Config.withDefault(432000)),
+  securityParam: Config.number("CARDANO_SECURITY_PARAM").pipe(Config.withDefault(2160)),
+  activeSlotsCoeff: Config.number("CARDANO_ACTIVE_SLOTS_COEFF").pipe(Config.withDefault(0.05)),
 }).pipe(
-  Config.map((c) =>
-    new SlotConfig({
-      systemStartMs: c.systemStartMs,
-      slotLengthMs: c.slotLengthMs,
-      epochLength: BigInt(c.epochLength),
-      securityParam: c.securityParam,
-      activeSlotsCoeff: c.activeSlotsCoeff,
-    }),
+  Config.map(
+    (c) =>
+      new SlotConfig({
+        systemStartMs: c.systemStartMs,
+        slotLengthMs: c.slotLengthMs,
+        epochLength: BigInt(c.epochLength),
+        securityParam: c.securityParam,
+        activeSlotsCoeff: c.activeSlotsCoeff,
+      }),
   ),
 );
 
@@ -117,8 +110,12 @@ export const SlotClockLive = (config: SlotConfig) =>
 
     return {
       currentSlot: clock.currentTimeMillis.pipe(Effect.map((ms) => msToSlot(Number(ms)))),
-      currentEpoch: clock.currentTimeMillis.pipe(Effect.map((ms) => slotToEpoch(msToSlot(Number(ms))))),
-      slotInEpoch: clock.currentTimeMillis.pipe(Effect.map((ms) => slotWithinEpoch(msToSlot(Number(ms))))),
+      currentEpoch: clock.currentTimeMillis.pipe(
+        Effect.map((ms) => slotToEpoch(msToSlot(Number(ms)))),
+      ),
+      slotInEpoch: clock.currentTimeMillis.pipe(
+        Effect.map((ms) => slotWithinEpoch(msToSlot(Number(ms)))),
+      ),
       slotToMs,
       msToSlot,
       slotToEpoch,

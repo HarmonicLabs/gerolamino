@@ -76,8 +76,10 @@ export const makeClientProtocolChromePort: Effect.Effect<
 /**
  * Layer providing RPC client protocol via globalThis.chrome.runtime.Port.
  */
-export const layerClientProtocolChromePort: Layer.Layer<RpcClient.Protocol> =
-  Layer.effect(RpcClient.Protocol, makeClientProtocolChromePort);
+export const layerClientProtocolChromePort: Layer.Layer<RpcClient.Protocol> = Layer.effect(
+  RpcClient.Protocol,
+  makeClientProtocolChromePort,
+);
 
 // ---------------------------------------------------------------------------
 // Server Protocol — background service worker side (accepts popup connections)
@@ -169,5 +171,7 @@ export const makeServerProtocolChromePort: Effect.Effect<
 /**
  * Layer providing RPC server protocol via globalThis.chrome.runtime.Port.
  */
-export const layerServerProtocolChromePort: Layer.Layer<RpcServer.Protocol> =
-  Layer.effect(RpcServer.Protocol, makeServerProtocolChromePort);
+export const layerServerProtocolChromePort: Layer.Layer<RpcServer.Protocol> = Layer.effect(
+  RpcServer.Protocol,
+  makeServerProtocolChromePort,
+);

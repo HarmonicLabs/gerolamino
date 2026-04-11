@@ -28,9 +28,7 @@ function resolveChromium(): string {
     try {
       return execSync("which chromium-browser", { encoding: "utf-8" }).trim();
     } catch {
-      throw new Error(
-        "Chromium not found. Install via nixpkgs or set CHROMIUM_PATH.",
-      );
+      throw new Error("Chromium not found. Install via nixpkgs or set CHROMIUM_PATH.");
     }
   }
 }

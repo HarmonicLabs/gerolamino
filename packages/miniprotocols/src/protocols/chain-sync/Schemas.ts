@@ -135,19 +135,31 @@ export const ChainSyncMessageBytes = CborSchemaFromBytes.pipe(
                     }
                   }
                   const inner = content.items[1]!;
-                  if (inner._tag === CborKinds.Tag && inner.tag === 24n && inner.data._tag === CborKinds.Bytes) {
+                  if (
+                    inner._tag === CborKinds.Tag &&
+                    inner.tag === 24n &&
+                    inner.data._tag === CborKinds.Bytes
+                  ) {
                     headerBytes = inner.data.bytes;
                   } else {
                     headerBytes = encodeSync(inner);
                   }
-                } else if (content._tag === CborKinds.Tag && content.tag === 24n && content.data._tag === CborKinds.Bytes) {
+                } else if (
+                  content._tag === CborKinds.Tag &&
+                  content.tag === 24n &&
+                  content.data._tag === CborKinds.Bytes
+                ) {
                   headerBytes = content.data.bytes;
                 } else {
                   headerBytes = encodeSync(content);
                 }
               } else {
                 // Shelley+ (variant 1-6): content = Tag(24, headerBytes)
-                if (content._tag === CborKinds.Tag && content.tag === 24n && content.data._tag === CborKinds.Bytes) {
+                if (
+                  content._tag === CborKinds.Tag &&
+                  content.tag === 24n &&
+                  content.data._tag === CborKinds.Bytes
+                ) {
                   headerBytes = content.data.bytes;
                 } else if (content._tag === CborKinds.Bytes) {
                   headerBytes = content.bytes;
@@ -159,7 +171,11 @@ export const ChainSyncMessageBytes = CborSchemaFromBytes.pipe(
               // Fallback: not an era-tagged wrapper, treat as raw header
               headerBytes = encodeSync(wrappedHeader);
             }
-          } else if (wrappedHeader?._tag === CborKinds.Tag && wrappedHeader.tag === 24n && wrappedHeader.data._tag === CborKinds.Bytes) {
+          } else if (
+            wrappedHeader?._tag === CborKinds.Tag &&
+            wrappedHeader.tag === 24n &&
+            wrappedHeader.data._tag === CborKinds.Bytes
+          ) {
             // Direct Tag(24, Bytes) without era wrapper (N2C or legacy)
             headerBytes = wrappedHeader.data.bytes;
           } else if (wrappedHeader?._tag === CborKinds.Bytes) {
@@ -237,10 +253,18 @@ export const ChainSyncMessageBytes = CborSchemaFromBytes.pipe(
                             { _tag: CborKinds.UInt, num: m.byronPrefix[1] },
                           ],
                         },
-                        { _tag: CborKinds.Tag, tag: 24n, data: { _tag: CborKinds.Bytes, bytes: m.header } },
+                        {
+                          _tag: CborKinds.Tag,
+                          tag: 24n,
+                          data: { _tag: CborKinds.Bytes, bytes: m.header },
+                        },
                       ],
                     }
-                  : { _tag: CborKinds.Tag, tag: 24n, data: { _tag: CborKinds.Bytes, bytes: m.header } },
+                  : {
+                      _tag: CborKinds.Tag,
+                      tag: 24n,
+                      data: { _tag: CborKinds.Bytes, bytes: m.header },
+                    },
               ],
             },
             encodeChainTip(m.tip),

@@ -21,11 +21,22 @@ const makeVk = (seed: number): Uint8Array => {
 const makeHeader = (overrides?: Partial<BlockHeader>): BlockHeader => {
   const issuerVk = makeVk(1);
   return {
-    slot: 100n, blockNo: 50n, hash: new Uint8Array(32), prevHash: new Uint8Array(32),
-    issuerVk, vrfVk: makeVk(2), vrfProof: new Uint8Array(80), vrfOutput: new Uint8Array(32),
-    nonceVrfOutput: new Uint8Array(32), kesSig: new Uint8Array(448), kesPeriod: 10,
-    opcertSig: new Uint8Array(64), opcertVkHot: new Uint8Array(32),
-    opcertSeqNo: 5, opcertKesPeriod: 5, bodyHash: new Uint8Array(32),
+    slot: 100n,
+    blockNo: 50n,
+    hash: new Uint8Array(32),
+    prevHash: new Uint8Array(32),
+    issuerVk,
+    vrfVk: makeVk(2),
+    vrfProof: new Uint8Array(80),
+    vrfOutput: new Uint8Array(32),
+    nonceVrfOutput: new Uint8Array(32),
+    kesSig: new Uint8Array(448),
+    kesPeriod: 10,
+    opcertSig: new Uint8Array(64),
+    opcertVkHot: new Uint8Array(32),
+    opcertSeqNo: 5,
+    opcertKesPeriod: 5,
+    bodyHash: new Uint8Array(32),
     headerBodyCbor: new Uint8Array(32),
     ...overrides,
   };
@@ -37,7 +48,9 @@ const makeView = (header: BlockHeader, overrides?: Partial<LedgerView>): LedgerV
     epochNonce: new Uint8Array(32),
     poolVrfKeys: HashMap.make([poolId, header.vrfVk]),
     poolStake: HashMap.make([poolId, 1_000_000n]),
-    totalStake: 10_000_000n, activeSlotsCoeff: 0.05, maxKesEvolutions: 62,
+    totalStake: 10_000_000n,
+    activeSlotsCoeff: 0.05,
+    maxKesEvolutions: 62,
     ...overrides,
   };
 };
@@ -54,14 +67,18 @@ describe("validateHeader", () => {
 
   it("fails when pool VRF key is not registered", async () => {
     const header = makeHeader();
-    const result = await run(validateHeader(header, makeView(header, { poolVrfKeys: HashMap.empty() })));
+    const result = await run(
+      validateHeader(header, makeView(header, { poolVrfKeys: HashMap.empty() })),
+    );
     expect(Exit.isFailure(result)).toBe(true);
   });
 
   it("fails when VRF key doesn't match", async () => {
     const header = makeHeader();
     const poolId = poolIdFromVk(header.issuerVk);
-    const result = await run(validateHeader(header, makeView(header, { poolVrfKeys: HashMap.make([poolId, makeVk(99)]) })));
+    const result = await run(
+      validateHeader(header, makeView(header, { poolVrfKeys: HashMap.make([poolId, makeVk(99)]) })),
+    );
     expect(Exit.isFailure(result)).toBe(true);
   });
 
@@ -108,9 +125,7 @@ describe("validateHeader", () => {
 
   it("fails when total stake is zero", async () => {
     const header = makeHeader();
-    const result = await run(
-      validateHeader(header, makeView(header, { totalStake: 0n })),
-    );
+    const result = await run(validateHeader(header, makeView(header, { totalStake: 0n })));
     expect(Exit.isFailure(result)).toBe(true);
   });
 
@@ -125,17 +140,13 @@ describe("validateHeader", () => {
   it("fails when KES period is at max evolutions", async () => {
     // maxKesEvolutions=62, opcertKesPeriod=0, kesPeriod=62 → delta=62 ≥ max
     const header = makeHeader({ kesPeriod: 62, opcertKesPeriod: 0 });
-    const result = await run(
-      validateHeader(header, makeView(header, { maxKesEvolutions: 62 })),
-    );
+    const result = await run(validateHeader(header, makeView(header, { maxKesEvolutions: 62 })));
     expect(Exit.isFailure(result)).toBe(true);
   });
 
   it("passes when KES period is one below max evolutions", async () => {
     const header = makeHeader({ kesPeriod: 61, opcertKesPeriod: 0 });
-    const result = await run(
-      validateHeader(header, makeView(header, { maxKesEvolutions: 62 })),
-    );
+    const result = await run(validateHeader(header, makeView(header, { maxKesEvolutions: 62 })));
     expect(Exit.isSuccess(result)).toBe(true);
   });
 

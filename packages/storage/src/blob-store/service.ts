@@ -9,13 +9,10 @@
  */
 import { Effect, Option, Schema, ServiceMap, Stream } from "effect";
 
-export class BlobStoreError extends Schema.TaggedErrorClass<BlobStoreError>()(
-  "BlobStoreError",
-  {
-    operation: Schema.String,
-    cause: Schema.Defect,
-  },
-) {}
+export class BlobStoreError extends Schema.TaggedErrorClass<BlobStoreError>()("BlobStoreError", {
+  operation: Schema.String,
+  cause: Schema.Defect,
+}) {}
 
 export class BlobStore extends ServiceMap.Service<
   BlobStore,

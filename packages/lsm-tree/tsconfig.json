@@ -1,21 +1,13 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "skipLibCheck": true,
-    "target": "ESNext",
-    "module": "ESNext",
-    "lib": ["ESNext"],
+    "module": "Preserve",
     "moduleResolution": "bundler",
-    "strict": true,
-    "isolatedModules": true,
-    "esModuleInterop": true,
-    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "forceConsistentCasingInFileNames": true,
-    "paths": {
-      "storage/*": ["../storage/src/*"]
-    }
+    "noUnusedParameters": false
   },
   "include": ["./src/**/*.ts", "../../node_modules/@types/bun/index.d.ts"],
   "exclude": ["dist", "node_modules", "pkg"]

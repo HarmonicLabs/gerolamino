@@ -1,6 +1,6 @@
 # Gerolamino
 
-In-browser Cardano node. An Nx monorepo with reproducible Nix builds.
+In-browser Cardano node. A Bun workspaces monorepo with reproducible Nix builds.
 
 ## Quick start
 
@@ -12,7 +12,7 @@ nix develop
 bun install
 
 # Build all TypeScript packages
-bunx nx run-many --target=build --all
+bunx --bun tsc --build
 ```
 
 ## Packages
@@ -30,7 +30,7 @@ bunx nx run-many --target=build --all
 
 ## Building with Nix
 
-All packages are built reproducibly with Nix. The TypeScript packages use bun2nix for dependency management and Nx for build orchestration. The Rust packages use Crane.
+All packages are built reproducibly with Nix. The TypeScript packages use bun2nix for dependency management and tsc --build for type-checking. The Rust packages use Crane.
 
 ```bash
 # Build the bootstrap server app
@@ -91,7 +91,7 @@ The CI runner uses a custom Arch Linux container with Determinate Nix (`ghcr.io/
 flake.nix                 # Nix flake (flake-parts)
 nix/
   packages/               # Nix package derivations
-    ts-packages.nix        # bun2nix + Nx TypeScript build
+    ts-packages.nix        # bun2nix + tsc --build TypeScript build
     bootstrap-image.nix    # OCI container image
     wasm-plexer.nix        # Rust WASM (Crane)
     wasm-utils.nix         # Rust WASM (Crane)

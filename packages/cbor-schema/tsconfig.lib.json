@@ -5,7 +5,9 @@
     "rootDir": "./src",
     "composite": true,
     "declaration": true,
-    "noEmit": false
+    "declarationMap": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true
   },
   "include": ["./src/**/*"],
   "exclude": ["**/__tests__/**/*", "**/*.test.ts", "**/*.spec.ts"]

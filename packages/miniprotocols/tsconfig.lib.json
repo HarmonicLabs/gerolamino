@@ -4,7 +4,10 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "composite": true,
-    "declaration": true
+    "declaration": true,
+    "declarationMap": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true
   },
   "include": ["./src/**/*"],
   "exclude": ["**/__tests__/**/*", "**/*.test.ts", "**/*.spec.ts", "**/*.bench.ts"],

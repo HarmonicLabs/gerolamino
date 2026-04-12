@@ -4,10 +4,9 @@
  * Requires LIBLSM_BRIDGE_PATH env var pointing to liblsm-bridge.so.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { Effect, Stream } from "effect";
-import { BlobStore } from "../../../storage/src/blob-store/service";
+import { Effect, Option } from "effect";
+import { BlobStore, utxoKey } from "storage";
 import { layerLsm } from "../layer-lsm";
-import { utxoKey } from "../../../storage/src/blob-store/keys";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -38,7 +37,7 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
         const key = new Uint8Array([1, 2, 3, 4]);
         const value = new Uint8Array([10, 20, 30]);
         yield* store.put(key, value);
-        return yield* store.get(key);
+        return Option.getOrUndefined(yield* store.get(key));
       }),
     );
     expect(result).toEqual(new Uint8Array([10, 20, 30]));
@@ -48,7 +47,7 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
     const result = await run(
       Effect.gen(function* () {
         const store = yield* BlobStore;
-        return yield* store.get(new Uint8Array([99, 99]));
+        return Option.getOrUndefined(yield* store.get(new Uint8Array([99, 99])));
       }),
     );
     expect(result).toBeUndefined();
@@ -98,9 +97,9 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
           { key: new Uint8Array([2]), value: new Uint8Array([20]) },
           { key: new Uint8Array([3]), value: new Uint8Array([30]) },
         ]);
-        const v1 = yield* store.get(new Uint8Array([1]));
-        const v2 = yield* store.get(new Uint8Array([2]));
-        const v3 = yield* store.get(new Uint8Array([3]));
+        const v1 = Option.getOrUndefined(yield* store.get(new Uint8Array([1])));
+        const v2 = Option.getOrUndefined(yield* store.get(new Uint8Array([2])));
+        const v3 = Option.getOrUndefined(yield* store.get(new Uint8Array([3])));
         return [v1, v2, v3];
       }),
     );
@@ -133,7 +132,7 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
         const key = utxoKey(txIn);
         const value = new Uint8Array([0xbb, 0xcc]);
         yield* store.put(key, value);
-        return yield* store.get(key);
+        return Option.getOrUndefined(yield* store.get(key));
       }),
     );
     expect(result).toEqual(new Uint8Array([0xbb, 0xcc]));
@@ -148,7 +147,7 @@ describe.skipIf(skip)("BlobStore LSM layer", () => {
         const store = yield* BlobStore;
         const key = new Uint8Array([42]);
         yield* store.put(key, largeValue);
-        return yield* store.get(key);
+        return Option.getOrUndefined(yield* store.get(key));
       }),
     );
     expect(result).toEqual(largeValue);

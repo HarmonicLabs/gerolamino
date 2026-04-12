@@ -1,5 +1,5 @@
-# Unified TypeScript package build using bun2nix + Nx.
-# Builds all TS packages in dependency order via `bunx nx run-many`.
+# Unified TypeScript package build using bun2nix + tsc --build.
+# Builds all TS packages in dependency order via project references.
 { inputs, root, ... }: {
   perSystem = { lib, self', pkgs, inputs', ... }:
     let
@@ -9,7 +9,7 @@
         bunNix = root + "/bun.nix";
       };
 
-      # Only include what Nx + tsc need — no tests, no db, no .git
+      # Only include what tsc --build needs — no tests, no db, no .git
       monorepoSrc = lib.fileset.toSource {
         inherit root;
         fileset = lib.fileset.unions [
@@ -18,7 +18,6 @@
           (root + "/bun.lock")
           (root + "/tsconfig.base.json")
           (root + "/tsconfig.json")
-          (root + "/nx.json")
 
           # TypeScript library packages (source + config)
           (root + "/packages/cbor-schema/src")
@@ -43,7 +42,6 @@
 
           # Workspace package.json files for Bun workspace resolution
           (root + "/packages/wasm-plexer/package.json")
-          (root + "/packages/wasm-plexer/project.json")
           (root + "/packages/wasm-utils/package.json")
           (root + "/packages/bootstrap/package.json")
           (root + "/packages/chrome-ext/package.json")
@@ -84,11 +82,11 @@
         buildPhase = ''
           runHook preBuild
 
-          bunx --bun nx run-many \
-            --target=build \
-            --projects=cbor-schema,ledger,storage,miniprotocols \
-            --parallel \
-            --skip-nx-cache
+          bunx --bun tsc --build \
+            packages/cbor-schema/tsconfig.lib.json \
+            packages/storage/tsconfig.lib.json \
+            packages/ledger/tsconfig.lib.json \
+            packages/miniprotocols/tsconfig.lib.json
 
           runHook postBuild
         '';

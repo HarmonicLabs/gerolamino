@@ -26,7 +26,6 @@
           (root + "/bun.lock")
           (root + "/tsconfig.base.json")
           (root + "/tsconfig.json")
-          (root + "/nx.json")
 
           (root + "/apps/bootstrap/src")
           (root + "/apps/bootstrap/package.json")
@@ -47,7 +46,6 @@
           (root + "/packages/ledger/tsconfig.lib.json")
 
           (root + "/packages/wasm-plexer/package.json")
-          (root + "/packages/wasm-plexer/project.json")
           (root + "/packages/wasm-utils/package.json")
 
           (root + "/packages/miniprotocols/package.json")

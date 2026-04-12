@@ -4,8 +4,10 @@
   "license": "Apache-2.0",
   "author": "Harmonic Laboratories",
   "funding": "https://github.com/sponsors/HarmonicLabs",
-  "main": "./src/index.ts",
   "module": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "dependencies": {
     "@effect/opentelemetry": "^4.0.0-beta.43",
     "@harmoniclabs/cbor": "^2.0.1",

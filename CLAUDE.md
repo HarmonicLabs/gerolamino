@@ -1,6 +1,6 @@
 # Gerolamino
 
-In-browser Cardano node. Nx monorepo with Bun runtime, Effect-TS, Rust/WASM
+In-browser Cardano node. Bun workspaces monorepo with Effect-TS, Rust/WASM
 crypto, and Nix-based build/deploy pipeline.
 
 ## Architecture
@@ -25,7 +25,7 @@ apps/tui                 <- TUI node: relay sync + consensus validation
 
 - **Runtime**: Bun (not Node.js)
 - **Language**: TypeScript 5.9+, Rust (WASM targets)
-- **Monorepo**: Nx 22.6 with @nx/js/typescript plugin
+- **Monorepo**: Bun workspaces + tsc --build project references
 - **Effects**: Effect ^4.0.0-beta.43 (all packages)
 - **State machines**: XState ^5.30 (storage, miniprotocols, chrome-ext)
 - **Testing**: `bunx --bun vitest` (Bun v1.3.11+ required)
@@ -56,16 +56,16 @@ apps/tui                 <- TUI node: relay sync + consensus validation
 
 ## Building
 
-### TypeScript (via Nx)
+### TypeScript (via tsc --build)
 
 ```sh
-bunx nx run-many --target=build --projects=cbor-schema,ledger,miniprotocols,storage
-bunx nx build <package>            # single package
-bunx nx affected --target=build    # only changed
+bunx --bun tsc --build                                          # all packages
+bunx --bun tsc --build packages/ledger/tsconfig.lib.json        # single
+bunx --bun tsc --noEmit -p packages/ledger/tsconfig.lib.json    # type-check only
 ```
 
-Nx discovers build targets from `tsconfig.lib.json` files (`composite: true`,
-`skipBuildCheck: true` in nx.json because package.json main points to source).
+Build targets come from `tsconfig.lib.json` files (`composite: true`). Root
+`tsconfig.json` references all buildable packages for `tsc --build`.
 
 ### WASM (via Nix)
 
@@ -126,7 +126,7 @@ Downloads latest Mithril snapshot and converts to LMDB format.
 flake.nix                          <- inputs, flake-parts, _module.args.root = ./.
 nix/default.nix                    <- imports packages/, apps/, machine-configs/
 nix/packages/wasm-lib.nix          <- buildWasmPackage shared builder (perSystem arg)
-nix/packages/ts-packages.nix       <- bun2nix + Nx build for all TS packages
+nix/packages/ts-packages.nix       <- bun2nix + tsc --build for all TS packages
 nix/packages/bootstrap-image.nix   <- OCI image (streamLayeredImage, 80 layers)
 nix/machine-configs/production.nix <- NixOS config + deploy-rs node
 ```
@@ -138,27 +138,3 @@ Key patterns:
 - WASM outputs injected into TS source tree via `postUnpack`
 - bun2nix flags: `--backend=copyfile`, `dontUseBunBuild`, `dontRunLifecycleScripts`
 
-<!-- nx configuration start-->
-<!-- Leave the start & end comments to automatically receive updates. -->
-
-## Nx Guidelines
-
-- For navigating/exploring the workspace, invoke the `nx-workspace` skill
-  first - it has patterns for querying projects, targets, and dependencies
-- When running tasks (build, lint, test, e2e, etc.), always prefer
-  `nx` (i.e. `nx run`, `nx run-many`, `nx affected`) over underlying tooling
-- Prefix nx commands with `bunx` (e.g., `bunx nx build`, `bunx nx test`)
-- For Nx plugin best practices, check `node_modules/@nx/<plugin>/PLUGIN.md`
-- NEVER guess CLI flags - always check nx_docs or `--help` first
-
-### Scaffolding & Generators
-
-- For scaffolding tasks, ALWAYS invoke the `nx-generate` skill FIRST
-
-### When to use nx_docs
-
-- USE for: advanced config, unfamiliar flags, migration guides, edge cases
-- DON'T USE for: basic generator syntax, standard commands
-- The `nx-generate` skill handles generator discovery internally
-
-<!-- nx configuration end-->

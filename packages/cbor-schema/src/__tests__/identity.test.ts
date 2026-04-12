@@ -2,23 +2,12 @@ import { it, describe, expect } from "@effect/vitest";
 import { BigDecimal } from "effect";
 import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "..";
 
-const fromHex = (hex: string): Uint8Array => {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
-  return bytes;
-};
-
-const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
 // Byte-level round-trip: encodeSync(parseSync(bytes)) === bytes
 const byteRoundTrip = (hex: string) => {
-  const bytes = fromHex(hex);
+  const bytes = Uint8Array.fromHex(hex);
   const parsed = parseSync(bytes);
   const reEncoded = encodeSync(parsed);
-  expect(toHex(reEncoded)).toBe(hex);
+  expect(reEncoded.toHex()).toBe(hex);
 };
 
 describe("byte-level round-trip: encodeSync(parseSync(bytes)) === bytes", () => {

@@ -30,20 +30,6 @@ export const Bytes64 = Schema.Uint8Array.pipe(Schema.check(isByteLength(64)));
 // unchanged so all downstream Schema definitions keep working as-is.
 // ────────────────────────────────────────────────────────────────────────────
 
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const len = clean.length >>> 1;
-  const out = new Uint8Array(len);
-  for (let i = 0; i < len; i++) out[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);
-  return out;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  let hex = "";
-  for (let i = 0; i < bytes.length; i++) hex += bytes[i]!.toString(16).padStart(2, "0");
-  return hex;
-}
-
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
@@ -54,13 +40,13 @@ export class HashObj28 extends Schema.TaggedClass<HashObj28>()("Hash28", {
   bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(28))),
 }) {
   toHex(): string {
-    return bytesToHex(this.bytes);
+    return this.bytes.toHex();
   }
   equals(other: HashObj28): boolean {
     return bytesEqual(this.bytes, other.bytes);
   }
   static fromHex(hex: string): HashObj28 {
-    return new HashObj28({ bytes: hexToBytes(hex) });
+    return new HashObj28({ bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex) });
   }
 }
 
@@ -68,13 +54,13 @@ export class HashObj32 extends Schema.TaggedClass<HashObj32>()("Hash32", {
   bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(32))),
 }) {
   toHex(): string {
-    return bytesToHex(this.bytes);
+    return this.bytes.toHex();
   }
   equals(other: HashObj32): boolean {
     return bytesEqual(this.bytes, other.bytes);
   }
   static fromHex(hex: string): HashObj32 {
-    return new HashObj32({ bytes: hexToBytes(hex) });
+    return new HashObj32({ bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex) });
   }
 }
 
@@ -82,13 +68,13 @@ export class SignatureObj extends Schema.TaggedClass<SignatureObj>()("Signature"
   bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(64))),
 }) {
   toHex(): string {
-    return bytesToHex(this.bytes);
+    return this.bytes.toHex();
   }
   equals(other: SignatureObj): boolean {
     return bytesEqual(this.bytes, other.bytes);
   }
   static fromHex(hex: string): SignatureObj {
-    return new SignatureObj({ bytes: hexToBytes(hex) });
+    return new SignatureObj({ bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex) });
   }
 }
 

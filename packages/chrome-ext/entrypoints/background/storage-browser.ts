@@ -23,24 +23,6 @@ import { layerMemory as sqliteWasmMemoryLayer } from "@effect/sql-sqlite-wasm/Sq
 import { BlobStore, BlobStoreError, prefixEnd, ChainDBLive, SqliteDrizzle } from "storage";
 
 // ---------------------------------------------------------------------------
-// Hex encoding — keys stored as hex strings for IDB range queries
-// ---------------------------------------------------------------------------
-
-const toHex = (buf: Uint8Array): string => {
-  let s = "";
-  for (let i = 0; i < buf.length; i++) s += buf[i]!.toString(16).padStart(2, "0");
-  return s;
-};
-
-const fromHex = (hex: string): Uint8Array => {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-};
-
-// ---------------------------------------------------------------------------
 // IndexedDB table definitions — one per LSM key prefix
 // ---------------------------------------------------------------------------
 
@@ -165,18 +147,18 @@ export const BlobStoreIndexedDB: Layer.Layer<
     return {
       get: (key: Uint8Array) =>
         Effect.gen(function* () {
-          const entries = yield* tableFor(key).select().equals(toHex(key));
+          const entries = yield* tableFor(key).select().equals(key.toHex());
           return Option.fromNullishOr(entries[0]?.value);
         }).pipe(Effect.mapError((cause) => fail("get", cause))),
 
       put: (key: Uint8Array, value: Uint8Array) =>
         Effect.gen(function* () {
-          yield* tableFor(key).upsert({ hexKey: toHex(key), value });
+          yield* tableFor(key).upsert({ hexKey: key.toHex(), value });
         }).pipe(Effect.mapError((cause) => fail("put", cause))),
 
       delete: (key: Uint8Array) =>
         Effect.gen(function* () {
-          yield* tableFor(key).delete().equals(toHex(key));
+          yield* tableFor(key).delete().equals(key.toHex());
         }).pipe(
           Effect.asVoid,
           Effect.mapError((cause) => fail("delete", cause)),
@@ -184,14 +166,14 @@ export const BlobStoreIndexedDB: Layer.Layer<
 
       has: (key: Uint8Array) =>
         Effect.gen(function* () {
-          const count: number = yield* tableFor(key).count().equals(toHex(key));
+          const count: number = yield* tableFor(key).count().equals(key.toHex());
           return count > 0;
         }).pipe(Effect.mapError((cause) => fail("has", cause))),
 
       scan: (prefix: Uint8Array) => {
         const table = tableFor(prefix);
-        const lo = toHex(prefix);
-        const hi = toHex(prefixEnd(prefix));
+        const lo = prefix.toHex();
+        const hi = prefixEnd(prefix).toHex();
         return Stream.fromEffect(
           Effect.gen(function* () {
             return hi === ""
@@ -201,7 +183,7 @@ export const BlobStoreIndexedDB: Layer.Layer<
         ).pipe(
           Stream.flatMap((entries) => Stream.fromIterable(entries)),
           Stream.map((entry) => ({
-            key: fromHex(entry.hexKey),
+            key: Uint8Array.fromHex(entry.hexKey),
             value: entry.value,
           })),
           Stream.mapError((cause) => fail("scan", cause)),
@@ -222,7 +204,7 @@ export const BlobStoreIndexedDB: Layer.Layer<
               group = [];
               groups.set(name, group);
             }
-            group.push({ hexKey: toHex(e.key), value: e.value });
+            group.push({ hexKey: e.key.toHex(), value: e.value });
           }
           for (const [name, group] of groups) {
             yield* tables[name].upsertAll(group);
@@ -235,7 +217,7 @@ export const BlobStoreIndexedDB: Layer.Layer<
       deleteBatch: (keys: ReadonlyArray<Uint8Array>) =>
         Effect.forEach(keys, (key) =>
           Effect.gen(function* () {
-            yield* tableFor(key).delete().equals(toHex(key));
+            yield* tableFor(key).delete().equals(key.toHex());
           }),
         ).pipe(
           Effect.asVoid,

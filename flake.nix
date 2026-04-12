@@ -156,9 +156,9 @@
                 pkgs.poppler-utils
                 pkgs.wasm-pack
                 pkgs.binaryen
-                pkgs.chromium
-                mithril-client
-                snapshot-converter
+                # pkgs.chromium
+                # mithril-client
+                # snapshot-converter
                 config.flake-root.package
               ];
 
@@ -208,55 +208,55 @@
               # Downloads ImmutableDB + ledger state from Mithril.
               # V2LSM conversion requires a synced cardano-node 10.7.x;
               # use CARDANO_NODE_DB to point at an existing V2LSM db.
-              tasks."mithril:download-snapshot" = {
-                description = "Download Mithril preprod snapshot";
-                status = ''[ -f "$DEVENV_STATE/snapshot/ledger/"*/state ]'';
-                showOutput = true;
-                env = mithrilEnv // {
-                  PATH = pkgs.lib.makeBinPath [
-                    mithril-client
-                    pkgs.coreutils
-                    pkgs.jq
-                    pkgs.findutils
-                  ];
-                };
-                exec = ''
-                  DEST="$DEVENV_STATE/snapshot"
+              # tasks."mithril:download-snapshot" = {
+              #   description = "Download Mithril preprod snapshot";
+              #   status = ''[ -f "$DEVENV_STATE/snapshot/ledger/"*/state ]'';
+              #   showOutput = true;
+              #   env = mithrilEnv // {
+              #     PATH = pkgs.lib.makeBinPath [
+              #       mithril-client
+              #       pkgs.coreutils
+              #       pkgs.jq
+              #       pkgs.findutils
+              #     ];
+              #   };
+              #   exec = ''
+              #     DEST="$DEVENV_STATE/snapshot"
 
-                  # If user provides a V2LSM db from a synced cardano-node, use it directly
-                  if [ -n "''${CARDANO_NODE_DB:-}" ] && [ -d "$CARDANO_NODE_DB/ledger" ]; then
-                    echo "==> Using existing cardano-node db at $CARDANO_NODE_DB"
-                    mkdir -p "$DEST"
-                    rm -rf "''${DEST:?}"/*
-                    cp -r "$CARDANO_NODE_DB"/* "$DEST/"
-                    echo -n "1" > "$DEST/protocolMagicId"
-                    SLOT_DIR="$(find "$DEST/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
-                    echo "==> Snapshot installed from cardano-node db (slot $(basename "$SLOT_DIR"))"
-                    exit 0
-                  fi
+              #     # If user provides a V2LSM db from a synced cardano-node, use it directly
+              #     if [ -n "''${CARDANO_NODE_DB:-}" ] && [ -d "$CARDANO_NODE_DB/ledger" ]; then
+              #       echo "==> Using existing cardano-node db at $CARDANO_NODE_DB"
+              #       mkdir -p "$DEST"
+              #       rm -rf "''${DEST:?}"/*
+              #       cp -r "$CARDANO_NODE_DB"/* "$DEST/"
+              #       echo -n "1" > "$DEST/protocolMagicId"
+              #       SLOT_DIR="$(find "$DEST/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
+              #       echo "==> Snapshot installed from cardano-node db (slot $(basename "$SLOT_DIR"))"
+              #       exit 0
+              #     fi
 
-                  WORK="$(mktemp -d)"
-                  trap 'rm -rf "$WORK"' EXIT
+              #     WORK="$(mktemp -d)"
+              #     trap 'rm -rf "$WORK"' EXIT
 
-                  echo "==> Downloading Mithril preprod snapshot..."
-                  mithril-client cardano-db snapshot list --json | jq '.[0]'
-                  mithril-client cardano-db download latest --include-ancillary --download-dir "$WORK"
+              #     echo "==> Downloading Mithril preprod snapshot..."
+              #     mithril-client cardano-db snapshot list --json | jq '.[0]'
+              #     mithril-client cardano-db download latest --include-ancillary --download-dir "$WORK"
 
-                  SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
-                  [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
+              #     SNAP_DIR="$(find "$WORK" -mindepth 1 -maxdepth 1 -type d | head -1)"
+              #     [ -z "$SNAP_DIR" ] && echo "ERROR: No snapshot found" >&2 && exit 1
 
-                  echo -n "1" > "$SNAP_DIR/protocolMagicId"
+              #     echo -n "1" > "$SNAP_DIR/protocolMagicId"
 
-                  mkdir -p "$DEST"
-                  rm -rf "''${DEST:?}"/*
-                  cp -r "$SNAP_DIR"/* "$DEST/"
+              #     mkdir -p "$DEST"
+              #     rm -rf "''${DEST:?}"/*
+              #     cp -r "$SNAP_DIR"/* "$DEST/"
 
-                  SLOT_DIR="$(find "$DEST/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
-                  SLOT="$(basename "$SLOT_DIR")"
-                  echo "==> Mithril snapshot installed: slot $SLOT, $(ls "$DEST/immutable/"*.chunk | wc -l) chunks"
-                  echo "    To add V2LSM, set CARDANO_NODE_DB to a synced 10.7.x node's db and re-run"
-                '';
-              };
+              #     SLOT_DIR="$(find "$DEST/ledger" -maxdepth 1 -type d -regex '.*/[0-9]+' | head -1)"
+              #     SLOT="$(basename "$SLOT_DIR")"
+              #     echo "==> Mithril snapshot installed: slot $SLOT, $(ls "$DEST/immutable/"*.chunk | wc -l) chunks"
+              #     echo "    To add V2LSM, set CARDANO_NODE_DB to a synced 10.7.x node's db and re-run"
+              #   '';
+              # };
 
               # --- Processes (managed by process-compose TUI via `devenv up`) ---
 
@@ -264,98 +264,98 @@
               # Syncs the full chain — takes 24-48h on first run.
               # Data stored in $DEVENV_STATE/cardano-node/.
               # Config generated from cardanoLib.environments.preprod.
-              processes.cardano-node =
-                let
-                  cardanoNodePkg = inputs'.cardano-node.packages.cardano-node;
-                  cardanoLib = inputs'.cardano-node.legacyPackages.cardanoLib or
-                    (builtins.throw "cardano-node flake does not expose cardanoLib");
-                  preprodEnv = cardanoLib.environments.preprod;
+              # processes.cardano-node =
+              #   let
+              #     cardanoNodePkg = inputs'.cardano-node.packages.cardano-node;
+              #     cardanoLib = inputs'.cardano-node.legacyPackages.cardanoLib or
+              #       (builtins.throw "cardano-node flake does not expose cardanoLib");
+              #     preprodEnv = cardanoLib.environments.preprod;
 
-                  # Node config with V2LSM enabled
-                  nodeConfigJson = builtins.toJSON (preprodEnv.nodeConfig // {
-                    LedgerDB = {
-                      Backend = "V2LSM";
-                    };
-                  });
-                  configFile = pkgs.writeText "preprod-config.json" nodeConfigJson;
-                  topologyFile = preprodEnv.topology or (pkgs.writeText "preprod-topology.json" (builtins.toJSON {
-                    bootstrapPeers = [
-                      { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
-                    ];
-                    localRoots = [ ];
-                    publicRoots = [{
-                      accessPoints = [
-                        { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
-                      ];
-                      advertise = false;
-                      valency = 1;
-                    }];
-                    useLedgerAfterSlot = -1;
-                  }));
-                in
-                {
-                  exec = ''
-                    NODE_DB="$DEVENV_STATE/cardano-node"
-                    mkdir -p "$NODE_DB"
+              #     # Node config with V2LSM enabled
+              #     nodeConfigJson = builtins.toJSON (preprodEnv.nodeConfig // {
+              #       LedgerDB = {
+              #         Backend = "V2LSM";
+              #       };
+              #     });
+              #     configFile = pkgs.writeText "preprod-config.json" nodeConfigJson;
+              #     topologyFile = preprodEnv.topology or (pkgs.writeText "preprod-topology.json" (builtins.toJSON {
+              #       bootstrapPeers = [
+              #         { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+              #       ];
+              #       localRoots = [ ];
+              #       publicRoots = [{
+              #         accessPoints = [
+              #           { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+              #         ];
+              #         advertise = false;
+              #         valency = 1;
+              #       }];
+              #       useLedgerAfterSlot = -1;
+              #     }));
+              #   in
+              #   {
+              #     exec = ''
+              #       NODE_DB="$DEVENV_STATE/cardano-node"
+              #       mkdir -p "$NODE_DB"
 
-                    exec ${cardanoNodePkg}/bin/cardano-node run \
-                      --topology ${topologyFile} \
-                      --database-path "$NODE_DB/db" \
-                      --socket-path "$NODE_DB/node.socket" \
-                      --host-addr 0.0.0.0 \
-                      --port 3001 \
-                      --config ${configFile} \
-                      +RTS -N2 -I0 -A16m -RTS
-                  '';
-                  process-compose = {
-                    availability = {
-                      restart = "on_failure";
-                      max_restarts = 3;
-                    };
-                  };
-                };
+              #       exec ${cardanoNodePkg}/bin/cardano-node run \
+              #         --topology ${topologyFile} \
+              #         --database-path "$NODE_DB/db" \
+              #         --socket-path "$NODE_DB/node.socket" \
+              #         --host-addr 0.0.0.0 \
+              #         --port 3001 \
+              #         --config ${configFile} \
+              #         +RTS -N2 -I0 -A16m -RTS
+              #     '';
+              #     process-compose = {
+              #       availability = {
+              #         restart = "on_failure";
+              #         max_restarts = 3;
+              #       };
+              #     };
+              #   };
 
               # Bootstrap server — serves from cardano-node db when available,
               # falls back to Mithril snapshot if no node db exists.
-              processes.bootstrap = {
-                exec = ''
-                  NODE_DB="$DEVENV_STATE/cardano-node/db"
-                  SNAPSHOT_PATH="$DEVENV_STATE/snapshot"
+              # processes.bootstrap = {
+              #   exec = ''
+              #     NODE_DB="$DEVENV_STATE/cardano-node/db"
+              #     SNAPSHOT_PATH="$DEVENV_STATE/snapshot"
 
-                  if [ -d "$NODE_DB/ledger" ]; then
-                    echo "==> Starting bootstrap server from cardano-node db"
-                    exec bun run apps/bootstrap/src/cli.ts serve \
-                      --db-path "$NODE_DB" \
-                      --network preprod
-                  elif [ -d "$SNAPSHOT_PATH/ledger" ]; then
-                    echo "==> Starting bootstrap server from Mithril snapshot"
-                    exec bun run apps/bootstrap/src/cli.ts serve \
-                      --snapshot-path "$SNAPSHOT_PATH"
-                  else
-                    echo "==> No data source available. Start cardano-node or run download-snapshot."
-                    sleep infinity
-                  fi
-                '';
-                process-compose = {
-                  availability = {
-                    restart = "on_failure";
-                    max_restarts = 3;
-                  };
-                  depends_on.cardano-node.condition = "process_started";
-                  readiness_probe = {
-                    http_get = {
-                      host = "127.0.0.1";
-                      port = 3040;
-                      path = "/";
-                      scheme = "http";
-                    };
-                    initial_delay_seconds = 5;
-                    period_seconds = 10;
-                    timeout_seconds = 3;
-                    failure_threshold = 5;
-                  };
-                };
-              };
+              #     if [ -d "$NODE_DB/ledger" ]; then
+              #       echo "==> Starting bootstrap server from cardano-node db"
+              #       exec bun run apps/bootstrap/src/cli.ts serve \
+              #         --db-path "$NODE_DB" \
+              #         --network preprod
+              #     elif [ -d "$SNAPSHOT_PATH/ledger" ]; then
+              #       echo "==> Starting bootstrap server from Mithril snapshot"
+              #       exec bun run apps/bootstrap/src/cli.ts serve \
+              #         --snapshot-path "$SNAPSHOT_PATH"
+              #     else
+              #       echo "==> No data source available. Start cardano-node or run download-snapshot."
+              #       sleep infinity
+              #     fi
+              #   '';
+              #   process-compose = {
+              #     availability = {
+              #       restart = "on_failure";
+              #       max_restarts = 3;
+              #     };
+              #     depends_on.cardano-node.condition = "process_started";
+              #     readiness_probe = {
+              #       http_get = {
+              #         host = "127.0.0.1";
+              #         port = 3040;
+              #         path = "/";
+              #         scheme = "http";
+              #       };
+              #       initial_delay_seconds = 5;
+              #       period_seconds = 10;
+              #       timeout_seconds = 3;
+              #       failure_threshold = 5;
+              #     };
+              #   };
+              # };
 
               # --- Containers (OCI images with full devenv shell) ---
               # Build:  devenv container build bootstrap

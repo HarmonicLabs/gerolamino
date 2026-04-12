@@ -10,7 +10,6 @@
 import { Effect, Option, Schema } from "effect";
 import { CborKinds, type CborSchemaType, parseSync } from "cbor-schema";
 import { Era } from "../core/era.ts";
-import { hashToHex } from "../core/hash-utils.ts";
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -99,11 +98,11 @@ function decodeMap<T>(
 
 // Hex-encode a credential for use as map key
 function credKey(cred: StateCredential): string {
-  return `${cred.kind}:${hashToHex(cred.hash)}`;
+  return `${cred.kind}:${cred.hash.toHex()}`;
 }
 
 function hashKey(hash: Uint8Array): string {
-  return hashToHex(hash);
+  return hash.toHex();
 }
 
 // Unwrap Tag(258, Array) or bare Array into items

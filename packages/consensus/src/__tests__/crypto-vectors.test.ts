@@ -53,9 +53,6 @@ const KES_VECTORS = {
     "a79fc52fd2c12f08820901",
 };
 
-const fromHex = (h: string): Uint8Array =>
-  new Uint8Array(h.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
-
 describe("Golden crypto vectors (WASM)", () => {
   describe("blake2b-256", () => {
     it("empty input matches known hash", async () => {
@@ -203,10 +200,10 @@ describe("Golden crypto vectors (WASM)", () => {
         Effect.gen(function* () {
           const crypto = yield* CryptoService;
           return crypto.kesSum6Verify(
-            fromHex(KES_VECTORS.signature),
+            Uint8Array.fromHex(KES_VECTORS.signature),
             KES_VECTORS.period,
-            fromHex(KES_VECTORS.publicKey),
-            fromHex(KES_VECTORS.message),
+            Uint8Array.fromHex(KES_VECTORS.publicKey),
+            Uint8Array.fromHex(KES_VECTORS.message),
           );
         }),
       );
@@ -218,10 +215,10 @@ describe("Golden crypto vectors (WASM)", () => {
         Effect.gen(function* () {
           const crypto = yield* CryptoService;
           return crypto.kesSum6Verify(
-            fromHex(KES_VECTORS.signature),
+            Uint8Array.fromHex(KES_VECTORS.signature),
             KES_VECTORS.period + 1,
-            fromHex(KES_VECTORS.publicKey),
-            fromHex(KES_VECTORS.message),
+            Uint8Array.fromHex(KES_VECTORS.publicKey),
+            Uint8Array.fromHex(KES_VECTORS.message),
           );
         }),
       );
@@ -229,16 +226,16 @@ describe("Golden crypto vectors (WASM)", () => {
     });
 
     it("rejects KES signature with tampered message", async () => {
-      const tampered = fromHex(KES_VECTORS.message);
+      const tampered = Uint8Array.fromHex(KES_VECTORS.message);
       new DataView(tampered.buffer).setUint8(0, new DataView(tampered.buffer).getUint8(0) ^ 0xff);
 
       const valid = await run(
         Effect.gen(function* () {
           const crypto = yield* CryptoService;
           return crypto.kesSum6Verify(
-            fromHex(KES_VECTORS.signature),
+            Uint8Array.fromHex(KES_VECTORS.signature),
             KES_VECTORS.period,
-            fromHex(KES_VECTORS.publicKey),
+            Uint8Array.fromHex(KES_VECTORS.publicKey),
             tampered,
           );
         }),
@@ -247,17 +244,17 @@ describe("Golden crypto vectors (WASM)", () => {
     });
 
     it("rejects KES signature with wrong public key", async () => {
-      const wrongPk = fromHex(KES_VECTORS.publicKey);
+      const wrongPk = Uint8Array.fromHex(KES_VECTORS.publicKey);
       new DataView(wrongPk.buffer).setUint8(0, new DataView(wrongPk.buffer).getUint8(0) ^ 0xff);
 
       const valid = await run(
         Effect.gen(function* () {
           const crypto = yield* CryptoService;
           return crypto.kesSum6Verify(
-            fromHex(KES_VECTORS.signature),
+            Uint8Array.fromHex(KES_VECTORS.signature),
             KES_VECTORS.period,
             wrongPk,
-            fromHex(KES_VECTORS.message),
+            Uint8Array.fromHex(KES_VECTORS.message),
           );
         }),
       );

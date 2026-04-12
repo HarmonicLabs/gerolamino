@@ -13,24 +13,14 @@ export class LocalChainSyncError extends Schema.TaggedErrorClass<LocalChainSyncE
   { cause: Schema.Defect },
 ) {}
 
-export type LocalChainSyncRollForward = typeof Schemas.LocalChainSyncMessage.Type & {
-  readonly _tag: Schemas.LocalChainSyncMessageType.RollForward;
-};
-export type LocalChainSyncRollBackward = Schema.Schema.Type<
-  typeof Schemas.LocalChainSyncMessage
-> & {
-  readonly _tag: Schemas.LocalChainSyncMessageType.RollBackward;
-};
-export type LocalChainSyncIntersectFound = Schema.Schema.Type<
-  typeof Schemas.LocalChainSyncMessage
-> & {
-  readonly _tag: Schemas.LocalChainSyncMessageType.IntersectFound;
-};
-export type LocalChainSyncIntersectNotFound = Schema.Schema.Type<
-  typeof Schemas.LocalChainSyncMessage
-> & {
-  readonly _tag: Schemas.LocalChainSyncMessageType.IntersectNotFound;
-};
+export type LocalChainSyncRollForward =
+  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.RollForward]["Type"];
+export type LocalChainSyncRollBackward =
+  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.RollBackward]["Type"];
+export type LocalChainSyncIntersectFound =
+  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.IntersectFound]["Type"];
+export type LocalChainSyncIntersectNotFound =
+  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.IntersectNotFound]["Type"];
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalChainSyncMessageBytes);
@@ -86,7 +76,7 @@ export class LocalChainSyncClient extends ServiceMap.Service<
           sendMessage({ _tag: Schemas.LocalChainSyncMessageType.RequestNext }).pipe(
             Effect.andThen(
               messages.pipe(
-                Stream.filter((msg) => msg._tag !== Schemas.LocalChainSyncMessageType.AwaitReply),
+                Stream.filter((msg) => !Schemas.LocalChainSyncMessage.guards.AwaitReply(msg)),
                 Stream.runHead,
                 Effect.timeout(Duration.seconds(10)),
                 Effect.flatMap(

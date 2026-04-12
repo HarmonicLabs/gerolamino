@@ -44,13 +44,23 @@ const decodePeerAddress = (node: CborSchemaType): PeerAddress => {
     : { _tag: PeerAddressType.IPv6 as const, addr: addrBytesVal, port };
 };
 
-const encodePeerAddress = (pa: PeerAddress): CborSchemaType => ({
-  _tag: CborKinds.Array,
-  items: [
-    { _tag: CborKinds.UInt, num: pa._tag === PeerAddressType.IPv4 ? 0n : 1n },
-    { _tag: CborKinds.Bytes, bytes: pa.addr },
-    { _tag: CborKinds.UInt, num: BigInt(pa.port) },
-  ],
+const encodePeerAddress = PeerAddressSchema.match({
+  IPv4: (pa): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: 0n },
+      { _tag: CborKinds.Bytes, bytes: pa.addr },
+      { _tag: CborKinds.UInt, num: BigInt(pa.port) },
+    ],
+  }),
+  IPv6: (pa): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: 1n },
+      { _tag: CborKinds.Bytes, bytes: pa.addr },
+      { _tag: CborKinds.UInt, num: BigInt(pa.port) },
+    ],
+  }),
 });
 
 // ── PeerSharing messages ──

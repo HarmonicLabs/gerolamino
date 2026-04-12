@@ -10,7 +10,7 @@ import { connect } from "net";
 
 import { HandshakeClient } from "../../protocols/handshake/Client";
 import { ChainSyncClient } from "../../protocols/chain-sync/Client";
-import { ChainSyncMessageType } from "../../protocols/chain-sync/Schemas";
+import { ChainSyncMessage } from "../../protocols/chain-sync/Schemas";
 import { BlockFetchClient } from "../../protocols/block-fetch/Client";
 import { ChainPointType } from "../../protocols/types/ChainPoint";
 import { BlockFetchLayer, HOST, makeLegacyVersionData, PORT, preprodVersionTable } from "./shared";
@@ -28,7 +28,7 @@ describe("BlockFetch (one-off)", () => {
         const cs = yield* ChainSyncClient;
         yield* cs.findIntersect([{ _tag: ChainPointType.Origin }]);
         const next = yield* cs.requestNext();
-        if (next._tag !== ChainSyncMessageType.RollForward) return;
+        if (!ChainSyncMessage.guards.RollForward(next)) return;
         const bf = yield* BlockFetchClient;
         const result = yield* bf.requestRange(next.tip.point, next.tip.point);
         if (Option.isSome(result)) {

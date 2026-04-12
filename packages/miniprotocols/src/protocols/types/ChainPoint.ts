@@ -45,8 +45,11 @@ export const ChainPointFromCbor = Schema.Union([ChainPointOriginCbor, ChainPoint
             hash: tuple[1],
           },
     ),
-    encode: SchemaGetter.transform((point) =>
-      point._tag === ChainPointType.Origin ? [] : [point.slot, point.hash],
+    encode: SchemaGetter.transform(
+      ChainPointSchema.match({
+        Origin: () => [] as const,
+        RealPoint: (p) => [p.slot, p.hash] as const,
+      }),
     ),
   }),
 );

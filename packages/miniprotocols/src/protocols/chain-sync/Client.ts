@@ -23,18 +23,14 @@ export class ChainSyncError extends Schema.TaggedErrorClass<ChainSyncError>()("C
   cause: Schema.Defect,
 }) {}
 
-export type ChainSyncRollForward = typeof Schemas.ChainSyncMessage.Type & {
-  readonly _tag: Schemas.ChainSyncMessageType.RollForward;
-};
-export type ChainSyncRollBackward = typeof Schemas.ChainSyncMessage.Type & {
-  readonly _tag: Schemas.ChainSyncMessageType.RollBackward;
-};
-export type ChainSyncIntersectFound = typeof Schemas.ChainSyncMessage.Type & {
-  readonly _tag: Schemas.ChainSyncMessageType.IntersectFound;
-};
-export type ChainSyncIntersectNotFound = typeof Schemas.ChainSyncMessage.Type & {
-  readonly _tag: Schemas.ChainSyncMessageType.IntersectNotFound;
-};
+export type ChainSyncRollForward =
+  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.RollForward]["Type"];
+export type ChainSyncRollBackward =
+  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.RollBackward]["Type"];
+export type ChainSyncIntersectFound =
+  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.IntersectFound]["Type"];
+export type ChainSyncIntersectNotFound =
+  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.IntersectNotFound]["Type"];
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.ChainSyncMessageBytes);

@@ -10,7 +10,7 @@ import { Duration, Effect } from "effect";
 import { connect } from "net";
 
 import { HandshakeClient } from "../../protocols/handshake/Client";
-import { HandshakeMessageType } from "../../protocols/handshake/Schemas";
+import { HandshakeMessage, HandshakeMessageType } from "../../protocols/handshake/Schemas";
 import { HandshakeLayer, HOST, makeLegacyVersionData, PORT, preprodVersionTable } from "./shared";
 
 const Legacy = require("@harmoniclabs/ouroboros-miniprotocols-ts");
@@ -23,8 +23,8 @@ describe("Handshake", () => {
       await Effect.gen(function* () {
         const client = yield* HandshakeClient;
         const result = yield* client.propose(preprodVersionTable);
-        if (result._tag !== HandshakeMessageType.MsgAcceptVersion) {
-          throw new Error(`Unexpected: ${result._tag}`);
+        if (!HandshakeMessage.guards[HandshakeMessageType.MsgAcceptVersion](result)) {
+          throw new Error(`Unexpected handshake result`);
         }
       }).pipe(
         Effect.scoped,

@@ -58,16 +58,16 @@ function decodeChainPoint(node: CborSchemaType): ChainPoint {
   return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
 }
 
-function encodeChainPoint(point: ChainPoint): CborSchemaType {
-  if (point._tag === ChainPointType.Origin) return { _tag: CborKinds.Array, items: [] };
-  return {
+const encodeChainPoint = ChainPointSchema.match({
+  Origin: (): CborSchemaType => ({ _tag: CborKinds.Array, items: [] }),
+  RealPoint: (p): CborSchemaType => ({
     _tag: CborKinds.Array,
     items: [
-      { _tag: CborKinds.UInt, num: BigInt(point.slot) },
-      { _tag: CborKinds.Bytes, bytes: point.hash },
+      { _tag: CborKinds.UInt, num: BigInt(p.slot) },
+      { _tag: CborKinds.Bytes, bytes: p.hash },
     ],
-  };
-}
+  }),
+});
 
 function decodeChainTip(node: CborSchemaType): ChainTip {
   if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainTip");

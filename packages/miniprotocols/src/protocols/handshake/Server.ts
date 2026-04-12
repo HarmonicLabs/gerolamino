@@ -30,8 +30,7 @@ const handleProposal = (
     ) => Effect.Effect<void, MultiplexerEncodingError | Socket.SocketError, Scope.Scope>;
   },
 ) => {
-  // HandshakeMessageType is a numeric enum (0,1,2,3), so match keys are numbers
-  if (message._tag !== Schemas.HandshakeMessageType.MsgProposeVersions) {
+  if (!Schemas.HandshakeMessage.guards[Schemas.HandshakeMessageType.MsgProposeVersions](message)) {
     return Effect.fail(
       new HandshakeServerError({ cause: `Unexpected message type: ${message._tag}` }),
     );

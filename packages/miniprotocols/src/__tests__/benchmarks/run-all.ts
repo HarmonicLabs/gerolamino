@@ -15,10 +15,10 @@ import { connect } from "net";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerBuffer } from "../../multiplexer/Buffer";
 import { HandshakeClient } from "../../protocols/handshake/Client";
-import { HandshakeMessageType } from "../../protocols/handshake/Schemas";
+import { HandshakeMessage, HandshakeMessageType } from "../../protocols/handshake/Schemas";
 import { KeepAliveClient } from "../../protocols/keep-alive/Client";
 import { ChainSyncClient } from "../../protocols/chain-sync/Client";
-import { ChainSyncMessage, ChainSyncMessageType } from "../../protocols/chain-sync/Schemas";
+import { ChainSyncMessage } from "../../protocols/chain-sync/Schemas";
 import { ChainPointSchema } from "../../protocols/types/ChainPoint";
 import { BlockFetchClient } from "../../protocols/block-fetch/Client";
 import { ChainPoint, ChainPointType } from "../../protocols/types/ChainPoint";
@@ -74,8 +74,8 @@ async function benchHandshake() {
     await Effect.gen(function* () {
       const client = yield* HandshakeClient;
       const result = yield* client.propose(preprodVersionTable);
-      if (result._tag !== HandshakeMessageType.MsgAcceptVersion) {
-        throw new Error(`Unexpected: ${result._tag}`);
+      if (!HandshakeMessage.guards[HandshakeMessageType.MsgAcceptVersion](result)) {
+        throw new Error(`Unexpected handshake result`);
       }
     }).pipe(
       Effect.scoped,
@@ -272,7 +272,7 @@ async function benchBlockFetchOneOff() {
       const cs = yield* ChainSyncClient;
       yield* cs.findIntersect([{ _tag: ChainPointType.Origin }]);
       const next = yield* cs.requestNext();
-      if (next._tag !== ChainSyncMessageType.RollForward) return;
+      if (!ChainSyncMessage.guards.RollForward(next)) return;
       const bf = yield* BlockFetchClient;
       const result = yield* bf.requestRange(next.tip.point, next.tip.point);
       if (Option.isSome(result)) {

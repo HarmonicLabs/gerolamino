@@ -227,28 +227,36 @@ const refuseReasonFromCbor = (node: CborSchemaType): RefuseReason => {
   }
 };
 
-const refuseReasonToCbor = (reason: RefuseReason): CborSchemaType =>
-  reason._tag === RefuseReasonType.VersionMismatch
-    ? {
+const refuseReasonToCbor = RefuseReasonSchema.match({
+  [RefuseReasonType.VersionMismatch]: (reason): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: BigInt(reason._tag) },
+      {
         _tag: CborKinds.Array,
-        items: [
-          { _tag: CborKinds.UInt, num: BigInt(reason._tag) },
-          {
-            _tag: CborKinds.Array,
-            items: reason.validVersions.map(
-              (v): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(v) }),
-            ),
-          },
-        ],
-      }
-    : {
-        _tag: CborKinds.Array,
-        items: [
-          { _tag: CborKinds.UInt, num: BigInt(reason._tag) },
-          { _tag: CborKinds.UInt, num: BigInt(reason.version) },
-          { _tag: CborKinds.Text, text: reason.message },
-        ],
-      };
+        items: reason.validVersions.map(
+          (v): CborSchemaType => ({ _tag: CborKinds.UInt, num: BigInt(v) }),
+        ),
+      },
+    ],
+  }),
+  [RefuseReasonType.HandshakeDecodeError]: (reason): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: BigInt(reason._tag) },
+      { _tag: CborKinds.UInt, num: BigInt(reason.version) },
+      { _tag: CborKinds.Text, text: reason.message },
+    ],
+  }),
+  [RefuseReasonType.Refused]: (reason): CborSchemaType => ({
+    _tag: CborKinds.Array,
+    items: [
+      { _tag: CborKinds.UInt, num: BigInt(reason._tag) },
+      { _tag: CborKinds.UInt, num: BigInt(reason.version) },
+      { _tag: CborKinds.Text, text: reason.message },
+    ],
+  }),
+});
 
 // Full Uint8Array ↔ HandshakeMessage schema via CBOR
 export const HandshakeMessageBytes = CborSchemaFromBytes.pipe(
@@ -281,34 +289,30 @@ export const HandshakeMessageBytes = CborSchemaFromBytes.pipe(
           };
       }
     }),
-    encode: SchemaGetter.transform((data): CborSchemaType => {
-      switch (data._tag) {
-        case HandshakeMessageType.MsgProposeVersions:
-          return {
-            _tag: CborKinds.Array,
-            items: [{ _tag: CborKinds.UInt, num: 0n }, versionTableToCbor(data.versionTable)],
-          };
-        case HandshakeMessageType.MsgAcceptVersion:
-          return {
-            _tag: CborKinds.Array,
-            items: [
-              { _tag: CborKinds.UInt, num: 1n },
-              { _tag: CborKinds.UInt, num: BigInt(data.version) },
-              versionDataToCbor(data.versionData),
-            ],
-          };
-        case HandshakeMessageType.MsgRefuse:
-          return {
-            _tag: CborKinds.Array,
-            items: [{ _tag: CborKinds.UInt, num: 2n }, refuseReasonToCbor(data.reason)],
-          };
-        case HandshakeMessageType.MsgQueryReply:
-          return {
-            _tag: CborKinds.Array,
-            items: [{ _tag: CborKinds.UInt, num: 3n }, versionTableToCbor(data.versionTable)],
-          };
-      }
-    }),
+    encode: SchemaGetter.transform(
+      HandshakeMessage.match({
+        [HandshakeMessageType.MsgProposeVersions]: (data): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 0n }, versionTableToCbor(data.versionTable)],
+        }),
+        [HandshakeMessageType.MsgAcceptVersion]: (data): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 1n },
+            { _tag: CborKinds.UInt, num: BigInt(data.version) },
+            versionDataToCbor(data.versionData),
+          ],
+        }),
+        [HandshakeMessageType.MsgRefuse]: (data): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 2n }, refuseReasonToCbor(data.reason)],
+        }),
+        [HandshakeMessageType.MsgQueryReply]: (data): CborSchemaType => ({
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 3n }, versionTableToCbor(data.versionTable)],
+        }),
+      }),
+    ),
   }),
 );
 

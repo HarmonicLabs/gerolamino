@@ -2,6 +2,7 @@ import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { CborKinds, type CborSchemaType } from "cbor-schema";
 import {
   uint,
+  arr,
   cborBytes,
   cborText,
   nullVal,
@@ -9,7 +10,7 @@ import {
   expectUint,
   expectBytes,
   expectText,
-  decodeCborNull,
+  isNull,
   getCborSet,
 } from "../core/cbor-utils.ts";
 import { Bytes28, Bytes32, isByteMaxLength } from "../core/hashes.ts";
@@ -113,27 +114,16 @@ function decodeRelay(cbor: CborSchemaType): Effect.Effect<Relay, SchemaIssue.Iss
 }
 
 const encodeRelay = Relay.match({
-  [RelayKind.SingleHostAddr]: (r): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
+  [RelayKind.SingleHostAddr]: (r): CborSchemaType =>
+    arr(
       uint(0),
       r.port !== undefined ? uint(r.port) : nullVal,
       r.ipv4 !== undefined ? cborBytes(r.ipv4) : nullVal,
       r.ipv6 !== undefined ? cborBytes(r.ipv6) : nullVal,
-    ],
-  }),
-  [RelayKind.SingleHostName]: (r): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
-      uint(1),
-      r.port !== undefined ? uint(r.port) : nullVal,
-      { _tag: CborKinds.Text, text: r.dnsName },
-    ],
-  }),
-  [RelayKind.MultiHostName]: (r): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [uint(2), { _tag: CborKinds.Text, text: r.dnsName }],
-  }),
+    ),
+  [RelayKind.SingleHostName]: (r): CborSchemaType =>
+    arr(uint(1), r.port !== undefined ? uint(r.port) : nullVal, cborText(r.dnsName)),
+  [RelayKind.MultiHostName]: (r): CborSchemaType => arr(uint(2), cborText(r.dnsName)),
 });
 
 export function decodePoolParams(
@@ -222,7 +212,7 @@ export function decodePoolParams(
     const relays = yield* Effect.all([...relayItems].map(decodeRelay));
 
     let metadata: { url: string; hash: Uint8Array } | undefined;
-    if (metaCbor && !decodeCborNull(metaCbor) && metaCbor._tag === CborKinds.Array) {
+    if (metaCbor && !isNull(metaCbor) && metaCbor._tag === CborKinds.Array) {
       const urlItem = metaCbor.items[0];
       const hashItem = metaCbor.items[1];
       if (urlItem?._tag === CborKinds.Text && hashItem?._tag === CborKinds.Bytes) {
@@ -245,30 +235,17 @@ export function decodePoolParams(
 }
 
 export function encodePoolParams(pp: PoolParams): CborSchemaType {
-  return {
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.Bytes, bytes: pp.operator },
-      { _tag: CborKinds.Bytes, bytes: pp.vrfKeyHash },
-      uint(pp.pledge),
-      uint(pp.cost),
-      {
-        _tag: CborKinds.Tag,
-        tag: 30n,
-        data: {
-          _tag: CborKinds.Array,
-          items: [uint(pp.margin.numerator), uint(pp.margin.denominator)],
-        },
-      },
-      { _tag: CborKinds.Bytes, bytes: pp.rewardAccount },
-      { _tag: CborKinds.Array, items: pp.owners.map(cborBytes) },
-      { _tag: CborKinds.Array, items: pp.relays.map(encodeRelay) },
-      pp.metadata !== undefined
-        ? {
-            _tag: CborKinds.Array,
-            items: [cborText(pp.metadata.url), cborBytes(pp.metadata.hash)],
-          }
-        : nullVal,
-    ],
-  };
+  return arr(
+    cborBytes(pp.operator),
+    cborBytes(pp.vrfKeyHash),
+    uint(pp.pledge),
+    uint(pp.cost),
+    { _tag: CborKinds.Tag, tag: 30n, data: arr(uint(pp.margin.numerator), uint(pp.margin.denominator)) },
+    cborBytes(pp.rewardAccount),
+    arr(...pp.owners.map(cborBytes)),
+    arr(...pp.relays.map(encodeRelay)),
+    pp.metadata !== undefined
+      ? arr(cborText(pp.metadata.url), cborBytes(pp.metadata.hash))
+      : nullVal,
+  );
 }

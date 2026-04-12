@@ -1,5 +1,6 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { cborBytes } from "../core/cbor-utils.ts";
 import { Network } from "../core/primitives.ts";
 import {
   Credential,
@@ -176,7 +177,7 @@ export const encodeAddr = Addr.match({
     result[0] = header;
     result.set(a.pay.hash, 1);
     result.set(a.stake.hash, 29);
-    return { _tag: CborKinds.Bytes, bytes: result };
+    return cborBytes(result);
   },
   [AddrKind.Enterprise]: (a): CborSchemaType => {
     const payBit = credKindBit(a.pay);
@@ -186,7 +187,7 @@ export const encodeAddr = Addr.match({
     const result = new Uint8Array(29);
     result[0] = header;
     result.set(a.pay.hash, 1);
-    return { _tag: CborKinds.Bytes, bytes: result };
+    return cborBytes(result);
   },
   [AddrKind.Reward]: (a): CborSchemaType => {
     const stakeBit = credKindBit(a.stake);
@@ -196,10 +197,10 @@ export const encodeAddr = Addr.match({
     const result = new Uint8Array(29);
     result[0] = header;
     result.set(a.stake.hash, 1);
-    return { _tag: CborKinds.Bytes, bytes: result };
+    return cborBytes(result);
   },
   [AddrKind.Bootstrap]: (a): CborSchemaType => {
-    return { _tag: CborKinds.Bytes, bytes: a.bytes };
+    return cborBytes(a.bytes);
   },
 });
 
@@ -242,7 +243,7 @@ export function encodeRwdAddr(addr: RwdAddr): CborSchemaType {
   const result = new Uint8Array(29);
   result[0] = header;
   result.set(addr.stake.hash, 1);
-  return { _tag: CborKinds.Bytes, bytes: result };
+  return cborBytes(result);
 }
 
 // ────────────────────────────────────────────────────────────────────────────

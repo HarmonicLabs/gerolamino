@@ -9,6 +9,11 @@ import {
   expectMap,
   isNull,
   getCborSet,
+  uint,
+  cborBytes,
+  cborText,
+  arr,
+  nullVal,
 } from "../core/cbor-utils.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -83,28 +88,10 @@ export function decodeDRep(cbor: CborSchemaType): Effect.Effect<DRep, SchemaIssu
 }
 
 export const encodeDRep = DRep.match({
-  [DRepKind.KeyHash]: (d): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: 0n },
-      { _tag: CborKinds.Bytes, bytes: d.hash },
-    ],
-  }),
-  [DRepKind.Script]: (d): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: 1n },
-      { _tag: CborKinds.Bytes, bytes: d.hash },
-    ],
-  }),
-  [DRepKind.AlwaysAbstain]: (): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [{ _tag: CborKinds.UInt, num: 2n }],
-  }),
-  [DRepKind.AlwaysNoConfidence]: (): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [{ _tag: CborKinds.UInt, num: 3n }],
-  }),
+  [DRepKind.KeyHash]: (d): CborSchemaType => arr(uint(0), cborBytes(d.hash)),
+  [DRepKind.Script]: (d): CborSchemaType => arr(uint(1), cborBytes(d.hash)),
+  [DRepKind.AlwaysAbstain]: (): CborSchemaType => arr(uint(2)),
+  [DRepKind.AlwaysNoConfidence]: (): CborSchemaType => arr(uint(3)),
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -152,13 +139,7 @@ export function decodeVoter(cbor: CborSchemaType): Effect.Effect<Voter, SchemaIs
 }
 
 export function encodeVoter(voter: Voter): CborSchemaType {
-  return {
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: BigInt(voter.kind) },
-      { _tag: CborKinds.Bytes, bytes: voter.hash },
-    ],
-  };
+  return arr(uint(voter.kind), cborBytes(voter.hash));
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -181,13 +162,7 @@ export function decodeAnchor(cbor: CborSchemaType): Effect.Effect<Anchor, Schema
 }
 
 export function encodeAnchor(anchor: Anchor): CborSchemaType {
-  return {
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.Text, text: anchor.url },
-      { _tag: CborKinds.Bytes, bytes: anchor.hash },
-    ],
-  };
+  return arr(cborText(anchor.url), cborBytes(anchor.hash));
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -212,13 +187,7 @@ export function decodeGovActionId(
 }
 
 export function encodeGovActionId(gid: GovActionId): CborSchemaType {
-  return {
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.Bytes, bytes: gid.txId },
-      { _tag: CborKinds.UInt, num: gid.index },
-    ],
-  };
+  return arr(cborBytes(gid.txId), uint(gid.index));
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -254,13 +223,7 @@ export function decodeVotingProcedure(
 }
 
 export function encodeVotingProcedure(vp: VotingProcedure): CborSchemaType {
-  return {
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: BigInt(vp.vote) },
-      vp.anchor !== undefined ? encodeAnchor(vp.anchor) : { _tag: CborKinds.Simple, value: null },
-    ],
-  };
+  return arr(uint(vp.vote), vp.anchor !== undefined ? encodeAnchor(vp.anchor) : nullVal);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -343,6 +306,80 @@ export const isBootstrapAction = GovAction.isAnyOf([
   GovActionKind.HardForkInitiation,
   GovActionKind.InfoAction,
 ]);
+
+// ────────────────────────────────────────────────────────────────────────────
+// GovAction CBOR encode — [tag, ...fields]
+// ────────────────────────────────────────────────────────────────────────────
+
+function encodeOptGovActionId(gid: GovActionId | undefined): CborSchemaType {
+  if (gid === undefined) return nullVal;
+  return encodeGovActionId(gid);
+}
+
+function encodeOptHash28(hash: Uint8Array | undefined): CborSchemaType {
+  if (hash === undefined) return nullVal;
+  return cborBytes(hash);
+}
+
+export const encodeGovAction = GovAction.match({
+  [GovActionKind.ParameterChange]: (a): CborSchemaType =>
+    arr(
+      uint(GovActionKind.ParameterChange),
+      encodeOptGovActionId(a.prevActionId),
+      cborBytes(a.pparamsUpdate),
+      encodeOptHash28(a.policyHash),
+    ),
+  [GovActionKind.HardForkInitiation]: (a): CborSchemaType =>
+    arr(
+      uint(GovActionKind.HardForkInitiation),
+      encodeOptGovActionId(a.prevActionId),
+      arr(uint(a.protocolVersion.major), uint(a.protocolVersion.minor)),
+    ),
+  [GovActionKind.TreasuryWithdrawals]: (a): CborSchemaType =>
+    arr(
+      uint(GovActionKind.TreasuryWithdrawals),
+      {
+        _tag: CborKinds.Map,
+        entries: a.withdrawals.map((w) => ({
+          k: cborBytes(w.rewardAccount),
+          v: uint(w.coin),
+        })),
+      },
+      encodeOptHash28(a.policyHash),
+    ),
+  [GovActionKind.NoConfidence]: (a): CborSchemaType =>
+    arr(uint(GovActionKind.NoConfidence), encodeOptGovActionId(a.prevActionId)),
+  [GovActionKind.UpdateCommittee]: (a): CborSchemaType =>
+    arr(
+      uint(GovActionKind.UpdateCommittee),
+      encodeOptGovActionId(a.prevActionId),
+      {
+        _tag: CborKinds.Tag,
+        tag: 258n,
+        data: arr(...a.membersToRemove.map((h): CborSchemaType => cborBytes(h))),
+      },
+      {
+        _tag: CborKinds.Map,
+        entries: a.membersToAdd.map((m) => ({
+          k: cborBytes(m.credential),
+          v: uint(m.epoch),
+        })),
+      },
+      {
+        _tag: CborKinds.Tag,
+        tag: 30n,
+        data: arr(uint(a.threshold.numerator), uint(a.threshold.denominator)),
+      },
+    ),
+  [GovActionKind.NewConstitution]: (a): CborSchemaType =>
+    arr(
+      uint(GovActionKind.NewConstitution),
+      encodeOptGovActionId(a.prevActionId),
+      encodeAnchor(a.constitution),
+      encodeOptHash28(a.policyHash),
+    ),
+  [GovActionKind.InfoAction]: (): CborSchemaType => arr(uint(GovActionKind.InfoAction)),
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // ProposalProcedure — [deposit, returnAddr, govAction, anchor]
@@ -483,6 +520,10 @@ export function decodeProposalProcedure(
     const anchor = yield* decodeAnchor(items[3]!);
     return { deposit, returnAccount, govAction, anchor };
   });
+}
+
+export function encodeProposalProcedure(pp: ProposalProcedure): CborSchemaType {
+  return arr(uint(pp.deposit), cborBytes(pp.returnAccount), encodeGovAction(pp.govAction), encodeAnchor(pp.anchor));
 }
 
 // ────────────────────────────────────────────────────────────────────────────

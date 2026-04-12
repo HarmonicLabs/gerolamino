@@ -4,6 +4,7 @@ import {
   uint,
   cborBytes,
   negInt,
+  arr,
   expectUint,
   expectBytes,
   expectInt,
@@ -134,12 +135,9 @@ export function decodeValue(cbor: CborSchemaType): Effect.Effect<Value, SchemaIs
 
 export function encodeValue(value: Value): CborSchemaType {
   if (value.multiAsset === undefined || value.multiAsset.length === 0)
-    return { _tag: CborKinds.UInt, num: value.coin };
+    return uint(value.coin);
 
-  return {
-    _tag: CborKinds.Array,
-    items: [{ _tag: CborKinds.UInt, num: value.coin }, encodeMultiAsset(value.multiAsset)],
-  };
+  return arr(uint(value.coin), encodeMultiAsset(value.multiAsset));
 }
 
 // ────────────────────────────────────────────────────────────────────────────

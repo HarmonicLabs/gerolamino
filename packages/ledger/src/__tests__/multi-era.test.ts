@@ -5,9 +5,7 @@
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "cbor-schema";
-import { decodeTxOut, decodeTxBody, encodeTxOut, TxOutBytes, TxBodyBytes } from "../lib/tx/tx.ts";
-import { getCborSet, uint, cborBytes, arr } from "../lib/core/cbor-utils.ts";
-import { Era } from "../lib/core/era.ts";
+import { decodeTxOut, decodeTxBody, encodeTxOut, TxOutBytes, TxBodyBytes, getCborSet, uint, cborBytes, arr, Era } from "..";
 
 // ---------------------------------------------------------------------------
 // CBOR helpers for building test fixtures

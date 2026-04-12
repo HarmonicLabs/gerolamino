@@ -2,6 +2,7 @@ import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { CborKinds, type CborSchemaType } from "cbor-schema";
 import {
   uint,
+  cborBytes,
   nullVal,
   arr,
   expectArray,
@@ -204,7 +205,7 @@ export function decodeDCert(cbor: CborSchemaType): Effect.Effect<DCert, SchemaIs
       case CertKind.PoolRegistration: {
         // Pool params are flattened in the cert: [3, op, vrf, pledge, cost, margin, rwd, owners, relays, meta]
         // Create a synthetic 9-element array from items[1..9]
-        const poolArray: CborSchemaType = { _tag: CborKinds.Array, items: [...items.slice(1, 10)] };
+        const poolArray: CborSchemaType = arr(...items.slice(1, 10));
         return {
           _tag: CertKind.PoolRegistration as const,
           poolParams: yield* decodePoolParams(poolArray),
@@ -350,16 +351,16 @@ export const encodeDCert = DCert.match({
   [CertKind.StakeDeregistration]: (c): CborSchemaType =>
     arr(uint(1), encodeCredential(c.credential)),
   [CertKind.StakeDelegation]: (c): CborSchemaType =>
-    arr(uint(2), encodeCredential(c.credential), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }),
+    arr(uint(2), encodeCredential(c.credential), cborBytes(c.poolKeyHash)),
   [CertKind.PoolRegistration]: (c): CborSchemaType => arr(uint(3), encodePoolParams(c.poolParams)),
   [CertKind.PoolRetirement]: (c): CborSchemaType =>
-    arr(uint(4), { _tag: CborKinds.Bytes, bytes: c.poolKeyHash }, uint(c.epoch)),
+    arr(uint(4), cborBytes(c.poolKeyHash), uint(c.epoch)),
   [CertKind.GenesisKeyDelegation]: (c): CborSchemaType =>
     arr(
       uint(5),
-      { _tag: CborKinds.Bytes, bytes: c.genesisHash },
-      { _tag: CborKinds.Bytes, bytes: c.genesisDelegateHash },
-      { _tag: CborKinds.Bytes, bytes: c.vrfKeyHash },
+      cborBytes(c.genesisHash),
+      cborBytes(c.genesisDelegateHash),
+      cborBytes(c.vrfKeyHash),
     ),
   [CertKind.MoveInstantRewards]: (c): CborSchemaType => {
     const targetCbor: CborSchemaType = MIRTarget.match({
@@ -384,14 +385,14 @@ export const encodeDCert = DCert.match({
     arr(
       uint(10),
       encodeCredential(c.credential),
-      { _tag: CborKinds.Bytes, bytes: c.poolKeyHash },
+      cborBytes(c.poolKeyHash),
       encodeDRep(c.drep),
     ),
   [CertKind.StakeRegDeleg]: (c): CborSchemaType =>
     arr(
       uint(11),
       encodeCredential(c.credential),
-      { _tag: CborKinds.Bytes, bytes: c.poolKeyHash },
+      cborBytes(c.poolKeyHash),
       uint(c.deposit),
     ),
   [CertKind.VoteRegDeleg]: (c): CborSchemaType =>
@@ -400,7 +401,7 @@ export const encodeDCert = DCert.match({
     arr(
       uint(13),
       encodeCredential(c.credential),
-      { _tag: CborKinds.Bytes, bytes: c.poolKeyHash },
+      cborBytes(c.poolKeyHash),
       encodeDRep(c.drep),
       uint(c.deposit),
     ),

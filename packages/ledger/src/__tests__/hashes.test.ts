@@ -23,7 +23,7 @@ import {
   unwrapHash32,
   wrapSignature,
   unwrapSignature,
-} from "../lib/core/hashes.ts";
+} from "..";
 
 describe("Hash28 schema", () => {
   it.effect("accepts 28-byte Uint8Array", () =>

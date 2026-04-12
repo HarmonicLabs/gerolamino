@@ -4,6 +4,7 @@ import {
   uint,
   cborBytes,
   negInt,
+  arr,
   mapEntry,
   getCborSet,
   expectArray,
@@ -68,13 +69,7 @@ export function decodeTxIn(cbor: CborSchemaType): Effect.Effect<TxIn, SchemaIssu
 }
 
 export function encodeTxIn(txIn: TxIn): CborSchemaType {
-  return {
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.Bytes, bytes: txIn.txId },
-      { _tag: CborKinds.UInt, num: txIn.index },
-    ],
-  };
+  return arr(cborBytes(txIn.txId), uint(txIn.index));
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -131,20 +126,9 @@ function decodeDatumOption(cbor: CborSchemaType): Effect.Effect<DatumOption, Sch
 }
 
 const encodeDatumOption = DatumOption.match({
-  [DatumOptionKind.DatumHash]: (d): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: 0n },
-      { _tag: CborKinds.Bytes, bytes: d.hash },
-    ],
-  }),
-  [DatumOptionKind.InlineDatum]: (d): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: 1n },
-      { _tag: CborKinds.Tag, tag: 24n, data: { _tag: CborKinds.Bytes, bytes: d.datum } },
-    ],
-  }),
+  [DatumOptionKind.DatumHash]: (d): CborSchemaType => arr(uint(0n), cborBytes(d.hash)),
+  [DatumOptionKind.InlineDatum]: (d): CborSchemaType =>
+    arr(uint(1n), { _tag: CborKinds.Tag, tag: 24n, data: cborBytes(d.datum) }),
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -691,15 +675,13 @@ export function encodeTxBody(body: TxBody): CborSchemaType {
   return {
     _tag: CborKinds.Map,
     entries: [
-      ...mapEntry(0, { _tag: CborKinds.Array, items: body.inputs.map(encodeTxIn) }),
-      ...mapEntry(1, { _tag: CborKinds.Array, items: body.outputs.map(encodeTxOut) }),
+      ...mapEntry(0, arr(...body.inputs.map(encodeTxIn))),
+      ...mapEntry(1, arr(...body.outputs.map(encodeTxOut))),
       ...mapEntry(2, uint(body.fee)),
       ...mapEntry(3, body.ttl !== undefined ? uint(body.ttl) : undefined),
       ...mapEntry(
         4,
-        body.certs && body.certs.length > 0
-          ? { _tag: CborKinds.Array, items: body.certs.map(encodeDCert) }
-          : undefined,
+        body.certs && body.certs.length > 0 ? arr(...body.certs.map(encodeDCert)) : undefined,
       ),
       ...mapEntry(7, body.auxDataHash !== undefined ? cborBytes(body.auxDataHash) : undefined),
       ...mapEntry(8, body.validityStart !== undefined ? uint(body.validityStart) : undefined),
@@ -711,13 +693,13 @@ export function encodeTxBody(body: TxBody): CborSchemaType {
       ...mapEntry(
         13,
         body.collateral && body.collateral.length > 0
-          ? { _tag: CborKinds.Array, items: body.collateral.map(encodeTxIn) }
+          ? arr(...body.collateral.map(encodeTxIn))
           : undefined,
       ),
       ...mapEntry(
         14,
         body.requiredSigners && body.requiredSigners.length > 0
-          ? { _tag: CborKinds.Array, items: body.requiredSigners.map(cborBytes) }
+          ? arr(...body.requiredSigners.map(cborBytes))
           : undefined,
       ),
       ...mapEntry(15, body.networkId !== undefined ? uint(body.networkId) : undefined),
@@ -729,7 +711,7 @@ export function encodeTxBody(body: TxBody): CborSchemaType {
       ...mapEntry(
         18,
         body.referenceInputs && body.referenceInputs.length > 0
-          ? { _tag: CborKinds.Array, items: body.referenceInputs.map(encodeTxIn) }
+          ? arr(...body.referenceInputs.map(encodeTxIn))
           : undefined,
       ),
       ...mapEntry(21, body.currentTreasury !== undefined ? uint(body.currentTreasury) : undefined),

@@ -13,7 +13,16 @@
  */
 import { Effect, Option, Schema, SchemaIssue } from "effect";
 import { CborKinds, type CborSchemaType } from "cbor-schema";
-import { expectMap, expectUint, getMapValue } from "../core/cbor-utils.ts";
+import {
+  uint,
+  negInt,
+  cborBytes,
+  cborText,
+  arr,
+  expectMap,
+  expectUint,
+  getMapValue,
+} from "../core/cbor-utils.ts";
 
 // ---------------------------------------------------------------------------
 // Metadatum — recursive Schema
@@ -138,6 +147,73 @@ export function decodeMetadatum(cbor: CborSchemaType): Effect.Effect<Metadatum, 
         );
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Metadatum CBOR encoder (recursive — .match() unavailable due to Schema.suspend)
+// ---------------------------------------------------------------------------
+
+export function encodeMetadatum(m: Metadatum): CborSchemaType {
+  switch (m._tag) {
+    case MetadatumKind.Int:
+      return m.value >= 0n ? uint(m.value) : negInt(m.value);
+    case MetadatumKind.Bytes:
+      return cborBytes(m.value);
+    case MetadatumKind.Text:
+      return cborText(m.value);
+    case MetadatumKind.List:
+      return arr(...m.items.map(encodeMetadatum));
+    case MetadatumKind.Map:
+      return {
+        _tag: CborKinds.Map,
+        entries: m.entries.map(([k, v]) => ({
+          k: encodeMetadatum(k),
+          v: encodeMetadatum(v),
+        })),
+      };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TxMetadata CBOR encoder
+// ---------------------------------------------------------------------------
+
+export function encodeTxMetadata(meta: TxMetadata): CborSchemaType {
+  return {
+    _tag: CborKinds.Map,
+    entries: meta.entries.map((e) => ({
+      k: uint(e.label),
+      v: encodeMetadatum(e.value),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AuxiliaryData CBOR encoder — always Alonzo+ format: Tag(259, Map{...})
+// ---------------------------------------------------------------------------
+
+function encodeScriptArray(scripts: ReadonlyArray<Uint8Array>): CborSchemaType {
+  return arr(...scripts.map(cborBytes));
+}
+
+export function encodeAuxiliaryData(aux: AuxiliaryData): CborSchemaType {
+  const entries: Array<{ k: CborSchemaType; v: CborSchemaType }> = [];
+  if (aux.metadata) {
+    entries.push({ k: uint(0), v: encodeTxMetadata(aux.metadata) });
+  }
+  if (aux.nativeScripts) {
+    entries.push({ k: uint(1), v: encodeScriptArray(aux.nativeScripts) });
+  }
+  if (aux.plutusV1Scripts) {
+    entries.push({ k: uint(2), v: encodeScriptArray(aux.plutusV1Scripts) });
+  }
+  if (aux.plutusV2Scripts) {
+    entries.push({ k: uint(3), v: encodeScriptArray(aux.plutusV2Scripts) });
+  }
+  if (aux.plutusV3Scripts) {
+    entries.push({ k: uint(4), v: encodeScriptArray(aux.plutusV3Scripts) });
+  }
+  return { _tag: CborKinds.Tag, tag: 259n, data: { _tag: CborKinds.Map, entries } };
 }
 
 // ---------------------------------------------------------------------------

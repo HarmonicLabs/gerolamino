@@ -2,53 +2,10 @@
 /**
  * Benchmark: cardano-ledger-ts (legacy) - full Mithril snapshot decode
  */
-import pathNode from "path";
-import { fileURLToPath } from "url";
+import { MultiEraBlock } from "../../../../../cardano-ledger-ts/src/eras/common/MultiEraBlock.ts";
+import { readChunkBlocks, countChunks } from "./chunk-reader.ts";
 
-const __dir = pathNode.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE = pathNode.resolve(__dir, "../../../..");
-const IMMUTABLE_DIR = pathNode.join(WORKSPACE, "apps/bootstrap/db/immutable");
-const LEGACY_PATH = pathNode.resolve(WORKSPACE, "..", "cardano-ledger-ts");
-
-const { MultiEraBlock } = await import(`${LEGACY_PATH}/src/eras/common/MultiEraBlock.ts`);
-
-async function readChunkBlocks(chunkNo: number): Promise<ReadonlyArray<Uint8Array>> {
-  const base = String(chunkNo).padStart(5, "0");
-  const [primary, secondary, chunk] = await Promise.all([
-    Bun.file(`${IMMUTABLE_DIR}/${base}.primary`)
-      .arrayBuffer()
-      .then((b) => new Uint8Array(b)),
-    Bun.file(`${IMMUTABLE_DIR}/${base}.secondary`)
-      .arrayBuffer()
-      .then((b) => new Uint8Array(b)),
-    Bun.file(`${IMMUTABLE_DIR}/${base}.chunk`)
-      .arrayBuffer()
-      .then((b) => new Uint8Array(b)),
-  ]);
-  if (primary.length < 5 || primary[0] !== 1) return [];
-  const numSlots = (primary.length - 1) / 4;
-  const primaryDv = new DataView(primary.buffer, primary.byteOffset);
-  const secondaryDv = new DataView(secondary.buffer, secondary.byteOffset);
-  const offsets: number[] = [];
-  for (let i = 0; i < numSlots; i++) offsets.push(primaryDv.getUint32(1 + i * 4, false));
-  const entries: Array<{ blockOff: bigint }> = [];
-  for (let i = 0; i + 1 < offsets.length; i++) {
-    if (offsets[i] !== offsets[i + 1])
-      entries.push({ blockOff: secondaryDv.getBigUint64(offsets[i]!, false) });
-  }
-  const blocks: Uint8Array[] = [];
-  for (let i = 0; i < entries.length; i++) {
-    const s = Number(entries[i]!.blockOff);
-    const e = i + 1 < entries.length ? Number(entries[i + 1]!.blockOff) : chunk.length;
-    blocks.push(chunk.subarray(s, e).slice());
-  }
-  return blocks;
-}
-
-const totalChunks = Bun.spawnSync(["ls", IMMUTABLE_DIR])
-  .stdout.toString()
-  .split("\n")
-  .filter((f) => f.endsWith(".chunk")).length;
+const totalChunks = countChunks();
 console.log(`[legacy] ${totalChunks} chunks`);
 
 const startMem = process.memoryUsage();

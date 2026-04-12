@@ -18,7 +18,7 @@ import {
   encodeTxBody,
   DatumOption,
   DatumOptionKind,
-} from "../lib/tx/tx.ts";
+} from "..";
 
 const txId32 = new Uint8Array(32).fill(0xaa);
 const addr29 = new Uint8Array(29).fill(0x61); // enterprise address header + 28 bytes

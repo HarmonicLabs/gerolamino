@@ -13,7 +13,7 @@
  */
 import { Effect, Option, Schema, SchemaIssue } from "effect";
 import { CborKinds, type CborSchemaType } from "cbor-schema";
-import { expectArray, expectUint, expectBytes } from "../core/cbor-utils.ts";
+import { uint, negInt, cborBytes, arr, expectArray, expectUint, expectBytes } from "../core/cbor-utils.ts";
 
 // ---------------------------------------------------------------------------
 // PlutusData — recursive Schema using Schema.suspend
@@ -169,16 +169,11 @@ export function decodePlutusData(
 
 export const encodePlutusData: (data: PlutusData) => CborSchemaType = PlutusData.match({
   [PlutusDataKind.Int]: (d): CborSchemaType =>
-    d.value >= 0n
-      ? { _tag: CborKinds.UInt, num: d.value }
-      : { _tag: CborKinds.NegInt, num: d.value },
+    d.value >= 0n ? uint(d.value) : negInt(d.value),
 
-  [PlutusDataKind.Bytes]: (d): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: d.value }),
+  [PlutusDataKind.Bytes]: (d): CborSchemaType => cborBytes(d.value),
 
-  [PlutusDataKind.List]: (d): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: d.items.map(encodePlutusData),
-  }),
+  [PlutusDataKind.List]: (d): CborSchemaType => arr(...d.items.map(encodePlutusData)),
 
   [PlutusDataKind.Map]: (d): CborSchemaType => ({
     _tag: CborKinds.Map,
@@ -190,10 +185,7 @@ export const encodePlutusData: (data: PlutusData) => CborSchemaType = PlutusData
 
   [PlutusDataKind.Constr]: (d): CborSchemaType => {
     const tag = Number(d.constrTag);
-    const fields: CborSchemaType = {
-      _tag: CborKinds.Array,
-      items: d.fields.map(encodePlutusData),
-    };
+    const fields: CborSchemaType = arr(...d.fields.map(encodePlutusData));
     // Small tag: 0..6 → Tag(121+n)
     if (tag >= 0 && tag <= 6) return { _tag: CborKinds.Tag, tag: BigInt(121 + tag), data: fields };
     // Medium tag: 7..127 → Tag(1280+n-7)
@@ -203,10 +195,7 @@ export const encodePlutusData: (data: PlutusData) => CborSchemaType = PlutusData
     return {
       _tag: CborKinds.Tag,
       tag: 102n,
-      data: {
-        _tag: CborKinds.Array,
-        items: [{ _tag: CborKinds.UInt, num: d.constrTag }, fields],
-      },
+      data: arr(uint(d.constrTag), fields),
     };
   },
 });

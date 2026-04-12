@@ -30,16 +30,14 @@ export type TimelockType =
   | { readonly _tag: TimelockKind.RequireTimeStart; readonly slot: bigint }
   | { readonly _tag: TimelockKind.RequireTimeExpire; readonly slot: bigint };
 
-// Use a lazy reference for recursive schema definition
-const TimelockRef = Schema.suspend((): Schema.Codec<TimelockType> => TimelockCodec);
+// Lazy reference for recursive schema (explicit return type breaks circular inference)
+const TimelockRef = Schema.suspend((): Schema.Codec<TimelockType> => _TimelockCodec);
 
-const TimelockCodec: Schema.Codec<TimelockType> = Schema.Union([
-  Schema.TaggedStruct(TimelockKind.RequireAllOf, {
-    scripts: Schema.Array(TimelockRef),
-  }),
-  Schema.TaggedStruct(TimelockKind.RequireAnyOf, {
-    scripts: Schema.Array(TimelockRef),
-  }),
+// Base codec — explicit Codec<TimelockType> annotation required for Schema.decodeTo
+// and Schema.suspend to resolve the recursive type correctly.
+const _TimelockCodec: Schema.Codec<TimelockType> = Schema.Union([
+  Schema.TaggedStruct(TimelockKind.RequireAllOf, { scripts: Schema.Array(TimelockRef) }),
+  Schema.TaggedStruct(TimelockKind.RequireAnyOf, { scripts: Schema.Array(TimelockRef) }),
   Schema.TaggedStruct(TimelockKind.RequireMOf, {
     required: Schema.Number,
     scripts: Schema.Array(TimelockRef),
@@ -49,14 +47,12 @@ const TimelockCodec: Schema.Codec<TimelockType> = Schema.Union([
   Schema.TaggedStruct(TimelockKind.RequireTimeExpire, { slot: Schema.BigInt }),
 ]);
 
-// Augmented with .match(), .guards, .cases, .isAnyOf()
+// Augmented with .match(), .guards, .cases, .isAnyOf() — separate Schema.Union call
+// required because the explicit Codec annotation above erases the structural union
+// type that toTaggedUnion needs for method generation.
 export const Timelock = Schema.Union([
-  Schema.TaggedStruct(TimelockKind.RequireAllOf, {
-    scripts: Schema.Array(TimelockRef),
-  }),
-  Schema.TaggedStruct(TimelockKind.RequireAnyOf, {
-    scripts: Schema.Array(TimelockRef),
-  }),
+  Schema.TaggedStruct(TimelockKind.RequireAllOf, { scripts: Schema.Array(TimelockRef) }),
+  Schema.TaggedStruct(TimelockKind.RequireAnyOf, { scripts: Schema.Array(TimelockRef) }),
   Schema.TaggedStruct(TimelockKind.RequireMOf, {
     required: Schema.Number,
     scripts: Schema.Array(TimelockRef),
@@ -78,7 +74,7 @@ export enum ScriptKind {
 }
 
 export const Script = Schema.Union([
-  Schema.TaggedStruct(ScriptKind.NativeScript, { script: TimelockCodec }),
+  Schema.TaggedStruct(ScriptKind.NativeScript, { script: _TimelockCodec }),
   Schema.TaggedStruct(ScriptKind.PlutusV1, { bytes: Schema.Uint8Array }),
   Schema.TaggedStruct(ScriptKind.PlutusV2, { bytes: Schema.Uint8Array }),
   Schema.TaggedStruct(ScriptKind.PlutusV3, { bytes: Schema.Uint8Array }),
@@ -203,7 +199,7 @@ export const encodeScript = Script.match({
 // ────────────────────────────────────────────────────────────────────────────
 
 export const TimelockBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(TimelockCodec, {
+  Schema.decodeTo(_TimelockCodec, {
     decode: SchemaGetter.transformOrFail(decodeTimelock),
     encode: SchemaGetter.transform(encodeTimelock),
   }),

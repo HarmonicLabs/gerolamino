@@ -1,8 +1,7 @@
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
-import { decodeExtLedgerState, type ExtLedgerState } from "../lib/state/new-epoch-state.ts";
-import { Era } from "../lib/core/era.ts";
+import { decodeExtLedgerState, type ExtLedgerState, Era } from "..";
 import pathNode from "path";
 import { fileURLToPath } from "url";
 

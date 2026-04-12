@@ -1,5 +1,6 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { Schema, SchemaGetter } from "effect";
+import { CborSchemaFromBytes, type CborSchemaType } from "cbor-schema";
+import { expectBytes, cborBytes } from "./cbor-utils.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Byte length filter for Uint8Array
@@ -158,107 +159,83 @@ export type DocHash = typeof DocHash.Type;
 // CBOR Codecs
 // ────────────────────────────────────────────────────────────────────────────
 
-function decodeCborBytes(
-  cbor: CborSchemaType,
-  context: string,
-  expectedLength?: number,
-): Effect.Effect<Uint8Array, SchemaIssue.Issue> {
-  if (cbor._tag !== CborKinds.Bytes)
-    return Effect.fail(
-      new SchemaIssue.InvalidValue(Option.some(cbor), {
-        message: `${context}: expected CBOR bytes`,
-      }),
-    );
-  if (expectedLength !== undefined && cbor.bytes.length !== expectedLength)
-    return Effect.fail(
-      new SchemaIssue.InvalidValue(Option.some(cbor), {
-        message: `${context}: expected ${expectedLength} bytes, got ${cbor.bytes.length}`,
-      }),
-    );
-  return Effect.succeed(cbor.bytes);
-}
-
-function encodeBytesToCbor(bytes: Uint8Array): CborSchemaType {
-  return { _tag: CborKinds.Bytes, bytes };
-}
-
 export const Hash28Bytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(Hash28, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "Hash28", 28),
+      expectBytes(cbor, "Hash28", 28),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const Hash32Bytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(Hash32, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "Hash32", 32),
+      expectBytes(cbor, "Hash32", 32),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const SignatureBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(Signature, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "Signature", 64),
+      expectBytes(cbor, "Signature", 64),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const KeyHashBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(KeyHash, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "KeyHash", 28),
+      expectBytes(cbor, "KeyHash", 28),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const ScriptHashBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(ScriptHash, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "ScriptHash", 28),
+      expectBytes(cbor, "ScriptHash", 28),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const PolicyIdBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(PolicyId, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "PolicyId", 28),
+      expectBytes(cbor, "PolicyId", 28),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const TxIdBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(TxId, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "TxId", 32),
+      expectBytes(cbor, "TxId", 32),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const DataHashBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(DataHash, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "DataHash", 32),
+      expectBytes(cbor, "DataHash", 32),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );
 
 export const DocHashBytes = CborSchemaFromBytes.pipe(
   Schema.decodeTo(DocHash, {
     decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      decodeCborBytes(cbor, "DocHash", 32),
+      expectBytes(cbor, "DocHash", 32),
     ),
-    encode: SchemaGetter.transform(encodeBytesToCbor),
+    encode: SchemaGetter.transform(cborBytes),
   }),
 );

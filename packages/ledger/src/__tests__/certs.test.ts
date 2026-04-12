@@ -10,9 +10,9 @@ import {
   isGovernanceCert,
   decodeDCert,
   encodeDCert,
-} from "../lib/certs/certs.ts";
-import { CredentialKind } from "../lib/core/credentials.ts";
-import { DRepKind } from "../lib/governance/governance.ts";
+  CredentialKind,
+  DRepKind,
+} from "..";
 
 const keyHash = new Uint8Array(28).fill(0x01);
 const scriptHash = new Uint8Array(28).fill(0x02);
@@ -112,7 +112,7 @@ describe("DCert CBOR decode/encode", () => {
       };
       const decoded = yield* decodeDCert(cbor);
       expect(decoded._tag).toBe(CertKind.PoolRetirement);
-      if (decoded._tag === CertKind.PoolRetirement) {
+      if (DCert.guards[CertKind.PoolRetirement](decoded)) {
         expect(decoded.epoch).toBe(300n);
       }
       const reEncoded = encodeDCert(decoded);
@@ -132,7 +132,7 @@ describe("DCert CBOR decode/encode", () => {
       };
       const decoded = yield* decodeDCert(cbor);
       expect(decoded._tag).toBe(CertKind.VoteDeleg);
-      if (decoded._tag === CertKind.VoteDeleg) {
+      if (DCert.guards[CertKind.VoteDeleg](decoded)) {
         expect(decoded.drep._tag).toBe(DRepKind.AlwaysAbstain);
       }
     }),
@@ -146,7 +146,7 @@ describe("DCert CBOR decode/encode", () => {
       };
       const decoded = yield* decodeDCert(cbor);
       expect(decoded._tag).toBe(CertKind.AuthCommitteeHot);
-      if (decoded._tag === CertKind.AuthCommitteeHot) {
+      if (DCert.guards[CertKind.AuthCommitteeHot](decoded)) {
         expect(decoded.coldCredential._tag).toBe(CredentialKind.KeyHash);
         expect(decoded.hotCredential._tag).toBe(CredentialKind.Script);
       }
@@ -174,7 +174,7 @@ describe("DCert CBOR decode/encode", () => {
       };
       const decoded = yield* decodeDCert(cbor);
       expect(decoded._tag).toBe(CertKind.RegDRep);
-      if (decoded._tag === CertKind.RegDRep) {
+      if (DCert.guards[CertKind.RegDRep](decoded)) {
         expect(decoded.deposit).toBe(500000000n);
         expect(decoded.anchor?.url).toBe("https://drep.example");
       }

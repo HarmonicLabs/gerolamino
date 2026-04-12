@@ -1,8 +1,8 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { Network } from "../lib/core/primitives.ts";
-import { CredentialKind } from "../lib/core/credentials.ts";
 import {
+  Network,
+  CredentialKind,
   Addr,
   AddrKind,
   AddrBytes,
@@ -10,7 +10,7 @@ import {
   RwdAddrBytes,
   decodeAddr,
   encodeAddr,
-} from "../lib/address/address.ts";
+} from "..";
 
 const keyHash1 = new Uint8Array(28).fill(0x01);
 const keyHash2 = new Uint8Array(28).fill(0x02);
@@ -64,7 +64,7 @@ describe("Addr CBOR round-trip", () => {
       const encoded = yield* Schema.encodeUnknownEffect(AddrBytes)(original);
       const decoded = yield* Schema.decodeUnknownEffect(AddrBytes)(encoded);
       expect(decoded._tag).toBe(AddrKind.Base);
-      if (decoded._tag === AddrKind.Base) {
+      if (Addr.guards[AddrKind.Base](decoded)) {
         expect(decoded.pay._tag).toBe(CredentialKind.KeyHash);
         expect(decoded.pay.hash).toEqual(keyHash1);
         expect(decoded.stake._tag).toBe(CredentialKind.KeyHash);
@@ -84,7 +84,7 @@ describe("Addr CBOR round-trip", () => {
       const encoded = yield* Schema.encodeUnknownEffect(AddrBytes)(original);
       const decoded = yield* Schema.decodeUnknownEffect(AddrBytes)(encoded);
       expect(decoded._tag).toBe(AddrKind.Enterprise);
-      if (decoded._tag === AddrKind.Enterprise) {
+      if (Addr.guards[AddrKind.Enterprise](decoded)) {
         expect(decoded.pay._tag).toBe(CredentialKind.Script);
         expect(decoded.pay.hash).toEqual(scriptHash);
       }
@@ -101,7 +101,7 @@ describe("Addr CBOR round-trip", () => {
       const encoded = yield* Schema.encodeUnknownEffect(AddrBytes)(original);
       const decoded = yield* Schema.decodeUnknownEffect(AddrBytes)(encoded);
       expect(decoded._tag).toBe(AddrKind.Reward);
-      if (decoded._tag === AddrKind.Reward) {
+      if (Addr.guards[AddrKind.Reward](decoded)) {
         expect(decoded.stake.hash).toEqual(keyHash1);
       }
     }),

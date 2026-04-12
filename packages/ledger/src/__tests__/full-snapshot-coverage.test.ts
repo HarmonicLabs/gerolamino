@@ -8,14 +8,10 @@ import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
 import { CborKinds } from "cbor-schema";
-import { decodeMultiEraBlock, type BlockHeader } from "../lib/block/block.ts";
-import { decodeExtLedgerState } from "../lib/state/new-epoch-state.ts";
+import { decodeMultiEraBlock, isByronBlock, type BlockHeader, decodeExtLedgerState } from "..";
+import { WORKSPACE, IMMUTABLE_DIR } from "./chunk-reader.ts";
 import pathNode from "path";
-import { fileURLToPath } from "url";
 
-const __dir = pathNode.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE = pathNode.resolve(__dir, "../../../..");
-const IMMUTABLE_DIR = pathNode.join(WORKSPACE, "apps/bootstrap/db/immutable");
 const STATE_PATH = pathNode.join(WORKSPACE, "apps/bootstrap/db/ledger/119401006/state");
 
 const FsLayer = BunFileSystem.layer;
@@ -108,7 +104,7 @@ describe("Full Mithril snapshot coverage", () => {
             try {
               const blockResult = Effect.runSync(decodeMultiEraBlock(blockCbor));
 
-              if (blockResult._tag === "byron") {
+              if (isByronBlock(blockResult)) {
                 byronBlocks++;
               } else {
                 postByronBlocks++;

@@ -9,7 +9,7 @@ import {
   ScriptKind,
   decodeTimelock,
   encodeTimelock,
-} from "../lib/script/script.ts";
+} from "..";
 
 const testKeyHash = new Uint8Array(28).fill(0xaa);
 
@@ -34,7 +34,7 @@ describe("Timelock schema", () => {
         ],
       });
       expect(tl._tag).toBe(TimelockKind.RequireAllOf);
-      if (tl._tag === TimelockKind.RequireAllOf) {
+      if (Timelock.guards[TimelockKind.RequireAllOf](tl)) {
         expect(tl.scripts).toHaveLength(2);
       }
     }),
@@ -48,7 +48,7 @@ describe("Timelock CBOR round-trip", () => {
       const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original);
       const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded);
       expect(decoded._tag).toBe(TimelockKind.RequireSig);
-      if (decoded._tag === TimelockKind.RequireSig) {
+      if (Timelock.guards[TimelockKind.RequireSig](decoded)) {
         expect(decoded.keyHash).toEqual(testKeyHash);
       }
     }),
@@ -60,7 +60,7 @@ describe("Timelock CBOR round-trip", () => {
       const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original);
       const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded);
       expect(decoded._tag).toBe(TimelockKind.RequireTimeExpire);
-      if (decoded._tag === TimelockKind.RequireTimeExpire) {
+      if (Timelock.guards[TimelockKind.RequireTimeExpire](decoded)) {
         expect(decoded.slot).toBe(42000000n);
       }
     }),
@@ -80,7 +80,7 @@ describe("Timelock CBOR round-trip", () => {
       const encoded = yield* Schema.encodeUnknownEffect(TimelockBytes)(original);
       const decoded = yield* Schema.decodeUnknownEffect(TimelockBytes)(encoded);
       expect(decoded._tag).toBe(TimelockKind.RequireMOf);
-      if (decoded._tag === TimelockKind.RequireMOf) {
+      if (Timelock.guards[TimelockKind.RequireMOf](decoded)) {
         expect(decoded.required).toBe(2);
         expect(decoded.scripts).toHaveLength(3);
       }

@@ -56,25 +56,6 @@ export function getCborSet(cbor: CborSchemaType): ReadonlyArray<CborSchemaType> 
   return undefined;
 }
 
-/**
- * Encodes items as a CBOR set, optionally wrapped in Tag(258) for Conway.
- */
-export function encodeCborSet(
-  items: ReadonlyArray<CborSchemaType>,
-  useTag258: boolean,
-): CborSchemaType {
-  const array: CborSchemaType = { _tag: CborKinds.Array, items: [...items] };
-  return useTag258 ? { _tag: CborKinds.Tag, tag: 258n, data: array } : array;
-}
-
-// ---------------------------------------------------------------------------
-// CBOR null detection
-// ---------------------------------------------------------------------------
-
-export function decodeCborNull(cbor: CborSchemaType): boolean {
-  return cbor._tag === CborKinds.Simple && cbor.value === null;
-}
-
 // ---------------------------------------------------------------------------
 // CBOR extraction helpers — for use with Effect.gen + yield*
 //

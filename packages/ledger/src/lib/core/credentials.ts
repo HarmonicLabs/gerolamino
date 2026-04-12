@@ -1,7 +1,7 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborSchemaFromBytes, type CborSchemaType } from "cbor-schema";
 import { Bytes28 } from "./hashes.ts";
-import { expectArray, expectUint, expectBytes } from "./cbor-utils.ts";
+import { uint, cborBytes, arr, expectArray, expectUint, expectBytes } from "./cbor-utils.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Credential — KeyHash | Script discriminated union
@@ -48,20 +48,8 @@ export function decodeCredential(
 }
 
 export const encodeCredential = Credential.match({
-  [CredentialKind.KeyHash]: (c): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: 0n },
-      { _tag: CborKinds.Bytes, bytes: c.hash },
-    ],
-  }),
-  [CredentialKind.Script]: (c): CborSchemaType => ({
-    _tag: CborKinds.Array,
-    items: [
-      { _tag: CborKinds.UInt, num: 1n },
-      { _tag: CborKinds.Bytes, bytes: c.hash },
-    ],
-  }),
+  [CredentialKind.KeyHash]: (c): CborSchemaType => arr(uint(0), cborBytes(c.hash)),
+  [CredentialKind.Script]: (c): CborSchemaType => arr(uint(1), cborBytes(c.hash)),
 });
 
 // ────────────────────────────────────────────────────────────────────────────

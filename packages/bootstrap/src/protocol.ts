@@ -1,86 +1,85 @@
 /**
  * Binary TLV protocol for Gerolamo bootstrap streaming.
- * No Effect dependency - pure functions over Uint8Array and DataView.
- * Shared by both Effect-TS and raw browser clients.
+ * Schema-based message types with `_tag` discriminant + wire-format encoding.
  */
+import { Schema } from "effect";
 
 // ---------------------------------------------------------------------------
-// Message Tags
+// Message Kind (Schema discriminant)
 // ---------------------------------------------------------------------------
 
-export const MessageTag = {
+export enum BootstrapMessageKind {
+  Init = "Init",
+  Block = "Block",
+  LedgerState = "LedgerState",
+  LedgerMeta = "LedgerMeta",
+  BlobEntries = "BlobEntries",
+  Progress = "Progress",
+  CompressedBlockBatch = "CompressedBlockBatch",
+  Complete = "Complete",
+}
+
+export const BootstrapMessageKindSchema = Schema.Enum(BootstrapMessageKind);
+
+// ---------------------------------------------------------------------------
+// Schema.TaggedUnion — gives .match(), .guards, .isAnyOf() for free
+// ---------------------------------------------------------------------------
+
+export const BootstrapMessage = Schema.Union([
+  Schema.TaggedStruct(BootstrapMessageKind.Init, {
+    protocolMagic: Schema.Number,
+    snapshotSlot: Schema.BigInt,
+    totalChunks: Schema.Number,
+    totalBlocks: Schema.Number,
+    totalBlobEntries: Schema.Number,
+    blobPrefixes: Schema.Array(Schema.String),
+  }),
+  Schema.TaggedStruct(BootstrapMessageKind.Block, {
+    chunkNo: Schema.Number,
+    slotNo: Schema.BigInt,
+    headerHash: Schema.Uint8Array,
+    headerOffset: Schema.Number,
+    headerSize: Schema.Number,
+    crc: Schema.Number,
+    blockCbor: Schema.Uint8Array,
+  }),
+  Schema.TaggedStruct(BootstrapMessageKind.LedgerState, { payload: Schema.Uint8Array }),
+  Schema.TaggedStruct(BootstrapMessageKind.LedgerMeta, { payload: Schema.Uint8Array }),
+  Schema.TaggedStruct(BootstrapMessageKind.BlobEntries, {
+    dbName: Schema.String,
+    count: Schema.Number,
+    entries: Schema.Array(Schema.Struct({ key: Schema.Uint8Array, value: Schema.Uint8Array })),
+  }),
+  Schema.TaggedStruct(BootstrapMessageKind.Progress, {
+    phase: Schema.String,
+    current: Schema.Number,
+    total: Schema.Number,
+  }),
+  Schema.TaggedStruct(BootstrapMessageKind.CompressedBlockBatch, {
+    count: Schema.Number,
+    compressedData: Schema.Uint8Array,
+  }),
+  Schema.TaggedStruct(BootstrapMessageKind.Complete, {}),
+]).pipe(Schema.toTaggedUnion("_tag"));
+
+export type BootstrapMessageType = typeof BootstrapMessage.Type;
+
+// ---------------------------------------------------------------------------
+// Wire Tags — numeric TLV frame tags for binary encoding/decoding
+// ---------------------------------------------------------------------------
+
+export const WireTag = {
   Init: 0x01,
   Block: 0x02,
   LedgerState: 0x03,
   LedgerMeta: 0x04,
   BlobEntries: 0x05,
   Progress: 0x06,
+  CompressedBlockBatch: 0x07,
   Complete: 0xff,
 } as const;
 
-export type MessageTag = (typeof MessageTag)[keyof typeof MessageTag];
-
-// ---------------------------------------------------------------------------
-// Message Types
-// ---------------------------------------------------------------------------
-
-export type InitMessage = {
-  readonly tag: typeof MessageTag.Init;
-  readonly protocolMagic: number;
-  readonly snapshotSlot: bigint;
-  readonly totalChunks: number;
-  readonly totalBlocks: number;
-  readonly totalBlobEntries: number;
-  readonly blobPrefixes: ReadonlyArray<string>;
-};
-
-export type BlockMessage = {
-  readonly tag: typeof MessageTag.Block;
-  readonly chunkNo: number;
-  readonly slotNo: bigint;
-  readonly headerHash: Uint8Array;
-  readonly headerOffset: number;
-  readonly headerSize: number;
-  readonly crc: number;
-  readonly blockCbor: Uint8Array;
-};
-
-export type LedgerStateMessage = {
-  readonly tag: typeof MessageTag.LedgerState;
-  readonly payload: Uint8Array;
-};
-
-export type LedgerMetaMessage = {
-  readonly tag: typeof MessageTag.LedgerMeta;
-  readonly payload: Uint8Array;
-};
-
-export type BlobEntriesMessage = {
-  readonly tag: typeof MessageTag.BlobEntries;
-  readonly dbName: string;
-  readonly count: number;
-  readonly entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>;
-};
-
-export type ProgressMessage = {
-  readonly tag: typeof MessageTag.Progress;
-  readonly phase: string;
-  readonly current: number;
-  readonly total: number;
-};
-
-export type CompleteMessage = {
-  readonly tag: typeof MessageTag.Complete;
-};
-
-export type BootstrapMessage =
-  | InitMessage
-  | BlockMessage
-  | LedgerStateMessage
-  | LedgerMetaMessage
-  | BlobEntriesMessage
-  | ProgressMessage
-  | CompleteMessage;
+export type WireTag = (typeof WireTag)[keyof typeof WireTag];
 
 // ---------------------------------------------------------------------------
 // TLV Frame: [tag: u8][length: u32 BE][payload: u8[length]]
@@ -88,7 +87,7 @@ export type BootstrapMessage =
 
 const HEADER_SIZE = 5;
 
-export function encodeFrame(tag: MessageTag, payload: Uint8Array): Uint8Array {
+export function encodeFrame(tag: WireTag, payload: Uint8Array): Uint8Array {
   const frame = new Uint8Array(HEADER_SIZE + payload.length);
   const dv = new DataView(frame.buffer, frame.byteOffset);
   dv.setUint8(0, tag);
@@ -150,7 +149,7 @@ export function encodeBlock(block: {
   return payload;
 }
 
-export function decodeBlock(payload: Uint8Array): BlockMessage {
+export function decodeBlock(payload: Uint8Array) {
   const dv = new DataView(payload.buffer, payload.byteOffset);
   let off = 0;
   const chunkNo = dv.getUint16(off, false);
@@ -167,7 +166,7 @@ export function decodeBlock(payload: Uint8Array): BlockMessage {
   off += 4;
   const blockCbor = payload.slice(off);
   return {
-    tag: MessageTag.Block,
+    _tag: BootstrapMessageKind.Block as const,
     chunkNo,
     slotNo,
     headerHash,
@@ -218,7 +217,7 @@ export function encodeBlobBatch(
   return payload;
 }
 
-export function decodeBlobBatch(payload: Uint8Array): BlobEntriesMessage {
+export function decodeBlobBatch(payload: Uint8Array) {
   const dv = new DataView(payload.buffer, payload.byteOffset);
   let off = 0;
   const nameLen = dv.getUint16(off, false);
@@ -239,14 +238,21 @@ export function decodeBlobBatch(payload: Uint8Array): BlobEntriesMessage {
     off += valLen;
     entries.push({ key, value });
   }
-  return { tag: MessageTag.BlobEntries, dbName, count, entries };
+  return { _tag: BootstrapMessageKind.BlobEntries as const, dbName, count, entries };
 }
 
 // ---------------------------------------------------------------------------
 // Init Payload - Simple JSON encoding (small message)
 // ---------------------------------------------------------------------------
 
-export function encodeInit(init: Omit<InitMessage, "tag">): Uint8Array {
+export function encodeInit(init: {
+  readonly protocolMagic: number;
+  readonly snapshotSlot: bigint;
+  readonly totalChunks: number;
+  readonly totalBlocks: number;
+  readonly totalBlobEntries: number;
+  readonly blobPrefixes: ReadonlyArray<string>;
+}): Uint8Array {
   return textEncoder.encode(
     JSON.stringify({
       protocolMagic: init.protocolMagic,
@@ -259,10 +265,10 @@ export function encodeInit(init: Omit<InitMessage, "tag">): Uint8Array {
   );
 }
 
-export function decodeInit(payload: Uint8Array): InitMessage {
+export function decodeInit(payload: Uint8Array) {
   const json = JSON.parse(textDecoder.decode(payload));
   return {
-    tag: MessageTag.Init,
+    _tag: BootstrapMessageKind.Init as const,
     protocolMagic: json.protocolMagic,
     snapshotSlot: BigInt(json.snapshotSlot),
     totalChunks: json.totalChunks,
@@ -280,16 +286,58 @@ export function encodeProgress(phase: string, current: number, total: number): U
   return textEncoder.encode(JSON.stringify({ phase, current, total }));
 }
 
-export function decodeProgress(payload: Uint8Array): ProgressMessage {
+export function decodeProgress(payload: Uint8Array) {
   const json = JSON.parse(textDecoder.decode(payload));
-  return { tag: MessageTag.Progress, phase: json.phase, current: json.current, total: json.total };
+  return { _tag: BootstrapMessageKind.Progress as const, phase: json.phase, current: json.current, total: json.total };
+}
+
+// ---------------------------------------------------------------------------
+// CompressedBlockBatch Payload Encode/Decode
+// [count: u32 BE][compressedData: rest]
+// ---------------------------------------------------------------------------
+
+export function encodeCompressedBlockBatch(
+  count: number,
+  compressedData: Uint8Array,
+): Uint8Array {
+  const payload = new Uint8Array(4 + compressedData.length);
+  new DataView(payload.buffer).setUint32(0, count, false);
+  payload.set(compressedData, 4);
+  return payload;
+}
+
+export function decodeCompressedBlockBatch(payload: Uint8Array) {
+  const dv = new DataView(payload.buffer, payload.byteOffset);
+  return {
+    _tag: BootstrapMessageKind.CompressedBlockBatch as const,
+    count: dv.getUint32(0, false),
+    compressedData: payload.slice(4),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Symmetric encode: BootstrapMessage → TLV frame
+// ---------------------------------------------------------------------------
+
+export function encodeMessage(msg: BootstrapMessageType): Uint8Array {
+  return BootstrapMessage.match({
+    Init: (m) => encodeFrame(WireTag.Init, encodeInit(m)),
+    Block: (m) => encodeFrame(WireTag.Block, encodeBlock(m)),
+    LedgerState: (m) => encodeFrame(WireTag.LedgerState, m.payload),
+    LedgerMeta: (m) => encodeFrame(WireTag.LedgerMeta, m.payload),
+    BlobEntries: (m) => encodeFrame(WireTag.BlobEntries, encodeBlobBatch(m.dbName, m.entries)),
+    Progress: (m) => encodeFrame(WireTag.Progress, encodeProgress(m.phase, m.current, m.total)),
+    CompressedBlockBatch: (m) =>
+      encodeFrame(WireTag.CompressedBlockBatch, encodeCompressedBlockBatch(m.count, m.compressedData)),
+    Complete: () => encodeFrame(WireTag.Complete, new Uint8Array(0)),
+  })(msg);
 }
 
 // ---------------------------------------------------------------------------
 // Top-level decode: frame → BootstrapMessage
 // ---------------------------------------------------------------------------
 
-export function decodeFrame(frame: Uint8Array): BootstrapMessage {
+export function decodeFrame(frame: Uint8Array): BootstrapMessageType {
   const tagByte = frame[0];
   if (tagByte === undefined) throw new Error("Empty frame");
   const dv = new DataView(frame.buffer, frame.byteOffset);
@@ -297,56 +345,24 @@ export function decodeFrame(frame: Uint8Array): BootstrapMessage {
   const payload = frame.subarray(HEADER_SIZE, HEADER_SIZE + payloadLen);
 
   switch (tagByte) {
-    case MessageTag.Init:
+    case WireTag.Init:
       return decodeInit(payload);
-    case MessageTag.Block:
+    case WireTag.Block:
       return decodeBlock(payload);
-    case MessageTag.LedgerState:
-      return { tag: MessageTag.LedgerState, payload: payload.slice() };
-    case MessageTag.LedgerMeta:
-      return { tag: MessageTag.LedgerMeta, payload: payload.slice() };
-    case MessageTag.BlobEntries:
+    case WireTag.LedgerState:
+      return { _tag: BootstrapMessageKind.LedgerState as const, payload: payload.slice() };
+    case WireTag.LedgerMeta:
+      return { _tag: BootstrapMessageKind.LedgerMeta as const, payload: payload.slice() };
+    case WireTag.BlobEntries:
       return decodeBlobBatch(payload);
-    case MessageTag.Progress:
+    case WireTag.Progress:
       return decodeProgress(payload);
-    case MessageTag.Complete:
-      return { tag: MessageTag.Complete };
+    case WireTag.CompressedBlockBatch:
+      return decodeCompressedBlockBatch(payload);
+    case WireTag.Complete:
+      return { _tag: BootstrapMessageKind.Complete as const };
     default:
       throw new Error(`Unknown message tag: 0x${tagByte.toString(16)}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Exhaustive match over BootstrapMessage
-// ---------------------------------------------------------------------------
-
-export function matchMessage<R>(
-  msg: BootstrapMessage,
-  handlers: {
-    readonly Init: (msg: InitMessage) => R;
-    readonly Block: (msg: BlockMessage) => R;
-    readonly LedgerState: (msg: LedgerStateMessage) => R;
-    readonly LedgerMeta: (msg: LedgerMetaMessage) => R;
-    readonly BlobEntries: (msg: BlobEntriesMessage) => R;
-    readonly Progress: (msg: ProgressMessage) => R;
-    readonly Complete: (msg: CompleteMessage) => R;
-  },
-): R {
-  switch (msg.tag) {
-    case MessageTag.Init:
-      return handlers.Init(msg);
-    case MessageTag.Block:
-      return handlers.Block(msg);
-    case MessageTag.LedgerState:
-      return handlers.LedgerState(msg);
-    case MessageTag.LedgerMeta:
-      return handlers.LedgerMeta(msg);
-    case MessageTag.BlobEntries:
-      return handlers.BlobEntries(msg);
-    case MessageTag.Progress:
-      return handlers.Progress(msg);
-    case MessageTag.Complete:
-      return handlers.Complete(msg);
   }
 }
 

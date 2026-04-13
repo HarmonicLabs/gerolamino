@@ -8,11 +8,12 @@ import type { BootstrapError } from "./errors.ts";
 import { ChunkReadError } from "./errors.ts";
 import { readAllChunks } from "./chunk-reader.ts";
 import {
-  MessageTag,
+  WireTag,
   encodeFrame,
   encodeInit,
   encodeBlock,
   encodeBlobBatch,
+  encodeCompressedBlockBatch,
   SnapshotMeta,
   readSnapshotMeta,
 } from "bootstrap";
@@ -63,46 +64,48 @@ export type PreloadedLedger = {
 export const bootstrapStream = (
   meta: SnapshotMeta,
   preloaded: PreloadedLedger,
-): Stream.Stream<Uint8Array, BootstrapError, BlobStore | FileSystem.FileSystem | Path.Path> => {
-  const initStream = Stream.succeed(
-    encodeFrame(
-      MessageTag.Init,
-      encodeInit({
-        protocolMagic: meta.protocolMagic,
-        snapshotSlot: meta.snapshotSlot,
-        totalChunks: meta.totalChunks,
-        totalBlocks: 0,
-        totalBlobEntries: 0,
-        blobPrefixes: ["utxo"],
-      }),
-    ),
-  );
-
-  // Use pre-loaded bytes — avoids FileSystem dependency in request handler scope
-  const stateStream = Option.isSome(preloaded.stateBytes)
-    ? Stream.succeed(encodeFrame(MessageTag.LedgerState, Option.getOrThrow(preloaded.stateBytes)))
-    : Stream.empty;
-
-  const metaStream = Option.isSome(preloaded.metaBytes)
-    ? Stream.succeed(encodeFrame(MessageTag.LedgerMeta, Option.getOrThrow(preloaded.metaBytes)))
-    : Stream.empty;
-
-  // Stream UTxO entries from BlobStore (LSM backend) via scan.
-  // V2LSM tables store raw MemPack keys without our PREFIX_UTXO,
-  // so scan with empty prefix to get all entries (entire table is UTxOs).
-  // Wire format sends raw MemPack keys — client adds PREFIX_UTXO on receipt.
-  const utxoStream = Stream.fromEffect(
+): Stream.Stream<Uint8Array, BootstrapError, BlobStore | FileSystem.FileSystem | Path.Path> =>
+  Stream.unwrap(
     Effect.gen(function* () {
       const store = yield* BlobStore;
-      return store;
-    }),
-  ).pipe(
-    Stream.flatMap((store) =>
-      store.scan(new Uint8Array(0)).pipe(
+
+      // Count UTxO entries so clients can verify set completeness.
+      const totalBlobEntries = yield* store
+        .scan(new Uint8Array(0))
+        .pipe(Stream.runFold(() => 0, (n, _) => n + 1));
+
+      const initStream = Stream.succeed(
+        encodeFrame(
+          WireTag.Init,
+          encodeInit({
+            protocolMagic: meta.protocolMagic,
+            snapshotSlot: meta.snapshotSlot,
+            totalChunks: meta.totalChunks,
+            totalBlocks: 0,
+            totalBlobEntries,
+            blobPrefixes: ["utxo"],
+          }),
+        ),
+      );
+
+      // Use pre-loaded bytes — avoids FileSystem dependency in request handler scope
+      const stateStream = Option.isSome(preloaded.stateBytes)
+        ? Stream.succeed(encodeFrame(WireTag.LedgerState, Option.getOrThrow(preloaded.stateBytes)))
+        : Stream.empty;
+
+      const metaStream = Option.isSome(preloaded.metaBytes)
+        ? Stream.succeed(encodeFrame(WireTag.LedgerMeta, Option.getOrThrow(preloaded.metaBytes)))
+        : Stream.empty;
+
+      // Stream UTxO entries from BlobStore (LSM backend) via scan.
+      // V2LSM tables store raw MemPack keys without our PREFIX_UTXO,
+      // so scan with empty prefix to get all entries (entire table is UTxOs).
+      // Wire format sends raw MemPack keys — client adds PREFIX_UTXO on receipt.
+      const utxoStream = store.scan(new Uint8Array(0)).pipe(
         Stream.grouped(500),
         Stream.map((batch) =>
           encodeFrame(
-            MessageTag.BlobEntries,
+            WireTag.BlobEntries,
             encodeBlobBatch(
               "utxo",
               batch.map((e: { readonly key: Uint8Array; readonly value: Uint8Array }) => ({
@@ -112,21 +115,40 @@ export const bootstrapStream = (
             ),
           ),
         ),
-      ),
-    ),
-  );
+      );
 
-  const blockStream = readAllChunks(meta.immutableDir).pipe(
-    Stream.map((block) => encodeFrame(MessageTag.Block, encodeBlock(block))),
-  );
+      // Collect ALL blocks, concatenate TLV frames, gzip, emit as single CompressedBlockBatch.
+      const blockStream = Stream.unwrap(
+        readAllChunks(meta.immutableDir).pipe(
+          Stream.map((block) => encodeFrame(WireTag.Block, encodeBlock(block))),
+          Stream.runCollect,
+          Effect.map((frames) => {
+            const totalLen = frames.reduce((n, f) => n + f.length, 0);
+            const concatenated = new Uint8Array(totalLen);
+            let off = 0;
+            for (const f of frames) {
+              concatenated.set(f, off);
+              off += f.length;
+            }
+            const compressed = Bun.gzipSync(concatenated);
+            return Stream.succeed(
+              encodeFrame(
+                WireTag.CompressedBlockBatch,
+                encodeCompressedBlockBatch(frames.length, compressed),
+              ),
+            );
+          }),
+        ),
+      );
 
-  const completeStream = Stream.succeed(encodeFrame(MessageTag.Complete, new Uint8Array(0)));
+      const completeStream = Stream.succeed(encodeFrame(WireTag.Complete, new Uint8Array(0)));
 
-  return initStream.pipe(
-    Stream.concat(stateStream),
-    Stream.concat(metaStream),
-    Stream.concat(utxoStream),
-    Stream.concat(blockStream),
-    Stream.concat(completeStream),
+      return initStream.pipe(
+        Stream.concat(stateStream),
+        Stream.concat(metaStream),
+        Stream.concat(utxoStream),
+        Stream.concat(blockStream),
+        Stream.concat(completeStream),
+      );
+    }),
   );
-};

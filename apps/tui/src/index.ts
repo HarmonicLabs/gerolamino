@@ -4,11 +4,10 @@
  * Bootstraps remotely from a bootstrap server via WebSocket, then
  * validates headers via consensus layer, stores data via BlobStore (LSM) + SQL.
  *
- * SQL access follows the SqlClient↔Drizzle proxy bridge pattern:
+ * SQL access:
  *   layerBunSqlClient → SqlClient
- *     → SqliteDrizzle.layerProxy (consumes SqlClient) → SqliteDrizzle
  *     → runMigrations (consumes SqlClient) — creates tables
- *     → ChainDBLive (consumes BlobStore + SqliteDrizzle) → ChainDB
+ *     → ChainDBLive (consumes BlobStore + SqlClient) → ChainDB
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import * as BunSocket from "@effect/platform-bun/BunSocket";
@@ -44,17 +43,18 @@ import {
   extractLedgerView,
   extractNonces,
   extractSnapshotTip,
+  initialVolatileState,
+  Nonces,
 } from "consensus";
 import type { LedgerView } from "consensus";
 import { decodeExtLedgerState } from "ledger";
-import { connect, matchMessage } from "bootstrap";
-import type { BootstrapMessage } from "bootstrap";
+import { connect, BootstrapMessage, BootstrapMessageKind, extractFrames, decodeFrame } from "bootstrap";
+import type { BootstrapMessageType } from "bootstrap";
 import {
   BlobStore,
   PREFIX_UTXO,
   blockKey,
   ChainDBLive,
-  SqliteDrizzle,
   runMigrations,
 } from "storage";
 import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient";
@@ -154,8 +154,8 @@ const start = Command.make(
                 const stream = yield* connect(config.bootstrapUrl);
 
                 yield* stream.pipe(
-                  Stream.runForEach((msg: BootstrapMessage) =>
-                    matchMessage(msg, {
+                  Stream.runForEach(
+                    BootstrapMessage.match({
                       Init: (m) =>
                         Effect.gen(function* () {
                           yield* Effect.log(
@@ -226,6 +226,26 @@ const start = Command.make(
                           }
                         }),
 
+                      CompressedBlockBatch: (m) =>
+                        Effect.gen(function* () {
+                          const decompressed = Bun.gunzipSync(m.compressedData);
+                          const { frames } = extractFrames(decompressed);
+                          const decoded = frames.map(decodeFrame);
+                          const entries = decoded
+                            .filter(BootstrapMessage.guards.Block)
+                            .map((msg) => ({
+                              key: blockKey(msg.slotNo, msg.headerHash),
+                              value: msg.blockCbor,
+                            }));
+                          yield* store.putBatch(entries);
+                          const newCount = yield* Ref.updateAndGet(blockCountRef, (n) => n + entries.length);
+                          yield* Effect.log(`Blocks batch: ${entries.length} blocks (total: ${newCount})`);
+                          yield* pushBootstrapProgress({
+                            blocksReceived: newCount,
+                            phase: "blocks",
+                          });
+                        }),
+
                       Progress: (m) => Effect.log(`Progress: ${m.phase} ${m.current}/${m.total}`),
 
                       Complete: () =>
@@ -255,7 +275,20 @@ const start = Command.make(
             };
           });
 
-      const status = yield* getNodeStatus;
+      // Shared volatile state ref — written by relay sync loop, read by monitor.
+      const volatileRef = yield* Ref.make(
+        initialVolatileState(
+          snapshotState?.tip,
+          snapshotState?.nonces ?? new Nonces({
+            active: new Uint8Array(32),
+            evolving: new Uint8Array(32),
+            candidate: new Uint8Array(32),
+            epoch: 0n,
+          }),
+        ),
+      );
+
+      const status = yield* getNodeStatus(volatileRef);
       yield* Effect.log(`Tip: slot ${status.tipSlot} / ${status.currentSlot}`);
       yield* Effect.log(`Epoch: ${status.epochNumber}`);
       yield* Effect.log(`Sync: ${status.syncPercent}%`);
@@ -281,7 +314,7 @@ const start = Command.make(
 
         yield* Effect.repeat(
           Effect.gen(function* () {
-            const nodeStatus = yield* getNodeStatus;
+            const nodeStatus = yield* getNodeStatus(volatileRef);
             const stalled = yield* peerManager.detectStalls;
             const peers = yield* peerManager.getPeers;
 
@@ -322,7 +355,7 @@ const start = Command.make(
       yield* Effect.all(
         [
           Effect.retry(
-            connectToRelay(peerId, networkMagic, ledgerView, snapshotState).pipe(
+            connectToRelay(peerId, networkMagic, ledgerView, snapshotState, volatileRef).pipe(
               Effect.provide(
                 BunSocket.layerNet({ host: config.relayHost, port: config.relayPort }),
               ),
@@ -352,7 +385,6 @@ const app = Command.make("gerolamino").pipe(
 
 /**
  * Build storage layers with fresh LSM BlobStore + SQLite ChainDB.
- * Uses SqlClient↔Drizzle proxy bridge pattern.
  * The bootstrap stream populates the LSM store remotely.
  */
 const makeStorageLayers = () =>
@@ -367,10 +399,9 @@ const makeStorageLayers = () =>
 
       const blobStoreLayer = layerLsm(lsmDir);
       const sqlClientLayer = layerBunSqlClient({ filename: p.join(baseDir, "chain.db") });
-      const drizzleLayer = SqliteDrizzle.layerProxy.pipe(Layer.provide(sqlClientLayer));
 
       const chainDbLayer = ChainDBLive.pipe(
-        Layer.provide(Layer.merge(blobStoreLayer, drizzleLayer)),
+        Layer.provide(Layer.merge(blobStoreLayer, sqlClientLayer)),
       );
 
       return Layer.mergeAll(chainDbLayer, sqlClientLayer, blobStoreLayer);

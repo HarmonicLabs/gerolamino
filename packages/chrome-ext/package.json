@@ -17,10 +17,6 @@
     "e2e": "bunx playwright test"
   },
   "dependencies": {
-    "@effect/atom-solid": "^4.0.0-beta.43",
-    "@effect/platform-browser": "^4.0.0-beta.43",
-    "@effect/sql-sqlite-wasm": "^4.0.0-beta.43",
-    "@effect/wa-sqlite": "^0.2.1",
     "@kobalte/core": "^0.13.7",
     "@solid-primitives/connectivity": "^0.4.5",
     "@solid-primitives/date": "^2.1.6",
@@ -30,7 +26,6 @@
     "cbor-schema": "workspace:*",
     "consensus": "workspace:*",
     "dashboard": "workspace:*",
-    "effect": "^4.0.0-beta.43",
     "ledger": "workspace:*",
     "miniprotocols": "workspace:*",
     "solid-js": "^1.9.12",
@@ -46,7 +41,7 @@
     "@wxt-dev/module-solid": "^1.1.4",
     "playwright": "^1.59.1",
     "typescript": "~5.9.2",
-    "vitest": "^4.1.2",
+    "vitest": "^4.1.4",
     "wxt": "^0.20.20"
   }
 }

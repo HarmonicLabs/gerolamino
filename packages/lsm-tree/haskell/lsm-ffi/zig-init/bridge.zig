@@ -11,7 +11,7 @@
 const std = @import("std");
 
 // Haskell FFI imports (from liblsm-ffi.so)
-extern fn hs_init(argc: *c_int, argv: *?[*][*:0]u8) void;
+extern fn hs_init_with_rtsopts(argc: *c_int, argv: *?[*][*:0]u8) void;
 extern fn lsm_session_open(path: [*:0]const u8, out: *?*anyopaque) c_int;
 extern fn lsm_session_close(session: *anyopaque) c_int;
 extern fn lsm_table_new(session: *anyopaque, out: *?*anyopaque) c_int;
@@ -29,15 +29,37 @@ extern fn lsm_cursor_read(cursor: *anyopaque, max_count: usize, out_buf: *?[*]u8
 // Global state — initialized once on library load
 var session: ?*anyopaque = null;
 var table: ?*anyopaque = null;
+var rts_initialized: bool = false;
+
+/// Initialize the GHC RTS with safe options for embedding in Bun.
+/// Passes +RTS flags via hs_init's argv:
+///   --install-signal-handlers=no — Bun uses SIGSEGV for GC write barriers
+///   -A16m — small nursery (default ~1GB conflicts with Bun's JSC heap)
+///   -H128m — heap suggestion
+///   -V0 — disable idle GC timer (avoids SIGVTALRM conflicts)
+fn init_rts() void {
+    if (rts_initialized) return;
+    var argc: c_int = 7;
+    var argv_storage = [_]?[*:0]u8{
+        @constCast(@ptrCast("lsm-bridge")),
+        @constCast(@ptrCast("+RTS")),
+        @constCast(@ptrCast("--install-signal-handlers=no")),
+        @constCast(@ptrCast("-A16m")),
+        @constCast(@ptrCast("-H128m")),
+        @constCast(@ptrCast("-V0")),
+        @constCast(@ptrCast("-RTS")),
+    };
+    var argv_ptr: ?[*][*:0]u8 = @ptrCast(&argv_storage);
+    hs_init_with_rtsopts(&argc, &argv_ptr);
+    rts_initialized = true;
+}
 
 /// Initialize the LSM session and table.
 /// Called from TypeScript before any operations.
 /// Returns 0 on success, negative on error.
 export fn lsm_bridge_init(path_ptr: [*]const u8, path_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
-    // Initialize GHC RTS
-    var argc: c_int = 0;
-    var argv: ?[*][*:0]u8 = null;
-    hs_init(&argc, &argv);
+    // Initialize GHC RTS (safe to call multiple times — guarded by flag)
+    init_rts();
 
     // Null-terminate the path
     var path_buf: [4096]u8 = undefined;
@@ -154,10 +176,8 @@ export fn lsm_bridge_snapshot(name_ptr: [*]const u8, name_len: usize, label_ptr:
 /// with the given label.
 /// Replaces the global session/table handles.
 export fn lsm_bridge_init_from_snapshot(path_ptr: [*]const u8, path_len: usize, name_ptr: [*]const u8, name_len: usize, label_ptr: [*]const u8, label_len: usize) callconv(std.builtin.CallingConvention.c) c_int {
-    // Initialize GHC RTS
-    var argc: c_int = 0;
-    var argv: ?[*][*:0]u8 = null;
-    hs_init(&argc, &argv);
+    // Initialize GHC RTS (safe to call multiple times — guarded by flag)
+    init_rts();
 
     // Null-terminate the path
     var path_buf: [4096]u8 = undefined;

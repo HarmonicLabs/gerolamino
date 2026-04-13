@@ -60,6 +60,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    zig2nix = {
+      url = "github:Cloudef/zig2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     flake-root.url = "github:srid/flake-root";
 
     determinate = {

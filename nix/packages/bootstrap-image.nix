@@ -61,9 +61,8 @@
           (root + "/packages/lsm-tree/src")
           (root + "/packages/lsm-tree/package.json")
 
-          (root + "/packages/consensus/src")
+          # consensus package.json needed for Bun workspace resolution
           (root + "/packages/consensus/package.json")
-          (root + "/packages/consensus/tsconfig.json")
         ];
       };
 

@@ -1,6 +1,6 @@
 # IOG's lsm-tree + our lsm-ffi wrapper built via haskell.nix.
 # lsm-tree provides the LSM engine; lsm-ffi wraps it with C-callable exports.
-# The Zig init code registers GHC RTS init/fini as ELF .init_array/.fini_array.
+# GHC RTS init is handled explicitly by bridge.zig's init functions.
 { inputs, root, ... }: {
   perSystem = { system, lib, pkgs, ... }:
     let
@@ -15,55 +15,33 @@
         fileset = root + "/packages/lsm-tree/haskell/lsm-ffi";
       };
 
-      # Compile Zig init code to a relocatable object file.
-      # This .o gets linked into the Haskell foreign-library .so.
-      # Compile the C init code using Zig's C compiler (no system GCC needed).
-      # Produces a .o with __attribute__((constructor)) that calls hs_init().
-      # Compile RTS init using Zig's C compiler.
-      zigInitObj = pkgs.runCommand "zig-init-obj"
-        {
-          nativeBuildInputs = [ pkgs.zig ];
-        } ''
-        mkdir -p $out
-        export ZIG_GLOBAL_CACHE_DIR=$(mktemp -d)
-        zig cc -c \
-          -target x86_64-linux-gnu \
-          -O2 \
-          ${lsmFfiSrc}/zig-init/init.c \
-          -o $out/zig-init.o
-      '';
-
       # Zig bridge shared library — wraps Haskell lsm-ffi with buffer-based API.
       # Links against liblsm-ffi.so and provides lsm_bridge_* functions.
+      # Built via zig2nix (proper build.zig project instead of raw zig build-lib).
       lsmFfiLib = lsmProject.hsPkgs.lsm-ffi.components.foreignlibs.lsm-ffi;
-      zigBridge = pkgs.runCommand "zig-bridge"
-        {
-          nativeBuildInputs = [ pkgs.zig ];
-        } ''
-        mkdir -p $out/lib
-        export ZIG_GLOBAL_CACHE_DIR=$(mktemp -d)
-        zig build-lib \
-          -target x86_64-linux-gnu \
-          -OReleaseSafe \
-          -dynamic \
-          -lc \
-          -rpath ${lsmFfiLib}/lib \
-          -L${lsmFfiLib}/lib \
-          -llsm-ffi \
-          ${lsmFfiSrc}/zig-init/bridge.zig \
-          -femit-bin=$out/lib/liblsm-bridge.so
-      '';
+      zigEnv = inputs.zig2nix.outputs.zig-env.${system} {
+        nixpkgs = inputs.nixpkgs;
+      };
+      zigBridge = zigEnv.package {
+        src = lib.fileset.toSource {
+          root = root + "/packages/lsm-tree/haskell/lsm-ffi/zig-init";
+          fileset = root + "/packages/lsm-tree/haskell/lsm-ffi/zig-init";
+        };
+        pname = "lsm-bridge";
+        version = "0.1.0";
+        zigBuildFlags = [
+          "-Doptimize=ReleaseSafe"
+          "-Dlsm-ffi-path=${lsmFfiLib}/lib"
+        ];
+      };
 
       # Combine lsm-tree source with our lsm-ffi wrapper into one cabal project.
-      # The Zig-compiled init.o is placed in lsm-ffi/ so cabal can link it.
       combinedSrc = haskellNixPkgs.runCommand "lsm-tree-combined" { } ''
         mkdir -p $out
         cp -r ${inputs.lsm-tree-src}/* $out/
         chmod -R u+w $out
         cp -r ${lsmFfiSrc} $out/lsm-ffi
         chmod -R u+w $out/lsm-ffi
-        # Place the Zig-compiled init object where cabal can find it
-        cp ${zigInitObj}/zig-init.o $out/lsm-ffi/zig-init.o
         echo "" >> $out/cabal.project.release
         echo "packages: ./lsm-ffi" >> $out/cabal.project.release
       '';
@@ -74,11 +52,6 @@
         cabalProjectFileName = "cabal.project.release";
         modules = [
           { packages.blockio.flags.serialblockio = true; }
-          # Link the Zig-compiled RTS init object into lsm-ffi
-          {
-            packages.lsm-ffi.components.foreignlibs.lsm-ffi.ghcOptions =
-              [ "-optl${zigInitObj}/zig-init.o" ];
-          }
         ];
       };
     in

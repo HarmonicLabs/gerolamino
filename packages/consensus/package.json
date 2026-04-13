@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "cbor-schema": "workspace:*",
-    "effect": "^4.0.0-beta.43",
     "ledger": "workspace:*",
     "miniprotocols": "workspace:*",
     "storage": "workspace:*",

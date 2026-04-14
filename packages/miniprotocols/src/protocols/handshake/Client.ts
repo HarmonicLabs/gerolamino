@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Cause, Context, Duration, Effect, Layer, Option, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -15,7 +15,7 @@ export class HandshakeTimeoutError extends Schema.TaggedErrorClass<HandshakeTime
   { cause: Schema.Defect },
 ) {}
 
-export class HandshakeClient extends ServiceMap.Service<
+export class HandshakeClient extends Context.Service<
   HandshakeClient,
   {
     propose: (

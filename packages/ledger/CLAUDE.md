@@ -29,7 +29,7 @@ src/
 - `cbor-schema` (workspace) - CBOR parsing
 - `wasm-utils` (workspace) - crypto primitives (blake2b, ed25519, KES, bech32)
 - `@harmoniclabs/crypto` - additional crypto
-- `effect` ^4.0.0-beta.43
+- `effect` ^4.0.0-beta.47
 
 ## Key Patterns
 

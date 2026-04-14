@@ -16,7 +16,7 @@ import { decodeMultiEraBlock, decodeMultiEraHeader, MultiEraHeader, isByronBlock
 import { BlockHeader as ConsensusBlockHeader } from "./validate-header";
 import { CryptoService } from "./crypto";
 import { concat } from "./util";
-import type { ServiceMap } from "effect";
+import type { Context } from "effect";
 
 /** Typed error for header bridge decode/bridge failures. */
 export class HeaderBridgeError extends Schema.TaggedErrorClass<HeaderBridgeError>()(
@@ -28,14 +28,14 @@ export class HeaderBridgeError extends Schema.TaggedErrorClass<HeaderBridgeError
 ) {}
 
 /** Slots per KES period — configurable via CARDANO_SLOTS_PER_KES_PERIOD, defaults to 129600. */
-const SlotsPerKesPeriod = Config.number("CARDANO_SLOTS_PER_KES_PERIOD").pipe(
-  Config.withDefault(129600),
-);
+const SlotsPerKesPeriod = Effect.gen(function* () {
+  return yield* Config.number("CARDANO_SLOTS_PER_KES_PERIOD").pipe(Config.withDefault(129600));
+}).pipe(Effect.orDie);
 
 /** Byron epoch length — configurable via CARDANO_BYRON_EPOCH_LENGTH, defaults to 21600 (= 10k). */
-const ByronEpochLength = Config.number("CARDANO_BYRON_EPOCH_LENGTH").pipe(
-  Config.withDefault(21600),
-);
+const ByronEpochLength = Effect.gen(function* () {
+  return yield* Config.number("CARDANO_BYRON_EPOCH_LENGTH").pipe(Config.withDefault(21600));
+}).pipe(Effect.orDie);
 
 // ---------------------------------------------------------------------------
 // DecodedHeader — Schema tagged union for Byron vs Shelley+ headers
@@ -236,10 +236,10 @@ export const bridgeMultiEraHeader = (
     });
   }
 
-  return new HeaderBridgeError({
+  return Effect.fail(new HeaderBridgeError({
     operation: "bridgeMultiEraHeader",
     cause: "Byron headers should use the Byron path",
-  });
+  }));
 };
 
 /**
@@ -386,7 +386,7 @@ export const decodeWrappedHeader = (
 const decodeByronWrappedHeader = (
   headerBytes: Uint8Array,
   byronEpochLength: number,
-  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  crypto: Context.Service.Shape<typeof CryptoService>,
 ): Effect.Effect<ByronHeaderInfo, HeaderBridgeError> =>
   Effect.gen(function* () {
     const parsed = parseSync(headerBytes);

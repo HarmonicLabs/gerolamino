@@ -24,21 +24,14 @@ export class Nonces extends Schema.TaggedClass<Nonces>()("Nonces", {
   epoch: Schema.BigInt,
 }) {}
 
-const bunBlake2b256 = (data: Uint8Array): Uint8Array => {
-  const hasher = new Bun.CryptoHasher("blake2b256");
-  return new Uint8Array(hasher.update(data).digest().buffer);
-};
-
 /**
  * Evolve the nonce with a new VRF nonce output.
  * evolve(η, y) = blake2b-256(η ∥ blake2b-256(y))
- *
- * Uses Bun.CryptoHasher for blake2b (native, fast).
  */
 export const evolveNonce = (
   currentNonce: Uint8Array,
   vrfNonceOutput: Uint8Array,
-  blake2b256: (data: Uint8Array) => Uint8Array = bunBlake2b256,
+  blake2b256: (data: Uint8Array) => Uint8Array,
 ): Uint8Array => {
   const innerHash = blake2b256(vrfNonceOutput);
   return blake2b256(concat(currentNonce, innerHash));
@@ -47,13 +40,11 @@ export const evolveNonce = (
 /**
  * Derive epoch nonce from candidate nonce and epoch boundary block hash.
  * fromCandidate(candidate, parentHash) = blake2b-256(candidate ∥ parentHash)
- *
- * Uses Bun.CryptoHasher for blake2b (native, fast).
  */
 export const deriveEpochNonce = (
   candidateNonce: Uint8Array,
   parentHash: Uint8Array,
-  blake2b256: (data: Uint8Array) => Uint8Array = bunBlake2b256,
+  blake2b256: (data: Uint8Array) => Uint8Array,
 ): Uint8Array => blake2b256(concat(candidateNonce, parentHash));
 
 /**

@@ -1,7 +1,7 @@
 /**
  * API documentation specs for the Gerolamo bootstrap server.
  */
-import { MessageTag } from "bootstrap";
+import { WireTag } from "bootstrap";
 
 export const openapiSpec = {
   openapi: "3.1.0",
@@ -57,27 +57,27 @@ export const asyncapiSpec = {
   },
   components: {
     messages: {
-      Init: { name: "Init", title: `Tag 0x${MessageTag.Init.toString(16).padStart(2, "0")}` },
-      Block: { name: "Block", title: `Tag 0x${MessageTag.Block.toString(16).padStart(2, "0")}` },
+      Init: { name: "Init", title: `Tag 0x${WireTag.Init.toString(16).padStart(2, "0")}` },
+      Block: { name: "Block", title: `Tag 0x${WireTag.Block.toString(16).padStart(2, "0")}` },
       LedgerState: {
         name: "LedgerState",
-        title: `Tag 0x${MessageTag.LedgerState.toString(16).padStart(2, "0")}`,
+        title: `Tag 0x${WireTag.LedgerState.toString(16).padStart(2, "0")}`,
       },
       LedgerMeta: {
         name: "LedgerMeta",
-        title: `Tag 0x${MessageTag.LedgerMeta.toString(16).padStart(2, "0")}`,
+        title: `Tag 0x${WireTag.LedgerMeta.toString(16).padStart(2, "0")}`,
       },
       BlobEntries: {
         name: "BlobEntries",
-        title: `Tag 0x${MessageTag.BlobEntries.toString(16).padStart(2, "0")}`,
+        title: `Tag 0x${WireTag.BlobEntries.toString(16).padStart(2, "0")}`,
       },
       Progress: {
         name: "Progress",
-        title: `Tag 0x${MessageTag.Progress.toString(16).padStart(2, "0")}`,
+        title: `Tag 0x${WireTag.Progress.toString(16).padStart(2, "0")}`,
       },
       Complete: {
         name: "Complete",
-        title: `Tag 0x${MessageTag.Complete.toString(16).padStart(2, "0")}`,
+        title: `Tag 0x${WireTag.Complete.toString(16).padStart(2, "0")}`,
       },
     },
   },

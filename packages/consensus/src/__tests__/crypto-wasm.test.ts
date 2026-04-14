@@ -10,7 +10,7 @@ import { CryptoService, CryptoServiceLive } from "../crypto";
 import { hex } from "../util";
 
 const run = <A>(effect: Effect.Effect<A, unknown, CryptoService>) =>
-  Effect.runPromise(Effect.provide(effect, CryptoServiceLive));
+  effect.pipe(Effect.provide(CryptoServiceLive), Effect.runPromise);
 
 describe("CryptoServiceLive (WASM)", () => {
   it("blake2b256 produces correct 32-byte hash", async () => {

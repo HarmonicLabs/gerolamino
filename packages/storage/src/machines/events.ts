@@ -16,12 +16,8 @@ import { MempoolTx } from "../types/Mempool.ts";
 // ---------------------------------------------------------------------------
 
 export const ChainDBEvent = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("BLOCK_RECEIVED") }),
-  Schema.Struct({ type: Schema.Literal("CHAIN_SELECTED"), tip: RealPoint }),
+  Schema.Struct({ type: Schema.Literal("BLOCK_ADDED"), tip: RealPoint }),
   Schema.Struct({ type: Schema.Literal("IMMUTABILITY_CHECK") }),
-  Schema.Struct({ type: Schema.Literal("COPY_COMPLETE") }),
-  Schema.Struct({ type: Schema.Literal("GC_COMPLETE") }),
-  Schema.Struct({ type: Schema.Literal("SNAPSHOT_WRITTEN") }),
   Schema.Struct({ type: Schema.Literal("ROLLBACK"), point: RealPoint }),
   Schema.Struct({ type: Schema.Literal("ERROR"), error: Schema.Defect }),
 ]).pipe(Schema.toTaggedUnion("type"));

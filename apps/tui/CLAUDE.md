@@ -19,7 +19,7 @@ provides ledger state, UTxO entries, and block data over the wire.
 - `ledger` (workspace) - Block/state decoding
 - `storage` (workspace) - ChainDB, SqliteDrizzle, BlobStore
 - `lsm-tree` (workspace) - LSM BlobStore backend
-- `effect` ^4.0.0-beta.43
+- `effect` ^4.0.0-beta.47
 
 ## CLI Flags
 

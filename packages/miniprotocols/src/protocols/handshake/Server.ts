@@ -1,4 +1,4 @@
-import { Effect, Layer, PubSub, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Context, Effect, Layer, PubSub, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -87,7 +87,7 @@ const handleProposal = (
   });
 };
 
-export class HandshakeServer extends ServiceMap.Service<
+export class HandshakeServer extends Context.Service<
   HandshakeServer,
   {
     start: () => Effect.Effect<

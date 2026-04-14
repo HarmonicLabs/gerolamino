@@ -7,7 +7,7 @@ import {
   Ref,
   Schema,
   Scope,
-  ServiceMap,
+  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
@@ -30,7 +30,7 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalTxMonitorMessageBy
 const unexpected = (tag: string) =>
   Effect.fail(new LocalTxMonitorError({ cause: `Unexpected message: ${tag}` }));
 
-export class LocalTxMonitorClient extends ServiceMap.Service<
+export class LocalTxMonitorClient extends Context.Service<
   LocalTxMonitorClient,
   {
     acquire: () => Effect.Effect<

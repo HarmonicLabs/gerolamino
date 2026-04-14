@@ -78,9 +78,13 @@ export const peersAtom: Atom.Writable<readonly PeerInfo[]> = Atom.make<readonly 
 
 export const BootstrapPhase = Schema.Literals([
   "idle",
-  "ledger-state",
-  "utxo-entries",
-  "blocks",
+  "awaiting-init",
+  "awaiting-ledger-state",
+  "decoding-ledger-state",
+  "writing-accounts",
+  "receiving-utxos",
+  "receiving-blocks",
+  "writing-stake",
   "complete",
 ]);
 export type BootstrapPhase = typeof BootstrapPhase.Type;
@@ -94,6 +98,11 @@ export const BootstrapProgress = Schema.Struct({
   blobEntriesReceived: Schema.Number,
   blocksReceived: Schema.Number,
   ledgerStateReceived: Schema.Boolean,
+  ledgerStateDecoded: Schema.Boolean,
+  accountsWritten: Schema.Number,
+  totalAccounts: Schema.optionalKey(Schema.Number),
+  stakeEntriesWritten: Schema.Number,
+  totalStakeEntries: Schema.optionalKey(Schema.Number),
 });
 export type BootstrapProgress = typeof BootstrapProgress.Type;
 
@@ -106,6 +115,9 @@ export const INITIAL_BOOTSTRAP: BootstrapProgress = {
   blobEntriesReceived: 0,
   blocksReceived: 0,
   ledgerStateReceived: false,
+  ledgerStateDecoded: false,
+  accountsWritten: 0,
+  stakeEntriesWritten: 0,
 };
 
 /** Writable atom for bootstrap progress. */

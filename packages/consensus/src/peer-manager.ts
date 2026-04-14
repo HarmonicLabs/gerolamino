@@ -13,14 +13,9 @@
  *   - Ref<Map> for atomic peer state
  *   - Config for tunable timeouts
  */
-import { Clock, Config, Effect, Option, Ref, Schema, ServiceMap } from "effect";
+import { Clock, Config, Context, Effect, Option, Ref, Schema } from "effect";
 import { SlotClock } from "./clock";
 import { ChainTip, preferCandidate } from "./chain-selection";
-
-export class PeerManagerError extends Schema.TaggedErrorClass<PeerManagerError>()(
-  "PeerManagerError",
-  { message: Schema.String, cause: Schema.Defect },
-) {}
 
 /** Connection status for a tracked peer. */
 export const PeerStatus = Schema.Literals([
@@ -46,26 +41,23 @@ export type PeerState = typeof PeerState.Type;
 /** Stall timeout — configurable via PEER_STALL_TIMEOUT_MS, defaults to 120000 (2 min). */
 const StallTimeoutMs = Config.int("PEER_STALL_TIMEOUT_MS").pipe(Config.withDefault(2 * 60 * 1000));
 
-export class PeerManager extends ServiceMap.Service<
+export class PeerManager extends Context.Service<
   PeerManager,
   {
     /** Register a new peer connection. */
-    readonly addPeer: (peerId: string, address?: string) => Effect.Effect<void, PeerManagerError>;
+    readonly addPeer: (peerId: string, address?: string) => Effect.Effect<void>;
     /** Update a peer's tip after receiving a header. */
-    readonly updatePeerTip: (
-      peerId: string,
-      tip: ChainTip,
-    ) => Effect.Effect<void, PeerManagerError>;
+    readonly updatePeerTip: (peerId: string, tip: ChainTip) => Effect.Effect<void>;
     /** Mark a peer as disconnected. */
-    readonly removePeer: (peerId: string) => Effect.Effect<void, PeerManagerError>;
+    readonly removePeer: (peerId: string) => Effect.Effect<void>;
     /** Get the current best peer (highest tip by Praos rules). */
-    readonly getBestPeer: Effect.Effect<Option.Option<PeerState>, PeerManagerError>;
+    readonly getBestPeer: Effect.Effect<Option.Option<PeerState>>;
     /** Get all tracked peers. */
-    readonly getPeers: Effect.Effect<ReadonlyArray<PeerState>, PeerManagerError>;
+    readonly getPeers: Effect.Effect<ReadonlyArray<PeerState>>;
     /** Check for stalled peers and mark them. */
-    readonly detectStalls: Effect.Effect<ReadonlyArray<string>, PeerManagerError>;
+    readonly detectStalls: Effect.Effect<ReadonlyArray<string>>;
     /** Get peer count by status. */
-    readonly getStatusCounts: Effect.Effect<Record<PeerStatus, number>, PeerManagerError>;
+    readonly getStatusCounts: Effect.Effect<Record<PeerStatus, number>>;
   }
 >()("consensus/PeerManager") {}
 

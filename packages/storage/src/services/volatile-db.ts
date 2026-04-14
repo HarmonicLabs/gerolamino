@@ -3,11 +3,11 @@
  *
  * Block CBOR stored in BlobStore, metadata in SQL.
  */
-import { Effect, Layer, Option, ServiceMap } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import type { StoredBlock } from "../types/StoredBlock.ts";
 import { VolatileDBError } from "../errors.ts";
 import { BlobStore } from "../blob-store";
-import { SqliteDrizzle } from "../db";
+import { SqlClient } from "effect/unstable/sql/SqlClient";
 import {
   writeVolatileBlock,
   readVolatileBlock,
@@ -15,7 +15,7 @@ import {
   garbageCollectVolatile,
 } from "../operations/blocks.ts";
 
-export class VolatileDB extends ServiceMap.Service<
+export class VolatileDB extends Context.Service<
   VolatileDB,
   {
     readonly addBlock: (block: StoredBlock) => Effect.Effect<void, VolatileDBError>;
@@ -29,16 +29,16 @@ export class VolatileDB extends ServiceMap.Service<
   }
 >()("storage/VolatileDB") {}
 
-export const VolatileDBLive: Layer.Layer<VolatileDB, never, BlobStore | SqliteDrizzle> =
+export const VolatileDBLive: Layer.Layer<VolatileDB, never, BlobStore | SqlClient> =
   Layer.effect(
     VolatileDB,
     Effect.gen(function* () {
       const store = yield* BlobStore;
-      const drizzle = yield* SqliteDrizzle;
-      const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqliteDrizzle>) =>
+      const sql = yield* SqlClient;
+      const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
         effect.pipe(
           Effect.provideService(BlobStore, store),
-          Effect.provideService(SqliteDrizzle, drizzle),
+          Effect.provideService(SqlClient, sql),
         );
       return {
         addBlock: (block: StoredBlock) => provide(writeVolatileBlock(block)),

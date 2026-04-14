@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Gerolamino offscreen worker</title>
+  </head>
+  <body>
+    <!--
+      Offscreen document — runs Mithril snapshot decoding in a separate
+      OS process from the MV3 service worker. Communicates with the SW via
+      BroadcastChannel (see entrypoints/background/offscreen-protocol.ts).
+
+      No UI: this page is never shown to the user.
+    -->
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

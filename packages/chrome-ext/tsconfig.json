@@ -35,7 +35,7 @@
   },
   "references": [
     {
-      "path": "../dashboard"
+      "path": "../dashboard/tsconfig.lib.json"
     }
   ]
 }

@@ -7,7 +7,7 @@ import {
   Ref,
   Schema,
   Scope,
-  ServiceMap,
+  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
@@ -35,7 +35,7 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalStateQueryMessageB
 const unexpected = (tag: string) =>
   Effect.fail(new LocalStateQueryError({ cause: `Unexpected message: ${tag}` }));
 
-export class LocalStateQueryClient extends ServiceMap.Service<
+export class LocalStateQueryClient extends Context.Service<
   LocalStateQueryClient,
   {
     acquire: (

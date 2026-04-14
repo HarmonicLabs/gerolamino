@@ -48,7 +48,7 @@ export function fromEffectTransition<TContext, TEvent>(
  *     },
  *   });
  *
- * The ManagedRuntime provides all required Effect services (BlobStore, SqliteDrizzle, etc.).
+ * The ManagedRuntime provides all required Effect services (BlobStore, SqlClient, etc.).
  */
 export function fromEffectActor<I, O, R, E>(
   runtime: ManagedRuntime.ManagedRuntime<R, E>,

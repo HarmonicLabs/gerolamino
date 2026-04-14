@@ -4,6 +4,7 @@
  *   --snapshot-path: Mithril V2LSM snapshot directory
  *   --db-path:       Running cardano-node database directory
  */
+import "./bun-ws-config.ts"; // MUST be first — monkey-patches Bun.serve before @effect/platform-bun loads
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Config, Effect, Layer, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";

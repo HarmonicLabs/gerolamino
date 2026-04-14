@@ -8,8 +8,8 @@ import { usePrimitives } from "../primitives.ts";
 
 export const NetworkPanel = () => {
   const { Box, Text, Badge, Stat, Card } = usePrimitives();
-  const network = useAtomValue(networkInfoAtom);
-  const state = useAtomValue(nodeStateAtom);
+  const network = useAtomValue(() => networkInfoAtom);
+  const state = useAtomValue(() => nodeStateAtom);
 
   return (
     <Card title="Network">

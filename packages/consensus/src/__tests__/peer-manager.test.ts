@@ -10,6 +10,7 @@ const testConfig = new SlotConfig({
   epochLength: 100n,
   securityParam: 10,
   activeSlotsCoeff: 0.5,
+  byronEpochLength: 4320n,
 });
 
 const fixedClock: Clock.Clock = {
@@ -30,7 +31,7 @@ const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
 );
 
 const run = <A>(effect: Effect.Effect<A, unknown, PeerManager>) =>
-  Effect.runPromise(Effect.provide(effect, peerManagerLayer));
+  effect.pipe(Effect.provide(peerManagerLayer), Effect.runPromise);
 
 const makeTip = (slot: bigint, blockNo: bigint): ChainTip =>
   new ChainTip({ slot, blockNo, hash: new Uint8Array(32) });

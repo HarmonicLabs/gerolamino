@@ -10,13 +10,15 @@
  * The node is a single Effect program that composes services via layers.
  * No XState needed — Effect's structured concurrency handles lifecycle.
  */
-import { Effect, Option, Schedule, Schema } from "effect";
+import { Effect, Option, Ref, Schedule, Schema } from "effect";
 import { SlotClock } from "./clock";
 import { ConsensusEngine } from "./consensus-engine";
 import { PeerManager } from "./peer-manager";
+import { ConsensusEvents, ConsensusEventKind } from "./events";
 import { getSyncState } from "./sync";
 import { ChainDB } from "storage";
 import { GsmState } from "./chain-selection";
+import type { VolatileState } from "./chain-sync-driver";
 
 export const NodeStatus = Schema.Struct({
   tipSlot: Schema.BigInt,
@@ -32,35 +34,41 @@ export type NodeStatus = typeof NodeStatus.Type;
 
 /**
  * Get the current node status by reading from all services.
+ * Pass a `volatileStateRef` to read live blocksProcessed from the sync loop.
  */
-export const getNodeStatus = Effect.gen(function* () {
-  const slotClock = yield* SlotClock;
-  const peerManager = yield* PeerManager;
-  const chainDb = yield* ChainDB;
+export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
+  Effect.gen(function* () {
+    const slotClock = yield* SlotClock;
+    const peerManager = yield* PeerManager;
+    const chainDb = yield* ChainDB;
 
-  const tipOpt = yield* chainDb.getTip;
-  const currentSlot = yield* slotClock.currentSlot;
-  const epoch = yield* slotClock.currentEpoch;
-  const peers = yield* peerManager.getPeers;
-  const activePeers = peers.filter((p) => p.status !== "disconnected").length;
+    const tipOpt = yield* chainDb.getTip;
+    const currentSlot = yield* slotClock.currentSlot;
+    const epoch = yield* slotClock.currentEpoch;
+    const peers = yield* peerManager.getPeers;
+    const activePeers = peers.filter((p) => p.status !== "disconnected").length;
 
-  const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
-  const tipBlock = Option.isSome(tipOpt) ? yield* chainDb.getBlockAt(tipOpt.value) : Option.none();
-  const tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
-  const syncPercent = currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
+    const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
+    const tipBlock = Option.isSome(tipOpt) ? yield* chainDb.getBlockAt(tipOpt.value) : Option.none();
+    const tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
+    const syncPercent = currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
 
-  const result: NodeStatus = {
-    tipSlot,
-    tipBlockNo,
-    currentSlot,
-    epochNumber: epoch,
-    gsmState: currentSlot - tipSlot <= slotClock.stabilityWindow ? "CaughtUp" : "Syncing",
-    peerCount: activePeers,
-    blocksProcessed: 0,
-    syncPercent: Math.min(syncPercent, 100),
-  };
-  return result;
-});
+    const blocksProcessed = volatileStateRef
+      ? (yield* Ref.get(volatileStateRef)).blocksProcessed
+      : 0;
+
+    const result: NodeStatus = {
+      tipSlot,
+      tipBlockNo,
+      currentSlot,
+      epochNumber: epoch,
+      gsmState: currentSlot - tipSlot <= slotClock.stabilityWindow ? "CaughtUp" : "Syncing",
+      peerCount: activePeers,
+      blocksProcessed,
+      syncPercent: Math.min(syncPercent, 100),
+    };
+    return result;
+  });
 
 /**
  * Run the node's monitoring loop — periodic status logging and stall detection.
@@ -68,15 +76,33 @@ export const getNodeStatus = Effect.gen(function* () {
  */
 export const monitorLoop = Effect.gen(function* () {
   const peerManager = yield* PeerManager;
+  const events = yield* Effect.serviceOption(ConsensusEvents);
+  let lastGsmState: string | undefined;
 
   yield* Effect.repeat(
     Effect.gen(function* () {
-      const status = yield* getNodeStatus;
+      const status = yield* getNodeStatus();
       const stalled = yield* peerManager.detectStalls;
 
+      // Emit PeerStalled events
       if (stalled.length > 0) {
         yield* Effect.log(`Detected ${stalled.length} stalled peers: ${stalled.join(", ")}`);
+        if (Option.isSome(events)) {
+          for (const peerId of stalled) {
+            yield* events.value.emit({ _tag: ConsensusEventKind.PeerStalled, peerId });
+          }
+        }
       }
+
+      // Emit GsmTransition event on state change
+      if (lastGsmState !== undefined && lastGsmState !== status.gsmState && Option.isSome(events)) {
+        yield* events.value.emit({
+          _tag: ConsensusEventKind.GsmTransition,
+          from: lastGsmState,
+          to: status.gsmState,
+        });
+      }
+      lastGsmState = status.gsmState;
 
       yield* Effect.log(
         `[${status.gsmState}] slot ${status.tipSlot}/${status.currentSlot} ` +

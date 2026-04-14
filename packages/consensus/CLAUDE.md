@@ -26,7 +26,7 @@ src/
 
 ## Dependencies
 
-- `effect` ^4.0.0-beta.43
+- `effect` ^4.0.0-beta.47
 - `cbor-schema` (CBOR parsing for header extraction)
 - `ledger` (block/header decoding)
 - `miniprotocols` (N2N protocol clients)
@@ -40,7 +40,7 @@ src/
 - **Schema.TaggedClass** for types needing methods (Nonces, SlotConfig, ChainTip)
 - **Schema.TaggedErrorClass** for all errors
 - **Schema.Literals([...])** for string unions (GsmState, PeerStatus)
-- **ServiceMap.Service** for all services (CryptoService, ConsensusEngine,
+- **Context.Service** for all services (CryptoService, ConsensusEngine,
   PeerManager, SlotClock)
 - **Effect.all** with concurrency for parallel validation assertions
 - **Ref** for atomic mutable state (peer map)

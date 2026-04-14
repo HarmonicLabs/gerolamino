@@ -15,7 +15,6 @@ export enum BootstrapMessageKind {
   LedgerMeta = "LedgerMeta",
   BlobEntries = "BlobEntries",
   Progress = "Progress",
-  CompressedBlockBatch = "CompressedBlockBatch",
   Complete = "Complete",
 }
 
@@ -55,10 +54,6 @@ export const BootstrapMessage = Schema.Union([
     current: Schema.Number,
     total: Schema.Number,
   }),
-  Schema.TaggedStruct(BootstrapMessageKind.CompressedBlockBatch, {
-    count: Schema.Number,
-    compressedData: Schema.Uint8Array,
-  }),
   Schema.TaggedStruct(BootstrapMessageKind.Complete, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
@@ -75,7 +70,6 @@ export const WireTag = {
   LedgerMeta: 0x04,
   BlobEntries: 0x05,
   Progress: 0x06,
-  CompressedBlockBatch: 0x07,
   Complete: 0xff,
 } as const;
 
@@ -292,30 +286,6 @@ export function decodeProgress(payload: Uint8Array) {
 }
 
 // ---------------------------------------------------------------------------
-// CompressedBlockBatch Payload Encode/Decode
-// [count: u32 BE][compressedData: rest]
-// ---------------------------------------------------------------------------
-
-export function encodeCompressedBlockBatch(
-  count: number,
-  compressedData: Uint8Array,
-): Uint8Array {
-  const payload = new Uint8Array(4 + compressedData.length);
-  new DataView(payload.buffer).setUint32(0, count, false);
-  payload.set(compressedData, 4);
-  return payload;
-}
-
-export function decodeCompressedBlockBatch(payload: Uint8Array) {
-  const dv = new DataView(payload.buffer, payload.byteOffset);
-  return {
-    _tag: BootstrapMessageKind.CompressedBlockBatch as const,
-    count: dv.getUint32(0, false),
-    compressedData: payload.slice(4),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Symmetric encode: BootstrapMessage → TLV frame
 // ---------------------------------------------------------------------------
 
@@ -327,8 +297,6 @@ export function encodeMessage(msg: BootstrapMessageType): Uint8Array {
     LedgerMeta: (m) => encodeFrame(WireTag.LedgerMeta, m.payload),
     BlobEntries: (m) => encodeFrame(WireTag.BlobEntries, encodeBlobBatch(m.dbName, m.entries)),
     Progress: (m) => encodeFrame(WireTag.Progress, encodeProgress(m.phase, m.current, m.total)),
-    CompressedBlockBatch: (m) =>
-      encodeFrame(WireTag.CompressedBlockBatch, encodeCompressedBlockBatch(m.count, m.compressedData)),
     Complete: () => encodeFrame(WireTag.Complete, new Uint8Array(0)),
   })(msg);
 }
@@ -357,8 +325,6 @@ export function decodeFrame(frame: Uint8Array): BootstrapMessageType {
       return decodeBlobBatch(payload);
     case WireTag.Progress:
       return decodeProgress(payload);
-    case WireTag.CompressedBlockBatch:
-      return decodeCompressedBlockBatch(payload);
     case WireTag.Complete:
       return { _tag: BootstrapMessageKind.Complete as const };
     default:

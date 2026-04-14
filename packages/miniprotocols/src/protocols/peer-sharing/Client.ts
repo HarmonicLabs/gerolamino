@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Cause, Context, Duration, Effect, Layer, Option, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -17,7 +17,7 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.PeerSharingMessageBytes
 const unexpected = (tag: string) =>
   Effect.fail(new PeerSharingError({ cause: `Unexpected message: ${tag}` }));
 
-export class PeerSharingClient extends ServiceMap.Service<
+export class PeerSharingClient extends Context.Service<
   PeerSharingClient,
   {
     shareRequest: (

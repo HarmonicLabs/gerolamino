@@ -1,25 +1,43 @@
 /**
  * Block storage operations — dual-layer architecture.
  *
- * Metadata (slot, hash, blockNo, epoch, size) stays in SQL (Drizzle ORM).
+ * Metadata (slot, hash, blockNo, epoch, size) stays in SQL (Effect SqlClient).
  * Block CBOR blobs move to BlobStore (LSM in Bun, IndexedDB in browser).
  *
  * Both layers are accessed via Effect services — consumer code never
  * imports platform-specific modules.
  */
-import { Clock, Effect, Option } from "effect";
-import { eq, and, lt, desc } from "drizzle-orm";
-import { SqliteDrizzle, query, schema } from "../db";
+import { Clock, Effect, Option, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql/SqlClient";
+import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { StoredBlock, RealPoint } from "../types/StoredBlock";
 import { ImmutableDBError, VolatileDBError } from "../errors";
 import { BlobStore, blockKey } from "../blob-store";
 
-/** Convert Uint8Array to Buffer for Drizzle blob columns. */
-const buf = (data: Uint8Array): Buffer =>
-  Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+// ---------------------------------------------------------------------------
+// Row schemas — type-safe SQL result decoding (no `as Type` casts)
+// ---------------------------------------------------------------------------
 
-/** Convert Buffer from Drizzle back to plain Uint8Array for domain types. */
-const u8 = (b: Buffer): Uint8Array => new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+const ImmutableBlockRow = Schema.Struct({
+  slot: Schema.Number,
+  hash: Schema.Uint8Array,
+  prev_hash: Schema.NullOr(Schema.Uint8Array),
+  block_no: Schema.Number,
+  size: Schema.Number,
+});
+
+const VolatileBlockRow = Schema.Struct({
+  hash: Schema.Uint8Array,
+  slot: Schema.Number,
+  prev_hash: Schema.NullOr(Schema.Uint8Array),
+  block_no: Schema.Number,
+  block_size_bytes: Schema.Number,
+});
+
+const PointRow = Schema.Struct({
+  slot: Schema.Number,
+  hash: Schema.Uint8Array,
+});
 
 // ---------------------------------------------------------------------------
 // Immutable block operations
@@ -27,91 +45,73 @@ const u8 = (b: Buffer): Uint8Array => new Uint8Array(b.buffer, b.byteOffset, b.b
 
 export const writeImmutableBlock = (block: StoredBlock) =>
   Effect.gen(function* () {
-    const db = yield* SqliteDrizzle;
+    const sql = yield* SqlClient;
     const store = yield* BlobStore;
     const now = yield* Clock.currentTimeMillis;
+    const time = Math.floor(Number(now) / 1000);
 
-    // BlobStore put + SQL insert are independent — run in parallel
-    yield* Effect.all(
-      [
-        store.put(blockKey(block.slot, block.hash), block.blockCbor),
-        query(
-          db
-            .insert(schema.immutableBlocks)
-            .values({
-              slot: Number(block.slot),
-              hash: buf(block.hash),
-              prevHash: block.prevHash ? buf(block.prevHash) : null,
-              blockNo: Number(block.blockNo),
-              epochNo: 0,
-              size: block.blockSizeBytes,
-              time: Math.floor(Number(now) / 1000),
-              slotLeaderId: 0,
-              protoMajor: 0,
-              protoMinor: 0,
-            })
-            .onConflictDoUpdate({
-              target: schema.immutableBlocks.slot,
-              set: { hash: buf(block.hash) },
-            }),
-        ),
-      ],
-      { concurrency: "unbounded" },
+    yield* sql.withTransaction(
+      Effect.all(
+        [
+          store.put(blockKey(block.slot, block.hash), block.blockCbor),
+          sql`
+            INSERT INTO immutable_blocks (slot, hash, prev_hash, block_no, epoch_no, size, time, slot_leader_id, proto_major, proto_minor)
+            VALUES (${Number(block.slot)}, ${block.hash}, ${block.prevHash ?? null}, ${Number(block.blockNo)}, ${0}, ${block.blockSizeBytes}, ${time}, ${0}, ${0}, ${0})
+            ON CONFLICT (slot) DO UPDATE SET hash = ${block.hash}
+          `.unprepared,
+        ],
+        { concurrency: "unbounded" },
+      ),
     );
   }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "writeBlock", cause })));
 
 export const readImmutableBlock = (point: RealPoint) =>
   Effect.gen(function* () {
-    const db = yield* SqliteDrizzle;
+    const sql = yield* SqlClient;
     const store = yield* BlobStore;
 
-    const rows = yield* query(
-      db
-        .select()
-        .from(schema.immutableBlocks)
-        .where(
-          and(
-            eq(schema.immutableBlocks.slot, Number(point.slot)),
-            eq(schema.immutableBlocks.hash, buf(point.hash)),
-          ),
-        )
-        .limit(1),
-    );
-    if (rows.length === 0) return Option.none<StoredBlock>();
-    const r = rows[0]!;
+    const findBlock = SqlSchema.findOneOption({
+      Request: Schema.Struct({ slot: Schema.Number, hash: Schema.Uint8Array }),
+      Result: ImmutableBlockRow,
+      execute: (req) => sql`
+        SELECT slot, hash, prev_hash, block_no, size
+        FROM immutable_blocks
+        WHERE slot = ${req.slot} AND hash = ${req.hash}
+        LIMIT 1
+      `,
+    });
 
+    const row = yield* findBlock({ slot: Number(point.slot), hash: point.hash });
+    if (Option.isNone(row)) return Option.none<StoredBlock>();
+
+    const r = row.value;
     const blockCbor = yield* store.get(blockKey(point.slot, point.hash));
     if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
 
-    const block = {
+    return Option.some<StoredBlock>({
       slot: BigInt(r.slot),
-      hash: u8(r.hash),
-      blockNo: BigInt(r.blockNo),
+      hash: r.hash,
+      blockNo: BigInt(r.block_no),
       blockSizeBytes: r.size,
       blockCbor: blockCbor.value,
-      ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
-    };
-    return Option.some<StoredBlock>(block);
+      ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
+    });
   }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "readBlock", cause })));
 
 export const getImmutableTip = Effect.gen(function* () {
-  const db = yield* SqliteDrizzle;
-  const rows = yield* query(
-    db
-      .select({
-        slot: schema.immutableBlocks.slot,
-        hash: schema.immutableBlocks.hash,
-      })
-      .from(schema.immutableBlocks)
-      .orderBy(desc(schema.immutableBlocks.slot))
-      .limit(1),
-  );
-  if (rows.length === 0) return Option.none<RealPoint>();
-  const point = {
-    slot: BigInt(rows[0]!.slot),
-    hash: u8(rows[0]!.hash),
-  };
-  return Option.some<RealPoint>(point);
+  const sql = yield* SqlClient;
+
+  const findTip = SqlSchema.findOneOption({
+    Request: Schema.Void,
+    Result: PointRow,
+    execute: () => sql`
+      SELECT slot, hash FROM immutable_blocks
+      ORDER BY slot DESC LIMIT 1
+    `,
+  });
+
+  const row = yield* findTip(undefined);
+  return Option.map(row, (r) => ({ slot: BigInt(r.slot), hash: r.hash }) satisfies RealPoint);
 }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "getTip", cause })));
 
 // ---------------------------------------------------------------------------
@@ -120,89 +120,93 @@ export const getImmutableTip = Effect.gen(function* () {
 
 export const writeVolatileBlock = (block: StoredBlock) =>
   Effect.gen(function* () {
-    const db = yield* SqliteDrizzle;
+    const sql = yield* SqlClient;
     const store = yield* BlobStore;
 
-    // BlobStore put + SQL insert are independent — run in parallel
-    yield* Effect.all(
-      [
-        store.put(blockKey(block.slot, block.hash), block.blockCbor),
-        query(
-          db
-            .insert(schema.volatileBlocks)
-            .values({
-              hash: buf(block.hash),
-              slot: Number(block.slot),
-              prevHash: block.prevHash ? buf(block.prevHash) : null,
-              blockNo: Number(block.blockNo),
-              blockSizeBytes: block.blockSizeBytes,
-            })
-            .onConflictDoNothing({ target: schema.volatileBlocks.hash }),
-        ),
-      ],
-      { concurrency: "unbounded" },
+    yield* sql.withTransaction(
+      Effect.all(
+        [
+          store.put(blockKey(block.slot, block.hash), block.blockCbor),
+          sql`
+            INSERT INTO volatile_blocks (hash, slot, prev_hash, block_no, block_size_bytes)
+            VALUES (${block.hash}, ${Number(block.slot)}, ${block.prevHash ?? null}, ${Number(block.blockNo)}, ${block.blockSizeBytes})
+            ON CONFLICT (hash) DO NOTHING
+          `.unprepared,
+        ],
+        { concurrency: "unbounded" },
+      ),
     );
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "writeBlock", cause })));
 
 export const readVolatileBlock = (hash: Uint8Array) =>
   Effect.gen(function* () {
-    const db = yield* SqliteDrizzle;
+    const sql = yield* SqlClient;
     const store = yield* BlobStore;
 
-    const rows = yield* query(
-      db
-        .select()
-        .from(schema.volatileBlocks)
-        .where(eq(schema.volatileBlocks.hash, buf(hash)))
-        .limit(1),
-    );
-    if (rows.length === 0) return Option.none<StoredBlock>();
-    const r = rows[0]!;
+    const findBlock = SqlSchema.findOneOption({
+      Request: Schema.Struct({ hash: Schema.Uint8Array }),
+      Result: VolatileBlockRow,
+      execute: (req) => sql`
+        SELECT hash, slot, prev_hash, block_no, block_size_bytes
+        FROM volatile_blocks
+        WHERE hash = ${req.hash}
+        LIMIT 1
+      `,
+    });
 
+    const row = yield* findBlock({ hash });
+    if (Option.isNone(row)) return Option.none<StoredBlock>();
+
+    const r = row.value;
     const blockCbor = yield* store.get(blockKey(BigInt(r.slot), r.hash));
     if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
 
-    const block = {
+    return Option.some<StoredBlock>({
       slot: BigInt(r.slot),
-      hash: u8(r.hash),
-      blockNo: BigInt(r.blockNo),
-      blockSizeBytes: r.blockSizeBytes,
+      hash: r.hash,
+      blockNo: BigInt(r.block_no),
+      blockSizeBytes: r.block_size_bytes,
       blockCbor: blockCbor.value,
-      ...(r.prevHash ? { prevHash: u8(r.prevHash) } : {}),
-    };
-    return Option.some<StoredBlock>(block);
+      ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
+    });
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "readBlock", cause })));
 
 export const getVolatileSuccessors = (hash: Uint8Array) =>
   Effect.gen(function* () {
-    const db = yield* SqliteDrizzle;
-    const rows = yield* query(
-      db
-        .select({ hash: schema.volatileBlocks.hash })
-        .from(schema.volatileBlocks)
-        .where(eq(schema.volatileBlocks.prevHash, buf(hash))),
-    );
-    return rows.map((r) => u8(r.hash));
+    const sql = yield* SqlClient;
+
+    const findSuccessors = SqlSchema.findAll({
+      Request: Schema.Struct({ hash: Schema.Uint8Array }),
+      Result: Schema.Struct({ hash: Schema.Uint8Array }),
+      execute: (req) => sql`
+        SELECT hash FROM volatile_blocks WHERE prev_hash = ${req.hash}
+      `,
+    });
+
+    const rows = yield* findSuccessors({ hash });
+    return rows.map((r) => r.hash);
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "getSuccessors", cause })));
 
 export const garbageCollectVolatile = (belowSlot: number) =>
   Effect.gen(function* () {
-    const db = yield* SqliteDrizzle;
+    const sql = yield* SqlClient;
     const store = yield* BlobStore;
 
-    // Find blocks to delete so we can clean up BlobStore entries
-    const toDelete = yield* query(
-      db
-        .select({ slot: schema.volatileBlocks.slot, hash: schema.volatileBlocks.hash })
-        .from(schema.volatileBlocks)
-        .where(lt(schema.volatileBlocks.slot, belowSlot)),
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const findToDelete = SqlSchema.findAll({
+          Request: Schema.Struct({ belowSlot: Schema.Number }),
+          Result: PointRow,
+          execute: (req) => sql`
+            SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
+          `,
+        });
+
+        const rows = yield* findToDelete({ belowSlot });
+        if (rows.length > 0) {
+          yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
+        }
+        yield* sql`DELETE FROM volatile_blocks WHERE slot < ${belowSlot}`.unprepared;
+      }),
     );
-
-    // Delete BlobStore entries for GC'd blocks
-    if (toDelete.length > 0) {
-      yield* store.deleteBatch(toDelete.map((r) => blockKey(BigInt(r.slot), r.hash)));
-    }
-
-    // Delete SQL rows
-    yield* query(db.delete(schema.volatileBlocks).where(lt(schema.volatileBlocks.slot, belowSlot)));
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "garbageCollect", cause })));

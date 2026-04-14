@@ -46,12 +46,20 @@ const statusLabel = (status: string) => {
 
 const phaseLabel = (phase: string, status: string) => {
   switch (phase) {
-    case "ledger-state":
+    case "awaiting-init":
+      return "Awaiting snapshot metadata";
+    case "awaiting-ledger-state":
       return "Receiving ledger state";
-    case "utxo-entries":
+    case "decoding-ledger-state":
+      return "Decoding ledger state (off-thread)";
+    case "writing-accounts":
+      return "Writing accounts";
+    case "receiving-utxos":
       return "Syncing UTxO set";
-    case "blocks":
+    case "receiving-blocks":
       return "Syncing blocks";
+    case "writing-stake":
+      return "Writing stake distribution";
     case "complete":
       return "Complete";
     default:
@@ -61,10 +69,10 @@ const phaseLabel = (phase: string, status: string) => {
 
 export const SyncOverview = () => {
   const { Box, Text, Badge, Progress, Card, Stat, Separator } = usePrimitives();
-  const state = useAtomValue(nodeStateAtom);
-  const syncLabel = useAtomValue(syncPercentLabelAtom);
-  const slotsBehind = useAtomValue(slotsBehindAtom);
-  const bootstrap = useAtomValue(bootstrapAtom);
+  const state = useAtomValue(() => nodeStateAtom);
+  const syncLabel = useAtomValue(() => syncPercentLabelAtom);
+  const slotsBehind = useAtomValue(() => slotsBehindAtom);
+  const bootstrap = useAtomValue(() => bootstrapAtom);
 
   return (
     <Box direction="column" gap={1}>
@@ -122,7 +130,60 @@ export const SyncOverview = () => {
                   ? "Ledger state received"
                   : "Awaiting ledger state"}
               </Badge>
+              <Badge variant={bootstrap().ledgerStateDecoded ? "success" : "outline"}>
+                {bootstrap().ledgerStateDecoded
+                  ? "Ledger state decoded"
+                  : "Decoding ledger state"}
+              </Badge>
             </Box>
+
+            {/* Accounts progress */}
+            <Show when={bootstrap().accountsWritten > 0 || bootstrap().totalAccounts !== undefined}>
+              <Box direction="column" gap={0}>
+                <Box direction="row" gap={1}>
+                  <Text size="sm" weight="bold">
+                    Accounts
+                  </Text>
+                  <Text size="sm" color="muted">
+                    {bootstrap().accountsWritten.toLocaleString()}
+                    {bootstrap().totalAccounts !== undefined
+                      ? ` / ${bootstrap().totalAccounts!.toLocaleString()}`
+                      : ""}
+                  </Text>
+                </Box>
+                <Show
+                  when={
+                    bootstrap().totalAccounts !== undefined && bootstrap().totalAccounts! > 0
+                  }
+                >
+                  <Progress
+                    value={bootstrap().accountsWritten}
+                    max={bootstrap().totalAccounts!}
+                  />
+                </Show>
+              </Box>
+            </Show>
+
+            {/* Stake entries progress */}
+            <Show
+              when={
+                bootstrap().stakeEntriesWritten > 0 || bootstrap().totalStakeEntries !== undefined
+              }
+            >
+              <Box direction="column" gap={0}>
+                <Box direction="row" gap={1}>
+                  <Text size="sm" weight="bold">
+                    Stake entries
+                  </Text>
+                  <Text size="sm" color="muted">
+                    {bootstrap().stakeEntriesWritten.toLocaleString()}
+                    {bootstrap().totalStakeEntries !== undefined
+                      ? ` / ${bootstrap().totalStakeEntries!.toLocaleString()}`
+                      : ""}
+                  </Text>
+                </Box>
+              </Box>
+            </Show>
 
             {/* UTxO entries progress */}
             <Show when={bootstrap().blobEntriesReceived > 0 || bootstrap().totalBlobEntries > 0}>

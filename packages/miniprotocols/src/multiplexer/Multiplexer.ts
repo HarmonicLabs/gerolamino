@@ -8,7 +8,7 @@ import {
   Ref,
   Schema,
   Scope,
-  ServiceMap,
+  Context,
 } from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 
@@ -17,6 +17,22 @@ import { wrap_multiplexer_message } from "wasm-plexer";
 import { MiniProtocol } from "../MiniProtocol";
 import { MultiplexerBuffer } from "./Buffer";
 import { MultiplexerEncodingError, MultiplexerHeaderError } from "./Errors";
+
+/**
+ * Per-protocol ingress buffer capacities (spec Table 3.15).
+ * Bounded PubSub applies backpressure when the consumer falls behind,
+ * preventing unbounded memory growth during high-throughput sync.
+ */
+const protocolBufferSize = (proto: MiniProtocol): number => {
+  switch (proto) {
+    case MiniProtocol.ChainSync: return 10;
+    case MiniProtocol.BlockFetch: return 20;
+    case MiniProtocol.TxSubmission: return 10;
+    case MiniProtocol.KeepAlive: return 4;
+    case MiniProtocol.Handshake: return 4;
+    default: return 8;
+  }
+};
 
 /**
  * Protocol channel exposing a PubSub for direct subscription.
@@ -35,7 +51,7 @@ export interface ProtocolChannel {
 /**
  * Effect-TS Multiplexer service
  */
-export class Multiplexer extends ServiceMap.Service<
+export class Multiplexer extends Context.Service<
   Multiplexer,
   {
     getProtocolChannel: (
@@ -52,17 +68,20 @@ export class Multiplexer extends ServiceMap.Service<
     Effect.acquireRelease(
       Effect.gen(function* () {
         const socket = yield* Socket.Socket;
+        const makeBounded = (proto: MiniProtocol) =>
+          PubSub.bounded<Uint8Array>(protocolBufferSize(proto));
+
         const channels = HashMap.fromIterable([
-          [MiniProtocol.BlockFetch, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.ChainSync, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.Handshake, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.KeepAlive, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.LocalChainSync, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.LocalStateQuery, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.LocalTxMonitor, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.LocalTxSubmission, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.PeerSharing, yield* PubSub.unbounded<Uint8Array>()],
-          [MiniProtocol.TxSubmission, yield* PubSub.unbounded<Uint8Array>()],
+          [MiniProtocol.BlockFetch, yield* makeBounded(MiniProtocol.BlockFetch)],
+          [MiniProtocol.ChainSync, yield* makeBounded(MiniProtocol.ChainSync)],
+          [MiniProtocol.Handshake, yield* makeBounded(MiniProtocol.Handshake)],
+          [MiniProtocol.KeepAlive, yield* makeBounded(MiniProtocol.KeepAlive)],
+          [MiniProtocol.LocalChainSync, yield* makeBounded(MiniProtocol.LocalChainSync)],
+          [MiniProtocol.LocalStateQuery, yield* makeBounded(MiniProtocol.LocalStateQuery)],
+          [MiniProtocol.LocalTxMonitor, yield* makeBounded(MiniProtocol.LocalTxMonitor)],
+          [MiniProtocol.LocalTxSubmission, yield* makeBounded(MiniProtocol.LocalTxSubmission)],
+          [MiniProtocol.PeerSharing, yield* makeBounded(MiniProtocol.PeerSharing)],
+          [MiniProtocol.TxSubmission, yield* makeBounded(MiniProtocol.TxSubmission)],
         ]);
 
         const mb = yield* Ref.make(yield* MultiplexerBuffer);

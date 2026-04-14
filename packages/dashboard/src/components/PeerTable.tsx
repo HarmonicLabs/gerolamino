@@ -17,7 +17,7 @@ const columns: readonly TableColumn<PeerInfo>[] = [
 
 export const PeerTable = () => {
   const { Box, Text, Table } = usePrimitives();
-  const peers = useAtomValue(peersAtom);
+  const peers = useAtomValue(() => peersAtom);
 
   return (
     <Box direction="column" gap={1}>

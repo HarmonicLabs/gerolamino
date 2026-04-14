@@ -5,7 +5,6 @@
  */
 import { Effect, FileSystem, Option, Path, Stream } from "effect";
 import type { BootstrapError } from "./errors.ts";
-import { ChunkReadError } from "./errors.ts";
 import { readAllChunks } from "./chunk-reader.ts";
 import {
   WireTag,
@@ -13,7 +12,6 @@ import {
   encodeInit,
   encodeBlock,
   encodeBlobBatch,
-  encodeCompressedBlockBatch,
   SnapshotMeta,
   readSnapshotMeta,
 } from "bootstrap";
@@ -61,6 +59,20 @@ export type PreloadedLedger = {
   readonly metaBytes: Option.Option<Uint8Array>;
 };
 
+/**
+ * Bootstrap stream: Init → LedgerState → LedgerMeta → UTxO batches → Blocks → Complete.
+ *
+ * UTxO entries are batched 500-at-a-time to reduce per-frame overhead on both
+ * server and client. Sending one entry per frame creates ~4M WS frames and ~4M
+ * IDB transactions on the Chrome client, which exhausts the SW heap. 500-entry
+ * batches reduce this to ~8K frames (~175KB each).
+ *
+ * Blocks are streamed individually since each requires its own TLV frame for
+ * the client's `analyzeBlockCbor` walker.
+ *
+ * Bun's WebSocket keep-alive (RFC 6455 Ping/Pong via idleTimeout+sendPings
+ * configured in bun-ws-config.ts) holds the connection alive.
+ */
 export const bootstrapStream = (
   meta: SnapshotMeta,
   preloaded: PreloadedLedger,
@@ -97,48 +109,26 @@ export const bootstrapStream = (
         ? Stream.succeed(encodeFrame(WireTag.LedgerMeta, Option.getOrThrow(preloaded.metaBytes)))
         : Stream.empty;
 
-      // Stream UTxO entries from BlobStore (LSM backend) via scan.
-      // V2LSM tables store raw MemPack keys without our PREFIX_UTXO,
-      // so scan with empty prefix to get all entries (entire table is UTxOs).
-      // Wire format sends raw MemPack keys — client adds PREFIX_UTXO on receipt.
+      // Batch 500 UTxO entries per BlobEntries frame (~175KB wire payload).
+      // ~8K frames for ~4M entries. Keeps IDB transaction count manageable
+      // on the Chrome client (one putBatch per frame).
       const utxoStream = store.scan(new Uint8Array(0)).pipe(
         Stream.grouped(500),
-        Stream.map((batch) =>
+        Stream.map((chunk) =>
           encodeFrame(
             WireTag.BlobEntries,
             encodeBlobBatch(
               "utxo",
-              batch.map((e: { readonly key: Uint8Array; readonly value: Uint8Array }) => ({
-                key: e.key,
-                value: e.value,
-              })),
+              Array.from(chunk, (e) => ({ key: e.key, value: e.value })),
             ),
           ),
         ),
       );
 
-      // Collect ALL blocks, concatenate TLV frames, gzip, emit as single CompressedBlockBatch.
-      const blockStream = Stream.unwrap(
-        readAllChunks(meta.immutableDir).pipe(
-          Stream.map((block) => encodeFrame(WireTag.Block, encodeBlock(block))),
-          Stream.runCollect,
-          Effect.map((frames) => {
-            const totalLen = frames.reduce((n, f) => n + f.length, 0);
-            const concatenated = new Uint8Array(totalLen);
-            let off = 0;
-            for (const f of frames) {
-              concatenated.set(f, off);
-              off += f.length;
-            }
-            const compressed = Bun.gzipSync(concatenated);
-            return Stream.succeed(
-              encodeFrame(
-                WireTag.CompressedBlockBatch,
-                encodeCompressedBlockBatch(frames.length, compressed),
-              ),
-            );
-          }),
-        ),
+      // One Block frame per block — client needs individual frames for the
+      // analyzeBlockCbor walker that extracts blockNo + txOffsets.
+      const blockStream = readAllChunks(meta.immutableDir).pipe(
+        Stream.map((block) => encodeFrame(WireTag.Block, encodeBlock(block))),
       );
 
       const completeStream = Stream.succeed(encodeFrame(WireTag.Complete, new Uint8Array(0)));

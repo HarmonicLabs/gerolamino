@@ -17,6 +17,7 @@ const testConfig = new SlotConfig({
   epochLength: 100n,
   securityParam: 10,
   activeSlotsCoeff: 0.5,
+  byronEpochLength: 4320n,
 });
 
 const fixedClock: Clock.Clock = {
@@ -49,6 +50,8 @@ const stubChainDb = Layer.succeed(ChainDB, {
   garbageCollect: () => Effect.void,
   writeLedgerSnapshot: () => Effect.void,
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
+  writeNonces: () => Effect.void,
+  readNonces: Effect.succeed(Option.none()),
 });
 
 const testLayers = Layer.mergeAll(

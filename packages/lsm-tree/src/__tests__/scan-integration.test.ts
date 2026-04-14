@@ -18,7 +18,7 @@ describe.skipIf(skip)("LSM scan integration (UTxO simulation)", () => {
 
   const run = <A>(effect: Effect.Effect<A, unknown, BlobStore>) => {
     const layer = layerLsm(tmpDir);
-    return Effect.runPromise(Effect.provide(effect, layer));
+    return effect.pipe(Effect.provide(layer), Effect.runPromise);
   };
 
   beforeEach(() => {

@@ -14,7 +14,7 @@
  *   - Epoch has epochLength slots
  *   - Slot → epoch: floor(slot / epochLength)
  */
-import { Clock, Config, Effect, Schema, ServiceMap } from "effect";
+import { Clock, Config, Context, Effect, Schema } from "effect";
 
 /** Cardano network time parameters. */
 export class SlotConfig extends Schema.TaggedClass<SlotConfig>()("SlotConfig", {
@@ -28,6 +28,8 @@ export class SlotConfig extends Schema.TaggedClass<SlotConfig>()("SlotConfig", {
   securityParam: Schema.Number,
   /** Active slots coefficient f. */
   activeSlotsCoeff: Schema.Number,
+  /** Byron epoch length (slots). Preprod: 4320, Mainnet: 21600. */
+  byronEpochLength: Schema.BigInt,
 }) {}
 
 /** Read SlotConfig from Effect Config (environment variables). */
@@ -37,6 +39,7 @@ export const SlotConfigFromEnv = Config.all({
   epochLength: Config.number("CARDANO_EPOCH_LENGTH").pipe(Config.withDefault(432000)),
   securityParam: Config.number("CARDANO_SECURITY_PARAM").pipe(Config.withDefault(2160)),
   activeSlotsCoeff: Config.number("CARDANO_ACTIVE_SLOTS_COEFF").pipe(Config.withDefault(0.05)),
+  byronEpochLength: Config.number("CARDANO_BYRON_EPOCH_LENGTH").pipe(Config.withDefault(21600)),
 }).pipe(
   Config.map(
     (c) =>
@@ -46,6 +49,7 @@ export const SlotConfigFromEnv = Config.all({
         epochLength: BigInt(c.epochLength),
         securityParam: c.securityParam,
         activeSlotsCoeff: c.activeSlotsCoeff,
+        byronEpochLength: BigInt(c.byronEpochLength),
       }),
   ),
 );
@@ -57,6 +61,7 @@ export const PREPROD_CONFIG = new SlotConfig({
   epochLength: 432000n,
   securityParam: 2160,
   activeSlotsCoeff: 0.05,
+  byronEpochLength: 4320n,
 });
 
 /** Mainnet config (hardcoded fallback). */
@@ -66,9 +71,10 @@ export const MAINNET_CONFIG = new SlotConfig({
   epochLength: 432000n,
   securityParam: 2160,
   activeSlotsCoeff: 0.05,
+  byronEpochLength: 21600n,
 });
 
-export class SlotClock extends ServiceMap.Service<
+export class SlotClock extends Context.Service<
   SlotClock,
   {
     readonly currentSlot: Effect.Effect<bigint>;

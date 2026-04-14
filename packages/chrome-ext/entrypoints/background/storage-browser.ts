@@ -20,7 +20,7 @@ import * as IndexedDbTable from "@effect/platform-browser/IndexedDbTable";
 import * as IndexedDbVersion from "@effect/platform-browser/IndexedDbVersion";
 import * as IndexedDbDatabase from "@effect/platform-browser/IndexedDbDatabase";
 import { layerMemory as sqliteWasmMemoryLayer } from "@effect/sql-sqlite-wasm/SqliteClient";
-import { BlobStore, BlobStoreError, prefixEnd, ChainDBLive, SqliteDrizzle } from "storage";
+import { BlobStore, BlobStoreError, prefixEnd, ChainDBLive } from "storage";
 
 // ---------------------------------------------------------------------------
 // IndexedDB table definitions — one per LSM key prefix
@@ -32,11 +32,9 @@ const blobSchema = Schema.Struct({
   value: Schema.Uint8Array,
 });
 
-// V1: original single "blobs" object store (kept for migration chain)
-const BlobsTable = IndexedDbTable.make({ name: "blobs", schema: blobSchema, keyPath: "hexKey" });
-const BlobDbV1 = IndexedDbVersion.make(BlobsTable);
-
-// V2: separate object stores per LSM key prefix
+// Single, current schema: one object store per LSM key prefix. No migrations —
+// the DB name `gerolamino-chain-store` is fresh so legacy gerolamino-blobs DBs
+// from earlier builds are ignored (Chrome keeps them around but unused).
 const UtxoTable = IndexedDbTable.make({ name: "utxo", schema: blobSchema, keyPath: "hexKey" });
 const BlocksTable = IndexedDbTable.make({ name: "blocks", schema: blobSchema, keyPath: "hexKey" });
 const BlockIndexTable = IndexedDbTable.make({
@@ -55,7 +53,7 @@ const OffsetsTable = IndexedDbTable.make({
   schema: blobSchema,
   keyPath: "hexKey",
 });
-const BlobDbV2 = IndexedDbVersion.make(
+const BlobDbVersion = IndexedDbVersion.make(
   UtxoTable,
   BlocksTable,
   BlockIndexTable,
@@ -64,20 +62,18 @@ const BlobDbV2 = IndexedDbVersion.make(
   OffsetsTable,
 );
 
-const BlobDbSchema = IndexedDbDatabase.make(BlobDbV1, (query) =>
+const BlobDbSchema = IndexedDbDatabase.make(BlobDbVersion, (query) =>
   Effect.gen(function* () {
-    yield* query.createObjectStore("blobs");
-  }),
-).add(
-  BlobDbV2,
-  Effect.fnUntraced(function* (fromQuery, toQuery) {
-    yield* fromQuery.deleteObjectStore("blobs");
-    yield* toQuery.createObjectStore("utxo");
-    yield* toQuery.createObjectStore("blocks");
-    yield* toQuery.createObjectStore("block_index");
-    yield* toQuery.createObjectStore("stake");
-    yield* toQuery.createObjectStore("accounts");
-    yield* toQuery.createObjectStore("offsets");
+    yield* Effect.log(
+      "[storage] Creating IndexedDB object stores (utxo, blocks, block_index, stake, accounts, offsets)",
+    );
+    yield* query.createObjectStore("utxo");
+    yield* query.createObjectStore("blocks");
+    yield* query.createObjectStore("block_index");
+    yield* query.createObjectStore("stake");
+    yield* query.createObjectStore("accounts");
+    yield* query.createObjectStore("offsets");
+    yield* Effect.log("[storage] Object stores created");
   }),
 );
 
@@ -130,7 +126,9 @@ export const BlobStoreIndexedDB: Layer.Layer<
 > = Layer.effect(
   BlobStore,
   Effect.gen(function* () {
+    yield* Effect.log("[storage] Opening IndexedDB 'gerolamino-chain-store'...");
     const qb = yield* BlobDbSchema;
+    yield* Effect.log("[storage] IndexedDB BlobStore ready");
 
     // Pre-resolve query builders for each table
     const tables = {
@@ -225,22 +223,20 @@ export const BlobStoreIndexedDB: Layer.Layer<
         ),
     };
   }),
-).pipe(Layer.provide(BlobDbSchema.layer("gerolamino-blobs")));
+).pipe(Layer.provide(BlobDbSchema.layer("gerolamino-chain-store")));
 
 // ---------------------------------------------------------------------------
 // SQLite WASM (in-memory) SqlClient — for ChainDB relational storage
 // ---------------------------------------------------------------------------
 
 /**
- * In-memory SQLite WASM — provides both SqlClient (for migrations) and SqliteDrizzle.
+ * In-memory SQLite WASM — provides SqlClient for migrations and ChainDB.
  *
  * MV3 service workers cannot create Web Workers, so we use in-memory mode.
  * Metadata is ephemeral — blocks and UTxO persist in IndexedDB via BlobStore.
  * Callers must run migrations before use (in-memory DB starts empty).
  */
-const SqliteWasmLayer = SqliteDrizzle.layerProxy.pipe(
-  Layer.provideMerge(sqliteWasmMemoryLayer({}).pipe(Layer.orDie)),
-);
+const SqliteWasmLayer = sqliteWasmMemoryLayer({}).pipe(Layer.orDie);
 
 // ---------------------------------------------------------------------------
 // Composite storage layer

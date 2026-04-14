@@ -8,9 +8,17 @@
 import { Effect, Layer } from "effect";
 import { CryptoService } from "consensus";
 import init, { blake2b_256, ed25519_verify, kes_sum6_verify } from "wasm-utils";
+import { init as initPlexer } from "wasm-plexer";
 
 /** Initialize WASM once — cached after first call. */
-export const initWasm = Effect.promise(() => init());
+export const initWasm = Effect.gen(function* () {
+  yield* Effect.log("[crypto] Loading wasm-utils module (blake2b/ed25519/KES)...");
+  yield* Effect.promise(() => init());
+  yield* Effect.log("[crypto] wasm-utils loaded");
+  yield* Effect.log("[crypto] Loading wasm-plexer module (multiplexer framing)...");
+  yield* Effect.promise(() => initPlexer());
+  yield* Effect.log("[crypto] wasm-plexer loaded");
+});
 
 /**
  * Browser CryptoService backed by wasm-utils.

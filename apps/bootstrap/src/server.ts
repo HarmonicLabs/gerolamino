@@ -31,6 +31,18 @@ const handleClient = (meta: SnapshotMeta, config: ServerConfig, preloaded: Prelo
     return HttpServerResponse.empty({ status: 101 });
   });
 
+/** Relay-only: skip bootstrap, proxy to upstream Cardano node immediately. */
+const handleRelay = (config: ServerConfig) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const wsSocket = yield* request.upgrade;
+
+    yield* Effect.log("[relay] Client connected — proxying to upstream");
+    yield* bridgeSockets(wsSocket, config.upstreamUrl);
+
+    return HttpServerResponse.empty({ status: 101 });
+  });
+
 export const startServer = (meta: SnapshotMeta, config: ServerConfig, preloaded: PreloadedLedger) =>
   HttpRouter.addAll([
     HttpRouter.route(
@@ -43,6 +55,7 @@ export const startServer = (meta: SnapshotMeta, config: ServerConfig, preloaded:
       }),
     ),
     HttpRouter.route("GET", "/bootstrap", handleClient(meta, config, preloaded)),
+    HttpRouter.route("GET", "/relay", handleRelay(config)),
   ]).pipe(
     (routes) => HttpRouter.serve(routes),
     Layer.provide(BunHttpServer.layer({ port: config.port, hostname: "0.0.0.0" })),

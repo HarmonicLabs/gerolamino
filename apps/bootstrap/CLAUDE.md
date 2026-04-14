@@ -29,7 +29,7 @@ src/
 - `bootstrap` (workspace) - protocol client
 - `cbor-schema` (workspace) - CBOR handling
 - `ledger` (workspace) - block decoding
-- `effect` ^4.0.0-beta.43
+- `effect` ^4.0.0-beta.47
 
 ## Key Patterns
 

@@ -16,7 +16,9 @@ export class HeaderValidationError extends Schema.TaggedErrorClass<HeaderValidat
   "HeaderValidationError",
   {
     assertion: Schema.String,
-    cause: Schema.Defect,
+    message: Schema.String,
+    blockSlot: Schema.optional(Schema.BigInt),
+    blockHash: Schema.optional(Schema.Uint8Array),
   },
 ) {}
 
@@ -82,12 +84,14 @@ export const validateHeader = (
   });
 
 // 1. VRF key must match the pool's registered VRF key
+// Gracefully skips when pool data is absent (genesis sync without bootstrap).
 const assertKnownLeaderVrf = (
-  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  crypto: Context.Service.Shape<typeof CryptoService>,
   header: BlockHeader,
   view: LedgerView,
-): Effect.Effect<void, HeaderValidationError> =>
-  Effect.try({
+): Effect.Effect<void, HeaderValidationError> => {
+  if (HashMap.size(view.poolVrfKeys) === 0) return Effect.void;
+  return Effect.try({
     try: () => {
       const poolId = hex(crypto.blake2b256(header.issuerVk));
       const registeredVrfVk = HashMap.get(view.poolVrfKeys, poolId).pipe(
@@ -95,16 +99,19 @@ const assertKnownLeaderVrf = (
       );
       if (hex(registeredVrfVk) !== hex(header.vrfVk)) throw `VRF key mismatch for pool ${poolId}`;
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertKnownLeaderVrf", cause }),
+    catch: (cause) => new HeaderValidationError({ assertion: "AssertKnownLeaderVrf", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
   });
+};
 
 // 2. VRF proof valid (ECVRF-ED25519-SHA512-Elligator2 via amaru-vrf-dalek)
+// Gracefully skips when epoch nonce is all-zeros (genesis sync — no real nonce).
 const assertVrfProof = (
-  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  crypto: Context.Service.Shape<typeof CryptoService>,
   header: BlockHeader,
   view: LedgerView,
-): Effect.Effect<void, HeaderValidationError> =>
-  Effect.try({
+): Effect.Effect<void, HeaderValidationError> => {
+  if (view.epochNonce.every((b) => b === 0)) return Effect.void;
+  return Effect.try({
     try: () => {
       // Construct VRF input: blake2b-256(slot_be64 || epoch_nonce)
       const slotBuf = new Uint8Array(8);
@@ -125,22 +132,24 @@ const assertVrfProof = (
       if (hex(expectedOutput) !== hex(header.vrfOutput))
         throw `VRF output mismatch: expected ${hex(expectedOutput)}, got ${hex(header.vrfOutput)}`;
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertVrfProof", cause }),
+    catch: (cause) => new HeaderValidationError({ assertion: "AssertVrfProof", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
   });
+};
 
 // 3. Leader stake threshold — check_vrf_leader via CryptoService
+// Gracefully skips when pool stake data is absent (genesis sync without bootstrap).
 const assertLeaderStake = (
-  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  crypto: Context.Service.Shape<typeof CryptoService>,
   header: BlockHeader,
   view: LedgerView,
-): Effect.Effect<void, HeaderValidationError> =>
-  Effect.try({
+): Effect.Effect<void, HeaderValidationError> => {
+  if (view.totalStake === 0n) return Effect.void;
+  return Effect.try({
     try: () => {
       const poolId = hex(crypto.blake2b256(header.issuerVk));
       const poolStake = HashMap.get(view.poolStake, poolId).pipe(
         Option.getOrThrowWith(() => `pool ${poolId} has no registered stake`),
       );
-      if (view.totalStake === 0n) throw "total stake is zero";
 
       // Decompose activeSlotsCoeff (e.g. 0.05 → 5/100)
       // For Cardano mainnet/preprod, f = 1/20
@@ -156,12 +165,13 @@ const assertLeaderStake = (
       );
       if (!isLeader) throw `pool ${poolId} is not leader for this slot (VRF threshold not met)`;
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertLeaderStake", cause }),
+    catch: (cause) => new HeaderValidationError({ assertion: "AssertLeaderStake", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
   });
+};
 
 // 4. KES signature verify + period bounds
 const assertKesSignature = (
-  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  crypto: Context.Service.Shape<typeof CryptoService>,
   header: BlockHeader,
   view: LedgerView,
 ): Effect.Effect<void, HeaderValidationError> =>
@@ -182,12 +192,12 @@ const assertKesSignature = (
       );
       if (!valid) throw "KES signature invalid";
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertKesSignature", cause }),
+    catch: (cause) => new HeaderValidationError({ assertion: "AssertKesSignature", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
   });
 
 // 5. Opcert: cold key must have signed the hot key
 const assertOperationalCertificate = (
-  crypto: ServiceMap.Service.Shape<typeof CryptoService>,
+  crypto: Context.Service.Shape<typeof CryptoService>,
   header: BlockHeader,
 ): Effect.Effect<void, HeaderValidationError> =>
   Effect.try({
@@ -204,8 +214,8 @@ const assertOperationalCertificate = (
       if (!valid) throw "opcert Ed25519 signature invalid";
     },
     catch: (cause) =>
-      new HeaderValidationError({ assertion: "AssertOperationalCertificate", cause }),
+      new HeaderValidationError({ assertion: "AssertOperationalCertificate", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
   });
 
 // Re-export for type usage
-import type { ServiceMap } from "effect";
+import type { Context } from "effect";

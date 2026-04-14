@@ -48,12 +48,13 @@ import {
 } from "consensus";
 import type { LedgerView } from "consensus";
 import { decodeExtLedgerState } from "ledger";
-import { connect, BootstrapMessage, BootstrapMessageKind, extractFrames, decodeFrame } from "bootstrap";
+import { connect, BootstrapMessage, BootstrapMessageKind } from "bootstrap";
 import type { BootstrapMessageType } from "bootstrap";
 import {
   BlobStore,
   PREFIX_UTXO,
   blockKey,
+  stakeKey,
   ChainDBLive,
   runMigrations,
 } from "storage";
@@ -164,7 +165,7 @@ const start = Command.make(
                           yield* pushBootstrapProgress({
                             protocolMagic: m.protocolMagic,
                             totalChunks: m.totalChunks,
-                            phase: "ledger-state",
+                            phase: "awaiting-ledger-state",
                           });
                         }),
 
@@ -208,7 +209,7 @@ const start = Command.make(
                             yield* Effect.log(`UTxO entries received: ${newCount}`);
                             yield* pushBootstrapProgress({
                               blobEntriesReceived: newCount,
-                              phase: "utxo-entries",
+                              phase: "receiving-utxos",
                             });
                           }
                         }),
@@ -221,29 +222,9 @@ const start = Command.make(
                             yield* Effect.log(`Blocks received: ${newCount}`);
                             yield* pushBootstrapProgress({
                               blocksReceived: newCount,
-                              phase: "blocks",
+                              phase: "receiving-blocks",
                             });
                           }
-                        }),
-
-                      CompressedBlockBatch: (m) =>
-                        Effect.gen(function* () {
-                          const decompressed = Bun.gunzipSync(m.compressedData);
-                          const { frames } = extractFrames(decompressed);
-                          const decoded = frames.map(decodeFrame);
-                          const entries = decoded
-                            .filter(BootstrapMessage.guards.Block)
-                            .map((msg) => ({
-                              key: blockKey(msg.slotNo, msg.headerHash),
-                              value: msg.blockCbor,
-                            }));
-                          yield* store.putBatch(entries);
-                          const newCount = yield* Ref.updateAndGet(blockCountRef, (n) => n + entries.length);
-                          yield* Effect.log(`Blocks batch: ${entries.length} blocks (total: ${newCount})`);
-                          yield* pushBootstrapProgress({
-                            blocksReceived: newCount,
-                            phase: "blocks",
-                          });
                         }),
 
                       Progress: (m) => Effect.log(`Progress: ${m.phase} ${m.current}/${m.total}`),
@@ -269,6 +250,19 @@ const start = Command.make(
 
             const lv = yield* Ref.get(ledgerViewRef);
             if (!lv) return yield* new BootstrapMissingLedgerState();
+
+            // Populate stake distribution table from LedgerView
+            const stakeEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> = [];
+            for (const [poolHashHex, stake] of lv.poolStake) {
+              const val = new Uint8Array(8);
+              new DataView(val.buffer).setBigUint64(0, stake);
+              stakeEntries.push({ key: stakeKey(Uint8Array.fromHex(poolHashHex)), value: val });
+            }
+            if (stakeEntries.length > 0) {
+              yield* store.putBatch(stakeEntries);
+              yield* Effect.log(`Wrote ${stakeEntries.length} stake distribution entries`);
+            }
+
             return {
               ledgerView: lv,
               snapshotState: yield* Ref.get(snapshotStateRef),

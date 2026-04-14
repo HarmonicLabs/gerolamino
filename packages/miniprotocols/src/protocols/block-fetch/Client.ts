@@ -7,7 +7,7 @@ import {
   Result,
   Schema,
   Scope,
-  ServiceMap,
+  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
@@ -29,7 +29,7 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.BlockFetchMessageBytes)
 const unexpected = (tag: string) =>
   Effect.fail(new BlockFetchError({ cause: `Unexpected message: ${tag}` }));
 
-export class BlockFetchClient extends ServiceMap.Service<
+export class BlockFetchClient extends Context.Service<
   BlockFetchClient,
   {
     requestRange: (

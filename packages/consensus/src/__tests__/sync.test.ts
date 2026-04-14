@@ -114,6 +114,8 @@ const stubChainDb = Layer.succeed(ChainDB, {
   garbageCollect: () => Effect.void,
   writeLedgerSnapshot: () => Effect.void,
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
+  writeNonces: () => Effect.void,
+  readNonces: Effect.succeed(Option.none()),
 });
 
 // SlotClock with test config: system start at 0, 1s slots, 100 slots/epoch
@@ -123,6 +125,7 @@ const testConfig = new SlotConfig({
   epochLength: 100n,
   securityParam: 10,
   activeSlotsCoeff: 0.5,
+  byronEpochLength: 4320n,
 });
 const fixedClock: Clock.Clock = {
   currentTimeMillisUnsafe: () => 200_000, // slot 200
@@ -140,7 +143,7 @@ const testLayers = Layer.mergeAll(ConsensusEngineWithBunCrypto, stubChainDb, stu
 
 describe("Sync pipeline", () => {
   it("getSyncState returns initial state", async () => {
-    const state = await Effect.runPromise(getSyncState.pipe(Effect.provide(testLayers)));
+    const state = await getSyncState.pipe(Effect.provide(testLayers), Effect.runPromise);
     expect(state.tip).toBeUndefined();
     expect(state.blocksProcessed).toBe(0);
     expect(state.gsmState).toBe("Syncing");
@@ -155,10 +158,9 @@ describe("Sync pipeline", () => {
     });
 
     // Slot 50 stays within epoch 0 (epochLength=100)
-    const result = await Effect.runPromise(
-      processBlock(makeBlock(50n, 25n), makeHeader(50n, 25n), makeLedgerView(), nonces).pipe(
-        Effect.provide(testLayers),
-      ),
+    const result = await processBlock(makeBlock(50n, 25n), makeHeader(50n, 25n), makeLedgerView(), nonces).pipe(
+      Effect.provide(testLayers),
+      Effect.runPromise,
     );
 
     // Nonces should have been evolved
@@ -175,7 +177,7 @@ describe("Sync pipeline", () => {
       })),
     );
 
-    const state = await Effect.runPromise(syncFromStream(blocks).pipe(Effect.provide(testLayers)));
+    const state = await syncFromStream(blocks).pipe(Effect.provide(testLayers), Effect.runPromise);
 
     expect(state.blocksProcessed).toBe(10);
     expect(state.tip?.slot).toBe(109n);
@@ -190,10 +192,9 @@ describe("Sync pipeline", () => {
     });
 
     // Slot 100 is in epoch 1 (epochLength=100), so epoch transition triggers
-    const result = await Effect.runPromise(
-      processBlock(makeBlock(100n, 50n), makeHeader(100n, 50n), makeLedgerView(), nonces).pipe(
-        Effect.provide(testLayers),
-      ),
+    const result = await processBlock(makeBlock(100n, 50n), makeHeader(100n, 50n), makeLedgerView(), nonces).pipe(
+      Effect.provide(testLayers),
+      Effect.runPromise,
     );
 
     // Epoch should advance
@@ -213,10 +214,9 @@ describe("Sync pipeline", () => {
     });
 
     // Slot 50 is still epoch 0 (epochLength=100)
-    const result = await Effect.runPromise(
-      processBlock(makeBlock(50n, 25n), makeHeader(50n, 25n), makeLedgerView(), nonces).pipe(
-        Effect.provide(testLayers),
-      ),
+    const result = await processBlock(makeBlock(50n, 25n), makeHeader(50n, 25n), makeLedgerView(), nonces).pipe(
+      Effect.provide(testLayers),
+      Effect.runPromise,
     );
 
     // Active nonce unchanged — no epoch transition
@@ -232,15 +232,13 @@ describe("Sync pipeline", () => {
       epoch: 0n,
     });
 
-    const nonces1 = await Effect.runPromise(
-      processBlock(makeBlock(1n, 1n), makeHeader(1n, 1n), makeLedgerView(), nonces).pipe(
-        Effect.provide(testLayers),
-      ),
+    const nonces1 = await processBlock(makeBlock(1n, 1n), makeHeader(1n, 1n), makeLedgerView(), nonces).pipe(
+      Effect.provide(testLayers),
+      Effect.runPromise,
     );
-    const nonces2 = await Effect.runPromise(
-      processBlock(makeBlock(2n, 2n), makeHeader(2n, 2n), makeLedgerView(), nonces1).pipe(
-        Effect.provide(testLayers),
-      ),
+    const nonces2 = await processBlock(makeBlock(2n, 2n), makeHeader(2n, 2n), makeLedgerView(), nonces1).pipe(
+      Effect.provide(testLayers),
+      Effect.runPromise,
     );
 
     expect(nonces1.evolving).not.toEqual(nonces.evolving);

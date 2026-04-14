@@ -26,7 +26,7 @@ apps/tui                 <- TUI node: relay sync + consensus validation
 - **Runtime**: Bun (not Node.js)
 - **Language**: TypeScript 5.9+, Rust (WASM targets)
 - **Monorepo**: Bun workspaces + tsc --build project references
-- **Effects**: Effect ^4.0.0-beta.43 (all packages)
+- **Effects**: Effect ^4.0.0-beta.47 (all packages)
 - **State machines**: XState ^5.30 (storage, miniprotocols, chrome-ext)
 - **Testing**: `bunx --bun vitest` (Bun v1.3.11+ required)
 - **Nix**: flake-parts + bun2nix + crane + deploy-rs

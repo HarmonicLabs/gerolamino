@@ -7,7 +7,7 @@ import {
   Option,
   Schema,
   Scope,
-  ServiceMap,
+  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
@@ -46,7 +46,7 @@ const MustReplyTimeout = Config.duration("CHAIN_SYNC_MUST_REPLY_TIMEOUT").pipe(
   Config.withDefault(Duration.seconds(900)),
 );
 
-export class ChainSyncClient extends ServiceMap.Service<
+export class ChainSyncClient extends Context.Service<
   ChainSyncClient,
   {
     requestNext: () => Effect.Effect<
@@ -124,9 +124,14 @@ export class ChainSyncClient extends ServiceMap.Service<
               nextMessage(Duration.seconds(10), "StCanAwait").pipe(
                 Effect.flatMap((msg) =>
                   Schemas.ChainSyncMessage.guards.AwaitReply(msg)
-                    ? // StMustReply: at tip, wait for new block (up to 900s)
-                      nextMessage(mustReplyTimeout, "StMustReply").pipe(
-                        Effect.flatMap(matchRollResult),
+                    ? // StMustReply: at tip, wait for new block.
+                      // Spec Table 3.6: random timeout 601-911s per session.
+                      Effect.sync(() => Duration.seconds(601 + Math.random() * 310)).pipe(
+                        Effect.flatMap((timeout) =>
+                          nextMessage(timeout, "StMustReply").pipe(
+                            Effect.flatMap(matchRollResult),
+                          ),
+                        ),
                       )
                     : matchRollResult(msg),
                 ),

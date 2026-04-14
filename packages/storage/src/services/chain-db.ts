@@ -15,7 +15,7 @@
  * The service shape is intentionally broad — layers can implement
  * subsets (e.g., read-only for bootstrap, full for sync).
  */
-import { Effect, Option, Schema, ServiceMap, Stream } from "effect";
+import { Context, Effect, Option, Schema, Stream } from "effect";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
 export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()("ChainDBError", {
@@ -28,7 +28,7 @@ export type ChainUpdate =
   | { readonly _tag: "AddBlock"; readonly block: StoredBlock }
   | { readonly _tag: "RollBack"; readonly point: RealPoint };
 
-export class ChainDB extends ServiceMap.Service<
+export class ChainDB extends Context.Service<
   ChainDB,
   {
     // --- Block lookups (volatile-first, then immutable) ---
@@ -94,6 +94,22 @@ export class ChainDB extends ServiceMap.Service<
     /** Read the latest ledger state snapshot. */
     readonly readLatestLedgerSnapshot: Effect.Effect<
       Option.Option<{ point: RealPoint; stateBytes: Uint8Array; epoch: bigint }>,
+      ChainDBError
+    >;
+
+    // --- Nonce persistence ---
+
+    /** Write nonces for a given epoch. Upserts on conflict. */
+    readonly writeNonces: (
+      epoch: bigint,
+      active: Uint8Array,
+      evolving: Uint8Array,
+      candidate: Uint8Array,
+    ) => Effect.Effect<void, ChainDBError>;
+
+    /** Read the most recent persisted nonces. */
+    readonly readNonces: Effect.Effect<
+      Option.Option<{ epoch: bigint; active: Uint8Array; evolving: Uint8Array; candidate: Uint8Array }>,
       ChainDBError
     >;
   }

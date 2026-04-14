@@ -26,14 +26,8 @@ export class MempoolError extends Schema.TaggedErrorClass<MempoolError>()("Mempo
   cause: Schema.Defect,
 }) {}
 
-export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()("ChainDBError", {
-  operation: Schema.String,
-  cause: Schema.Defect,
-}) {}
-
 export type StorageError =
   | ImmutableDBError
   | VolatileDBError
   | LedgerDBError
-  | MempoolError
-  | ChainDBError;
+  | MempoolError;

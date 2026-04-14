@@ -60,7 +60,6 @@ describe.skipIf(!process.env["E2E_PRODUCTION"])(
             LedgerMeta: () => "meta" as const,
             BlobEntries: () => "blob" as const,
             Progress: () => "progress" as const,
-            CompressedBlockBatch: () => "compressed" as const,
             Complete: () => "complete" as const,
           });
           expect(firstTag).toBe("init");

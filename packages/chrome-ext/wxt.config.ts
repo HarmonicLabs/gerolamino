@@ -32,7 +32,7 @@ const workspaceAliases = [
   { find: /^wasm-utils$/, replacement: path.join(root, "packages/wasm-utils/pkg/wasm_utils.js") },
   {
     find: /^wasm-plexer$/,
-    replacement: path.join(root, "packages/wasm-plexer/result/wasm_plexer_bun.js"),
+    replacement: path.join(root, "packages/wasm-plexer/browser.js"),
   },
 ];
 
@@ -41,7 +41,7 @@ export default defineConfig({
   manifest: {
     name: "Gerolamino",
     description: "In-browser Cardano node",
-    permissions: ["storage", "unlimitedStorage", "alarms"],
+    permissions: ["storage", "unlimitedStorage", "alarms", "offscreen"],
     host_permissions: ["*://178.156.252.81/*", "*://decentralizationmaxi.io/*"],
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",

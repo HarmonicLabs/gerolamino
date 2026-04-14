@@ -6,7 +6,7 @@ import { describe, it, assert } from "@effect/vitest";
 import { Effect, Layer, Stream, Ref } from "effect";
 import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { readSnapshotMeta, bootstrapStream, preloadLedgerFiles } from "../loader.ts";
-import { MessageTag, decodeFrame } from "bootstrap";
+import { BootstrapMessageKind, decodeFrame } from "bootstrap";
 import { decodeMultiEraBlock } from "ledger";
 import { BlobStore, BlobStoreError } from "storage";
 
@@ -44,9 +44,9 @@ describe("Full snapshot stream + decode", () => {
             Effect.gen(function* () {
               const msg = decodeFrame(frame);
 
-              switch (msg.tag) {
-                case MessageTag.Block: {
-                  // After narrowing on msg.tag, msg is BlockMessage
+              switch (msg._tag) {
+                case BootstrapMessageKind.Block: {
+                  // After narrowing on msg._tag, msg is BlockMessage
                   const block = msg;
                   const result = yield* decodeMultiEraBlock(block.blockCbor).pipe(
                     Effect.map((decoded) => {
@@ -74,20 +74,20 @@ describe("Full snapshot stream + decode", () => {
                   }
                   break;
                 }
-                case MessageTag.BlobEntries: {
+                case BootstrapMessageKind.BlobEntries: {
                   yield* Ref.update(totalLmdbEntries, (n) => n + msg.entries.length);
                   break;
                 }
-                case MessageTag.Init:
+                case BootstrapMessageKind.Init:
                   yield* Effect.log(`Init: magic=${msg.protocolMagic} chunks=${msg.totalChunks}`);
                   break;
-                case MessageTag.LedgerState:
+                case BootstrapMessageKind.LedgerState:
                   yield* Effect.log(`LedgerState: ${msg.payload.length} bytes`);
                   break;
-                case MessageTag.LedgerMeta:
+                case BootstrapMessageKind.LedgerMeta:
                   yield* Effect.log(`LedgerMeta: ${new TextDecoder().decode(msg.payload)}`);
                   break;
-                case MessageTag.Complete:
+                case BootstrapMessageKind.Complete:
                   yield* Effect.log("Stream complete");
                   break;
               }

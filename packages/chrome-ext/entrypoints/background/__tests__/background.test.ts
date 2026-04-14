@@ -4,23 +4,35 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { fakeBrowser } from "@webext-core/fake-browser";
-import { MessageTag, encodeFrame, encodeBlock, encodeBlobBatch } from "bootstrap";
+import { WireTag, encodeFrame, encodeBlock, encodeBlobBatch } from "bootstrap";
 
 // Mock the chrome global with fake-browser
 vi.stubGlobal("chrome", fakeBrowser);
 
 // Import the SyncState type — same shape as background.ts exports
 interface SyncState {
-  readonly status: "idle" | "connecting" | "bootstrapping" | "syncing" | "error";
+  readonly status: "idle" | "connecting" | "bootstrapping" | "syncing" | "caught-up" | "error";
   readonly protocolMagic: number;
   readonly snapshotSlot: string;
   readonly totalChunks: number;
+  readonly totalBlobEntries: number;
   readonly blocksReceived: number;
   readonly blobEntriesReceived: number;
   readonly ledgerStateReceived: boolean;
   readonly bootstrapComplete: boolean;
   readonly lastError?: string;
   readonly lastUpdated: number;
+  readonly tipSlot?: string;
+  readonly currentSlot?: string;
+  readonly epochNumber?: string;
+  readonly blocksProcessed?: number;
+  readonly syncPercent?: number;
+  readonly peerCount?: number;
+  readonly gsmState?: string;
+  readonly peers?: readonly { id: string; status: string; tipSlot: string }[];
+  readonly network?: string;
+  readonly relayHost?: string;
+  readonly relayPort?: number;
 }
 
 describe("Chrome Extension Background", () => {
@@ -35,6 +47,7 @@ describe("Chrome Extension Background", () => {
         protocolMagic: 1,
         snapshotSlot: "12345",
         totalChunks: 100,
+        totalBlobEntries: 2000,
         blocksReceived: 50,
         blobEntriesReceived: 1000,
         ledgerStateReceived: true,
@@ -70,6 +83,7 @@ describe("Chrome Extension Background", () => {
         protocolMagic: 0,
         snapshotSlot: "0",
         totalChunks: 0,
+        totalBlobEntries: 0,
         blocksReceived: 0,
         blobEntriesReceived: 0,
         ledgerStateReceived: false,
@@ -106,6 +120,7 @@ describe("Chrome Extension Background", () => {
         protocolMagic: 1,
         snapshotSlot: "99999",
         totalChunks: 200,
+        totalBlobEntries: 10000,
         blocksReceived: 100,
         blobEntriesReceived: 5000,
         ledgerStateReceived: true,
@@ -150,8 +165,8 @@ describe("Bootstrap Protocol (browser-compatible)", () => {
     off += 2;
     payload.set(prefix, off);
 
-    const frame = encodeFrame(MessageTag.Init, payload);
-    expect(frame[0]).toBe(MessageTag.Init);
+    const frame = encodeFrame(WireTag.Init, payload);
+    expect(frame[0]).toBe(WireTag.Init);
     expect(frame.length).toBe(5 + payload.length);
   });
 

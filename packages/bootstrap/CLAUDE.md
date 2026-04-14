@@ -16,7 +16,7 @@ src/
 
 ## Dependencies
 
-- `effect` ^4.0.0-beta.43 (minimal, no other workspace deps)
+- `effect` ^4.0.0-beta.47 (minimal, no other workspace deps)
 
 ## Notes
 

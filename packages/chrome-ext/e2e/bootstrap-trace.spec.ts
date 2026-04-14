@@ -78,7 +78,9 @@ test("trace bootstrap service worker", async () => {
     try {
       const state = await page.evaluate(async () => {
         const result = await chrome.storage.session.get("syncState");
-        return result.syncState;
+        return result.syncState as
+          | { status: string; blobEntriesReceived?: number; blocksReceived?: number }
+          | undefined;
       });
       if (state) {
         const entry = {

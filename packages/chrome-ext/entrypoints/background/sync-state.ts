@@ -8,18 +8,18 @@
  * Uses Effect PubSub for subscriber management — subscribers are automatically
  * cleaned up when their scope exits (popup disconnects).
  */
-import { Clock, Effect, Layer, PubSub, Queue, Ref, ServiceMap } from "effect";
+import { Clock, Context, Effect, Layer, PubSub, Ref, Stream } from "effect";
 import { SyncState, INITIAL_STATE } from "./rpc.ts";
 
-export class SyncStateRef extends ServiceMap.Service<
+export class SyncStateRef extends Context.Service<
   SyncStateRef,
   {
     /** Get current sync state. */
     readonly get: Effect.Effect<SyncState>;
     /** Update state and notify all streaming subscribers + chrome.storage.session. */
     readonly update: (patch: Partial<SyncState>) => Effect.Effect<void>;
-    /** Create a subscriber Queue for StreamSyncState (auto-cleaned on scope exit). */
-    readonly subscribe: Effect.Effect<Queue.Queue<SyncState>>;
+    /** Stream of state updates — starts with current state, then pushes changes. */
+    readonly subscribe: Stream.Stream<SyncState>;
   }
 >()("@gerolamino/chrome-ext/SyncStateRef") {
   static readonly Live = Layer.effect(
@@ -35,6 +35,19 @@ export class SyncStateRef extends ServiceMap.Service<
           const next = new SyncState({ ...current, ...patch, lastUpdated: now });
           yield* Ref.set(stateRef, next);
 
+          // Log status transitions so the entire sync lifecycle is traceable
+          // from a single point. Non-status patches are not logged here to
+          // keep the signal high (per-field progress is logged by the callers).
+          if (patch.status !== undefined && patch.status !== current.status) {
+            if (patch.status === "error") {
+              yield* Effect.logError(
+                `[sync-state] ${current.status} → error: ${patch.lastError ?? "unknown"}`,
+              );
+            } else {
+              yield* Effect.log(`[sync-state] ${current.status} → ${patch.status}`);
+            }
+          }
+
           // Push to all streaming subscribers via PubSub (auto-cleaned on scope exit)
           yield* PubSub.publish(pubsub, next);
 
@@ -42,16 +55,11 @@ export class SyncStateRef extends ServiceMap.Service<
           yield* Effect.promise(() => globalThis.chrome.storage.session.set({ syncState: next }));
         });
 
-      const subscribe: Effect.Effect<Queue.Queue<SyncState>> = Effect.gen(function* () {
-        // PubSub.subscribe returns a scoped Queue that auto-unsubscribes on scope exit
-        const mailbox = yield* PubSub.subscribe(pubsub);
-
-        // Push current state immediately so subscriber gets initial value
-        const current = yield* Ref.get(stateRef);
-        yield* Queue.offer(mailbox, current);
-
-        return mailbox;
-      });
+      // Stream: emit current state first, then all subsequent PubSub updates
+      const subscribe: Stream.Stream<SyncState> = Stream.concat(
+        Stream.fromEffect(Ref.get(stateRef)),
+        Stream.fromPubSub(pubsub),
+      );
 
       return SyncStateRef.of({
         get: Ref.get(stateRef),

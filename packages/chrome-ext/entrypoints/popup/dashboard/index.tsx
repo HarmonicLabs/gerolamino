@@ -13,8 +13,15 @@ import { createEffect, onCleanup } from "solid-js";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import { RegistryContext } from "@effect/atom-solid";
 import { Option, Schema } from "effect";
-import { PrimitivesProvider, Dashboard, nodeStateAtom, bootstrapAtom } from "dashboard";
-import type { NodeState, BootstrapProgress } from "dashboard";
+import {
+  PrimitivesProvider,
+  Dashboard,
+  nodeStateAtom,
+  bootstrapAtom,
+  peersAtom,
+  networkInfoAtom,
+} from "dashboard";
+import type { NodeState, BootstrapProgress, PeerInfo, NetworkInfo } from "dashboard";
 import { SyncState } from "../../background/rpc.ts";
 import { browserPrimitives } from "./browser-primitives.tsx";
 
@@ -23,35 +30,39 @@ const registry = AtomRegistry.make();
 
 const decodeSyncState = Schema.decodeUnknownOption(SyncState);
 
+/** Map consensus peer status → dashboard PeerInfo status. */
+const mapPeerStatus = (s: string): PeerInfo["status"] =>
+  s === "stalled" ? "stalled"
+    : s === "disconnected" ? "disconnected"
+    : "connected";
+
 /** Map SyncState from chrome.storage → dashboard atoms. */
 const pushSyncState = (s: SyncState) => {
-  const nodeUpdate: Partial<NodeState> = {
-    status:
-      s.status === "bootstrapping"
-        ? "bootstrapping"
-        : s.status === "syncing"
-          ? "syncing"
-          : s.status === "connecting"
-            ? "connecting"
-            : s.status === "error"
-              ? "error"
-              : "idle",
-    blocksProcessed: s.blocksReceived,
+  // Node state — handle all 6 status values + relay fields (spread to avoid readonly mutation)
+  registry.update(nodeStateAtom, (prev) => ({
+    ...prev,
+    status: s.status,
     lastError: s.lastError,
     lastUpdated: s.lastUpdated,
-  };
-  registry.update(nodeStateAtom, (prev) => ({ ...prev, ...nodeUpdate }));
+    ...(s.tipSlot !== undefined ? { tipSlot: BigInt(s.tipSlot) } : {}),
+    ...(s.currentSlot !== undefined ? { currentSlot: BigInt(s.currentSlot) } : {}),
+    ...(s.epochNumber !== undefined ? { epochNumber: BigInt(s.epochNumber) } : {}),
+    ...(s.syncPercent !== undefined ? { syncPercent: s.syncPercent } : {}),
+    ...(s.gsmState !== undefined
+      ? {
+          gsmState: s.gsmState === "CaughtUp" ? "CaughtUp" as const
+            : s.gsmState === "PreSyncing" ? "PreSyncing" as const
+            : "Syncing" as const,
+        }
+      : {}),
+    blocksProcessed: s.blocksProcessed !== undefined ? s.blocksProcessed : s.blocksReceived,
+  }));
 
-  const bootstrapUpdate: Partial<BootstrapProgress> = {
-    phase: s.bootstrapComplete
-      ? "complete"
-      : s.ledgerStateReceived
-        ? "blocks"
-        : s.blobEntriesReceived > 0
-          ? "utxo-entries"
-          : s.status === "bootstrapping"
-            ? "ledger-state"
-            : "idle",
+  // Bootstrap progress — phase is server-driven (set by background during each
+  // transition). Optional totals are forwarded only when present.
+  registry.update(bootstrapAtom, (prev) => ({
+    ...prev,
+    phase: s.bootstrapPhase,
     protocolMagic: s.protocolMagic,
     snapshotSlot: s.snapshotSlot,
     totalChunks: s.totalChunks,
@@ -59,8 +70,36 @@ const pushSyncState = (s: SyncState) => {
     blobEntriesReceived: s.blobEntriesReceived,
     blocksReceived: s.blocksReceived,
     ledgerStateReceived: s.ledgerStateReceived,
-  };
-  registry.update(bootstrapAtom, (prev) => ({ ...prev, ...bootstrapUpdate }));
+    ledgerStateDecoded: s.ledgerStateDecoded,
+    accountsWritten: s.accountsWritten,
+    stakeEntriesWritten: s.stakeEntriesWritten,
+    ...(s.totalAccounts !== undefined ? { totalAccounts: s.totalAccounts } : {}),
+    ...(s.totalStakeEntries !== undefined ? { totalStakeEntries: s.totalStakeEntries } : {}),
+  }));
+
+  // Peers — map string tipSlot → bigint
+  if (s.peers !== undefined) {
+    registry.update(peersAtom, () =>
+      s.peers!.map((p) => ({
+        id: p.id,
+        status: mapPeerStatus(p.status),
+        tipSlot: BigInt(p.tipSlot),
+      })),
+    );
+  }
+
+  // Network info
+  if (s.network !== undefined) {
+    registry.update(networkInfoAtom, (prev) => ({
+      ...prev,
+      network: s.network === "mainnet" ? "mainnet" as const
+        : s.network === "preview" ? "preview" as const
+        : "preprod" as const,
+      protocolMagic: s.protocolMagic,
+      ...(s.relayHost !== undefined ? { relayHost: s.relayHost } : {}),
+      ...(s.relayPort !== undefined ? { relayPort: s.relayPort } : {}),
+    }));
+  }
 };
 
 /**

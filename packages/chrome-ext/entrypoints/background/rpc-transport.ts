@@ -31,8 +31,9 @@ export const makeClientProtocolChromePort: Effect.Effect<
   never,
   Scope.Scope
 > = RpcClient.Protocol.make(
-  Effect.fnUntraced(function* (writeResponse) {
+  Effect.fnUntraced(function* (writeResponse, _clientIds) {
     const port = globalThis.chrome.runtime.connect({ name: "rpc" });
+    const CLIENT_ID = 0; // Single-client protocol (one popup → one background)
 
     yield* Effect.addFinalizer(() => Effect.sync(() => port.disconnect()));
 
@@ -42,13 +43,13 @@ export const makeClientProtocolChromePort: Effect.Effect<
 
     // Forward port messages to RPC client internals
     port.onMessage.addListener((data: FromServerEncoded) => {
-      run(writeResponse(data));
+      run(writeResponse(CLIENT_ID, data));
     });
 
     // Signal protocol error on disconnect
     port.onDisconnect.addListener(() => {
       run(
-        writeResponse({
+        writeResponse(CLIENT_ID, {
           _tag: "ClientProtocolError",
           error: new RpcClientError({
             reason: new RpcClientDefect({
@@ -64,7 +65,7 @@ export const makeClientProtocolChromePort: Effect.Effect<
     yield* FiberSet.join(fiberSet).pipe(Effect.forkScoped);
 
     return {
-      send(request: FromClientEncoded) {
+      send(_clientId: number, request: FromClientEncoded) {
         return Effect.sync(() => port.postMessage(request));
       },
       supportsAck: false,
@@ -113,6 +114,7 @@ export const makeServerProtocolChromePort: Effect.Effect<
       const clientId = nextClientId++;
       clients.set(clientId, port);
       clientIdSet.add(clientId);
+      run(Effect.log(`[rpc-transport] Client ${clientId} connected (active=${clientIdSet.size})`));
 
       // Forward port messages → RPC server
       port.onMessage.addListener((data: FromClientEncoded) => {
@@ -123,6 +125,11 @@ export const makeServerProtocolChromePort: Effect.Effect<
       port.onDisconnect.addListener(() => {
         clients.delete(clientId);
         clientIdSet.delete(clientId);
+        run(
+          Effect.log(
+            `[rpc-transport] Client ${clientId} disconnected (active=${clientIdSet.size})`,
+          ),
+        );
         run(Queue.offer(disconnects, clientId));
       });
     };

@@ -52,7 +52,7 @@ const makeView = (header: BlockHeader): LedgerView => {
 };
 
 const run = <A>(effect: Effect.Effect<A, unknown, ConsensusEngine>) =>
-  Effect.runPromise(Effect.provide(effect, ConsensusEngineWithBunCrypto));
+  effect.pipe(Effect.provide(ConsensusEngineWithBunCrypto), Effect.runPromise);
 
 describe("ConsensusEngine service", () => {
   it("validateHeader passes for valid header", async () => {

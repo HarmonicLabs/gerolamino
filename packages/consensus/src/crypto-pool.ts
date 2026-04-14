@@ -9,7 +9,7 @@
  * WorkerPlatform + Spawner layers. The TUI provides BunWorker.layer;
  * the browser extension provides BrowserWorker.layer.
  */
-import { Config, Deferred, Effect, Layer, Pool, Ref, ServiceMap } from "effect";
+import { Config, Context, Deferred, Effect, Layer, Pool, Ref } from "effect";
 import * as Worker from "effect/unstable/workers/Worker";
 import { WorkerError } from "effect/unstable/workers/WorkerError";
 import { CryptoRequest, type CryptoResponse } from "./crypto-protocol.ts";
@@ -22,7 +22,7 @@ const toTransferable = (buf: ArrayBufferLike): ArrayBuffer | undefined =>
 // CryptoWorkerPool service tag
 // ---------------------------------------------------------------------------
 
-export class CryptoWorkerPool extends ServiceMap.Service<
+export class CryptoWorkerPool extends Context.Service<
   CryptoWorkerPool,
   {
     readonly dispatch: (request: CryptoRequest) => Effect.Effect<CryptoResponse, WorkerError>;
@@ -34,9 +34,11 @@ export class CryptoWorkerPool extends ServiceMap.Service<
 // ---------------------------------------------------------------------------
 
 /** Auto-detect worker count: all available cores, overridable via CRYPTO_WORKERS env. */
-const workerCount = Config.int("CRYPTO_WORKERS").pipe(
-  Config.withDefault(globalThis.navigator?.hardwareConcurrency ?? 4),
-);
+const workerCount = Effect.gen(function* () {
+  return yield* Config.int("CRYPTO_WORKERS").pipe(
+    Config.withDefault(globalThis.navigator?.hardwareConcurrency ?? 4),
+  );
+}).pipe(Effect.orDie);
 
 /**
  * CryptoWorkerPool layer — requires Worker.WorkerPlatform + Worker.Spawner

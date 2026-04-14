@@ -1,16 +1,16 @@
 /**
  * ChainDB XState machine — orchestrates block processing, immutability, and snapshotting.
  *
- * Uses parallel state regions so block processing, immutability transitions,
- * and snapshot writing operate independently.
+ * Uses parallel state regions so block processing and immutability transitions
+ * operate independently.
  *
  * Lifecycle states (`copying`, `gc`) use XState `invoke` with `fromPromise`
  * actors. The machine definition uses placeholder actors — real implementations
  * are provided at runtime via `machine.provide({ actors: { ... } })` in
  * ChainDBLive, bridging to Effect via ManagedRuntime.
  */
-import { setup, assign, fromPromise } from "xstate";
-import type { RealPoint, StoredBlock } from "../types/StoredBlock.ts";
+import { setup, assign, raise, fromPromise } from "xstate";
+import type { RealPoint } from "../types/StoredBlock.ts";
 import type { ChainDBEvent } from "./events.ts";
 
 export interface ChainDBContext {
@@ -22,19 +22,17 @@ export interface ChainDBContext {
 }
 
 export const chainDBMachine = setup({
-  // XState v5 phantom types — value ignored at runtime, used only for TS inference
   types: {} as {
     context: ChainDBContext;
     events: ChainDBEvent;
     input: { securityParam: number };
   },
   guards: {
-    shouldCopyToImmutable: ({ context }) => context.volatileLength > context.securityParam,
+    shouldCopyToImmutable: ({ context }) =>
+      context.tip !== undefined && context.volatileLength > context.securityParam,
   },
   actors: {
-    /** Promote volatile blocks to immutable. Returns count of promoted blocks. Replaced at runtime via .provide(). */
     promoteBlocks: fromPromise<number, { tip: RealPoint }>(async () => 0),
-    /** Garbage-collect stale volatile blocks. Replaced at runtime via .provide(). */
     collectGarbage: fromPromise<void, { belowSlot: bigint }>(async () => {}),
   },
 }).createMachine({
@@ -53,30 +51,15 @@ export const chainDBMachine = setup({
       states: {
         idle: {
           on: {
-            BLOCK_RECEIVED: {
-              target: "received",
-              actions: assign(({ context }) => ({
-                ...context,
-                volatileLength: context.volatileLength + 1,
-              })),
-            },
-          },
-        },
-        received: {
-          on: {
-            CHAIN_SELECTED: {
-              target: "idle",
-              actions: assign(({ context, event }) => ({
-                ...context,
-                tip: event.tip,
-              })),
-            },
-            ERROR: {
-              target: "idle",
-              actions: assign(({ context, event }) => ({
-                ...context,
-                lastError: event.error,
-              })),
+            BLOCK_ADDED: {
+              actions: [
+                assign(({ context, event }) => ({
+                  ...context,
+                  volatileLength: context.volatileLength + 1,
+                  tip: event.tip,
+                })),
+                raise({ type: "IMMUTABILITY_CHECK" }),
+              ],
             },
           },
         },
@@ -113,10 +96,6 @@ export const chainDBMachine = setup({
               })),
             },
           },
-          on: {
-            // Keep manual event for tests that don't provide real actors
-            COPY_COMPLETE: "gc",
-          },
         },
         gc: {
           invoke: {
@@ -134,22 +113,6 @@ export const chainDBMachine = setup({
                 lastError: "error" in event ? event.error : event,
               })),
             },
-          },
-          on: {
-            // Keep manual event for tests that don't provide real actors
-            GC_COMPLETE: {
-              target: "idle",
-            },
-          },
-        },
-      },
-    },
-    snapshotting: {
-      initial: "idle",
-      states: {
-        idle: {
-          on: {
-            SNAPSHOT_WRITTEN: "idle",
           },
         },
       },

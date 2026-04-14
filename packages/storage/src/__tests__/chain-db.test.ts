@@ -4,8 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Effect, Layer, Option, Stream } from "effect";
-import { ChainDB, ChainDBError } from "../services/chain-db.ts";
-import { BlobStore, BlobStoreError } from "../blob-store/service.ts";
+import { ChainDB } from "../services/chain-db.ts";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
 // In-memory stub ChainDB for testing the service interface
@@ -102,6 +101,9 @@ const makeInMemoryChainDB = () => {
       }),
 
     readLatestLedgerSnapshot: Effect.sync(() => Option.fromNullishOr(ledgerSnapshot)),
+
+    writeNonces: () => Effect.void,
+    readNonces: Effect.succeed(Option.none()),
   };
 };
 
@@ -117,7 +119,7 @@ const makeBlock = (slot: bigint, blockNo: bigint, prevHash?: Uint8Array): Stored
 /** Create a fresh ChainDB layer per test invocation. */
 const run = <A>(effect: Effect.Effect<A, unknown, ChainDB>) => {
   const layer = Layer.succeed(ChainDB, makeInMemoryChainDB());
-  return Effect.runPromise(Effect.provide(effect, layer));
+  return effect.pipe(Effect.provide(layer), Effect.runPromise);
 };
 
 describe("ChainDB unified service", () => {

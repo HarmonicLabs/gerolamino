@@ -28,7 +28,7 @@ export {
   PREPROD_CONFIG,
   MAINNET_CONFIG,
 } from "./clock";
-export { PeerManager, PeerManagerLive, PeerManagerError } from "./peer-manager";
+export { PeerManager, PeerManagerLive } from "./peer-manager";
 export { PeerState, PeerStatus } from "./peer-manager";
 export { getNodeStatus, monitorLoop } from "./node";
 export { NodeStatus } from "./node";
@@ -52,6 +52,7 @@ export {
   RelayError,
   RelayRetrySchedule,
 } from "./relay";
+export { VolatileState, initialVolatileState } from "./chain-sync-driver";
 export { relayMachine, type RelayContext, type RelayEvent } from "./machines";
 export {
   extractLedgerView,
@@ -59,4 +60,10 @@ export {
   extractSnapshotTip,
   SnapshotDecodeError,
 } from "./ledger-view-bridge";
+export {
+  ConsensusEvents,
+  ConsensusEvent,
+  ConsensusEventKind,
+} from "./events";
+export type { ConsensusEventType } from "./events";
 export { hex, concat, be32 } from "./util";

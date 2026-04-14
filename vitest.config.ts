@@ -82,7 +82,6 @@ export default defineConfig({
         __dirname,
         "packages/storage/src/types/StoredBlock.ts",
       ),
-      "storage/db/client": path.resolve(__dirname, "packages/storage/src/db/client.ts"),
       "storage/services/chain-db": path.resolve(
         __dirname,
         "packages/storage/src/services/chain-db.ts",

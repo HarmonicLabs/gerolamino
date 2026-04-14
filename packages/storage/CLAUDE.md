@@ -18,7 +18,7 @@ src/
 
 ## Dependencies
 
-- `effect` ^4.0.0-beta.43
+- `effect` ^4.0.0-beta.47
 - `xstate` ^5.30 - parallel state machines
 
 ## Key Patterns

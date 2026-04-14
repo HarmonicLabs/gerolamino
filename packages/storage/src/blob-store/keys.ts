@@ -10,6 +10,7 @@ const PREFIX_BLK = encoder.encode("blk:"); // 4 bytes
 const PREFIX_BIDX = encoder.encode("bidx"); // 4 bytes
 const PREFIX_STAK = encoder.encode("stak"); // 4 bytes
 const PREFIX_ACCT = encoder.encode("acct"); // 4 bytes
+const PREFIX_SNAP = encoder.encode("snap"); // 4 bytes
 const PREFIX_COFF = encoder.encode("coff"); // 4 bytes
 
 const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
@@ -56,6 +57,9 @@ export const stakeKey = (poolHash: Uint8Array): Uint8Array => concat(PREFIX_STAK
 /** Account key: `acct` + stake_addr (28B). */
 export const accountKey = (stakeAddr: Uint8Array): Uint8Array => concat(PREFIX_ACCT, stakeAddr);
 
+/** Ledger snapshot key: `snap` + slot (8B BE). */
+export const snapshotKey = (slot: bigint): Uint8Array => concat(PREFIX_SNAP, be64(slot));
+
 /** CBOR offset key: `coff` + slot (8B BE) + tx_idx (2B BE). */
 export const cborOffsetKey = (slot: bigint, txIdx: number): Uint8Array =>
   concat(PREFIX_COFF, be64(slot), be16(txIdx));
@@ -73,4 +77,4 @@ export const prefixEnd = (prefix: Uint8Array): Uint8Array => {
   return new Uint8Array(0);
 };
 
-export { PREFIX_UTXO, PREFIX_BLK, PREFIX_BIDX, PREFIX_STAK, PREFIX_ACCT, PREFIX_COFF };
+export { PREFIX_UTXO, PREFIX_BLK, PREFIX_BIDX, PREFIX_STAK, PREFIX_ACCT, PREFIX_SNAP, PREFIX_COFF };

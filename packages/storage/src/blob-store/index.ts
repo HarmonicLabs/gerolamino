@@ -6,6 +6,7 @@ export {
   blockIndexKey,
   stakeKey,
   accountKey,
+  snapshotKey,
   cborOffsetKey,
   prefixEnd,
   PREFIX_UTXO,
@@ -13,5 +14,6 @@ export {
   PREFIX_BIDX,
   PREFIX_STAK,
   PREFIX_ACCT,
+  PREFIX_SNAP,
   PREFIX_COFF,
 } from "./keys";

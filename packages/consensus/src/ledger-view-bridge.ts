@@ -14,7 +14,7 @@ import { Nonces } from "./nonce";
 
 export class SnapshotDecodeError extends Schema.TaggedErrorClass<SnapshotDecodeError>()(
   "SnapshotDecodeError",
-  { message: Schema.String, cause: Schema.Defect },
+  { message: Schema.String },
 ) {}
 
 /**

@@ -26,10 +26,15 @@ export const NodeRpcHandlers = NodeRpcs.toLayer(
     const syncState = yield* SyncStateRef;
 
     return NodeRpcs.of({
-      GetSyncState: () => syncState.get,
+      GetSyncState: () =>
+        Effect.gen(function* () {
+          yield* Effect.log("[rpc] GetSyncState");
+          return yield* syncState.get;
+        }),
 
       StartSync: () =>
         Effect.gen(function* () {
+          yield* Effect.log("[rpc] StartSync — forking bootstrap pipeline");
           yield* syncState.update({ status: "connecting" });
 
           // Fork the sync pipeline — runs in background
@@ -44,7 +49,14 @@ export const NodeRpcHandlers = NodeRpcs.toLayer(
           return { ok: true };
         }),
 
-      StreamSyncState: () => Stream.unwrap(Effect.map(syncState.subscribe, Stream.fromQueue)),
+      StreamSyncState: () =>
+        syncState.subscribe.pipe(
+          Stream.tap((s) =>
+            Effect.logDebug(
+              `[rpc] StreamSyncState → ${s.status} (utxo=${s.blobEntriesReceived} blocks=${s.blocksReceived})`,
+            ),
+          ),
+        ),
     });
   }),
 );

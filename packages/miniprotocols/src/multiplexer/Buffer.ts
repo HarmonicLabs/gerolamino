@@ -1,10 +1,10 @@
-import { Effect, Layer, Schema, ServiceMap } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import { MultiplexerBuffer as WasmMultiplexerBuffer } from "wasm-plexer";
 
 import { ProcessedFrameArraySchema } from "./Schemas";
 import { MultiplexerBufferError } from "./Errors";
 
-export class MultiplexerBuffer extends ServiceMap.Service<
+export class MultiplexerBuffer extends Context.Service<
   MultiplexerBuffer,
   {
     appendChunk: (chunk: Uint8Array) => Effect.Effect<void, MultiplexerBufferError>;

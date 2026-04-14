@@ -9,7 +9,7 @@ import {
   Schedule,
   Schema,
   Scope,
-  ServiceMap,
+  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
@@ -34,7 +34,7 @@ const KeepAliveInterval = Config.duration("KEEP_ALIVE_INTERVAL").pipe(
   Config.withDefault(Duration.seconds(30)),
 );
 
-export class KeepAliveClient extends ServiceMap.Service<
+export class KeepAliveClient extends Context.Service<
   KeepAliveClient,
   {
     keepAlive: (

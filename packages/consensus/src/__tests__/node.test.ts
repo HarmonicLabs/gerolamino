@@ -13,6 +13,7 @@ const testConfig = new SlotConfig({
   epochLength: 100n,
   securityParam: 10,
   activeSlotsCoeff: 0.5,
+  byronEpochLength: 4320n,
 });
 
 const fixedClock: Clock.Clock = {
@@ -45,6 +46,8 @@ const stubChainDb = Layer.succeed(ChainDB, {
   garbageCollect: () => Effect.void,
   writeLedgerSnapshot: () => Effect.void,
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
+  writeNonces: () => Effect.void,
+  readNonces: Effect.succeed(Option.none()),
 });
 
 const testLayers = Layer.mergeAll(slotClockLayer, peerManagerLayer, stubChainDb);
@@ -52,7 +55,7 @@ const testLayers = Layer.mergeAll(slotClockLayer, peerManagerLayer, stubChainDb)
 layer(testLayers)("Node orchestrator", (it) => {
   it.effect("getNodeStatus reports tip and sync progress", () =>
     Effect.gen(function* () {
-      const status = yield* getNodeStatus;
+      const status = yield* getNodeStatus();
       expect(status.tipSlot).toBe(450n);
       expect(status.currentSlot).toBe(500n);
       expect(status.epochNumber).toBe(5n);
@@ -70,14 +73,14 @@ layer(testLayers)("Node orchestrator", (it) => {
         "p1",
         new ChainTip({ slot: 500n, blockNo: 250n, hash: new Uint8Array(32) }),
       );
-      const status = yield* getNodeStatus;
+      const status = yield* getNodeStatus();
       expect(status.peerCount).toBe(2);
     }),
   );
 
   it.effect("detects CaughtUp when tip is within stability window", () =>
     Effect.gen(function* () {
-      const status = yield* getNodeStatus;
+      const status = yield* getNodeStatus();
       expect(status.gsmState).toBe("CaughtUp");
     }),
   );

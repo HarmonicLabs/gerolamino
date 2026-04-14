@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Option, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Cause, Context, Duration, Effect, Layer, Option, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 import { TimeoutError } from "effect/Cause";
 
@@ -28,7 +28,7 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalChainSyncMessageBy
 const unexpected = (tag: string) =>
   Effect.fail(new LocalChainSyncError({ cause: `Unexpected message: ${tag}` }));
 
-export class LocalChainSyncClient extends ServiceMap.Service<
+export class LocalChainSyncClient extends Context.Service<
   LocalChainSyncClient,
   {
     requestNext: () => Effect.Effect<

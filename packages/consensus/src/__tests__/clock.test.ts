@@ -9,6 +9,7 @@ const TEST_CONFIG = new SlotConfig({
   epochLength: 100n,
   securityParam: 10,
   activeSlotsCoeff: 0.5,
+  byronEpochLength: 4320n,
 });
 
 /** Create a test layer with a fixed clock time. */
@@ -27,7 +28,7 @@ const withClockAt = (ms: number) => {
 };
 
 const run = <A>(ms: number, effect: Effect.Effect<A, unknown, SlotClock>) =>
-  Effect.runPromise(Effect.provide(effect, withClockAt(ms)));
+  effect.pipe(Effect.provide(withClockAt(ms)), Effect.runPromise);
 
 describe("SlotClock", () => {
   it("slot 0 at system start", async () => {
@@ -144,15 +145,13 @@ describe("SlotClock", () => {
         }),
       ),
     );
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const clock = yield* SlotClock;
-        return {
-          slot: yield* clock.currentSlot,
-          epoch: yield* clock.currentEpoch,
-        };
-      }).pipe(Effect.provide(layer)),
-    );
+    const result = await Effect.gen(function* () {
+      const clock = yield* SlotClock;
+      return {
+        slot: yield* clock.currentSlot,
+        epoch: yield* clock.currentEpoch,
+      };
+    }).pipe(Effect.provide(layer), Effect.runPromise);
     expect(result.slot).toBe(432_000n);
     expect(result.epoch).toBe(1n);
   });

@@ -15,6 +15,7 @@ import { Effect, Option, Ref, Stream, Schema } from "effect";
 import { ChainDB, RealPoint } from "storage";
 import type { StoredBlock } from "storage";
 import { ConsensusEngine } from "./consensus-engine";
+import { CryptoService } from "./crypto";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
 import { GsmState, gsmState } from "./chain-selection";
 import { SlotClock } from "./clock";
@@ -47,6 +48,7 @@ export const processBlock = (
 ) =>
   Effect.gen(function* () {
     const engine = yield* ConsensusEngine;
+    const crypto = yield* CryptoService;
     const chainDb = yield* ChainDB;
     const slotClock = yield* SlotClock;
 
@@ -65,7 +67,7 @@ export const processBlock = (
       blockEpoch > currentNonces.epoch
         ? (() => {
             // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
-            const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash);
+            const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash, crypto.blake2b256);
             return new Nonces({
               active: newEpochNonce,
               evolving: newEpochNonce,
@@ -76,7 +78,7 @@ export const processBlock = (
         : currentNonces;
 
     // 4. Evolve nonces using nonce-tagged VRF output (not leader VRF output)
-    const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
+    const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput, crypto.blake2b256);
 
     // 5. Check if past candidate collection period (epochLength - 4k/f)
     const slotInEpoch = slotClock.slotWithinEpoch(header.slot);

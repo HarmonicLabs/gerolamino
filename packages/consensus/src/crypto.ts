@@ -9,7 +9,7 @@
  * - CryptoServiceLive: main-thread WASM (no workers, for tests)
  * - CryptoServiceWorker: dispatches to CryptoWorkerPool (true OS-thread parallelism)
  */
-import { Effect, Layer, ServiceMap } from "effect";
+import { Context, Effect, Layer } from "effect";
 import init, {
   ed25519_verify,
   kes_sum6_verify,
@@ -20,7 +20,7 @@ import init, {
 import { CryptoWorkerPool } from "./crypto-pool.ts";
 import { CryptoRequestKind, CryptoResponseKind } from "./crypto-protocol.ts";
 
-export class CryptoService extends ServiceMap.Service<
+export class CryptoService extends Context.Service<
   CryptoService,
   {
     readonly blake2b256: (data: Uint8Array) => Uint8Array;

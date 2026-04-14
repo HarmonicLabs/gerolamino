@@ -2,7 +2,7 @@ import { describe, it, assert } from "@effect/vitest";
 import { Effect, Layer, Stream } from "effect";
 import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { readSnapshotMeta, bootstrapStream, preloadLedgerFiles } from "../loader.ts";
-import { MessageTag, decodeFrame } from "bootstrap";
+import { BootstrapMessageKind, decodeFrame } from "bootstrap";
 import { BlobStore, BlobStoreError } from "storage";
 
 const platform = Layer.mergeAll(BunFileSystem.layer, BunPath.layer);
@@ -45,8 +45,8 @@ describe("Integration", () => {
         Effect.sync(() => {
           assert.strictEqual(frames.length, 1);
           const msg = decodeFrame(frames[0]!);
-          assert.strictEqual(msg.tag, MessageTag.Init);
-          if (msg.tag === MessageTag.Init) {
+          assert.strictEqual(msg._tag, BootstrapMessageKind.Init);
+          if (msg._tag === BootstrapMessageKind.Init) {
             assert.strictEqual(msg.protocolMagic, 1);
             assert.isTrue(msg.blobPrefixes.includes("utxo"));
           }
@@ -65,9 +65,9 @@ describe("Integration", () => {
           assert.strictEqual(frames.length, 2);
           const init = decodeFrame(frames[0]!);
           const state = decodeFrame(frames[1]!);
-          assert.strictEqual(init.tag, MessageTag.Init);
-          assert.strictEqual(state.tag, MessageTag.LedgerState);
-          if (state.tag === MessageTag.LedgerState) {
+          assert.strictEqual(init._tag, BootstrapMessageKind.Init);
+          assert.strictEqual(state._tag, BootstrapMessageKind.LedgerState);
+          if (state._tag === BootstrapMessageKind.LedgerState) {
             // State file is ~29MB CBOR, starts with 0x82
             assert.isTrue(state.payload.length > 1_000_000);
             assert.strictEqual(state.payload[0], 0x82);
@@ -85,8 +85,8 @@ describe("Integration", () => {
       Effect.tap((frames) =>
         Effect.sync(() => {
           const metaMsg = decodeFrame(frames[2]!);
-          assert.strictEqual(metaMsg.tag, MessageTag.LedgerMeta);
-          if (metaMsg.tag === MessageTag.LedgerMeta) {
+          assert.strictEqual(metaMsg._tag, BootstrapMessageKind.LedgerMeta);
+          if (metaMsg._tag === BootstrapMessageKind.LedgerMeta) {
             const parsed = JSON.parse(new TextDecoder().decode(metaMsg.payload));
             assert.strictEqual(parsed.backend, "utxohd-lmdb");
             assert.isDefined(parsed.checksum);
@@ -110,8 +110,8 @@ describe("Integration", () => {
       Effect.tap((frames) =>
         Effect.sync(() => {
           const msg = decodeFrame(frames[3]!);
-          assert.strictEqual(msg.tag, MessageTag.BlobEntries);
-          if (msg.tag === MessageTag.BlobEntries) {
+          assert.strictEqual(msg._tag, BootstrapMessageKind.BlobEntries);
+          if (msg._tag === BootstrapMessageKind.BlobEntries) {
             assert.isTrue(msg.count > 0);
             // Should be from one of the known databases
             assert.isTrue(["_dbstate", "utxo"].includes(msg.dbName));
@@ -132,18 +132,18 @@ describe("Integration", () => {
             // Collect first 10 frames to verify ordering pattern
             Stream.take(10),
             Stream.map(decodeFrame),
-            Stream.map((msg) => msg.tag),
+            Stream.map((msg) => msg._tag),
             Stream.runCollect,
           ),
         ),
         Effect.tap((tags) =>
           Effect.sync(() => {
             // First 3 are always: Init, LedgerState, LedgerMeta
-            assert.strictEqual(tags[0], MessageTag.Init);
-            assert.strictEqual(tags[1], MessageTag.LedgerState);
-            assert.strictEqual(tags[2], MessageTag.LedgerMeta);
+            assert.strictEqual(tags[0], BootstrapMessageKind.Init);
+            assert.strictEqual(tags[1], BootstrapMessageKind.LedgerState);
+            assert.strictEqual(tags[2], BootstrapMessageKind.LedgerMeta);
             // After that: blob entries (batched)
-            assert.strictEqual(tags[3], MessageTag.BlobEntries);
+            assert.strictEqual(tags[3], BootstrapMessageKind.BlobEntries);
           }),
         ),
         Effect.provide(testLayers),

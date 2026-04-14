@@ -10,19 +10,21 @@
  *
  * The driver is an Effect program that runs in a Scope (for resource cleanup).
  */
-import { Deferred, Effect, HashMap, Ref, Schema } from "effect";
+import { Deferred, Effect, HashMap, Option, Ref, Schema } from "effect";
 import { SlotClock } from "./clock";
 import { ConsensusEngine } from "./consensus-engine";
+import { CryptoService } from "./crypto";
 import { PeerManager } from "./peer-manager";
 import { ChainTip } from "./chain-selection";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
 import { decodeWrappedHeader, DecodedHeader } from "./header-bridge";
+import { ConsensusEvents, ConsensusEventKind } from "./events";
 import { ChainDB } from "storage";
 import type { BlockHeader, LedgerView } from "./validate-header";
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
   "ChainSyncDriverError",
-  { message: Schema.String, cause: Schema.Defect },
+  { message: Schema.String },
 ) {}
 
 /** Volatile chain state — tracks the mutable tip and recent blocks. */
@@ -65,6 +67,7 @@ export const handleRollForward = (
 ) =>
   Effect.gen(function* () {
     const engine = yield* ConsensusEngine;
+    const crypto = yield* CryptoService;
     const peerManager = yield* PeerManager;
     const slotClock = yield* SlotClock;
     const chainDb = yield* ChainDB;
@@ -102,15 +105,14 @@ export const handleRollForward = (
       return result;
     }
 
-    // Shelley+ path: Praos validation (if pools available) + nonce evolution
+    // Shelley+ path: Praos validation + nonce evolution
     const header = decoded.header;
 
-    // Skip Praos validation when LedgerView has no pools (genesis sync mode).
-    // Byron blocks already skip validation above; this handles Shelley+ blocks
-    // during genesis sync where no bootstrap data provides pool distributions.
-    if (HashMap.size(ledgerView.poolVrfKeys) > 0) {
-      yield* engine.validateHeader(header, ledgerView);
-    }
+    // Run header validation (5 Praos assertions). Pool-dependent assertions
+    // (VRF key lookup, VRF proof, leader stake) gracefully skip when the
+    // LedgerView has no pool data (genesis sync without bootstrap).
+    // Pool-independent assertions (KES signature, opcert) always run.
+    yield* engine.validateHeader(header, ledgerView);
 
     // Storage and nonce evolution are INDEPENDENT — run in parallel.
     // Storage writes to DB; nonce computation reads only header fields.
@@ -131,7 +133,7 @@ export const handleRollForward = (
           let nonces = state.nonces;
 
           if (blockEpoch > state.nonces.epoch) {
-            const newEpochNonce = deriveEpochNonce(state.nonces.candidate, header.prevHash);
+            const newEpochNonce = deriveEpochNonce(state.nonces.candidate, header.prevHash, crypto.blake2b256);
             nonces = new Nonces({
               active: newEpochNonce,
               evolving: newEpochNonce,
@@ -140,7 +142,7 @@ export const handleRollForward = (
             });
           }
 
-          const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput);
+          const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput, crypto.blake2b256);
           const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
           const pastCollection = isPastStabilizationWindow(
             slotInEpoch,
@@ -158,6 +160,46 @@ export const handleRollForward = (
         }),
       ],
       { concurrency: "unbounded" },
+    );
+
+    // Persist nonces on epoch boundary transitions + emit EpochTransition event
+    if (newNonces.epoch > state.nonces.epoch) {
+      yield* chainDb.writeNonces(
+        newNonces.epoch,
+        newNonces.active,
+        newNonces.evolving,
+        newNonces.candidate,
+      );
+      yield* Effect.serviceOption(ConsensusEvents).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.void,
+            onSome: (events) =>
+              events.emit({
+                _tag: ConsensusEventKind.EpochTransition,
+                fromEpoch: state.nonces.epoch,
+                toEpoch: newNonces.epoch,
+              }),
+          }),
+        ),
+      );
+    }
+
+    // Emit TipChanged event (best-effort — service is optional)
+    yield* Effect.serviceOption(ConsensusEvents).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: (events) =>
+            events.emit({
+              _tag: ConsensusEventKind.TipChanged,
+              slot: header.slot,
+              hash: header.hash,
+              blockNo: header.blockNo,
+              blocksProcessed: state.blocksProcessed + 1,
+            }),
+        }),
+      ),
     );
 
     const result: VolatileState = {

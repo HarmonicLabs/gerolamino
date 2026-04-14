@@ -12,7 +12,7 @@ import { CryptoService, CryptoServiceLive } from "../crypto";
 import { hex } from "../util";
 
 const run = <A>(effect: Effect.Effect<A, unknown, CryptoService>) =>
-  Effect.runPromise(Effect.provide(effect, CryptoServiceLive));
+  effect.pipe(Effect.provide(CryptoServiceLive), Effect.runPromise);
 
 // --- Amaru KES golden vectors ---
 // Source: amaru/crates/amaru-ouroboros/src/kes/mod.rs kes_signature_verify

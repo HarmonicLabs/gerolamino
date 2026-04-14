@@ -31,6 +31,7 @@ import { PeerManager } from "./peer-manager";
 import { SlotClock } from "./clock";
 import { Nonces } from "./nonce";
 import { handleRollForward, handleRollBackward, initialVolatileState } from "./chain-sync-driver";
+import type { VolatileState } from "./chain-sync-driver";
 import type { LedgerView } from "./validate-header";
 
 /** Network magic for known Cardano networks. */
@@ -42,7 +43,6 @@ const N2N_VERSION = 14;
 
 export class RelayError extends Schema.TaggedErrorClass<RelayError>()("RelayError", {
   message: Schema.String,
-  cause: Schema.Defect,
 }) {}
 
 /**
@@ -84,16 +84,15 @@ const runHandshake = (networkMagic: number) =>
         Effect.fail(
           new RelayError({
             message: `Handshake refused: ${JSON.stringify(msg.reason)}`,
-            cause: msg,
           }),
         ),
       [HandshakeMessageType.MsgProposeVersions]: (msg) =>
         Effect.fail(
-          new RelayError({ message: `Unexpected handshake response: ${msg._tag}`, cause: msg }),
+          new RelayError({ message: `Unexpected handshake response: ${msg._tag}` }),
         ),
       [HandshakeMessageType.MsgQueryReply]: (msg) =>
         Effect.fail(
-          new RelayError({ message: `Unexpected handshake response: ${msg._tag}`, cause: msg }),
+          new RelayError({ message: `Unexpected handshake response: ${msg._tag}` }),
         ),
     });
   });
@@ -142,6 +141,7 @@ const chainSyncLoop = (
   ledgerView: LedgerView,
   initialNonces: Nonces,
   initialTip: { slot: bigint; hash: Uint8Array } | undefined,
+  volatileStateRef?: Ref.Ref<VolatileState>,
 ) =>
   Effect.gen(function* () {
     const chainSync = yield* ChainSyncClient;
@@ -189,7 +189,12 @@ const chainSyncLoop = (
             peerId,
             ledgerView,
           ).pipe(
-            Effect.tap((newState) => Ref.set(stateRef, newState)),
+            Effect.tap((newState) =>
+              Effect.gen(function* () {
+                yield* Ref.set(stateRef, newState);
+                if (volatileStateRef) yield* Ref.set(volatileStateRef, newState);
+              }),
+            ),
             Effect.matchEffect({
               onSuccess: () => Effect.void,
               onFailure: (err) =>
@@ -224,6 +229,7 @@ const chainSyncLoop = (
           const state = yield* Ref.get(stateRef);
           const newState = yield* handleRollBackward(rollbackPoint, serverTip, state, peerId);
           yield* Ref.set(stateRef, newState);
+          if (volatileStateRef) yield* Ref.set(volatileStateRef, newState);
 
           // Reset commit gate for new chain after rollback
           const freshGate = yield* Deferred.make<void>();
@@ -251,6 +257,7 @@ export const connectToRelay = (
     tip: { slot: bigint; hash: Uint8Array } | undefined;
     nonces: Nonces;
   },
+  volatileStateRef?: Ref.Ref<VolatileState>,
 ) =>
   Effect.gen(function* () {
     const peerManager = yield* PeerManager;
@@ -269,26 +276,30 @@ export const connectToRelay = (
     const tip = Option.isSome(dbTip) ? dbTip.value : snapshotState?.tip;
     yield* findIntersection(tip);
 
-    // 3. Initialize nonces — from snapshot if available, else zeros.
-    // NOTE: Nonces are not persisted in ChainDB yet. On reconnection, snapshot
-    // nonces are stale but still better than zeros. Nonce evolution will
-    // catch up after the first epoch transition. TODO: persist nonces in ChainDB.
-    const nonces =
-      snapshotState?.nonces ??
-      (() => {
-        const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
-        return new Nonces({
-          active: new Uint8Array(32),
-          evolving: new Uint8Array(32),
-          candidate: new Uint8Array(32),
-          epoch,
-        });
-      })();
+    // 3. Initialize nonces — prefer persisted (ChainDB), then snapshot, then zeros.
+    const persistedNonces = yield* chainDb.readNonces;
+    const nonces = Option.isSome(persistedNonces)
+      ? new Nonces({
+          active: persistedNonces.value.active,
+          evolving: persistedNonces.value.evolving,
+          candidate: persistedNonces.value.candidate,
+          epoch: persistedNonces.value.epoch,
+        })
+      : (snapshotState?.nonces ??
+          (() => {
+            const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
+            return new Nonces({
+              active: new Uint8Array(32),
+              evolving: new Uint8Array(32),
+              candidate: new Uint8Array(32),
+              epoch,
+            });
+          })());
 
     // 4. Run ChainSync + KeepAlive in parallel
     yield* Effect.all(
       [
-        chainSyncLoop(peerId, ledgerView, nonces, tip),
+        chainSyncLoop(peerId, ledgerView, nonces, tip, volatileStateRef),
         Effect.gen(function* () {
           const keepAlive = yield* KeepAliveClient;
           yield* keepAlive.run();

@@ -3,14 +3,14 @@
  *
  * Block CBOR stored in BlobStore (LSM / IndexedDB), metadata in SQL.
  */
-import { Effect, Layer, Option, Stream, ServiceMap } from "effect";
+import { Context, Effect, Layer, Option, Stream } from "effect";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 import { ImmutableDBError } from "../errors.ts";
 import { BlobStore, PREFIX_BLK } from "../blob-store";
-import { SqliteDrizzle } from "../db";
+import { SqlClient } from "effect/unstable/sql/SqlClient";
 import { writeImmutableBlock, readImmutableBlock, getImmutableTip } from "../operations/blocks.ts";
 
-export class ImmutableDB extends ServiceMap.Service<
+export class ImmutableDB extends Context.Service<
   ImmutableDB,
   {
     readonly appendBlock: (block: StoredBlock) => Effect.Effect<void, ImmutableDBError>;
@@ -25,16 +25,16 @@ export class ImmutableDB extends ServiceMap.Service<
   }
 >()("storage/ImmutableDB") {}
 
-export const ImmutableDBLive: Layer.Layer<ImmutableDB, never, BlobStore | SqliteDrizzle> =
+export const ImmutableDBLive: Layer.Layer<ImmutableDB, never, BlobStore | SqlClient> =
   Layer.effect(
     ImmutableDB,
     Effect.gen(function* () {
       const store = yield* BlobStore;
-      const drizzle = yield* SqliteDrizzle;
-      const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqliteDrizzle>) =>
+      const sql = yield* SqlClient;
+      const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
         effect.pipe(
           Effect.provideService(BlobStore, store),
-          Effect.provideService(SqliteDrizzle, drizzle),
+          Effect.provideService(SqlClient, sql),
         );
       return {
         appendBlock: (block: StoredBlock) => provide(writeImmutableBlock(block)),

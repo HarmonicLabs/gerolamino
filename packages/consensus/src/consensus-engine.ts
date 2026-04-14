@@ -1,7 +1,7 @@
 /**
  * ConsensusEngine — abstract service for the node's consensus logic.
  */
-import { Effect, Layer, ServiceMap } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { BlockHeader, LedgerView } from "./validate-header";
 import type { ChainTip, GsmState } from "./chain-selection";
 import { HeaderValidationError, validateHeader } from "./validate-header";
@@ -10,7 +10,7 @@ import { CryptoService, CryptoServiceBunNative, CryptoServiceLive } from "./cryp
 import { CryptoWorkerPool, CryptoWorkerPoolLive, CryptoWorkerPoolWithSpawner } from "./crypto-pool";
 import type * as Worker from "effect/unstable/workers/Worker";
 
-export class ConsensusEngine extends ServiceMap.Service<
+export class ConsensusEngine extends Context.Service<
   ConsensusEngine,
   {
     readonly validateHeader: (

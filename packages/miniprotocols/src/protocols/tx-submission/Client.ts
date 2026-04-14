@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema, Scope, ServiceMap, Stream } from "effect";
+import { Context, Effect, Layer, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -28,7 +28,7 @@ const encodeMessage = Schema.encodeUnknownEffect(Schemas.TxSubmissionMessageByte
 const unexpected = (tag: string) =>
   Effect.fail(new TxSubmissionError({ cause: `Unexpected server message: ${tag}` }));
 
-export class TxSubmissionClient extends ServiceMap.Service<
+export class TxSubmissionClient extends Context.Service<
   TxSubmissionClient,
   {
     run: (

@@ -2,7 +2,7 @@
  * ConsensusEngine — abstract service for the node's consensus logic.
  */
 import { Context, Effect, Layer } from "effect";
-import type { BlockHeader, LedgerView } from "./validate-header";
+import type { BlockHeader, LedgerView, PrevTip } from "./validate-header";
 import type { ChainTip, GsmState } from "./chain-selection";
 import { HeaderValidationError, validateHeader } from "./validate-header";
 import { preferCandidate, gsmState } from "./chain-selection";
@@ -16,6 +16,7 @@ export class ConsensusEngine extends Context.Service<
     readonly validateHeader: (
       header: BlockHeader,
       view: LedgerView,
+      prevTip?: PrevTip,
     ) => Effect.Effect<void, HeaderValidationError>;
     readonly selectChain: (
       ours: ChainTip,
@@ -37,8 +38,8 @@ export const ConsensusEngineLive: Layer.Layer<ConsensusEngine, never, CryptoServ
   Effect.gen(function* () {
     const crypto = yield* CryptoService;
     return {
-      validateHeader: (header: BlockHeader, view: LedgerView) =>
-        validateHeader(header, view).pipe(Effect.provideService(CryptoService, crypto)),
+      validateHeader: (header: BlockHeader, view: LedgerView, prevTip?: PrevTip) =>
+        validateHeader(header, view, prevTip).pipe(Effect.provideService(CryptoService, crypto)),
       selectChain: (ours: ChainTip, candidate: ChainTip, forkDepth: number, k: number) =>
         preferCandidate(ours, candidate, forkDepth, k),
       getGsmState: (tipSlot: bigint, wallclockSlot: bigint, stabilityWindow: bigint) =>

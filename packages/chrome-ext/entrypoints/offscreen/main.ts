@@ -56,6 +56,9 @@ const serializeLedgerView = (lv: {
   readonly totalStake: bigint;
   readonly activeSlotsCoeff: number;
   readonly maxKesEvolutions: number;
+  readonly maxHeaderSize: number;
+  readonly maxBlockBodySize: number;
+  readonly ocertCounters: HashMap.HashMap<string, number>;
 }): SerializedLedgerView => ({
   epochNonce: lv.epochNonce,
   poolVrfKeys: Array.from(HashMap.entries(lv.poolVrfKeys)),
@@ -63,6 +66,9 @@ const serializeLedgerView = (lv: {
   totalStake: lv.totalStake,
   activeSlotsCoeff: lv.activeSlotsCoeff,
   maxKesEvolutions: lv.maxKesEvolutions,
+  maxHeaderSize: lv.maxHeaderSize,
+  maxBlockBodySize: lv.maxBlockBodySize,
+  ocertCounters: Array.from(HashMap.entries(lv.ocertCounters)),
 });
 
 // ---------------------------------------------------------------------------

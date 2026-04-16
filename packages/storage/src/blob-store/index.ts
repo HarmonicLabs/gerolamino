@@ -17,3 +17,5 @@ export {
   PREFIX_SNAP,
   PREFIX_COFF,
 } from "./keys";
+export { analyzeBlockCbor } from "./block-analysis";
+export type { BlockAnalysis } from "./block-analysis";

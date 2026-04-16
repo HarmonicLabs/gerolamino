@@ -4,6 +4,7 @@ import {
   Effect,
   Layer,
   Option,
+  PubSub,
   Result,
   Schema,
   Scope,
@@ -55,13 +56,18 @@ export class BlockFetchClient extends Context.Service<
     BlockFetchClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-
       const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.BlockFetch);
 
       const sendMessage = (msg: Schemas.BlockFetchMessageT) =>
         encodeMessage(msg).pipe(Effect.flatMap(channel.send));
 
-      const messages = Stream.fromPubSub(channel.pubsub).pipe(
+      // Persistent PubSub subscription — all messages buffered in this queue.
+      // Stream.fromPubSub creates a NEW subscription per stream consumption,
+      // causing a race condition where messages published between consumptions
+      // are dropped. Stream.fromSubscription reuses one persistent subscription.
+      const subscription = yield* PubSub.subscribe(channel.pubsub);
+
+      const messages = Stream.fromSubscription(subscription).pipe(
         Stream.mapEffect((bytes) => decodeMessage(bytes)),
       );
 

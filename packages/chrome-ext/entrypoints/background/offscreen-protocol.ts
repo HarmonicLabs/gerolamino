@@ -47,6 +47,9 @@ export type SerializedLedgerView = {
   readonly totalStake: bigint;
   readonly activeSlotsCoeff: number;
   readonly maxKesEvolutions: number;
+  readonly maxHeaderSize: number;
+  readonly maxBlockBodySize: number;
+  readonly ocertCounters: ReadonlyArray<readonly [string, number]>;
 };
 
 /** Plain record mirror of the `Nonces` TaggedClass. */
@@ -58,7 +61,7 @@ export type SerializedNonces = {
 };
 
 export type SerializedTip =
-  | { readonly slot: bigint; readonly hash: Uint8Array }
+  | { readonly slot: bigint; readonly blockNo: bigint; readonly hash: Uint8Array }
   | undefined;
 
 export type OffscreenProgress = {

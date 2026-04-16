@@ -16,6 +16,7 @@ import * as Socket from "effect/unstable/socket/Socket";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import {
   ConsensusEngineLive,
+  ConsensusEvents,
   SlotClock,
   SlotClockLive,
   PREPROD_CONFIG,
@@ -66,8 +67,9 @@ const EnableBootstrap = Config.boolean("ENABLE_BOOTSTRAP").pipe(Config.withDefau
 // ---------------------------------------------------------------------------
 
 type SnapshotState = {
-  tip: { slot: bigint; hash: Uint8Array } | undefined;
+  tip: { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined;
   nonces: Nonces;
+  ocertCounters: HashMap.HashMap<string, number>;
 };
 
 /**
@@ -190,6 +192,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                     yield* Ref.set(snapshotStateRef, {
                       tip: decoded.tip,
                       nonces: decoded.nonces,
+                      ocertCounters: decoded.ledgerView.ocertCounters,
                     });
                     yield* Effect.log(
                       `[bootstrap] Offscreen decode complete — tip ${decoded.tip?.slot ?? "origin"}, ` +
@@ -308,9 +311,9 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
       );
     }
 
-    // Empty ledger view for relay-only mode — header validation will fail
-    // (logged as warnings) but ChainSync continues downloading blocks.
-    // This is temporary until Mithril-based bootstrap is operational.
+    // Empty ledger view for relay-only mode — pool-dependent assertions
+    // (VRF key, VRF proof, leader stake) gracefully skip when pool data is
+    // absent. Pool-independent assertions (KES, opcert) still run.
     if (!ledgerView) {
       ledgerView = {
         epochNonce: new Uint8Array(32),
@@ -319,6 +322,9 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
         totalStake: 0n,
         activeSlotsCoeff: 0.05,
         maxKesEvolutions: 62,
+        maxHeaderSize: 0,
+        maxBlockBodySize: 0,
+        ocertCounters: HashMap.empty(),
       };
     }
 
@@ -370,6 +376,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
         candidate: new Uint8Array(32),
         epoch: 0n,
       }),
+      snapshotState?.ocertCounters ?? HashMap.empty(),
     ),
   );
 
@@ -469,7 +476,8 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
  * Provides:
  * - WebSocket constructor (browser global)
  * - ConsensusEngine + CryptoService (WASM-based)
- * - ChainDB (IndexedDB BlobStore + SQLite WASM OPFS)
+ * - ConsensusEvents (PubSub for tip changes, epoch transitions)
+ * - ChainDB (IndexedDB BlobStore + SQLite WASM)
  * - SlotClock (preprod config)
  * - PeerManager
  * - IndexedDb (browser window)
@@ -500,6 +508,7 @@ function browserLayers() {
     wsConstructorLayer,
     consensusLayer,
     CryptoServiceBrowser,
+    ConsensusEvents.Live,
     slotClockLayer,
     peerManagerLayer,
     storageLayer,

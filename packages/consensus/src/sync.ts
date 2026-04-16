@@ -20,7 +20,7 @@ import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from
 import { GsmState, gsmState } from "./chain-selection";
 import { SlotClock } from "./clock";
 import { verifyBodyHash } from "./validate-block";
-import type { BlockHeader, LedgerView } from "./validate-header";
+import type { BlockHeader, LedgerView, PrevTip } from "./validate-header";
 
 export class SyncError extends Schema.TaggedErrorClass<SyncError>()("SyncError", {
   message: Schema.String,
@@ -45,6 +45,7 @@ export const processBlock = (
   header: BlockHeader,
   ledgerView: LedgerView,
   currentNonces: Nonces,
+  prevTip?: PrevTip,
 ) =>
   Effect.gen(function* () {
     const engine = yield* ConsensusEngine;
@@ -52,9 +53,9 @@ export const processBlock = (
     const chainDb = yield* ChainDB;
     const slotClock = yield* SlotClock;
 
-    // 1. Validate block header + body hash integrity (parallel)
+    // 1. Validate block header (envelope + 5 Praos assertions) + body hash integrity (parallel)
     yield* Effect.all([
-      engine.validateHeader(header, ledgerView),
+      engine.validateHeader(header, ledgerView, prevTip),
       verifyBodyHash(block.blockCbor, header.bodyHash),
     ]);
 
@@ -183,6 +184,8 @@ export const syncFromStream = (
     yield* Stream.runForEach(blocks, ({ block, header, ledgerView }) =>
       Effect.gen(function* () {
         const current = yield* Ref.get(stateRef);
+        // Bootstrap blocks from Mithril snapshot — skip envelope validation (trusted source).
+        // The relay path (chain-sync-driver.ts) passes prevTip for full envelope checks.
         const newNonces = yield* processBlock(block, header, ledgerView, current.nonces);
         const wallclockSlot = yield* slotClock.currentSlot;
         const newVolatileLength = current.volatileLength + 1;

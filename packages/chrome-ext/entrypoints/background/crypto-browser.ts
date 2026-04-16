@@ -7,7 +7,14 @@
  */
 import { Effect, Layer } from "effect";
 import { CryptoService } from "consensus";
-import init, { blake2b_256, ed25519_verify, kes_sum6_verify } from "wasm-utils";
+import init, {
+  blake2b_256,
+  ed25519_verify,
+  kes_sum6_verify,
+  check_vrf_leader,
+  vrf_verify_proof,
+  vrf_proof_to_hash,
+} from "wasm-utils";
 import { init as initPlexer } from "wasm-plexer";
 
 /** Initialize WASM once — cached after first call. */
@@ -27,14 +34,13 @@ export const initWasm = Effect.gen(function* () {
  * - blake2b256: pallas_crypto blake2b
  * - ed25519Verify: pallas_crypto ed25519
  * - kesSum6Verify: pallas_crypto KES Sum6
- * - vrfVerifyProof: stub (genesis sync only — Byron blocks skip VRF)
- * - vrfProofToHash: stub (genesis sync only)
- * - checkVrfLeader: stub (genesis sync only)
+ * - vrfVerifyProof: amaru-vrf-dalek ECVRF-ED25519-SHA512-Elligator2
+ * - vrfProofToHash: amaru-vrf-dalek proof → 64-byte hash
+ * - checkVrfLeader: pallas-math FixedDecimal exp_cmp threshold check
  */
 export const CryptoServiceBrowser: Layer.Layer<CryptoService> = Layer.effect(
   CryptoService,
   Effect.gen(function* () {
-    // Ensure WASM is initialized before creating the service
     yield* initWasm;
 
     return {
@@ -50,25 +56,28 @@ export const CryptoServiceBrowser: Layer.Layer<CryptoService> = Layer.effect(
         message: Uint8Array,
       ): boolean => kes_sum6_verify(signature, period, publicKey, message),
 
-      // VRF and leader check are only needed for Shelley+ with pool keys.
-      // During genesis sync (Byron), these are never called (poolVrfKeys is empty).
-      // Stubs return sentinel values: all-zeros (skipped by validate-header) or false.
-      // TODO: Wire VRF WASM (libsodium-vrf) for full Shelley+ validation in browser.
       vrfVerifyProof: (
-        _vrfVkey: Uint8Array,
-        _vrfProof: Uint8Array,
-        _vrfInput: Uint8Array,
-      ): Uint8Array => new Uint8Array(64),
+        vrfVkey: Uint8Array,
+        vrfProof: Uint8Array,
+        vrfInput: Uint8Array,
+      ): Uint8Array => vrf_verify_proof(vrfVkey, vrfProof, vrfInput),
 
-      vrfProofToHash: (_vrfProof: Uint8Array): Uint8Array => new Uint8Array(32),
+      vrfProofToHash: (vrfProof: Uint8Array): Uint8Array => vrf_proof_to_hash(vrfProof),
 
       checkVrfLeader: (
-        _vrfOutputHex: string,
-        _sigmaNumerator: string,
-        _sigmaDenominator: string,
-        _activeSlotCoeffNum: string,
-        _activeSlotCoeffDen: string,
-      ): boolean => false,
+        vrfOutputHex: string,
+        sigmaNumerator: string,
+        sigmaDenominator: string,
+        activeSlotCoeffNum: string,
+        activeSlotCoeffDen: string,
+      ): boolean =>
+        check_vrf_leader(
+          vrfOutputHex,
+          sigmaNumerator,
+          sigmaDenominator,
+          activeSlotCoeffNum,
+          activeSlotCoeffDen,
+        ),
     };
   }),
 );

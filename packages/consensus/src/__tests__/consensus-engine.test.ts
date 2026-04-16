@@ -35,6 +35,7 @@ const makeHeader = (): BlockHeader => {
     opcertSeqNo: 5,
     opcertKesPeriod: 5,
     bodyHash: new Uint8Array(32),
+    bodySize: 0,
     headerBodyCbor: new Uint8Array(32),
   };
 };
@@ -48,6 +49,9 @@ const makeView = (header: BlockHeader): LedgerView => {
     totalStake: 10_000_000n,
     activeSlotsCoeff: 0.05,
     maxKesEvolutions: 62,
+    maxHeaderSize: 0,
+    maxBlockBodySize: 0,
+    ocertCounters: HashMap.empty(),
   };
 };
 

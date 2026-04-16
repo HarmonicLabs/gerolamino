@@ -121,7 +121,7 @@ const start = Command.make(
       yield* Effect.log("Database migrations complete.");
 
       type SnapshotState = {
-        tip: { slot: bigint; hash: Uint8Array } | undefined;
+        tip: { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined;
         nonces: ReturnType<typeof extractNonces>;
       };
 

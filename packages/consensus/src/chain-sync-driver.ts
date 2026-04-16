@@ -17,10 +17,11 @@ import { CryptoService } from "./crypto";
 import { PeerManager } from "./peer-manager";
 import { ChainTip } from "./chain-selection";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./nonce";
+import { hex } from "./util";
 import { decodeWrappedHeader, DecodedHeader } from "./header-bridge";
 import { ConsensusEvents, ConsensusEventKind } from "./events";
 import { ChainDB } from "storage";
-import type { BlockHeader, LedgerView } from "./validate-header";
+import type { BlockHeader, LedgerView, PrevTip } from "./validate-header";
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
   "ChainSyncDriverError",
@@ -29,8 +30,10 @@ export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDrive
 
 /** Volatile chain state — tracks the mutable tip and recent blocks. */
 export const VolatileState = Schema.Struct({
-  tip: Schema.optional(Schema.Struct({ slot: Schema.BigInt, hash: Schema.Uint8Array })),
+  tip: Schema.optional(Schema.Struct({ slot: Schema.BigInt, blockNo: Schema.BigInt, hash: Schema.Uint8Array })),
   nonces: Nonces,
+  /** Per-pool opcert sequence counters (poolId hex → last seqNo). */
+  ocertCounters: Schema.HashMap(Schema.String, Schema.Number),
   blocksProcessed: Schema.Number,
   caughtUp: Schema.Boolean,
 });
@@ -38,12 +41,14 @@ export type VolatileState = typeof VolatileState.Type;
 
 /** Initial volatile state — loaded from snapshot or genesis. */
 export const initialVolatileState = (
-  tip: { slot: bigint; hash: Uint8Array } | undefined,
+  tip: { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined,
   nonces: Nonces,
+  ocertCounters: HashMap.HashMap<string, number> = HashMap.empty(),
 ): VolatileState => {
   const result: VolatileState = {
     tip,
     nonces,
+    ocertCounters,
     blocksProcessed: 0,
     caughtUp: false,
   };
@@ -64,6 +69,8 @@ export const handleRollForward = (
   state: VolatileState,
   peerId: string,
   ledgerView: LedgerView,
+  /** Byron subtag from ChainSync byronPrefix[0] (0=EBB, 1=main). */
+  byronSubtag?: number,
 ) =>
   Effect.gen(function* () {
     const engine = yield* ConsensusEngine;
@@ -83,7 +90,7 @@ export const handleRollForward = (
     );
 
     // Decode N2N ChainSync header — returns Byron or Shelley info
-    const decoded = yield* decodeWrappedHeader(headerBytes, eraVariant);
+    const decoded = yield* decodeWrappedHeader(headerBytes, eraVariant, byronSubtag);
 
     if (DecodedHeader.guards.byron(decoded)) {
       // Byron blocks: store in ChainDB, update tip. No Praos validation or nonce evolution.
@@ -97,8 +104,9 @@ export const handleRollForward = (
       });
 
       const result: VolatileState = {
-        tip: { slot: decoded.slot, hash: decoded.hash },
+        tip: { slot: decoded.slot, blockNo: decoded.blockNo, hash: decoded.hash },
         nonces: state.nonces,
+        ocertCounters: state.ocertCounters,
         blocksProcessed: state.blocksProcessed + 1,
         caughtUp: false,
       };
@@ -108,11 +116,22 @@ export const handleRollForward = (
     // Shelley+ path: Praos validation + nonce evolution
     const header = decoded.header;
 
-    // Run header validation (5 Praos assertions). Pool-dependent assertions
+    // Build prevTip for envelope validation (slot/blockNo/hash chaining)
+    const prevTip: PrevTip | undefined = state.tip
+      ? { slot: state.tip.slot, blockNo: state.tip.blockNo, hash: state.tip.hash }
+      : undefined;
+
+    // Inject current opcert counters into the ledger view for per-pool counter checks.
+    const viewWithCounters: LedgerView = {
+      ...ledgerView,
+      ocertCounters: state.ocertCounters,
+    };
+
+    // Run envelope checks + 5 Praos assertions. Pool-dependent assertions
     // (VRF key lookup, VRF proof, leader stake) gracefully skip when the
     // LedgerView has no pool data (genesis sync without bootstrap).
     // Pool-independent assertions (KES signature, opcert) always run.
-    yield* engine.validateHeader(header, ledgerView);
+    yield* engine.validateHeader(header, viewWithCounters, prevTip);
 
     // Storage and nonce evolution are INDEPENDENT — run in parallel.
     // Storage writes to DB; nonce computation reads only header fields.
@@ -202,9 +221,14 @@ export const handleRollForward = (
       ),
     );
 
+    // Update opcert counter for this pool after successful validation
+    const poolId = hex(crypto.blake2b256(header.issuerVk));
+    const updatedCounters = HashMap.set(state.ocertCounters, poolId, header.opcertSeqNo);
+
     const result: VolatileState = {
-      tip: { slot: header.slot, hash: header.hash },
+      tip: { slot: header.slot, blockNo: header.blockNo, hash: header.hash },
       nonces: newNonces,
+      ocertCounters: updatedCounters,
       blocksProcessed: state.blocksProcessed + 1,
       caughtUp: false,
     };
@@ -246,9 +270,13 @@ export const handleRollBackward = (
       yield* chainDb.rollback(rollbackPoint);
     }
 
+    // Clear tip after rollback — the blockNo at the rollback point is unknown without
+    // a ChainDB lookup. Setting tip=undefined means envelope validation (blockNo/slot/prevHash
+    // checks) is skipped for the first post-rollback block. This is safe because ChainSync's
+    // internal state ensures the next block chains correctly from the intersection.
     const result: VolatileState = {
       ...state,
-      tip: rollbackPoint,
+      tip: undefined,
       caughtUp: false,
     };
     return result;

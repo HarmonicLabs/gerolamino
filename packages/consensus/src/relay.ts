@@ -11,13 +11,14 @@
  *                                      ↓
  *                              ConsensusEngine + ChainDB
  */
-import { Deferred, Effect, Layer, Option, Ref, Schedule, Schema } from "effect";
+import { Deferred, Effect, Layer, Option, Ref, Schedule, Schema, Stream } from "effect";
 import {
   Multiplexer,
   MultiplexerBuffer,
   HandshakeClient,
   ChainSyncClient,
   KeepAliveClient,
+  BlockFetchClient,
   ChainPointType,
   ChainPointSchema,
   ChainSyncMessage,
@@ -25,8 +26,10 @@ import {
   HandshakeMessageType,
 } from "miniprotocols";
 import type { ChainPoint } from "miniprotocols";
-import { ChainDB } from "storage";
+import { ChainDB, blockKey, cborOffsetKey, analyzeBlockCbor } from "storage";
+import { CryptoService } from "./crypto";
 import { ConsensusEngine } from "./consensus-engine";
+import { applyBlock } from "./block-apply";
 import { PeerManager } from "./peer-manager";
 import { SlotClock } from "./clock";
 import { Nonces } from "./nonce";
@@ -128,19 +131,74 @@ const findIntersection = (tip: { slot: bigint; hash: Uint8Array } | undefined) =
   });
 
 /**
+ * Fetch the full block body via BlockFetch and write derived storage entries
+ * (full block CBOR overwriting header-only entry + CBOR offset index).
+ * Best-effort — failures are logged, do not affect consensus or chain state.
+ */
+const fetchAndStoreFullBlock = (tip: { slot: bigint; blockNo: bigint; hash: Uint8Array }) =>
+  Effect.gen(function* () {
+    const blockFetch = yield* BlockFetchClient;
+    const chainDb = yield* ChainDB;
+    const crypto = yield* CryptoService;
+    const point: ChainPoint = {
+      _tag: ChainPointType.RealPoint,
+      slot: Number(tip.slot),
+      hash: tip.hash,
+    };
+    const maybeStream = yield* blockFetch.requestRange(point, point);
+    if (Option.isNone(maybeStream)) return;
+    const maybeBlock = yield* Stream.runHead(maybeStream.value);
+    if (Option.isNone(maybeBlock)) return;
+
+    const fullBlockCbor = maybeBlock.value;
+    const entries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+
+    // Overwrite header-only block entry with full block CBOR
+    entries.push({ key: blockKey(tip.slot, tip.hash), value: fullBlockCbor });
+
+    // Derive CBOR offset entries from full block
+    const analysis = analyzeBlockCbor(fullBlockCbor);
+    for (let i = 0; i < analysis.txOffsets.length; i++) {
+      const o = analysis.txOffsets[i]!;
+      const val = new Uint8Array(8);
+      const dv = new DataView(val.buffer);
+      dv.setUint32(0, o.offset, false);
+      dv.setUint32(4, o.size, false);
+      entries.push({ key: cborOffsetKey(tip.slot, i), value: val });
+    }
+
+    // Apply block: compute UTxO diffs, account/stake changes from certs
+    const diff = applyBlock(fullBlockCbor, crypto.blake2b256);
+    entries.push(...diff.utxoInserts);
+    entries.push(...diff.accountUpdates);
+    entries.push(...diff.stakeUpdates);
+
+    if (entries.length > 0) {
+      yield* chainDb.writeBlobEntries(entries);
+    }
+
+    // Delete consumed UTxO inputs and deregistered accounts
+    const deletes = [...diff.utxoDeletes, ...diff.accountDeletes];
+    if (deletes.length > 0) {
+      yield* chainDb.deleteBlobEntries(deletes);
+    }
+  });
+
+/**
  * Run the ChainSync loop — continuously request blocks from the relay.
  *
  * This is the main sync loop. It:
  * 1. Calls requestNext() on the ChainSync client
  * 2. On RollForward: validates header, stores block, evolves nonces
- * 3. On RollBackward: reverts state to the rollback point
- * 4. Repeats until the connection is closed
+ * 3. After validation: fetches full block via BlockFetch, writes offsets
+ * 4. On RollBackward: reverts state to the rollback point
+ * 5. Repeats until the connection is closed
  */
 const chainSyncLoop = (
   peerId: string,
   ledgerView: LedgerView,
   initialNonces: Nonces,
-  initialTip: { slot: bigint; hash: Uint8Array } | undefined,
+  initialTip: { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined,
   volatileStateRef?: Ref.Ref<VolatileState>,
 ) =>
   Effect.gen(function* () {
@@ -188,6 +246,7 @@ const chainSyncLoop = (
             state,
             peerId,
             ledgerView,
+            msg.byronPrefix?.[0],
           ).pipe(
             Effect.tap((newState) =>
               Effect.gen(function* () {
@@ -196,11 +255,35 @@ const chainSyncLoop = (
               }),
             ),
             Effect.matchEffect({
-              onSuccess: () => Effect.void,
+              onSuccess: () =>
+                Effect.gen(function* () {
+                  // After header validation + storage, fetch full block body
+                  // to write CBOR offsets and update block entry with full CBOR.
+                  // Best-effort — skip Byron (era <= 1) and tolerate failures.
+                  const currentState = yield* Ref.get(stateRef);
+                  if (currentState.tip && msg.eraVariant > 1) {
+                    yield* fetchAndStoreFullBlock(currentState.tip).pipe(
+                      Effect.scoped,
+                      Effect.catch((err) =>
+                        Effect.logWarning(`[sync] BlockFetch skipped: ${err}`),
+                      ),
+                    );
+                  }
+                }),
               onFailure: (err) =>
-                Effect.logWarning(
-                  `[sync] Block processing failed (era ${msg.eraVariant}, tip ${serverTip.slot}): ${err}`,
-                ),
+                Effect.gen(function* () {
+                  yield* Effect.logWarning(
+                    `[sync] Block processing failed (era ${msg.eraVariant}, tip ${serverTip.slot}): ${err}`,
+                  );
+                  // Clear tip to prevent cascading envelope validation failures.
+                  // The next block will skip envelope checks, trusting ChainSync ordering.
+                  const s = yield* Ref.get(stateRef);
+                  const cleared = { ...s, tip: undefined };
+                  yield* Ref.set(stateRef, cleared);
+                  if (volatileStateRef) {
+                    yield* Ref.set(volatileStateRef, cleared);
+                  }
+                }),
             }),
             // Guarantee gate signaling even on failure — prevents downstream deadlock
             Effect.ensuring(Deferred.succeed(thisCommitDone, undefined)),
@@ -273,8 +356,8 @@ export const connectToRelay = (
     // 2. Find intersection — prefer ChainDB tip (evolved state) over snapshot tip.
     // On reconnection, ChainDB has the latest stored tip from the previous session.
     const dbTip = yield* chainDb.getTip;
-    const tip = Option.isSome(dbTip) ? dbTip.value : snapshotState?.tip;
-    yield* findIntersection(tip);
+    const intersectionTip = Option.isSome(dbTip) ? dbTip.value : snapshotState?.tip;
+    yield* findIntersection(intersectionTip);
 
     // 3. Initialize nonces — prefer persisted (ChainDB), then snapshot, then zeros.
     const persistedNonces = yield* chainDb.readNonces;
@@ -287,7 +370,7 @@ export const connectToRelay = (
         })
       : (snapshotState?.nonces ??
           (() => {
-            const epoch = tip ? slotClock.slotToEpoch(tip.slot) : 0n;
+            const epoch = intersectionTip ? slotClock.slotToEpoch(intersectionTip.slot) : 0n;
             return new Nonces({
               active: new Uint8Array(32),
               evolving: new Uint8Array(32),
@@ -296,10 +379,12 @@ export const connectToRelay = (
             });
           })());
 
-    // 4. Run ChainSync + KeepAlive in parallel
+    // 4. Run ChainSync + KeepAlive in parallel.
+    // Initial tip is undefined — envelope validation (blockNo/slot/prevHash) is skipped
+    // for the first block after intersection. Subsequent blocks chain correctly from there.
     yield* Effect.all(
       [
-        chainSyncLoop(peerId, ledgerView, nonces, tip, volatileStateRef),
+        chainSyncLoop(peerId, ledgerView, nonces, undefined, volatileStateRef),
         Effect.gen(function* () {
           const keepAlive = yield* KeepAliveClient;
           yield* keepAlive.run();
@@ -310,7 +395,7 @@ export const connectToRelay = (
   }).pipe(
     // Provide protocol client layers (require Multiplexer in environment)
     Effect.provide(
-      Layer.mergeAll(HandshakeClient.layer, ChainSyncClient.layer, KeepAliveClient.layer),
+      Layer.mergeAll(HandshakeClient.layer, ChainSyncClient.layer, KeepAliveClient.layer, BlockFetchClient.layer),
     ),
     // Provide Multiplexer + Buffer layers (requires Socket in environment)
     Effect.provide(Multiplexer.layer.pipe(Layer.provide(MultiplexerBuffer.layer))),

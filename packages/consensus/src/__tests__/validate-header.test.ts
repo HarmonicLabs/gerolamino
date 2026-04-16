@@ -37,6 +37,7 @@ const makeHeader = (overrides?: Partial<BlockHeader>): BlockHeader => {
     opcertSeqNo: 5,
     opcertKesPeriod: 5,
     bodyHash: new Uint8Array(32),
+    bodySize: 0,
     headerBodyCbor: new Uint8Array(32),
     ...overrides,
   };
@@ -51,6 +52,9 @@ const makeView = (header: BlockHeader, overrides?: Partial<LedgerView>): LedgerV
     totalStake: 10_000_000n,
     activeSlotsCoeff: 0.05,
     maxKesEvolutions: 62,
+    maxHeaderSize: 0,
+    maxBlockBodySize: 0,
+    ocertCounters: HashMap.empty(),
     ...overrides,
   };
 };
@@ -67,8 +71,9 @@ describe("validateHeader", () => {
 
   it("fails when pool VRF key is not registered", async () => {
     const header = makeHeader();
+    // Use a non-empty map with a different pool to avoid triggering the genesis-skip guard
     const result = await run(
-      validateHeader(header, makeView(header, { poolVrfKeys: HashMap.empty() })),
+      validateHeader(header, makeView(header, { poolVrfKeys: HashMap.make(["other_pool", makeVk(99)]) })),
     );
     expect(Exit.isFailure(result)).toBe(true);
   });
@@ -123,9 +128,12 @@ describe("validateHeader", () => {
     expect(Exit.isFailure(result)).toBe(true);
   });
 
-  it("fails when total stake is zero", async () => {
+  it("fails when pool has no registered stake", async () => {
     const header = makeHeader();
-    const result = await run(validateHeader(header, makeView(header, { totalStake: 0n })));
+    // Non-zero totalStake but empty poolStake — avoids genesis-skip guard
+    const result = await run(
+      validateHeader(header, makeView(header, { poolStake: HashMap.empty() })),
+    );
     expect(Exit.isFailure(result)).toBe(true);
   });
 

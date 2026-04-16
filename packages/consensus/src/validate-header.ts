@@ -11,6 +11,7 @@
 import { Effect, HashMap, Option, Schema } from "effect";
 import { CryptoService } from "./crypto";
 import { hex, concat, be64 } from "./util";
+import type { Context } from "effect";
 
 export class HeaderValidationError extends Schema.TaggedErrorClass<HeaderValidationError>()(
   "HeaderValidationError",
@@ -45,6 +46,8 @@ export const BlockHeader = Schema.Struct({
   opcertSeqNo: Schema.Number,
   opcertKesPeriod: Schema.Number,
   bodyHash: Schema.Uint8Array,
+  /** Declared block body size (from header, for protocol param size check). */
+  bodySize: Schema.Number,
   /** Raw CBOR of the header body — KES signs this, not bodyHash. */
   headerBodyCbor: Schema.Uint8Array,
 });
@@ -61,26 +64,84 @@ export const LedgerView = Schema.Struct({
   totalStake: Schema.BigInt,
   activeSlotsCoeff: Schema.Number,
   maxKesEvolutions: Schema.Number,
+  /** Protocol param: max header size in bytes (default 1100). 0 = skip check. */
+  maxHeaderSize: Schema.Number,
+  /** Protocol param: max block body size in bytes (default 90112). 0 = skip check. */
+  maxBlockBodySize: Schema.Number,
+  /** Opcert counters: pool key hash (hex) → last seen sequence number. */
+  ocertCounters: Schema.HashMap(Schema.String, Schema.Number),
 });
 export type LedgerView = typeof LedgerView.Type;
 
+/** Previous tip state for envelope validation. */
+export interface PrevTip {
+  readonly slot: bigint;
+  readonly blockNo: bigint;
+  readonly hash: Uint8Array;
+}
+
 /**
- * Validate a block header. All five assertions run in parallel via Effect.all.
- * Requires CryptoService in the environment.
+ * Validate a block header. Envelope checks run first, then five Praos assertions
+ * run in parallel via Effect.all. Requires CryptoService in the environment.
+ *
+ * @param prevTip Previous block's tip (undefined for genesis / first block after intersection)
  */
 export const validateHeader = (
   header: BlockHeader,
   ledgerView: LedgerView,
+  prevTip?: PrevTip,
 ): Effect.Effect<void, HeaderValidationError, CryptoService> =>
   Effect.gen(function* () {
+    // Envelope checks (fast, sequential) — per Haskell HeaderValidation.hs:366-378
+    yield* validateEnvelope(header, prevTip, ledgerView);
+
+    // Protocol checks (crypto-heavy, parallel) — 5 Praos assertions
     const crypto = yield* CryptoService;
     yield* Effect.all([
       assertKnownLeaderVrf(crypto, header, ledgerView),
       assertVrfProof(crypto, header, ledgerView),
       assertLeaderStake(crypto, header, ledgerView),
       assertKesSignature(crypto, header, ledgerView),
-      assertOperationalCertificate(crypto, header),
+      assertOperationalCertificate(crypto, header, ledgerView),
     ]);
+  });
+
+// ---------------------------------------------------------------------------
+// Envelope validation — chain structure integrity (blockNo, slot, prevHash, sizes)
+// Per Haskell ouroboros-consensus HeaderValidation.hs ValidateEnvelope
+// ---------------------------------------------------------------------------
+
+const validateEnvelope = (
+  header: BlockHeader,
+  prevTip: PrevTip | undefined,
+  view: LedgerView,
+): Effect.Effect<void, HeaderValidationError> =>
+  Effect.try({
+    try: () => {
+      if (prevTip) {
+        // BlockNo must be exactly prev + 1 (Haskell: UnexpectedBlockNo)
+        if (header.blockNo !== prevTip.blockNo + 1n)
+          throw `BlockNo ${header.blockNo} != expected ${prevTip.blockNo + 1n}`;
+        // Slot must be strictly increasing (Haskell: UnexpectedSlotNo)
+        if (header.slot <= prevTip.slot)
+          throw `Slot ${header.slot} not > prev ${prevTip.slot}`;
+        // PrevHash must chain correctly (Haskell: UnexpectedPrevHash)
+        if (hex(header.prevHash) !== hex(prevTip.hash))
+          throw `PrevHash mismatch: expected ${hex(prevTip.hash)}, got ${hex(header.prevHash)}`;
+      }
+      // Size limits from protocol params (Haskell: additionalEnvelopeChecks)
+      if (view.maxHeaderSize > 0 && header.headerBodyCbor.byteLength > view.maxHeaderSize)
+        throw `Header size ${header.headerBodyCbor.byteLength} exceeds max ${view.maxHeaderSize}`;
+      if (view.maxBlockBodySize > 0 && header.bodySize > view.maxBlockBodySize)
+        throw `Block body size ${header.bodySize} exceeds max ${view.maxBlockBodySize}`;
+    },
+    catch: (cause) =>
+      new HeaderValidationError({
+        assertion: "Envelope",
+        message: String(cause),
+        blockSlot: header.slot,
+        blockHash: header.hash,
+      }),
   });
 
 // 1. VRF key must match the pool's registered VRF key
@@ -195,10 +256,12 @@ const assertKesSignature = (
     catch: (cause) => new HeaderValidationError({ assertion: "AssertKesSignature", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
   });
 
-// 5. Opcert: cold key must have signed the hot key
+// 5. Opcert: cold key must have signed the hot key + counter monotonicity
+// Per Haskell Praos.hs:638-648: DSIGN verify + counter check (m <= n <= m+1)
 const assertOperationalCertificate = (
   crypto: Context.Service.Shape<typeof CryptoService>,
   header: BlockHeader,
+  view: LedgerView,
 ): Effect.Effect<void, HeaderValidationError> =>
   Effect.try({
     try: () => {
@@ -212,10 +275,20 @@ const assertOperationalCertificate = (
       );
       const valid = crypto.ed25519Verify(msg, header.opcertSig, header.issuerVk);
       if (!valid) throw "opcert Ed25519 signature invalid";
+
+      // Counter monotonicity check (per Haskell Praos.hs:645-648).
+      // Gracefully skip when counters are empty (genesis sync without bootstrap).
+      if (HashMap.size(view.ocertCounters) > 0) {
+        const poolId = hex(crypto.blake2b256(header.issuerVk));
+        const lastSeqNo = HashMap.get(view.ocertCounters, poolId).pipe(
+          Option.getOrElse(() => 0),
+        );
+        if (header.opcertSeqNo < lastSeqNo)
+          throw `opcert seqNo ${header.opcertSeqNo} < last ${lastSeqNo} (CounterTooSmall)`;
+        if (header.opcertSeqNo > lastSeqNo + 1)
+          throw `opcert seqNo ${header.opcertSeqNo} > last + 1 (CounterOverIncremented)`;
+      }
     },
     catch: (cause) =>
       new HeaderValidationError({ assertion: "AssertOperationalCertificate", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
   });
-
-// Re-export for type usage
-import type { Context } from "effect";

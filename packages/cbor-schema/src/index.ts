@@ -17,5 +17,5 @@ export {
   cborBool,
 } from "./schema";
 
-export { parse, parseSync } from "./parse";
+export { parse, parseSync, skipCborItem } from "./parse";
 export { encode, encodeSync } from "./encode";

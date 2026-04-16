@@ -10,13 +10,122 @@
  *   - `decodeWrappedHeader`: for N2N ChainSync wrapped headers
  */
 import { Config, Effect, Schema } from "effect";
-import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "cbor-schema";
+import { parseSync, skipCborItem, CborKinds, type CborSchemaType } from "cbor-schema";
 import type { BlockHeader as LedgerBlockHeader } from "ledger";
 import { decodeMultiEraBlock, decodeMultiEraHeader, MultiEraHeader, isByronBlock } from "ledger";
 import { BlockHeader as ConsensusBlockHeader } from "./validate-header";
 import { CryptoService } from "./crypto";
 import { concat } from "./util";
 import type { Context } from "effect";
+
+// ---------------------------------------------------------------------------
+// Byte-offset helpers — extract original CBOR bytes without re-encoding
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the first element of a CBOR array as a raw byte slice.
+ * Skips the array header, then uses skipCborItem to find the end of the first item.
+ * Returns a subarray of the original buffer (zero-copy).
+ */
+const extractFirstArrayItemBytes = (buf: Uint8Array): Uint8Array => {
+  const headerByte = buf[0]!;
+  const majorType = headerByte >> 5;
+  if (majorType !== CborKinds.Array) throw new Error(`extractFirstArrayItemBytes: expected array, got major type ${majorType}`);
+  const addInfo = headerByte & 0x1f;
+
+  // Find where array items begin (past the array header)
+  let itemsStart: number;
+  if (addInfo < 24) itemsStart = 1;
+  else if (addInfo === 24) itemsStart = 2;
+  else if (addInfo === 25) itemsStart = 3;
+  else if (addInfo === 26) itemsStart = 5;
+  else if (addInfo === 27) itemsStart = 9;
+  else throw new Error(`extractFirstArrayItemBytes: indefinite arrays not supported`);
+
+  const firstItemEnd = skipCborItem(buf, itemsStart);
+  return buf.subarray(itemsStart, firstItemEnd);
+};
+
+/**
+ * Navigate into block CBOR to extract the original FULL header bytes.
+ * Block = [era, [header, txBodies, ...]]
+ * Returns the raw bytes of header = [headerBody, kesSig] without re-encoding.
+ *
+ * Used for hash computation: Shelley header hash = blake2b-256(entire header CBOR).
+ */
+const extractOriginalFullHeaderBytes = (
+  blockCbor: Uint8Array,
+  operation: string,
+): Effect.Effect<Uint8Array, HeaderBridgeError> =>
+  Effect.try({
+    try: () => {
+      let pos = 0;
+
+      // Top-level array header [era, blockBody]
+      if ((blockCbor[pos]! >> 5) !== CborKinds.Array) throw "block is not a CBOR array";
+      pos = skipArrayHeader(blockCbor, pos);
+
+      // Skip era (first element)
+      pos = skipCborItem(blockCbor, pos);
+
+      // blockBody array header [header, txBodies, ...]
+      if ((blockCbor[pos]! >> 5) !== CborKinds.Array) throw "blockBody is not a CBOR array";
+      pos = skipArrayHeader(blockCbor, pos);
+
+      // Extract the full header item (= first element of blockBody)
+      const headerStart = pos;
+      const headerEnd = skipCborItem(blockCbor, headerStart);
+      return blockCbor.subarray(headerStart, headerEnd);
+    },
+    catch: (cause) => new HeaderBridgeError({ operation, cause: String(cause) }),
+  });
+
+/**
+ * Navigate into block CBOR to extract the original header BODY bytes.
+ * Block = [era, [header, ...]], Header = [headerBody, kesSig]
+ * Returns the raw bytes of headerBody only (for KES signature verification).
+ */
+const extractOriginalHeaderBodyBytes = (
+  blockCbor: Uint8Array,
+  operation: string,
+): Effect.Effect<Uint8Array, HeaderBridgeError> =>
+  Effect.try({
+    try: () => {
+      let pos = 0;
+
+      // Top-level array header [era, blockBody]
+      if ((blockCbor[pos]! >> 5) !== CborKinds.Array) throw "block is not a CBOR array";
+      pos = skipArrayHeader(blockCbor, pos);
+
+      // Skip era (first element)
+      pos = skipCborItem(blockCbor, pos);
+
+      // blockBody array header [header, txBodies, ...]
+      if ((blockCbor[pos]! >> 5) !== CborKinds.Array) throw "blockBody is not a CBOR array";
+      pos = skipArrayHeader(blockCbor, pos);
+
+      // header array header [headerBody, kesSig]
+      if ((blockCbor[pos]! >> 5) !== CborKinds.Array) throw "header is not a CBOR array";
+      const headerBodyStart = skipArrayHeader(blockCbor, pos);
+      const headerBodyEnd = skipCborItem(blockCbor, headerBodyStart);
+      return blockCbor.subarray(headerBodyStart, headerBodyEnd);
+    },
+    catch: (cause) => new HeaderBridgeError({ operation, cause: String(cause) }),
+  });
+
+/**
+ * Skip past a CBOR array header, returning the offset of the first item.
+ * Only supports definite-length arrays.
+ */
+const skipArrayHeader = (buf: Uint8Array, offset: number): number => {
+  const addInfo = buf[offset]! & 0x1f;
+  if (addInfo < 24) return offset + 1;
+  if (addInfo === 24) return offset + 2;
+  if (addInfo === 25) return offset + 3;
+  if (addInfo === 26) return offset + 5;
+  if (addInfo === 27) return offset + 9;
+  throw new Error(`skipArrayHeader: indefinite arrays not supported`);
+};
 
 /** Typed error for header bridge decode/bridge failures. */
 export class HeaderBridgeError extends Schema.TaggedErrorClass<HeaderBridgeError>()(
@@ -67,63 +176,37 @@ export const DecodedHeader = Schema.Union([ByronHeaderInfo, ShelleyHeaderInfo]).
 export type DecodedHeader = typeof DecodedHeader.Type;
 
 /**
- * Extract the raw CBOR-encoded header body from block CBOR bytes
+ * Extract the raw CBOR-encoded header from block CBOR bytes
  * and compute its blake2b-256 hash.
  *
  * Block structure: [era, [header, txBodies, witnesses, auxData, ...]]
  * Header structure: [headerBody, kesSignature]
- * Hash = blake2b-256(CBOR(headerBody))
+ * Hash = blake2b-256(ENTIRE header = [headerBody, kesSig])
+ *
+ * Per Haskell MemoBytes pattern: bhHash hashes the full BHeader (body + KES sig),
+ * not just the body. Uses byte-offset slicing to preserve original CBOR bytes.
  */
 export const computeHeaderHash = (
   blockCbor: Uint8Array,
   crypto: { blake2b256: (data: Uint8Array) => Uint8Array },
 ): Effect.Effect<Uint8Array, HeaderBridgeError> =>
   Effect.gen(function* () {
-    const top = parseSync(blockCbor);
-    if (top._tag !== CborKinds.Array || top.items.length < 2)
-      return yield* new HeaderBridgeError({
-        operation: "computeHeaderHash",
-        cause: "Invalid block CBOR: expected [era, blockBody]",
-      });
-
-    const blockBody = top.items[1]!;
-    if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 1)
-      return yield* new HeaderBridgeError({
-        operation: "computeHeaderHash",
-        cause: "Invalid block body: expected array",
-      });
-
-    const header = blockBody.items[0]!;
-    if (header._tag !== CborKinds.Array || header.items.length < 2)
-      return yield* new HeaderBridgeError({
-        operation: "computeHeaderHash",
-        cause: "Invalid header: expected [headerBody, kesSig]",
-      });
-
-    const headerBody = header.items[0]!;
-    return crypto.blake2b256(encodeSync(headerBody));
+    const fullHeaderCbor = yield* extractOriginalFullHeaderBytes(blockCbor, "computeHeaderHash");
+    return crypto.blake2b256(fullHeaderCbor);
   });
 
 /**
  * Compute header hash from raw header CBOR bytes (as from ChainSync).
  * Header structure: [headerBody, kesSignature]
- * Hash = blake2b-256(CBOR(headerBody))
+ * Hash = blake2b-256(ENTIRE header CBOR)
+ *
+ * Per Haskell MemoBytes pattern: bhHash hashes the full BHeader (body + KES sig).
  */
 export const computeHeaderHashFromHeader = (
   headerCbor: Uint8Array,
   crypto: { blake2b256: (data: Uint8Array) => Uint8Array },
 ): Effect.Effect<Uint8Array, HeaderBridgeError> =>
-  Effect.gen(function* () {
-    const parsed = parseSync(headerCbor);
-    if (parsed._tag !== CborKinds.Array || parsed.items.length < 2)
-      return yield* new HeaderBridgeError({
-        operation: "computeHeaderHashFromHeader",
-        cause: "Invalid header CBOR: expected [headerBody, kesSig]",
-      });
-
-    const headerBody = parsed.items[0]!;
-    return crypto.blake2b256(encodeSync(headerBody));
-  });
+  Effect.succeed(crypto.blake2b256(headerCbor));
 
 /**
  * Bridge a ledger BlockHeader to a consensus BlockHeader.
@@ -154,6 +237,7 @@ export const bridgeHeader = (
     opcertSeqNo: Number(ledgerHeader.opCert.seqNo),
     opcertKesPeriod: Number(ledgerHeader.opCert.kesPeriod),
     bodyHash: ledgerHeader.bodyHash,
+    bodySize: Number(ledgerHeader.bodySize),
     headerBodyCbor,
   };
 
@@ -209,6 +293,7 @@ export const bridgeMultiEraHeader = (
       opcertSeqNo: Number(h.opCert.seqNo),
       opcertKesPeriod: Number(h.opCert.kesPeriod),
       bodyHash: h.bodyHash,
+      bodySize: Number(h.bodySize),
       headerBodyCbor,
     });
   }
@@ -232,6 +317,7 @@ export const bridgeMultiEraHeader = (
       opcertSeqNo: Number(h.opCert.seqNo),
       opcertKesPeriod: Number(h.opCert.kesPeriod),
       bodyHash: h.bodyHash,
+      bodySize: Number(h.bodySize),
       headerBodyCbor,
     });
   }
@@ -277,7 +363,8 @@ export const decodeAndBridge = (blockCbor: Uint8Array, headerHash: Uint8Array) =
         operation: "decodeAndBridge",
         cause: "Invalid header",
       });
-    const headerBodyCbor = encodeSync(headerNode.items[0]!);
+    // Extract original header body bytes via byte-offset slicing (MemoBytes pattern)
+    const headerBodyCbor = yield* extractOriginalHeaderBodyBytes(blockCbor, "decodeAndBridge");
 
     const header = yield* bridgeMultiEraHeader(
       block.multiEraHeader,
@@ -304,6 +391,9 @@ export const decodeAndBridge = (blockCbor: Uint8Array, headerHash: Uint8Array) =
 export const decodeWrappedHeader = (
   headerBytes: Uint8Array,
   eraVariant: number,
+  /** Byron subtag from ChainSync byronPrefix[0] (0=EBB, 1=main). When provided,
+   *  used directly for hash computation instead of re-deriving from consensus data. */
+  byronSubtag?: number,
 ): Effect.Effect<DecodedHeader, HeaderBridgeError, CryptoService> =>
   Effect.gen(function* () {
     const slotsPerKesPeriod = yield* SlotsPerKesPeriod;
@@ -312,7 +402,7 @@ export const decodeWrappedHeader = (
 
     // Byron (N2N variant 0) — decode via Byron-specific path
     if (eraVariant === 0) {
-      return yield* decodeByronWrappedHeader(headerBytes, byronEpochLength, crypto);
+      return yield* decodeByronWrappedHeader(headerBytes, byronEpochLength, crypto, byronSubtag);
     }
 
     // Shelley+ (N2N variant 1-6) — headerBytes = [headerBody, kesSig]
@@ -347,9 +437,17 @@ export const decodeWrappedHeader = (
         }),
     );
 
-    // Header hash = blake2b-256(CBOR(headerBody))
-    const headerBodyCbor = encodeSync(headerNode.items[0]!);
-    const headerHash = crypto.blake2b256(headerBodyCbor);
+    // Header hash = blake2b-256(ENTIRE header CBOR = [headerBody, kesSig])
+    // Per Haskell MemoBytes: bhHash hashes the full BHeader, not just the body.
+    // Use the raw bytes from the wire to preserve original CBOR encoding.
+    const rawHeaderBytes = (
+      parsed._tag === CborKinds.Tag &&
+      parsed.tag === 24n &&
+      parsed.data._tag === CborKinds.Bytes
+    ) ? parsed.data.bytes : headerBytes;
+    const headerHash = crypto.blake2b256(rawHeaderBytes);
+    // Extract just the header body bytes for KES signature verification.
+    const headerBodyCbor = extractFirstArrayItemBytes(rawHeaderBytes);
 
     const header = yield* bridgeMultiEraHeader(
       multiEraHeader,
@@ -387,6 +485,9 @@ const decodeByronWrappedHeader = (
   headerBytes: Uint8Array,
   byronEpochLength: number,
   crypto: Context.Service.Shape<typeof CryptoService>,
+  /** Authoritative subtag from ChainSync byronPrefix (0=EBB, 1=main).
+   *  Falls back to heuristic detection via consensus_data array length. */
+  authoritativeSubtag?: number,
 ): Effect.Effect<ByronHeaderInfo, HeaderBridgeError> =>
   Effect.gen(function* () {
     const parsed = parseSync(headerBytes);
@@ -409,7 +510,11 @@ const decodeByronWrappedHeader = (
         cause: "Byron header: consensus_data is not an array",
       });
 
-    const isEbb = consensusData.items.length === 2;
+    // Prefer authoritative subtag from ChainSync protocol when available.
+    // Fall back to heuristic: EBB consensus_data has 2 items, main has 4.
+    const isEbb = authoritativeSubtag !== undefined
+      ? authoritativeSubtag === 0
+      : consensusData.items.length === 2;
 
     let slot: bigint;
     let blockNo: bigint;

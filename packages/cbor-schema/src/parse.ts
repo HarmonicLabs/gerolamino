@@ -265,3 +265,96 @@ export const parse = (bytes: Uint8Array): Effect.Effect<CborSchemaType, CborDeco
     try: () => parseSync(bytes),
     catch: (e) => new CborDecodeError({ cause: e }),
   });
+
+/**
+ * Skip over a CBOR item in raw bytes without building an AST.
+ * Returns the byte offset immediately after the item.
+ *
+ * Use this to extract original byte ranges from CBOR structures —
+ * e.g. slicing the raw header body bytes for hashing instead of
+ * re-encoding parsed AST (which may not be byte-identical).
+ */
+export const skipCborItem = (buf: Uint8Array, offset: number): number => {
+  if (offset >= buf.byteLength) throw new Error("skipCborItem: offset past end of buffer");
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const headerByte = buf[offset]!;
+  const majorType = headerByte >> CborKinds.MAJOR_TYPE_SHIFT;
+  const addInfo = headerByte & CborKinds.ADD_INFOS_MASK;
+  let pos = offset + 1;
+
+  // Simple / float (major type 7) — no length prefix, just fixed-size payload
+  if (majorType === CborKinds.Simple) {
+    if (addInfo < CborKinds.AI_1BYTE) return pos;
+    if (addInfo === CborKinds.AI_1BYTE) return pos + 1;
+    if (addInfo === CborKinds.AI_2BYTE) return pos + 2;
+    if (addInfo === CborKinds.AI_4BYTE) return pos + 4;
+    if (addInfo === CborKinds.AI_8BYTE) return pos + 8;
+    if (addInfo === CborKinds.AI_INDEFINITE) return pos; // break
+    throw new Error(`skipCborItem: invalid simple addInfo ${addInfo}`);
+  }
+
+  // Read argument (length/value) from addInfo
+  let length: bigint;
+  if (addInfo < CborKinds.AI_1BYTE) {
+    length = BigInt(addInfo);
+  } else if (addInfo === CborKinds.AI_1BYTE) {
+    length = BigInt(buf[pos]!);
+    pos += 1;
+  } else if (addInfo === CborKinds.AI_2BYTE) {
+    length = BigInt(view.getUint16(pos));
+    pos += 2;
+  } else if (addInfo === CborKinds.AI_4BYTE) {
+    length = BigInt(view.getUint32(pos));
+    pos += 4;
+  } else if (addInfo === CborKinds.AI_8BYTE) {
+    length = view.getBigUint64(pos);
+    pos += 8;
+  } else if (addInfo === CborKinds.AI_INDEFINITE) {
+    length = -1n;
+  } else {
+    throw new Error(`skipCborItem: invalid addInfo ${addInfo}`);
+  }
+
+  switch (majorType) {
+    case CborKinds.UInt:  // 0 — unsigned int, no payload beyond argument
+    case CborKinds.NegInt: // 1 — negative int, no payload beyond argument
+      return pos;
+
+    case CborKinds.Bytes: // 2 — byte string
+    case CborKinds.Text:  // 3 — text string
+      if (length < 0n) {
+        // Indefinite: skip chunks until break (0xff)
+        while (buf[pos] !== CborKinds.BREAK) pos = skipCborItem(buf, pos);
+        return pos + 1; // skip break byte
+      }
+      return pos + Number(length);
+
+    case CborKinds.Array: // 4
+      if (length < 0n) {
+        while (buf[pos] !== CborKinds.BREAK) pos = skipCborItem(buf, pos);
+        return pos + 1;
+      }
+      for (let i = 0; i < Number(length); i++) pos = skipCborItem(buf, pos);
+      return pos;
+
+    case CborKinds.Map: // 5
+      if (length < 0n) {
+        while (buf[pos] !== CborKinds.BREAK) {
+          pos = skipCborItem(buf, pos); // key
+          pos = skipCborItem(buf, pos); // value
+        }
+        return pos + 1;
+      }
+      for (let i = 0; i < Number(length); i++) {
+        pos = skipCborItem(buf, pos); // key
+        pos = skipCborItem(buf, pos); // value
+      }
+      return pos;
+
+    case CborKinds.Tag: // 6 — tag number already read, skip the tagged data item
+      return skipCborItem(buf, pos);
+
+    default:
+      throw new Error(`skipCborItem: unknown major type ${majorType}`);
+  }
+};

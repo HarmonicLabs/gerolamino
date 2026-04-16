@@ -104,6 +104,8 @@ const makeInMemoryChainDB = () => {
 
     writeNonces: () => Effect.void,
     readNonces: Effect.succeed(Option.none()),
+    writeBlobEntries: () => Effect.void,
+    deleteBlobEntries: () => Effect.void,
   };
 };
 

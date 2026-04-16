@@ -1,10 +1,15 @@
 /**
  * Block body validation — integrity checks on block contents.
  *
- * Shelley/Allegra/Mary:
- *   bodyHash = blake2b-256(CBOR(txBodies) || CBOR(witnesses) || CBOR(auxData))
- * Alonzo/Babbage/Conway:
- *   bodyHash = blake2b-256(CBOR(txBodies) || CBOR(witnesses) || CBOR(auxData) || CBOR(invalidTxs))
+ * Body hash uses a Merkle-like double-hash scheme (per Haskell hashShelleySegWits /
+ * hashAlonzoSegWits in cardano-ledger BlockBody/Internal.hs):
+ *
+ * Shelley/Allegra/Mary (3 segments):
+ *   bodyHash = blake2b-256(blake2b-256(txBodies) || blake2b-256(witnesses) || blake2b-256(auxData))
+ * Alonzo/Babbage/Conway (4 segments):
+ *   bodyHash = blake2b-256(blake2b-256(txBodies) || blake2b-256(witnesses) || blake2b-256(auxData) || blake2b-256(invalidTxs))
+ *
+ * Each segment is individually hashed, then the 32-byte hashes are concatenated and hashed again.
  *
  * Uses CryptoService for blake2b (abstracted, testable, platform-independent).
  * Assumes canonical CBOR encoding (per Cardano spec).
@@ -59,17 +64,19 @@ export const verifyBodyHash = (
       );
 
     // Body = [header, txBodies, witnesses, auxData, invalidTxs?]
-    const txBodiesBytes = encodeSync(blockBody.items[1]!);
-    const witnessesBytes = encodeSync(blockBody.items[2]!);
-    const auxDataBytes = encodeSync(blockBody.items[3]!);
+    // Merkle-like double-hash: hash each segment individually, then hash the concatenation of hashes.
+    // Per Haskell hashShelleySegWits / hashAlonzoSegWits (cardano-ledger BlockBody/Internal.hs).
+    const txBodiesHash = crypto.blake2b256(encodeSync(blockBody.items[1]!));
+    const witnessesHash = crypto.blake2b256(encodeSync(blockBody.items[2]!));
+    const auxDataHash = crypto.blake2b256(encodeSync(blockBody.items[3]!));
 
     // Alonzo+ (era >= 4) includes invalidTxs as 5th element
-    const bodyBytes =
+    const hashConcat =
       blockBody.items.length >= 5
-        ? concat(txBodiesBytes, witnessesBytes, auxDataBytes, encodeSync(blockBody.items[4]!))
-        : concat(txBodiesBytes, witnessesBytes, auxDataBytes);
+        ? concat(txBodiesHash, witnessesHash, auxDataHash, crypto.blake2b256(encodeSync(blockBody.items[4]!)))
+        : concat(txBodiesHash, witnessesHash, auxDataHash);
 
-    const computedHash = crypto.blake2b256(bodyBytes);
+    const computedHash = crypto.blake2b256(hashConcat);
     if (hex(computedHash) !== hex(declaredBodyHash))
       return yield* Effect.fail(
         new BlockValidationError({

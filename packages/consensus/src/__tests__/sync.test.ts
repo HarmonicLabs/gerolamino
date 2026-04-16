@@ -26,16 +26,19 @@ const makeVk = (seed: number): Uint8Array => {
 const emptyArray: CborSchemaType = { _tag: CborKinds.Array, items: [] };
 const emptyMap: CborSchemaType = { _tag: CborKinds.Map, entries: [] };
 
-/** Compute body hash from empty block body (matches makeBlockCbor output). */
+/** Compute body hash from empty block body (double-hash Merkle scheme per spec). */
 const emptyBodyHash = (() => {
-  const bodyBytes = concat(
-    encodeSync(emptyArray), // txBodies
-    encodeSync(emptyArray), // witnesses
-    encodeSync(emptyMap), // auxData
-    encodeSync(emptyArray), // invalidTxs
+  const hash = (data: Uint8Array): Uint8Array => {
+    const h = new Bun.CryptoHasher("blake2b256");
+    return new Uint8Array(h.update(data).digest().buffer);
+  };
+  const segHashes = concat(
+    hash(encodeSync(emptyArray)), // txBodies
+    hash(encodeSync(emptyArray)), // witnesses
+    hash(encodeSync(emptyMap)), // auxData
+    hash(encodeSync(emptyArray)), // invalidTxs
   );
-  const hasher = new Bun.CryptoHasher("blake2b256");
-  return new Uint8Array(hasher.update(bodyBytes).digest().buffer);
+  return hash(segHashes);
 })();
 
 /** Build valid Shelley+ block CBOR with empty body (era 6 = Conway). */
@@ -84,6 +87,7 @@ const makeHeader = (slot: bigint, blockNo: bigint): BlockHeader => {
     opcertSeqNo: 5,
     opcertKesPeriod: 5,
     bodyHash: emptyBodyHash,
+    bodySize: 0,
     headerBodyCbor: new Uint8Array(32),
   };
 };
@@ -97,6 +101,9 @@ const makeLedgerView = (): LedgerView => {
     totalStake: 10_000_000n,
     activeSlotsCoeff: 0.05,
     maxKesEvolutions: 62,
+    maxHeaderSize: 0,
+    maxBlockBodySize: 0,
+    ocertCounters: HashMap.empty(),
   };
 };
 
@@ -116,6 +123,8 @@ const stubChainDb = Layer.succeed(ChainDB, {
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
   writeNonces: () => Effect.void,
   readNonces: Effect.succeed(Option.none()),
+  writeBlobEntries: () => Effect.void,
+  deleteBlobEntries: () => Effect.void,
 });
 
 // SlotClock with test config: system start at 0, 1s slots, 100 slots/epoch

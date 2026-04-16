@@ -20,7 +20,7 @@ import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { createActor, fromPromise } from "xstate";
 import { ChainDB, ChainDBError } from "./chain-db.ts";
-import { BlobStore, blockKey, snapshotKey } from "../blob-store";
+import { BlobStore, blockKey, blockIndexKey, cborOffsetKey, snapshotKey, analyzeBlockCbor } from "../blob-store";
 import { chainDBMachine } from "../machines/chaindb.ts";
 import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
@@ -316,10 +316,32 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         // --- Writing ---
         addBlock: (block: StoredBlock) =>
           Effect.gen(function* () {
+            // Build block_index entry: bidx + blockNo(8B BE) → slot(8B BE) + hash(32B)
+            const idxVal = new Uint8Array(40);
+            const idxView = new DataView(idxVal.buffer);
+            idxView.setBigUint64(0, block.slot, false);
+            idxVal.set(block.hash, 8);
+
+            // Analyze block CBOR for tx offsets (works on full blocks; no-ops on headers)
+            const analysis = analyzeBlockCbor(block.blockCbor);
+            const offsetEntries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+            for (let i = 0; i < analysis.txOffsets.length; i++) {
+              const o = analysis.txOffsets[i]!;
+              const val = new Uint8Array(8);
+              const dv = new DataView(val.buffer);
+              dv.setUint32(0, o.offset, false);
+              dv.setUint32(4, o.size, false);
+              offsetEntries.push({ key: cborOffsetKey(block.slot, i), value: val });
+            }
+
             yield* sql.withTransaction(
               Effect.all(
                 [
                   store.put(blockKey(block.slot, block.hash), block.blockCbor),
+                  store.put(blockIndexKey(block.blockNo), idxVal),
+                  offsetEntries.length > 0
+                    ? store.putBatch(offsetEntries)
+                    : Effect.void,
                   sql`
                     INSERT INTO volatile_blocks (hash, slot, prev_hash, block_no, block_size_bytes)
                     VALUES (${block.hash}, ${Number(block.slot)}, ${block.prevHash ?? null}, ${Number(block.blockNo)}, ${block.blockSizeBytes})
@@ -337,6 +359,20 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
               tip: { slot: block.slot, hash: block.hash },
             });
           }).pipe(Effect.mapError((c) => fail("addBlock", c))),
+
+        // --- Batch blob writes (for derived entries: utxo diffs, stake, accounts) ---
+        writeBlobEntries: (
+          entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
+        ) =>
+          entries.length > 0
+            ? store.putBatch(entries).pipe(Effect.mapError((c) => fail("writeBlobEntries", c)))
+            : Effect.void,
+
+        // --- Batch blob deletes (consumed UTxO inputs, deregistered accounts) ---
+        deleteBlobEntries: (keys: ReadonlyArray<Uint8Array>) =>
+          keys.length > 0
+            ? store.deleteBatch(keys).pipe(Effect.mapError((c) => fail("deleteBlobEntries", c)))
+            : Effect.void,
 
         // --- Fork handling ---
         rollback: (point: RealPoint) =>

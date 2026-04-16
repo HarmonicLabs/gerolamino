@@ -65,6 +65,9 @@ const rehydrateLedgerView = (lv: SerializedLedgerView): LedgerView => ({
   totalStake: lv.totalStake,
   activeSlotsCoeff: lv.activeSlotsCoeff,
   maxKesEvolutions: lv.maxKesEvolutions,
+  maxHeaderSize: lv.maxHeaderSize,
+  maxBlockBodySize: lv.maxBlockBodySize,
+  ocertCounters: HashMap.fromIterable(lv.ocertCounters),
 });
 
 const rehydrateNonces = (n: SerializedNonces): Nonces =>
@@ -82,7 +85,7 @@ const rehydrateNonces = (n: SerializedNonces): Nonces =>
 export type DecodeResult = {
   readonly ledgerView: LedgerView;
   readonly nonces: Nonces;
-  readonly tip: { readonly slot: bigint; readonly hash: Uint8Array } | undefined;
+  readonly tip: { readonly slot: bigint; readonly blockNo: bigint; readonly hash: Uint8Array } | undefined;
   readonly accountsWritten: number;
   readonly stakeEntriesWritten: number;
 };

@@ -53,8 +53,18 @@ export class ChainDB extends Context.Service<
 
     // --- Block writing ---
 
-    /** Add a new block to the volatile chain. */
+    /** Add a new block to the volatile chain. Also writes block_index + CBOR offset entries. */
     readonly addBlock: (block: StoredBlock) => Effect.Effect<void, ChainDBError>;
+
+    /** Write arbitrary prefixed blob entries (block_index, offsets, utxo, etc.) in batch. */
+    readonly writeBlobEntries: (
+      entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
+    ) => Effect.Effect<void, ChainDBError>;
+
+    /** Delete arbitrary prefixed blob entries (consumed UTxO inputs, deregistered accounts). */
+    readonly deleteBlobEntries: (
+      keys: ReadonlyArray<Uint8Array>,
+    ) => Effect.Effect<void, ChainDBError>;
 
     // --- Fork handling ---
 

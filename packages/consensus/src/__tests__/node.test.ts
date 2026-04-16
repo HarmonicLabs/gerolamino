@@ -48,6 +48,8 @@ const stubChainDb = Layer.succeed(ChainDB, {
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
   writeNonces: () => Effect.void,
   readNonces: Effect.succeed(Option.none()),
+  writeBlobEntries: () => Effect.void,
+  deleteBlobEntries: () => Effect.void,
 });
 
 const testLayers = Layer.mergeAll(slotClockLayer, peerManagerLayer, stubChainDb);

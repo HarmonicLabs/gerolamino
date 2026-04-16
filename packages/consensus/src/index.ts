@@ -2,6 +2,7 @@ export { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from
 export { ChainTip, preferCandidate, GsmState, gsmState } from "./chain-selection";
 export { validateHeader, HeaderValidationError } from "./validate-header";
 export { BlockHeader, LedgerView } from "./validate-header";
+export type { PrevTip } from "./validate-header";
 export { CryptoService, CryptoServiceBunNative, CryptoServiceLive } from "./crypto";
 export {
   ConsensusEngine,
@@ -45,6 +46,8 @@ export {
   HeaderBridgeError,
 } from "./header-bridge";
 export { validateBlock, verifyBodyHash, BlockValidationError } from "./validate-block";
+export { applyBlock } from "./block-apply";
+export type { BlockDiff } from "./block-apply";
 export {
   connectToRelay,
   PREPROD_MAGIC,
@@ -57,6 +60,7 @@ export { relayMachine, type RelayContext, type RelayEvent } from "./machines";
 export {
   extractLedgerView,
   extractNonces,
+  extractOcertCounters,
   extractSnapshotTip,
   SnapshotDecodeError,
 } from "./ledger-view-bridge";

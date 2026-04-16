@@ -37,27 +37,30 @@ const makeBlockCbor = (
   return encodeSync(block);
 };
 
-/** Compute the expected body hash from components. */
+/** Compute the expected body hash from components (double-hash Merkle scheme per spec). */
 const computeBodyHash = (
   txBodies: CborSchemaType,
   witnesses: CborSchemaType,
   auxData: CborSchemaType,
   invalidTxs?: CborSchemaType,
 ): Uint8Array => {
-  const parts = [encodeSync(txBodies), encodeSync(witnesses), encodeSync(auxData)];
-  if (invalidTxs) parts.push(encodeSync(invalidTxs));
+  const hash = (data: Uint8Array): Uint8Array => {
+    const h = new Bun.CryptoHasher("blake2b256");
+    return new Uint8Array(h.update(data).digest().buffer);
+  };
+  const segHashes = [hash(encodeSync(txBodies)), hash(encodeSync(witnesses)), hash(encodeSync(auxData))];
+  if (invalidTxs) segHashes.push(hash(encodeSync(invalidTxs)));
 
   let total = 0;
-  for (const p of parts) total += p.byteLength;
+  for (const h of segHashes) total += h.byteLength;
   const combined = new Uint8Array(total);
   let offset = 0;
-  for (const p of parts) {
-    combined.set(p, offset);
-    offset += p.byteLength;
+  for (const h of segHashes) {
+    combined.set(h, offset);
+    offset += h.byteLength;
   }
 
-  const hasher = new Bun.CryptoHasher("blake2b256");
-  return new Uint8Array(hasher.update(combined).digest().buffer);
+  return hash(combined);
 };
 
 const emptyArray: CborSchemaType = { _tag: CborKinds.Array, items: [] };

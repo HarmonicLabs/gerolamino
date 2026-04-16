@@ -52,6 +52,8 @@ const stubChainDb = Layer.succeed(ChainDB, {
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
   writeNonces: () => Effect.void,
   readNonces: Effect.succeed(Option.none()),
+  writeBlobEntries: () => Effect.void,
+  deleteBlobEntries: () => Effect.void,
 });
 
 const testLayers = Layer.mergeAll(
@@ -71,6 +73,7 @@ const makeBabbageHeader = (
   blockNo: bigint,
   issuerVk: Uint8Array,
   vrfVk?: Uint8Array,
+  prevHashBytes?: Uint8Array,
 ): Uint8Array => {
   const uint = (n: bigint): CborSchemaType => ({ _tag: CborKinds.UInt, num: n });
   const bytes = (b: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: b });
@@ -79,7 +82,7 @@ const makeBabbageHeader = (
   const vrf = vrfVk ?? new Uint8Array(32);
   const vrfOutput = new Uint8Array(32);
   const vrfProof = new Uint8Array(80);
-  const prevHash = new Uint8Array(32);
+  const prevHash = prevHashBytes ?? new Uint8Array(32);
   const bodyHash = new Uint8Array(32);
   const hotVKey = new Uint8Array(32);
   const opcertSig = new Uint8Array(64);
@@ -129,6 +132,9 @@ const makeLedgerView = (): LedgerView => {
     totalStake: 10_000_000n,
     activeSlotsCoeff: 0.05,
     maxKesEvolutions: 62,
+    maxHeaderSize: 0,
+    maxBlockBodySize: 0,
+    ocertCounters: HashMap.empty(),
   };
 };
 
@@ -190,10 +196,10 @@ describe("ChainSync driver", () => {
       }),
     );
 
-    it.effect("handleRollBackward reverts tip to rollback point", () =>
+    it.effect("handleRollBackward clears tip (envelope skipped for first post-rollback block)", () =>
       Effect.gen(function* () {
         const nonces = makeNonces();
-        const state = initialVolatileState({ slot: 100n, hash: new Uint8Array(32) }, nonces);
+        const state = initialVolatileState({ slot: 100n, blockNo: 50n, hash: new Uint8Array(32) }, nonces);
 
         const pm = yield* PeerManager;
         yield* pm.addPeer("peer1", "tcp://relay:3001");
@@ -204,7 +210,7 @@ describe("ChainSync driver", () => {
           "peer1",
         );
 
-        expect(newState.tip?.slot).toBe(80n);
+        expect(newState.tip).toBeUndefined();
       }),
     );
 
@@ -214,11 +220,13 @@ describe("ChainSync driver", () => {
         let state = initialVolatileState(undefined, nonces);
 
         for (let i = 0; i < 5; i++) {
+          // Chain prevHash: each block's prevHash = previous block's computed header hash
           const headerBytes = makeBabbageHeader(
             BigInt(i + 1),
             BigInt(i + 1),
             TEST_ISSUER_VK,
             TEST_VRF_VK,
+            state.tip?.hash,
           );
           state = yield* handleRollForward(
             headerBytes,

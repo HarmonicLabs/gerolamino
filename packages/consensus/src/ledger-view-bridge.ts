@@ -7,6 +7,7 @@
  */
 import { Effect, HashMap, Option, Schema } from "effect";
 import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { hex } from "./util";
 import type { ExtLedgerState, ShelleyTip } from "ledger";
 import type { LedgerView } from "./validate-header";
 import { SlotClock } from "./clock";
@@ -41,6 +42,16 @@ export const extractLedgerView = (state: ExtLedgerState) =>
     // Extract epoch nonce from PraosChainDepState if available
     const epochNonce = extractEpochNonceFromChainDepState(state.chainDepState);
 
+    // Extract opcert counters from PraosChainDepState[1]
+    const ocertCounters = extractOcertCounters(state.chainDepState);
+
+    // Protocol params: maxHeaderSize and maxBlockBodySize.
+    // Extract from currentPParams CBOR Map (Conway keys: 4 = maxBHSize, 2 = maxBBSize).
+    // Default values match current Cardano mainnet/preprod.
+    const pparams = state.newEpochState.epochState.ledgerState.utxoState.govState.currentPParams;
+    const maxHeaderSize = extractPParamUint(pparams, 4) ?? 1100;
+    const maxBlockBodySize = extractPParamUint(pparams, 2) ?? 90112;
+
     const result: LedgerView = {
       epochNonce,
       poolVrfKeys,
@@ -48,6 +59,9 @@ export const extractLedgerView = (state: ExtLedgerState) =>
       totalStake: poolDistr.totalActiveStake,
       activeSlotsCoeff: slotClock.config.activeSlotsCoeff,
       maxKesEvolutions: 62,
+      maxHeaderSize,
+      maxBlockBodySize,
+      ocertCounters,
     };
     return result;
   });
@@ -71,12 +85,27 @@ export const extractNonces = (state: ExtLedgerState): Nonces => {
 };
 
 /**
- * Extract the snapshot tip as a consensus-compatible point.
+ * Extract the snapshot tip as a consensus-compatible point (includes blockNo).
  */
 export const extractSnapshotTip = (
   state: ExtLedgerState,
-): { slot: bigint; hash: Uint8Array } | undefined =>
+): { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined =>
   Option.isSome(state.tip) ? state.tip.value : undefined;
+
+// ---------------------------------------------------------------------------
+// Protocol parameter extraction from CBOR Map
+// ---------------------------------------------------------------------------
+
+/** Extract a uint value from a CBOR Map by numeric key. */
+function extractPParamUint(pparams: CborSchemaType, key: number): number | undefined {
+  if (pparams._tag !== CborKinds.Map) return undefined;
+  for (const entry of pparams.entries) {
+    if (entry.k._tag === CborKinds.UInt && Number(entry.k.num) === key && entry.v._tag === CborKinds.UInt) {
+      return Number(entry.v.num);
+    }
+  }
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // PraosChainDepState nonce extraction
@@ -136,4 +165,26 @@ function extractPraosNonces(chainDepState: CborSchemaType): PraosNonces {
 
 function extractEpochNonceFromChainDepState(chainDepState: CborSchemaType): Uint8Array {
   return extractPraosNonces(chainDepState).epochNonce;
+}
+
+/**
+ * Extract opcert counters from PraosState[1] (Map(KeyHash → Word64)).
+ *
+ * Per Haskell PraosState: index [1] is `praosStateOCertCounters :: Map (KeyHash BlockIssuer) Word64`.
+ * The CBOR Map has 28-byte key hashes (blake2b-224 of pool cold VKey) and uint64 seqNo values.
+ */
+export function extractOcertCounters(chainDepState: CborSchemaType): HashMap.HashMap<string, number> {
+  if (chainDepState._tag !== CborKinds.Array || chainDepState.items.length < 7) {
+    return HashMap.empty();
+  }
+  const mapNode = chainDepState.items[1]!;
+  if (mapNode._tag !== CborKinds.Map) return HashMap.empty();
+
+  const entries: Array<readonly [string, number]> = [];
+  for (const entry of mapNode.entries) {
+    if (entry.k._tag === CborKinds.Bytes && entry.v._tag === CborKinds.UInt) {
+      entries.push([hex(entry.k.bytes), Number(entry.v.num)] as const);
+    }
+  }
+  return HashMap.fromIterable(entries);
 }

@@ -27,7 +27,7 @@ src/
 
 - `@effect/platform-bun` - Bun runtime layer (`BunRuntime.runMain`, `BunServices.layer`)
 - `bootstrap` (workspace) - protocol client
-- `cbor-schema` (workspace) - CBOR handling
+- `codecs` (workspace) - CBOR handling
 - `ledger` (workspace) - block decoding
 - `effect` ^4.0.0-beta.47
 

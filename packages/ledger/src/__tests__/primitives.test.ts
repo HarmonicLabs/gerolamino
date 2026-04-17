@@ -1,7 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { encodeSync } from "cbor-schema";
-import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { encodeSync } from "codecs";
+import { CborKinds, type CborSchemaType } from "codecs";
 import {
   Coin,
   Slot,

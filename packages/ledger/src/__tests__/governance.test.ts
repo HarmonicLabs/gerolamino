@@ -24,7 +24,7 @@ import {
   decodeVotingProcedure,
   encodeVotingProcedure,
 } from "..";
-import { CborKinds, type CborSchemaType, encodeSync, parseSync } from "cbor-schema";
+import { CborKinds, type CborSchemaType, encodeSync, parseSync } from "codecs";
 
 const hash28 = new Uint8Array(28).fill(0xaa);
 const hash32 = new Uint8Array(32).fill(0xbb);

@@ -10,7 +10,7 @@
  *   - `decodeWrappedHeader`: for N2N ChainSync wrapped headers
  */
 import { Config, Effect, Schema } from "effect";
-import { parseSync, skipCborItem, CborKinds, type CborSchemaType } from "cbor-schema";
+import { parseSync, skipCborItem, CborKinds, type CborSchemaType } from "codecs";
 import type { BlockHeader as LedgerBlockHeader } from "ledger";
 import { decodeMultiEraBlock, decodeMultiEraHeader, MultiEraHeader, isByronBlock } from "ledger";
 import { BlockHeader as ConsensusBlockHeader } from "./validate-header";

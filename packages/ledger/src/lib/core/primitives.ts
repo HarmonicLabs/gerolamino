@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { cborCodec, cborUintCodec, CborKinds, type CborSchemaType } from "codecs";
 import { expectUint, expectInt, expectArray, expectTag, uint, negInt, arr } from "./cbor-utils.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -76,96 +76,60 @@ export type ExUnits = typeof ExUnits.Type;
 // CBOR Codecs
 // ────────────────────────────────────────────────────────────────────────────
 
-export const CoinBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Coin, {
-    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => expectUint(cbor, "Coin")),
-    encode: SchemaGetter.transform(uint),
-  }),
-);
+export const CoinBytes = cborUintCodec(Coin, "Coin");
+export const SlotBytes = cborUintCodec(Slot, "Slot");
+export const EpochBytes = cborUintCodec(Epoch, "Epoch");
+export const IxBytes = cborUintCodec(Ix, "Ix");
 
-export const SlotBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Slot, {
-    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => expectUint(cbor, "Slot")),
-    encode: SchemaGetter.transform(uint),
-  }),
-);
-
-export const EpochBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Epoch, {
-    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => expectUint(cbor, "Epoch")),
-    encode: SchemaGetter.transform(uint),
-  }),
-);
-
-export const IxBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Ix, {
-    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) => expectUint(cbor, "Ix")),
-    encode: SchemaGetter.transform(uint),
-  }),
-);
-
-export const NetworkBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(NetworkSchema, {
-    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      Effect.gen(function* () {
-        const n = Number(yield* expectUint(cbor, "Network"));
-        switch (n) {
-          case Network.Testnet:
-            return Network.Testnet;
-          case Network.Mainnet:
-            return Network.Mainnet;
-          default:
-            return yield* Effect.fail(
-              new SchemaIssue.InvalidValue(Option.some(cbor), {
-                message: `Network: unknown value ${n}`,
-              }),
-            );
-        }
-      }),
-    ),
-    encode: SchemaGetter.transform((net: Network): CborSchemaType => uint(net)),
-  }),
+export const NetworkBytes = cborCodec(
+  NetworkSchema,
+  (cbor: CborSchemaType) =>
+    Effect.gen(function* () {
+      const n = Number(yield* expectUint(cbor, "Network"));
+      switch (n) {
+        case Network.Testnet:
+          return Network.Testnet;
+        case Network.Mainnet:
+          return Network.Mainnet;
+        default:
+          return yield* Effect.fail(
+            new SchemaIssue.InvalidValue(Option.some(cbor), {
+              message: `Network: unknown value ${n}`,
+            }),
+          );
+      }
+    }),
+  (net): CborSchemaType => uint(net),
 );
 
 // Rational: CBOR Tag(30, [numerator, denominator])
-export const RationalBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Rational, {
-    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      Effect.gen(function* () {
-        const data = yield* expectTag(cbor, "Rational", 30n);
-        const items = yield* expectArray(data, "Rational", 2);
-        const numerator = yield* expectInt(items[0]!, "Rational.numerator");
-        const denominator = yield* expectUint(items[1]!, "Rational.denominator");
-        return { numerator, denominator };
-      }),
-    ),
-    encode: SchemaGetter.transform(
-      (r: Rational): CborSchemaType => ({
-        _tag: CborKinds.Tag,
-        tag: 30n,
-        data: arr(
-          r.numerator >= 0n ? uint(r.numerator) : negInt(r.numerator),
-          uint(r.denominator),
-        ),
-      }),
-    ),
+export const RationalBytes = cborCodec(
+  Rational,
+  (cbor: CborSchemaType) =>
+    Effect.gen(function* () {
+      const data = yield* expectTag(cbor, "Rational", 30n);
+      const items = yield* expectArray(data, "Rational", 2);
+      const numerator = yield* expectInt(items[0]!, "Rational.numerator");
+      const denominator = yield* expectUint(items[1]!, "Rational.denominator");
+      return { numerator, denominator };
+    }),
+  (r): CborSchemaType => ({
+    _tag: CborKinds.Tag,
+    tag: 30n,
+    data: arr(r.numerator >= 0n ? uint(r.numerator) : negInt(r.numerator), uint(r.denominator)),
   }),
 );
 
 // ExUnits: CBOR [mem, steps]
-export const ExUnitsBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(ExUnits, {
-    decode: SchemaGetter.transformOrFail((cbor: CborSchemaType) =>
-      Effect.gen(function* () {
-        const items = yield* expectArray(cbor, "ExUnits", 2);
-        return {
-          mem: yield* expectUint(items[0]!, "ExUnits.mem"),
-          steps: yield* expectUint(items[1]!, "ExUnits.steps"),
-        };
-      }),
-    ),
-    encode: SchemaGetter.transform(
-      (eu: ExUnits): CborSchemaType => arr(uint(eu.mem), uint(eu.steps)),
-    ),
-  }),
+export const ExUnitsBytes = cborCodec(
+  ExUnits,
+  (cbor: CborSchemaType) =>
+    Effect.gen(function* () {
+      const items = yield* expectArray(cbor, "ExUnits", 2);
+      return {
+        mem: yield* expectUint(items[0]!, "ExUnits.mem"),
+        steps: yield* expectUint(items[1]!, "ExUnits.steps"),
+      };
+    }),
+  (eu): CborSchemaType => arr(uint(eu.mem), uint(eu.steps)),
 );

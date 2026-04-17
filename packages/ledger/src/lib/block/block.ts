@@ -10,7 +10,7 @@
  * - Babbage/Conway: 10-element array (single VRF cert, nested opCert+protVer arrays)
  */
 import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { CborKinds, type CborSchemaType, encodeSync, parseSync } from "cbor-schema";
+import { CborKinds, type CborSchemaType, encodeSync, parseSync } from "codecs";
 import { Era, EraSchema } from "../core/era.ts";
 import { Bytes32, Bytes64 } from "../core/hashes.ts";
 import { decodeTxBody, TxBody } from "../tx/tx.ts";

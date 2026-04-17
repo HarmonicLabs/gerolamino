@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborKinds, type CborSchemaType } from "codecs";
 import {
   DCert,
   CertKind,

@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { cborCodec, CborKinds, type CborSchemaType } from "codecs";
 import type { Slot } from "../core/primitives.ts";
 import { Bytes28 } from "../core/hashes.ts";
 import { uint, cborBytes, arr, expectArray, expectUint, expectBytes } from "../core/cbor-utils.ts";
@@ -198,9 +198,4 @@ export const encodeScript = Script.match({
 // Full CBOR codec for Timelock (standalone native script)
 // ────────────────────────────────────────────────────────────────────────────
 
-export const TimelockBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(_TimelockCodec, {
-    decode: SchemaGetter.transformOrFail(decodeTimelock),
-    encode: SchemaGetter.transform(encodeTimelock),
-  }),
-);
+export const TimelockBytes = cborCodec(_TimelockCodec, decodeTimelock, encodeTimelock);

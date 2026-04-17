@@ -13,8 +13,8 @@ const pkg = (name: string, sub: string = "src") => path.join(root, "packages", n
  *   - Deep import: `import { X } from "consensus/crypto.ts"` → src/crypto.ts
  */
 const workspaceAliases = [
-  { find: /^cbor-schema$/, replacement: path.join(pkg("cbor-schema"), "index.ts") },
-  { find: /^cbor-schema\/(.*)/, replacement: path.join(pkg("cbor-schema"), "$1") },
+  { find: /^codecs$/, replacement: path.join(pkg("codecs"), "index.ts") },
+  { find: /^codecs\/(.*)/, replacement: path.join(pkg("codecs"), "$1") },
   { find: /^ledger$/, replacement: path.join(pkg("ledger"), "index.ts") },
   { find: /^ledger\/(.*)/, replacement: path.join(pkg("ledger"), "$1") },
   { find: /^storage$/, replacement: path.join(pkg("storage"), "index.ts") },

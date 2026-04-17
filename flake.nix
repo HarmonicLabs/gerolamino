@@ -72,6 +72,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    bun-overlay = {
+      url = "github:0xbigboss/bun-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # IOG's Haskell.nix — handles IOG's tightly coupled dep cluster (CHaP, index-state)
     haskellNix = {
       url = "github:input-output-hk/haskell.nix";
@@ -109,34 +114,37 @@
       _module.args.root = ./.;
       systems = [ "x86_64-linux" ];
       perSystem = { pkgs, system, config, inputs', ... }:
-        let
-          rustPkgs = import inputs.nixpkgs {
-            inherit system;
-            overlays = [ inputs.rust-overlay.overlays.default ];
-          };
-
+        # let
           # Mithril client + verification keys (for snapshot download task)
           # Tests skipped: upstream reqwest HTTP tests fail in Nix sandbox (no CA certs)
-          mithril-client = inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: {
-            doCheck = false;
-          });
-          mithrilSrc = inputs.mithril;
-          mithrilEnv = {
-            AGGREGATOR_ENDPOINT = "https://aggregator.release-preprod.api.mithril.network/aggregator";
-            GENESIS_VERIFICATION_KEY = builtins.readFile
-              "${mithrilSrc}/mithril-infra/configuration/release-preprod/genesis.vkey";
-            ANCILLARY_VERIFICATION_KEY = builtins.readFile
-              "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
-          };
+          # mithril-client = inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: {
+          #   doCheck = false;
+          # });
+          # mithrilSrc = inputs.mithril;
+          # mithrilEnv = {
+          #   AGGREGATOR_ENDPOINT = "https://aggregator.release-preprod.api.mithril.network/aggregator";
+          #   GENESIS_VERIFICATION_KEY = builtins.readFile
+          #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/genesis.vkey";
+          #   ANCILLARY_VERIFICATION_KEY = builtins.readFile
+          #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
+          # };
 
           # Ouroboros consensus snapshot-converter (LMDB → V2LSM)
-          snapshot-converter = inputs'.ouroboros-consensus.packages.snapshot-converter;
+          # snapshot-converter = inputs'.ouroboros-consensus.packages.snapshot-converter;
 
           # Preprod Cardano config files (for snapshot-converter --config)
-          preprodConfigDir = "${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node";
+          # preprodConfigDir = "${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node";
 
-        in
+        # in
         {
+          _module.args.pkgs = import inputs.nixpkgs {
+            inherit system;
+            overlays = with inputs; [
+              rust-overlay.overlays.default
+              bun-overlay.overlays.default
+            ];
+          };
+
           flake-root.projectRootFile = "flake.nix";
           treefmt = {
             projectRootFile = "flake.nix";
@@ -144,7 +152,7 @@
               oxfmt.enable = true;
               nixpkgs-fmt.enable = true;
               rustfmt.enable = true;
-              rustfmt.package = rustPkgs.rust-bin.selectLatestNightlyWith
+              rustfmt.package = pkgs.rust-bin.selectLatestNightlyWith
                 (toolchain: toolchain.rustfmt);
             };
           };
@@ -155,7 +163,7 @@
                 let
                   envRoot = builtins.getEnv "PWD";
                 in
-                if envRoot != "" then envRoot else builtins.toString ./.;
+                if envRoot != "" then envRoot else toString ./.;
               packages = [
                 pkgs.sqlite
                 pkgs.poppler-utils

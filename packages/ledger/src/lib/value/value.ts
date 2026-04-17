@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { cborCodec, CborKinds, type CborSchemaType } from "codecs";
 import {
   uint,
   cborBytes,
@@ -144,9 +144,4 @@ export function encodeValue(value: Value): CborSchemaType {
 // Full CBOR codec
 // ────────────────────────────────────────────────────────────────────────────
 
-export const ValueBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Value, {
-    decode: SchemaGetter.transformOrFail(decodeValue),
-    encode: SchemaGetter.transform(encodeValue),
-  }),
-);
+export const ValueBytes = cborCodec(Value, decodeValue, encodeValue);

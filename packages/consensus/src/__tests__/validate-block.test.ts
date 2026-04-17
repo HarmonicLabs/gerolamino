@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { Effect, Exit, Layer } from "effect";
 import { verifyBodyHash, validateBlock, BlockValidationError } from "../validate-block";
 import { CryptoService, CryptoServiceBunNative } from "../crypto";
-import { encodeSync, CborKinds } from "cbor-schema";
-import type { CborSchemaType } from "cbor-schema";
+import { encodeSync, CborKinds } from "codecs";
+import type { CborSchemaType } from "codecs";
 
 const cryptoLayer = Layer.succeed(CryptoService, CryptoServiceBunNative);
 

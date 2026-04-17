@@ -12,7 +12,7 @@
  *            cardano-ledger/libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs
  */
 import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborKinds, type CborSchemaType } from "codecs";
 import {
   uint,
   negInt,

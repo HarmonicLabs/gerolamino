@@ -18,7 +18,7 @@
  *   - Conway CDDL: certificate tags 0-18, tag 258 set wrapping
  *   - Haskell: Cardano.Ledger.Shelley.Rules.Utxos, Cardano.Ledger.State.CertState
  */
-import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "cbor-schema";
+import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "codecs";
 import { utxoKey, stakeKey, accountKey, analyzeBlockCbor } from "storage";
 
 // ---------------------------------------------------------------------------

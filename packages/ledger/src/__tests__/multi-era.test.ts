@@ -4,7 +4,7 @@
  */
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "cbor-schema";
+import { parseSync, encodeSync, CborKinds, type CborSchemaType } from "codecs";
 import { decodeTxOut, decodeTxBody, encodeTxOut, TxOutBytes, TxBodyBytes, getCborSet, uint, cborBytes, arr, Era } from "..";
 
 // ---------------------------------------------------------------------------

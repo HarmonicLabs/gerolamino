@@ -27,7 +27,7 @@ src/
 ## Dependencies
 
 - `effect` ^4.0.0-beta.47
-- `cbor-schema` (CBOR parsing for header extraction)
+- `codecs` (CBOR parsing for header extraction)
 - `ledger` (block/header decoding)
 - `miniprotocols` (N2N protocol clients)
 - `storage` (ChainDB, BlobStore)

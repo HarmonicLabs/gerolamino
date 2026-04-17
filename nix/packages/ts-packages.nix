@@ -20,10 +20,10 @@
           (root + "/tsconfig.json")
 
           # TypeScript library packages (source + config)
-          (root + "/packages/cbor-schema/src")
-          (root + "/packages/cbor-schema/package.json")
-          (root + "/packages/cbor-schema/tsconfig.json")
-          (root + "/packages/cbor-schema/tsconfig.lib.json")
+          (root + "/packages/codecs/src")
+          (root + "/packages/codecs/package.json")
+          (root + "/packages/codecs/tsconfig.json")
+          (root + "/packages/codecs/tsconfig.lib.json")
 
           (root + "/packages/ledger/src")
           (root + "/packages/ledger/package.json")
@@ -83,7 +83,7 @@
           runHook preBuild
 
           bunx --bun tsc --build \
-            packages/cbor-schema/tsconfig.lib.json \
+            packages/codecs/tsconfig.lib.json \
             packages/storage/tsconfig.lib.json \
             packages/ledger/tsconfig.lib.json \
             packages/miniprotocols/tsconfig.lib.json
@@ -93,7 +93,7 @@
 
         installPhase = ''
           mkdir -p $out
-          for pkg in cbor-schema ledger miniprotocols storage; do
+          for pkg in codecs ledger miniprotocols storage; do
             if [ -d "packages/$pkg/dist" ]; then
               mkdir -p "$out/$pkg"
               cp -r "packages/$pkg/dist" "$out/$pkg/dist"
@@ -102,8 +102,8 @@
         '';
       };
 
-      packages.cbor-schema = pkgs.runCommand "cbor-schema" { } ''
-        cp -r ${self'.packages.ts-packages}/cbor-schema/dist $out
+      packages.codecs = pkgs.runCommand "codecs" { } ''
+        cp -r ${self'.packages.ts-packages}/codecs/dist $out
       '';
 
       packages.miniprotocols = pkgs.runCommand "miniprotocols" { } ''

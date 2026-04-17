@@ -19,8 +19,8 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,
     "paths": {
-      "storage/*": ["../../packages/storage/src/*"],
-      "lsm-tree": ["../../packages/lsm-tree/src/index.ts"]
+      "storage/*": ["./../../packages/storage/src/*"],
+      "lsm-tree": ["./../../packages/lsm-tree/src/index.ts"]
     }
   }
 }

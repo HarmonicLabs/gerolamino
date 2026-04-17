@@ -19,7 +19,7 @@ bunx --bun tsc --build
 
 | Package                  | Description                                                         |
 | ------------------------ | ------------------------------------------------------------------- |
-| `packages/cbor-schema`   | CBOR schema definition and validation                               |
+| `packages/codecs`   | CBOR schema definition and validation                               |
 | `packages/ledger`        | Cardano ledger type decoders (full Mithril snapshot coverage)       |
 | `packages/miniprotocols` | Ouroboros miniprotocol implementation (ChainSync, BlockFetch, etc.) |
 | `packages/storage`       | Storage layer with XState state machines and Effect-TS              |

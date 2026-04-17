@@ -7,8 +7,8 @@ import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
 import { ChainDB } from "storage";
 import type { StoredBlock } from "storage";
 import { hex, concat } from "../util";
-import { encodeSync, CborKinds } from "cbor-schema";
-import type { CborSchemaType } from "cbor-schema";
+import { encodeSync, CborKinds } from "codecs";
+import type { CborSchemaType } from "codecs";
 import type { BlockHeader, LedgerView } from "../validate-header";
 
 const poolIdFromVk = (vk: Uint8Array): string => {

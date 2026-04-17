@@ -1,14 +1,14 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "composite": true,
     "declarationMap": true,
     "emitDeclarationOnly": true,
     "importHelpers": true,
     "isolatedModules": true,
-    "lib": ["es2022"],
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "lib": ["esnext", "dom"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
@@ -16,7 +16,7 @@
     "noUnusedLocals": true,
     "skipLibCheck": true,
     "strict": true,
-    "target": "es2022",
+    "target": "esnext",
     "customConditions": ["@org/source"],
     "plugins": [
       {
@@ -27,24 +27,24 @@
       }
     ],
     "paths": {
-      "cbor-schema": ["packages/cbor-schema/src/index.ts"],
-      "cbor-schema/*": ["packages/cbor-schema/src/*"],
-      "ledger": ["packages/ledger/src/index.ts"],
-      "ledger/*": ["packages/ledger/src/*"],
-      "storage": ["packages/storage/src/index.ts"],
-      "storage/*": ["packages/storage/src/*"],
-      "miniprotocols": ["packages/miniprotocols/src/index.ts"],
-      "miniprotocols/*": ["packages/miniprotocols/src/*"],
-      "bootstrap": ["packages/bootstrap/src/index.ts"],
-      "bootstrap/*": ["packages/bootstrap/src/*"],
-      "wasm-utils": ["packages/wasm-utils/pkg/wasm_utils.js"],
-      "wasm-plexer": ["packages/wasm-plexer/result/wasm_plexer_bun.js"],
-      "lsm-tree": ["packages/lsm-tree/src/index.ts"],
-      "lsm-tree/*": ["packages/lsm-tree/src/*"],
-      "consensus": ["packages/consensus/src/index.ts"],
-      "consensus/*": ["packages/consensus/src/*"],
-      "dashboard": ["packages/dashboard/src/index.ts"],
-      "dashboard/*": ["packages/dashboard/src/*"]
+      "codecs": ["./packages/codecs/src/index.ts"],
+      "codecs/*": ["./packages/codecs/src/*"],
+      "ledger": ["./packages/ledger/src/index.ts"],
+      "ledger/*": ["./packages/ledger/src/*"],
+      "storage": ["./packages/storage/src/index.ts"],
+      "storage/*": ["./packages/storage/src/*"],
+      "miniprotocols": ["./packages/miniprotocols/src/index.ts"],
+      "miniprotocols/*": ["./packages/miniprotocols/src/*"],
+      "bootstrap": ["./packages/bootstrap/src/index.ts"],
+      "bootstrap/*": ["./packages/bootstrap/src/*"],
+      "wasm-utils": ["./packages/wasm-utils/pkg/wasm_utils.js"],
+      "wasm-plexer": ["./packages/wasm-plexer/result/wasm_plexer_bun.js"],
+      "lsm-tree": ["./packages/lsm-tree/src/index.ts"],
+      "lsm-tree/*": ["./packages/lsm-tree/src/*"],
+      "consensus": ["./packages/consensus/src/index.ts"],
+      "consensus/*": ["./packages/consensus/src/*"],
+      "dashboard": ["./packages/dashboard/src/index.ts"],
+      "dashboard/*": ["./packages/dashboard/src/*"]
     }
   }
 }

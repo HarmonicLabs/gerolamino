@@ -6,15 +6,15 @@ crypto, and Nix-based build/deploy pipeline.
 ## Architecture
 
 ```
-packages/cbor-schema     <- CBOR encoding/decoding (foundation, no internal deps)
-packages/ledger          <- Cardano ledger model (depends: cbor-schema, wasm-utils)
-packages/miniprotocols   <- Ouroboros network protocols (depends: cbor-schema, wasm-plexer)
+packages/codecs     <- CBOR encoding/decoding (foundation, no internal deps)
+packages/ledger          <- Cardano ledger model (depends: codecs, wasm-utils)
+packages/miniprotocols   <- Ouroboros network protocols (depends: codecs, wasm-plexer)
 packages/storage         <- Storage abstraction with XState machines (depends: effect, xstate)
 packages/bootstrap       <- Bootstrap protocol client (depends: effect)
 packages/wasm-plexer     <- Multiplexer WASM (Rust, bindgen target: bundler)
 packages/wasm-utils      <- Crypto primitives WASM (Rust nightly, bindgen target: web)
 packages/chrome-ext      <- Chrome extension (Solid.js + WXT)
-packages/consensus       <- Ouroboros Praos consensus (depends: ledger, cbor-schema, storage)
+packages/consensus       <- Ouroboros Praos consensus (depends: ledger, codecs, storage)
 packages/lsm-tree        <- LSM-tree FFI bindings (Haskell V2LSM via GHC WASM)
 packages/dashboard       <- (placeholder)
 apps/bootstrap           <- Bootstrap HTTP server (Effect CLI + Bun + LMDB)
@@ -53,6 +53,49 @@ apps/tui                 <- TUI node: relay sync + consensus validation
   Config for env, Schedule for retries — not raw JS/Bun APIs.
 - Cross-package imports use `tsconfig.base.json` path aliases (e.g.,
   `import { ... } from "ledger/lib/block/block.ts"`).
+
+### ES2025 / `@typescript/native-preview`
+
+The base `tsconfig.base.json` targets `es2024` (`lib: ["es2024"]`) as the
+monorepo-wide baseline. Packages may opt into `target: esnext` / `lib:
+["esnext"]` individually for ES2025 access — `packages/codecs` is the first
+to do so (see `packages/codecs/tsconfig.json`). We will gradually refactor the
+rest of the codebase to match.
+
+Prefer native ES primitives over hand-rolled alternatives:
+- `DataView.prototype.getFloat16` / `setFloat16` for IEEE 754 binary16 I/O
+  (CBOR §4.2, MemPack half-precision floats) — never hand-roll float16 via
+  float32 bit manipulation.
+- `Array.from({ length: N }, mapper)` instead of `new Array(N)` + for-loop
+  fill when building arrays declaratively.
+- `Array.prototype.toSorted` / `.toReversed` / `.toSpliced` / `.with()` when
+  immutability matters; `.sort()` etc. only when in-place mutation is
+  intended.
+- `Iterator.from(iterable)` + `.map/.filter/.take/.toArray()` for lazy
+  pipelines where the source is already an iterable.
+- `Set.prototype.intersection/union/difference/isSubsetOf/isSupersetOf/
+  isDisjointFrom` for set algebra (useful for CBOR canonical-form map key
+  uniqueness, stake distribution overlap, etc.).
+- `Promise.try()` at sync/async boundaries.
+- `Error`'s `cause` field (`new Error("...", { cause: inner })`) when
+  wrapping an inner error — do not stringify + discard the original.
+- Bigint bit-arithmetic (`>>`, `<<`, `&`) for binary-integer work instead of
+  hex-string round-trips.
+- `String.prototype.isWellFormed` / `.toWellFormed` to validate UTF-16 before
+  emitting UTF-8 bytes — `TextEncoder` silently substitutes U+FFFD for
+  unpaired surrogates, which corrupts binary-codec payloads.
+- `new ArrayBuffer(len, { maxByteLength: N })` + `buffer.resize(N)` for
+  growable byte storage instead of copy-to-larger-array loops. Associated
+  `DataView` / `Uint8Array` views are length-tracking and see the new length
+  automatically.
+- `ArrayBuffer.prototype.transfer` / `.transferToFixedLength(N)` for
+  zero-copy handoff from a growable buffer to a fixed-size result.
+
+`@typescript/native-preview` (aka `tsgo`) is installed as a devDependency in
+`packages/codecs`. It's the native Go rewrite of the TS compiler and
+understands `target: esnext` fully. Stock `tsc` (5.9) + `lib: ["esnext"]`
+also works for codecs today; tsgo is available for future use when its
+config validation stabilizes (currently rejects `baseUrl`).
 
 ## Building
 

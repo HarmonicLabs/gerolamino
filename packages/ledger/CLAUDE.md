@@ -26,7 +26,7 @@ src/
 
 ## Dependencies
 
-- `cbor-schema` (workspace) - CBOR parsing
+- `codecs` (workspace) - CBOR parsing
 - `wasm-utils` (workspace) - crypto primitives (blake2b, ed25519, KES, bech32)
 - `@harmoniclabs/crypto` - additional crypto
 - `effect` ^4.0.0-beta.47

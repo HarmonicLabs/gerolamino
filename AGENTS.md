@@ -30,7 +30,7 @@ Use tsconfig.base.json path aliases:
 
 ```typescript
 import { decodeMultiEraBlock } from "ledger/lib/block/block.ts";
-import { CborSchema } from "cbor-schema";
+import { CborSchema } from "codecs";
 ```
 
 Do NOT use relative paths like `../../packages/ledger/src/...`.

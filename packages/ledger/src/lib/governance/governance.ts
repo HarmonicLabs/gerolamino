@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { CborKinds, type CborSchemaType } from "codecs";
 import { Bytes28, Bytes32 } from "../core/hashes.ts";
 import {
   expectArray,

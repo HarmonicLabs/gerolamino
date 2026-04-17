@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType, encodeSync } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { cborCodec, CborKinds, type CborSchemaType, encodeSync } from "codecs";
 import {
   uint,
   cborBytes,
@@ -724,23 +724,8 @@ export function encodeTxBody(body: TxBody): CborSchemaType {
 // Full CBOR codecs
 // ────────────────────────────────────────────────────────────────────────────
 
-export const TxInBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(TxIn, {
-    decode: SchemaGetter.transformOrFail(decodeTxIn),
-    encode: SchemaGetter.transform(encodeTxIn),
-  }),
-);
+export const TxInBytes = cborCodec(TxIn, decodeTxIn, encodeTxIn);
 
-export const TxOutBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(TxOut, {
-    decode: SchemaGetter.transformOrFail(decodeTxOut),
-    encode: SchemaGetter.transform(encodeTxOut),
-  }),
-);
+export const TxOutBytes = cborCodec(TxOut, decodeTxOut, encodeTxOut);
 
-export const TxBodyBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(TxBody, {
-    decode: SchemaGetter.transformOrFail(decodeTxBody),
-    encode: SchemaGetter.transform(encodeTxBody),
-  }),
-);
+export const TxBodyBytes = cborCodec(TxBody, decodeTxBody, encodeTxBody);

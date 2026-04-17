@@ -10,11 +10,11 @@
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": true,
     "paths": {
-      "@/*": ["src/*"],
-      "@/protocols/*": ["src/protocols/*"],
-      "@/multiplexer": ["src/multiplexer/index.ts"],
-      "@/multiplexer/*": ["src/multiplexer/*"],
-      "@/common/*": ["src/common/*"]
+      "@/*": ["./src/*"],
+      "@/protocols/*": ["./src/protocols/*"],
+      "@/multiplexer": ["./src/multiplexer/index.ts"],
+      "@/multiplexer/*": ["./src/multiplexer/*"],
+      "@/common/*": ["./src/common/*"]
     }
   },
   "include": ["./src/**/*"],

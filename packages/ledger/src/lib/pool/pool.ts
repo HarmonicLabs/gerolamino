@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { CborKinds, type CborSchemaType } from "codecs";
 import {
   uint,
   arr,

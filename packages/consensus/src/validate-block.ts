@@ -15,7 +15,7 @@
  * Assumes canonical CBOR encoding (per Cardano spec).
  */
 import { Effect, Schema } from "effect";
-import { parseSync, encodeSync, CborKinds } from "cbor-schema";
+import { parseSync, encodeSync, CborKinds } from "codecs";
 import { hex, concat } from "./util";
 import { CryptoService } from "./crypto";
 

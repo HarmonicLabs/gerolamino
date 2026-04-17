@@ -6,7 +6,7 @@
  * the consensus-layer types needed for header validation.
  */
 import { Effect, HashMap, Option, Schema } from "effect";
-import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborKinds, type CborSchemaType } from "codecs";
 import { hex } from "./util";
 import type { ExtLedgerState, ShelleyTip } from "ledger";
 import type { LedgerView } from "./validate-header";

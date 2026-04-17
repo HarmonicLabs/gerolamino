@@ -1,7 +1,7 @@
 import { describe, expect } from "vitest";
 import { it, layer } from "@effect/vitest";
 import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
-import { encodeSync, CborKinds, type CborSchemaType } from "cbor-schema";
+import { encodeSync, CborKinds, type CborSchemaType } from "codecs";
 import { handleRollForward, handleRollBackward, initialVolatileState } from "../chain-sync-driver";
 import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
 import { PeerManager, PeerManagerLive } from "../peer-manager";

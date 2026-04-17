@@ -35,10 +35,10 @@
           (root + "/packages/bootstrap/package.json")
           (root + "/packages/bootstrap/tsconfig.json")
 
-          (root + "/packages/cbor-schema/src")
-          (root + "/packages/cbor-schema/package.json")
-          (root + "/packages/cbor-schema/tsconfig.json")
-          (root + "/packages/cbor-schema/tsconfig.lib.json")
+          (root + "/packages/codecs/src")
+          (root + "/packages/codecs/package.json")
+          (root + "/packages/codecs/tsconfig.json")
+          (root + "/packages/codecs/tsconfig.lib.json")
 
           (root + "/packages/ledger/src")
           (root + "/packages/ledger/package.json")

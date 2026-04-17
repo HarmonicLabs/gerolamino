@@ -16,7 +16,7 @@
       "path": "../ledger/tsconfig.lib.json"
     },
     {
-      "path": "../cbor-schema/tsconfig.lib.json"
+      "path": "../codecs/tsconfig.lib.json"
     }
   ]
 }

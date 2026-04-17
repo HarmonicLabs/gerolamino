@@ -13,12 +13,11 @@
     "@harmoniclabs/obj-utils": "^1.0.0",
     "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.5-dev7",
     "@harmoniclabs/uint8array-utils": "^1.0.4",
-    "cbor-schema": "workspace:*",
+    "codecs": "workspace:*",
     "wasm-plexer": "workspace:*"
   },
   "devDependencies": {
     "tsc-alias": "^1.8.16",
-    "typescript": "~5.9.2",
     "vitest": "^4.1.4"
   }
 }

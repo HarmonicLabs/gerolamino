@@ -7,7 +7,7 @@
  * designed for composition with Effect.gen + yield*.
  */
 import { Effect, Option, SchemaIssue } from "effect";
-import { CborKinds, type CborSchemaType } from "cbor-schema";
+import { CborKinds, type CborSchemaType } from "codecs";
 
 // ---------------------------------------------------------------------------
 // CBOR value constructors

@@ -7,7 +7,7 @@
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
-import { CborKinds } from "cbor-schema";
+import { CborKinds } from "codecs";
 import { decodeMultiEraBlock, isByronBlock, type BlockHeader, decodeExtLedgerState } from "..";
 import { WORKSPACE, IMMUTABLE_DIR } from "./chunk-reader.ts";
 import pathNode from "path";

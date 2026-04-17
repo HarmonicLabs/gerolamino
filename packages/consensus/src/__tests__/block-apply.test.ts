@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { encodeSync, CborKinds } from "cbor-schema";
-import type { CborSchemaType } from "cbor-schema";
+import { encodeSync, CborKinds } from "codecs";
+import type { CborSchemaType } from "codecs";
 import { applyBlock } from "../block-apply";
 import { CryptoServiceBunNative } from "../crypto";
 

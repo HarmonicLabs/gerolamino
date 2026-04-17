@@ -29,7 +29,7 @@ Each protocol has: `Client.ts`, `Schemas.ts`, and optionally `Machine.ts`
 
 ## Dependencies
 
-- `cbor-schema` (workspace) - CBOR encoding
+- `codecs` (workspace) - CBOR encoding
 - `wasm-plexer` (workspace) - multiplexer frame encoding/decoding
 - `effect` + `@effect/opentelemetry` - async operations + telemetry
 - `xstate` ^5.30 - ChainSync state machine

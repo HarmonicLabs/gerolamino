@@ -8,7 +8,7 @@
  * State: 0=Script, 1=Key. Block/CDDL: 0=Key, 1=Script.
  */
 import { Effect, Option, Schema } from "effect";
-import { CborKinds, type CborSchemaType, parseSync } from "cbor-schema";
+import { CborKinds, type CborSchemaType, parseSync } from "codecs";
 import { Era } from "../core/era.ts";
 
 // ---------------------------------------------------------------------------

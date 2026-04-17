@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { cborCodec, CborKinds, type CborSchemaType } from "codecs";
 import { cborBytes } from "../core/cbor-utils.ts";
 import { Network } from "../core/primitives.ts";
 import {
@@ -250,16 +250,6 @@ export function encodeRwdAddr(addr: RwdAddr): CborSchemaType {
 // Full CBOR codecs
 // ────────────────────────────────────────────────────────────────────────────
 
-export const AddrBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Addr, {
-    decode: SchemaGetter.transformOrFail(decodeAddr),
-    encode: SchemaGetter.transform(encodeAddr),
-  }),
-);
+export const AddrBytes = cborCodec(Addr, decodeAddr, encodeAddr);
 
-export const RwdAddrBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(RwdAddr, {
-    decode: SchemaGetter.transformOrFail(decodeRwdAddr),
-    encode: SchemaGetter.transform(encodeRwdAddr),
-  }),
-);
+export const RwdAddrBytes = cborCodec(RwdAddr, decodeRwdAddr, encodeRwdAddr);

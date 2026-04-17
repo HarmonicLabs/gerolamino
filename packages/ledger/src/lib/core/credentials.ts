@@ -1,5 +1,5 @@
-import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { CborSchemaFromBytes, type CborSchemaType } from "cbor-schema";
+import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { cborCodec, type CborSchemaType } from "codecs";
 import { Bytes28 } from "./hashes.ts";
 import { uint, cborBytes, arr, expectArray, expectUint, expectBytes } from "./cbor-utils.ts";
 
@@ -56,9 +56,4 @@ export const encodeCredential = Credential.match({
 // Full CBOR codec: Uint8Array ↔ Credential
 // ────────────────────────────────────────────────────────────────────────────
 
-export const CredentialBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(Credential, {
-    decode: SchemaGetter.transformOrFail(decodeCredential),
-    encode: SchemaGetter.transform(encodeCredential),
-  }),
-);
+export const CredentialBytes = cborCodec(Credential, decodeCredential, encodeCredential);

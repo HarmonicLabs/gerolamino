@@ -1,6 +1,6 @@
-import { Schema, SchemaGetter } from "effect";
+import { Schema } from "effect";
 
-import { CborSchemaFromBytes, CborKinds, type CborSchemaType, cborUint } from "cbor-schema";
+import { cborSyncCodec, CborKinds, type CborSchemaType, cborUint } from "codecs";
 
 // ── Application-level types ──
 
@@ -29,48 +29,45 @@ export type KeepAliveMessageT = typeof KeepAliveMessage.Type;
 // [1, cookie] — KeepAliveResponse
 // [2]         — Done
 
-export const KeepAliveMessageBytes = CborSchemaFromBytes.pipe(
-  Schema.decodeTo(KeepAliveMessage, {
-    decode: SchemaGetter.transform((cbor: CborSchemaType) => {
-      if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
-      const tag = cbor.items[0];
-      if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
-      switch (Number(tag.num)) {
-        case 0:
-          return {
-            _tag: KeepAliveMessageType.KeepAlive as const,
-            cookie: Number(cborUint(cbor.items[1]!, "KeepAlive cookie")),
-          };
-        case 1:
-          return {
-            _tag: KeepAliveMessageType.KeepAliveResponse as const,
-            cookie: Number(cborUint(cbor.items[1]!, "KeepAliveResponse cookie")),
-          };
-        default:
-          return { _tag: KeepAliveMessageType.Done as const };
-      }
+export const KeepAliveMessageBytes = cborSyncCodec(
+  KeepAliveMessage,
+  (cbor) => {
+    if (cbor._tag !== CborKinds.Array) throw new Error("Expected CBOR array");
+    const tag = cbor.items[0];
+    if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
+    switch (Number(tag.num)) {
+      case 0:
+        return {
+          _tag: KeepAliveMessageType.KeepAlive as const,
+          cookie: Number(cborUint(cbor.items[1]!, "KeepAlive cookie")),
+        };
+      case 1:
+        return {
+          _tag: KeepAliveMessageType.KeepAliveResponse as const,
+          cookie: Number(cborUint(cbor.items[1]!, "KeepAliveResponse cookie")),
+        };
+      default:
+        return { _tag: KeepAliveMessageType.Done as const };
+    }
+  },
+  KeepAliveMessage.match({
+    KeepAlive: (m): CborSchemaType => ({
+      _tag: CborKinds.Array,
+      items: [
+        { _tag: CborKinds.UInt, num: 0n },
+        { _tag: CborKinds.UInt, num: BigInt(m.cookie) },
+      ],
     }),
-    encode: SchemaGetter.transform(
-      KeepAliveMessage.match({
-        KeepAlive: (m): CborSchemaType => ({
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: 0n },
-            { _tag: CborKinds.UInt, num: BigInt(m.cookie) },
-          ],
-        }),
-        KeepAliveResponse: (m): CborSchemaType => ({
-          _tag: CborKinds.Array,
-          items: [
-            { _tag: CborKinds.UInt, num: 1n },
-            { _tag: CborKinds.UInt, num: BigInt(m.cookie) },
-          ],
-        }),
-        Done: (): CborSchemaType => ({
-          _tag: CborKinds.Array,
-          items: [{ _tag: CborKinds.UInt, num: 2n }],
-        }),
-      }),
-    ),
+    KeepAliveResponse: (m): CborSchemaType => ({
+      _tag: CborKinds.Array,
+      items: [
+        { _tag: CborKinds.UInt, num: 1n },
+        { _tag: CborKinds.UInt, num: BigInt(m.cookie) },
+      ],
+    }),
+    Done: (): CborSchemaType => ({
+      _tag: CborKinds.Array,
+      items: [{ _tag: CborKinds.UInt, num: 2n }],
+    }),
   }),
 );

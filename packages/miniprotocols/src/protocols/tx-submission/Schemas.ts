@@ -140,9 +140,7 @@ export const TxSubmissionMessageBytes = cborSyncCodec(
         { _tag: CborKinds.UInt, num: 2n },
         {
           _tag: CborKinds.Array,
-          items: m.txIds.map(
-            (txId): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: txId }),
-          ),
+          items: m.txIds.map((txId): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes: txId })),
         },
       ],
     }),

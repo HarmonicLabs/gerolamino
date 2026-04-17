@@ -14,13 +14,13 @@ export class LocalChainSyncError extends Schema.TaggedErrorClass<LocalChainSyncE
 ) {}
 
 export type LocalChainSyncRollForward =
-  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.RollForward]["Type"];
+  (typeof Schemas.LocalChainSyncMessage.cases)[Schemas.LocalChainSyncMessageType.RollForward]["Type"];
 export type LocalChainSyncRollBackward =
-  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.RollBackward]["Type"];
+  (typeof Schemas.LocalChainSyncMessage.cases)[Schemas.LocalChainSyncMessageType.RollBackward]["Type"];
 export type LocalChainSyncIntersectFound =
-  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.IntersectFound]["Type"];
+  (typeof Schemas.LocalChainSyncMessage.cases)[Schemas.LocalChainSyncMessageType.IntersectFound]["Type"];
 export type LocalChainSyncIntersectNotFound =
-  typeof Schemas.LocalChainSyncMessage.cases[Schemas.LocalChainSyncMessageType.IntersectNotFound]["Type"];
+  (typeof Schemas.LocalChainSyncMessage.cases)[Schemas.LocalChainSyncMessageType.IntersectNotFound]["Type"];
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalChainSyncMessageBytes);

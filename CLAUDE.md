@@ -63,6 +63,7 @@ to do so (see `packages/codecs/tsconfig.json`). We will gradually refactor the
 rest of the codebase to match.
 
 Prefer native ES primitives over hand-rolled alternatives:
+
 - `DataView.prototype.getFloat16` / `setFloat16` for IEEE 754 binary16 I/O
   (CBOR §4.2, MemPack half-precision floats) — never hand-roll float16 via
   float32 bit manipulation.
@@ -74,7 +75,7 @@ Prefer native ES primitives over hand-rolled alternatives:
 - `Iterator.from(iterable)` + `.map/.filter/.take/.toArray()` for lazy
   pipelines where the source is already an iterable.
 - `Set.prototype.intersection/union/difference/isSubsetOf/isSupersetOf/
-  isDisjointFrom` for set algebra (useful for CBOR canonical-form map key
+isDisjointFrom` for set algebra (useful for CBOR canonical-form map key
   uniqueness, stake distribution overlap, etc.).
 - `Promise.try()` at sync/async boundaries.
 - `Error`'s `cause` field (`new Error("...", { cause: inner })`) when
@@ -180,4 +181,3 @@ Key patterns:
 - `buildWasmPackage` injected as `perSystem._module.args`
 - WASM outputs injected into TS source tree via `postUnpack`
 - bun2nix flags: `--backend=copyfile`, `dontUseBunBuild`, `dontRunLifecycleScripts`
-

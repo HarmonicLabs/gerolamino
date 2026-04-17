@@ -90,9 +90,7 @@ test("trace bootstrap service worker", async () => {
           blocks: state.blocksReceived ?? 0,
         };
         stateHistory.push(entry);
-        console.log(
-          `[STATE] ${entry.status} | blobs: ${entry.blobs} | blocks: ${entry.blocks}`,
-        );
+        console.log(`[STATE] ${entry.status} | blobs: ${entry.blobs} | blocks: ${entry.blocks}`);
       }
     } catch {
       // Page might have navigated or closed

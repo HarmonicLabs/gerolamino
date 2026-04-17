@@ -129,16 +129,12 @@ export const CborValue = Schema.Union([
   Schema.TaggedStruct(CborKinds.Bytes, {
     bytes: Schema.Uint8Array,
     addInfos: Schema.optional(AddInfos),
-    chunks: Schema.optional(
-      Schema.Array(Schema.suspend((): Schema.Codec<CborValue> => CborValue)),
-    ),
+    chunks: Schema.optional(Schema.Array(Schema.suspend((): Schema.Codec<CborValue> => CborValue))),
   }),
   Schema.TaggedStruct(CborKinds.Text, {
     text: Schema.String,
     addInfos: Schema.optional(AddInfos),
-    chunks: Schema.optional(
-      Schema.Array(Schema.suspend((): Schema.Codec<CborValue> => CborValue)),
-    ),
+    chunks: Schema.optional(Schema.Array(Schema.suspend((): Schema.Codec<CborValue> => CborValue))),
   }),
   Schema.TaggedStruct(CborKinds.Array, {
     items: Schema.suspend((): Schema.Codec<CborValue> => CborValue).pipe(Schema.Array),

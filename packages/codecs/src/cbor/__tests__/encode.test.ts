@@ -74,12 +74,20 @@ describe("encodeSync", () => {
   describe("tags", () => {
     it("tag 6 wrapping empty array", () =>
       expect(
-        encodeSync({ _tag: CborKinds.Tag, tag: 6n, data: { _tag: CborKinds.Array, items: [] } }).toHex(),
+        encodeSync({
+          _tag: CborKinds.Tag,
+          tag: 6n,
+          data: { _tag: CborKinds.Array, items: [] },
+        }).toHex(),
       ).toBe("c680"));
 
     it("tag 6 wrapping uint 2", () =>
       expect(
-        encodeSync({ _tag: CborKinds.Tag, tag: 6n, data: { _tag: CborKinds.UInt, num: 2n } }).toHex(),
+        encodeSync({
+          _tag: CborKinds.Tag,
+          tag: 6n,
+          data: { _tag: CborKinds.UInt, num: 2n },
+        }).toHex(),
       ).toBe("c602"));
   });
 });

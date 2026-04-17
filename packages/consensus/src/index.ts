@@ -64,10 +64,6 @@ export {
   extractSnapshotTip,
   SnapshotDecodeError,
 } from "./ledger-view-bridge";
-export {
-  ConsensusEvents,
-  ConsensusEvent,
-  ConsensusEventKind,
-} from "./events";
+export { ConsensusEvents, ConsensusEvent, ConsensusEventKind } from "./events";
 export type { ConsensusEventType } from "./events";
 export { hex, concat, be32 } from "./util";

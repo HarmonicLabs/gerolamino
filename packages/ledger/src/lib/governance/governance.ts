@@ -523,7 +523,12 @@ export function decodeProposalProcedure(
 }
 
 export function encodeProposalProcedure(pp: ProposalProcedure): CborSchemaType {
-  return arr(uint(pp.deposit), cborBytes(pp.returnAccount), encodeGovAction(pp.govAction), encodeAnchor(pp.anchor));
+  return arr(
+    uint(pp.deposit),
+    cborBytes(pp.returnAccount),
+    encodeGovAction(pp.govAction),
+    encodeAnchor(pp.anchor),
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────

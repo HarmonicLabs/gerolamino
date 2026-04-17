@@ -196,22 +196,27 @@ describe("ChainSync driver", () => {
       }),
     );
 
-    it.effect("handleRollBackward clears tip (envelope skipped for first post-rollback block)", () =>
-      Effect.gen(function* () {
-        const nonces = makeNonces();
-        const state = initialVolatileState({ slot: 100n, blockNo: 50n, hash: new Uint8Array(32) }, nonces);
+    it.effect(
+      "handleRollBackward clears tip (envelope skipped for first post-rollback block)",
+      () =>
+        Effect.gen(function* () {
+          const nonces = makeNonces();
+          const state = initialVolatileState(
+            { slot: 100n, blockNo: 50n, hash: new Uint8Array(32) },
+            nonces,
+          );
 
-        const pm = yield* PeerManager;
-        yield* pm.addPeer("peer1", "tcp://relay:3001");
-        const newState = yield* handleRollBackward(
-          { slot: 80n, hash: new Uint8Array(32).fill(0x80) },
-          { slot: 90n, blockNo: 45n, hash: new Uint8Array(32) },
-          state,
-          "peer1",
-        );
+          const pm = yield* PeerManager;
+          yield* pm.addPeer("peer1", "tcp://relay:3001");
+          const newState = yield* handleRollBackward(
+            { slot: 80n, hash: new Uint8Array(32).fill(0x80) },
+            { slot: 90n, blockNo: 45n, hash: new Uint8Array(32) },
+            state,
+            "peer1",
+          );
 
-        expect(newState.tip).toBeUndefined();
-      }),
+          expect(newState.tip).toBeUndefined();
+        }),
     );
 
     it.effect("multiple RollForwards increment blocksProcessed", () =>

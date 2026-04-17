@@ -60,19 +60,13 @@ export namespace CborValueOptics {
 
 export namespace CborValueTraversals {
   /** Every element inside a CBOR Array variant. */
-  export const arrayItems = CborValueOptics.array
-    .key("items")
-    .forEach((item) => item);
+  export const arrayItems = CborValueOptics.array.key("items").forEach((item) => item);
 
   /** Every value slot inside a CBOR Map variant (keys untouched). */
-  export const mapValues = CborValueOptics.map
-    .key("entries")
-    .forEach((entry) => entry.key("v"));
+  export const mapValues = CborValueOptics.map.key("entries").forEach((entry) => entry.key("v"));
 
   /** Every key slot inside a CBOR Map variant (values untouched). */
-  export const mapKeys = CborValueOptics.map
-    .key("entries")
-    .forEach((entry) => entry.key("k"));
+  export const mapKeys = CborValueOptics.map.key("entries").forEach((entry) => entry.key("k"));
 
   /** The inner payload of a Tag variant. */
   export const tagData = CborValueOptics.tag.key("data");

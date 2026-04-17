@@ -119,7 +119,12 @@ export class ChainDB extends Context.Service<
 
     /** Read the most recent persisted nonces. */
     readonly readNonces: Effect.Effect<
-      Option.Option<{ epoch: bigint; active: Uint8Array; evolving: Uint8Array; candidate: Uint8Array }>,
+      Option.Option<{
+        epoch: bigint;
+        active: Uint8Array;
+        evolving: Uint8Array;
+        candidate: Uint8Array;
+      }>,
       ChainDBError
     >;
   }

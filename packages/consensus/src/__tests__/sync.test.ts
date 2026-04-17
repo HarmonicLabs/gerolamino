@@ -167,10 +167,12 @@ describe("Sync pipeline", () => {
     });
 
     // Slot 50 stays within epoch 0 (epochLength=100)
-    const result = await processBlock(makeBlock(50n, 25n), makeHeader(50n, 25n), makeLedgerView(), nonces).pipe(
-      Effect.provide(testLayers),
-      Effect.runPromise,
-    );
+    const result = await processBlock(
+      makeBlock(50n, 25n),
+      makeHeader(50n, 25n),
+      makeLedgerView(),
+      nonces,
+    ).pipe(Effect.provide(testLayers), Effect.runPromise);
 
     // Nonces should have been evolved
     expect(result.evolving).not.toEqual(nonces.evolving);
@@ -201,10 +203,12 @@ describe("Sync pipeline", () => {
     });
 
     // Slot 100 is in epoch 1 (epochLength=100), so epoch transition triggers
-    const result = await processBlock(makeBlock(100n, 50n), makeHeader(100n, 50n), makeLedgerView(), nonces).pipe(
-      Effect.provide(testLayers),
-      Effect.runPromise,
-    );
+    const result = await processBlock(
+      makeBlock(100n, 50n),
+      makeHeader(100n, 50n),
+      makeLedgerView(),
+      nonces,
+    ).pipe(Effect.provide(testLayers), Effect.runPromise);
 
     // Epoch should advance
     expect(result.epoch).toBe(1n);
@@ -223,10 +227,12 @@ describe("Sync pipeline", () => {
     });
 
     // Slot 50 is still epoch 0 (epochLength=100)
-    const result = await processBlock(makeBlock(50n, 25n), makeHeader(50n, 25n), makeLedgerView(), nonces).pipe(
-      Effect.provide(testLayers),
-      Effect.runPromise,
-    );
+    const result = await processBlock(
+      makeBlock(50n, 25n),
+      makeHeader(50n, 25n),
+      makeLedgerView(),
+      nonces,
+    ).pipe(Effect.provide(testLayers), Effect.runPromise);
 
     // Active nonce unchanged — no epoch transition
     expect(hex(result.active)).toBe(hex(nonces.active));
@@ -241,14 +247,18 @@ describe("Sync pipeline", () => {
       epoch: 0n,
     });
 
-    const nonces1 = await processBlock(makeBlock(1n, 1n), makeHeader(1n, 1n), makeLedgerView(), nonces).pipe(
-      Effect.provide(testLayers),
-      Effect.runPromise,
-    );
-    const nonces2 = await processBlock(makeBlock(2n, 2n), makeHeader(2n, 2n), makeLedgerView(), nonces1).pipe(
-      Effect.provide(testLayers),
-      Effect.runPromise,
-    );
+    const nonces1 = await processBlock(
+      makeBlock(1n, 1n),
+      makeHeader(1n, 1n),
+      makeLedgerView(),
+      nonces,
+    ).pipe(Effect.provide(testLayers), Effect.runPromise);
+    const nonces2 = await processBlock(
+      makeBlock(2n, 2n),
+      makeHeader(2n, 2n),
+      makeLedgerView(),
+      nonces1,
+    ).pipe(Effect.provide(testLayers), Effect.runPromise);
 
     expect(nonces1.evolving).not.toEqual(nonces.evolving);
     expect(nonces2.evolving).not.toEqual(nonces1.evolving);

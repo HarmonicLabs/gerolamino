@@ -103,8 +103,7 @@ const arraysLink: AST.Link = new AST.Link(
       ...failOthers("Array"),
       [CborKinds.Array]: (v) => Effect.succeed(v.items),
     }),
-    encode: (items) =>
-      Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Array, items })),
+    encode: (items) => Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Array, items })),
   }),
 );
 
@@ -114,9 +113,7 @@ const arraysLink: AST.Link = new AST.Link(
 // Text for string-valued enums via `.guards[CborKinds.Text]`.
 // ────────────────────────────────────────────────────────────────────────────
 
-const enumLink = (
-  enums: ReadonlyArray<readonly [string, string | number]>,
-): AST.Link => {
+const enumLink = (enums: ReadonlyArray<readonly [string, string | number]>): AST.Link => {
   const validValues = new Set(enums.map(([, v]) => v));
   const isIntegerCbor = CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt]);
 
@@ -170,7 +167,10 @@ function deriveCborBase(ast: AST.AST): AST.AST {
         const tps = ast.typeParameters.map((tp) => Schema.make(AST.toEncoded(tp)));
         const link = getLink(tps);
         const to = deriveCborWalker(link.to);
-        return AST.replaceEncoding(ast, to === link.to ? [link] : [new AST.Link(to, link.transformation)]);
+        return AST.replaceEncoding(
+          ast,
+          to === link.to ? [link] : [new AST.Link(to, link.transformation)],
+        );
       }
       return ast;
     }
@@ -240,5 +240,4 @@ export const toCodecCbor = <T, E, RD, RE>(
  */
 export const toCodecCborBytes = <T, E, RD, RE>(
   schema: Schema.Codec<T, E, RD, RE>,
-): Schema.Codec<T, Uint8Array, RD, RE> =>
-  CborBytes.pipe(Schema.decodeTo(toCodecCbor(schema)));
+): Schema.Codec<T, Uint8Array, RD, RE> => CborBytes.pipe(Schema.decodeTo(toCodecCbor(schema)));

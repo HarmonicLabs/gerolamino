@@ -73,7 +73,12 @@ export const verifyBodyHash = (
     // Alonzo+ (era >= 4) includes invalidTxs as 5th element
     const hashConcat =
       blockBody.items.length >= 5
-        ? concat(txBodiesHash, witnessesHash, auxDataHash, crypto.blake2b256(encodeSync(blockBody.items[4]!)))
+        ? concat(
+            txBodiesHash,
+            witnessesHash,
+            auxDataHash,
+            crypto.blake2b256(encodeSync(blockBody.items[4]!)),
+          )
         : concat(txBodiesHash, witnessesHash, auxDataHash);
 
     const computedHash = crypto.blake2b256(hashConcat);

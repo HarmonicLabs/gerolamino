@@ -2,15 +2,7 @@ import { Predicate, Schema, SchemaAST as AST } from "effect";
 import { memoize } from "effect/Function";
 import type { MemPackCodec } from "../MemPackCodec";
 import { MemPackDecodeError, MemPackEncodeError } from "../MemPackError";
-import {
-  bool,
-  float64,
-  length,
-  list,
-  tag,
-  text,
-  varLen,
-} from "../primitives";
+import { bool, float64, length, list, tag, text, varLen } from "../primitives";
 import { readMemPackAnnotation } from "./annotations";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -46,7 +38,10 @@ const constantCodec = <T>(typeName: string, value: T): MemPackCodec<T> => ({
 // Struct = positional concatenation of required field codecs, ordered by
 // property-signature declaration order. Optional fields use a 1-byte Maybe
 // tag (0 = absent, 1 = present), matching Haskell's `Maybe` instance.
-const structCodec = (ast: AST.Objects, fields: ReadonlyArray<MemPackCodec<unknown>>): MemPackCodec<Record<string, unknown>> => {
+const structCodec = (
+  ast: AST.Objects,
+  fields: ReadonlyArray<MemPackCodec<unknown>>,
+): MemPackCodec<Record<string, unknown>> => {
   const names = ast.propertySignatures.map((ps) => String(ps.name));
   const optionals = ast.propertySignatures.map((ps) => AST.isOptional(ps.type));
   const typeName = `{${names.map((n, i) => `${n}: ${fields[i]!.typeName}`).join(", ")}}`;

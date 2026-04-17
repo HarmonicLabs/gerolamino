@@ -123,8 +123,7 @@ const validateEnvelope = (
         if (header.blockNo !== prevTip.blockNo + 1n)
           throw `BlockNo ${header.blockNo} != expected ${prevTip.blockNo + 1n}`;
         // Slot must be strictly increasing (Haskell: UnexpectedSlotNo)
-        if (header.slot <= prevTip.slot)
-          throw `Slot ${header.slot} not > prev ${prevTip.slot}`;
+        if (header.slot <= prevTip.slot) throw `Slot ${header.slot} not > prev ${prevTip.slot}`;
         // PrevHash must chain correctly (Haskell: UnexpectedPrevHash)
         if (hex(header.prevHash) !== hex(prevTip.hash))
           throw `PrevHash mismatch: expected ${hex(prevTip.hash)}, got ${hex(header.prevHash)}`;
@@ -160,7 +159,13 @@ const assertKnownLeaderVrf = (
       );
       if (hex(registeredVrfVk) !== hex(header.vrfVk)) throw `VRF key mismatch for pool ${poolId}`;
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertKnownLeaderVrf", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
+    catch: (cause) =>
+      new HeaderValidationError({
+        assertion: "AssertKnownLeaderVrf",
+        message: String(cause),
+        blockSlot: header.slot,
+        blockHash: header.hash,
+      }),
   });
 };
 
@@ -193,7 +198,13 @@ const assertVrfProof = (
       if (hex(expectedOutput) !== hex(header.vrfOutput))
         throw `VRF output mismatch: expected ${hex(expectedOutput)}, got ${hex(header.vrfOutput)}`;
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertVrfProof", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
+    catch: (cause) =>
+      new HeaderValidationError({
+        assertion: "AssertVrfProof",
+        message: String(cause),
+        blockSlot: header.slot,
+        blockHash: header.hash,
+      }),
   });
 };
 
@@ -226,7 +237,13 @@ const assertLeaderStake = (
       );
       if (!isLeader) throw `pool ${poolId} is not leader for this slot (VRF threshold not met)`;
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertLeaderStake", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
+    catch: (cause) =>
+      new HeaderValidationError({
+        assertion: "AssertLeaderStake",
+        message: String(cause),
+        blockSlot: header.slot,
+        blockHash: header.hash,
+      }),
   });
 };
 
@@ -253,7 +270,13 @@ const assertKesSignature = (
       );
       if (!valid) throw "KES signature invalid";
     },
-    catch: (cause) => new HeaderValidationError({ assertion: "AssertKesSignature", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
+    catch: (cause) =>
+      new HeaderValidationError({
+        assertion: "AssertKesSignature",
+        message: String(cause),
+        blockSlot: header.slot,
+        blockHash: header.hash,
+      }),
   });
 
 // 5. Opcert: cold key must have signed the hot key + counter monotonicity
@@ -280,9 +303,7 @@ const assertOperationalCertificate = (
       // Gracefully skip when counters are empty (genesis sync without bootstrap).
       if (HashMap.size(view.ocertCounters) > 0) {
         const poolId = hex(crypto.blake2b256(header.issuerVk));
-        const lastSeqNo = HashMap.get(view.ocertCounters, poolId).pipe(
-          Option.getOrElse(() => 0),
-        );
+        const lastSeqNo = HashMap.get(view.ocertCounters, poolId).pipe(Option.getOrElse(() => 0));
         if (header.opcertSeqNo < lastSeqNo)
           throw `opcert seqNo ${header.opcertSeqNo} < last ${lastSeqNo} (CounterTooSmall)`;
         if (header.opcertSeqNo > lastSeqNo + 1)
@@ -290,5 +311,10 @@ const assertOperationalCertificate = (
       }
     },
     catch: (cause) =>
-      new HeaderValidationError({ assertion: "AssertOperationalCertificate", message: String(cause), blockSlot: header.slot, blockHash: header.hash }),
+      new HeaderValidationError({
+        assertion: "AssertOperationalCertificate",
+        message: String(cause),
+        blockSlot: header.slot,
+        blockHash: header.hash,
+      }),
   });

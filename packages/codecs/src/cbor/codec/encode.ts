@@ -203,7 +203,8 @@ export const encodeSync = (
         // `isWellFormed` detects this up front so the encoder fails loudly.
         if (!item.text.isWellFormed()) {
           throw new CborEncodeError({
-            cause: "CBOR Text contains unpaired UTF-16 surrogates (use .toWellFormed() to sanitize)",
+            cause:
+              "CBOR Text contains unpaired UTF-16 surrogates (use .toWellFormed() to sanitize)",
           });
         }
         const utf8 = TEXT_ENCODER.encode(item.text);
@@ -309,4 +310,6 @@ export const encode = (obj: CborValue): Effect.Effect<Uint8Array, CborEncodeErro
       try: () => encodeSync(obj, { initialCapacity, maxCapacity }),
       catch: (e) => new CborEncodeError({ cause: e }),
     });
-  }).pipe(Effect.mapError((e) => (e instanceof CborEncodeError ? e : new CborEncodeError({ cause: e }))));
+  }).pipe(
+    Effect.mapError((e) => (e instanceof CborEncodeError ? e : new CborEncodeError({ cause: e }))),
+  );

@@ -24,13 +24,13 @@ export class ChainSyncError extends Schema.TaggedErrorClass<ChainSyncError>()("C
 }) {}
 
 export type ChainSyncRollForward =
-  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.RollForward]["Type"];
+  (typeof Schemas.ChainSyncMessage.cases)[Schemas.ChainSyncMessageType.RollForward]["Type"];
 export type ChainSyncRollBackward =
-  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.RollBackward]["Type"];
+  (typeof Schemas.ChainSyncMessage.cases)[Schemas.ChainSyncMessageType.RollBackward]["Type"];
 export type ChainSyncIntersectFound =
-  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.IntersectFound]["Type"];
+  (typeof Schemas.ChainSyncMessage.cases)[Schemas.ChainSyncMessageType.IntersectFound]["Type"];
 export type ChainSyncIntersectNotFound =
-  typeof Schemas.ChainSyncMessage.cases[Schemas.ChainSyncMessageType.IntersectNotFound]["Type"];
+  (typeof Schemas.ChainSyncMessage.cases)[Schemas.ChainSyncMessageType.IntersectNotFound]["Type"];
 
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.ChainSyncMessageBytes);
@@ -128,9 +128,7 @@ export class ChainSyncClient extends Context.Service<
                       // Spec Table 3.6: random timeout 601-911s per session.
                       Effect.sync(() => Duration.seconds(601 + Math.random() * 310)).pipe(
                         Effect.flatMap((timeout) =>
-                          nextMessage(timeout, "StMustReply").pipe(
-                            Effect.flatMap(matchRollResult),
-                          ),
+                          nextMessage(timeout, "StMustReply").pipe(Effect.flatMap(matchRollResult)),
                         ),
                       )
                     : matchRollResult(msg),

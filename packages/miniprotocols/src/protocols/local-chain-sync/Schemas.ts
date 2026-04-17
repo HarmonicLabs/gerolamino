@@ -155,11 +155,7 @@ export const LocalChainSyncMessageBytes = cborSyncCodec(
     }),
     RollBackward: (m): CborSchemaType => ({
       _tag: CborKinds.Array,
-      items: [
-        { _tag: CborKinds.UInt, num: 3n },
-        encodeChainPoint(m.point),
-        encodeChainTip(m.tip),
-      ],
+      items: [{ _tag: CborKinds.UInt, num: 3n }, encodeChainPoint(m.point), encodeChainTip(m.tip)],
     }),
     FindIntersect: (m): CborSchemaType => ({
       _tag: CborKinds.Array,
@@ -170,11 +166,7 @@ export const LocalChainSyncMessageBytes = cborSyncCodec(
     }),
     IntersectFound: (m): CborSchemaType => ({
       _tag: CborKinds.Array,
-      items: [
-        { _tag: CborKinds.UInt, num: 5n },
-        encodeChainPoint(m.point),
-        encodeChainTip(m.tip),
-      ],
+      items: [{ _tag: CborKinds.UInt, num: 5n }, encodeChainPoint(m.point), encodeChainTip(m.tip)],
     }),
     IntersectNotFound: (m): CborSchemaType => ({
       _tag: CborKinds.Array,

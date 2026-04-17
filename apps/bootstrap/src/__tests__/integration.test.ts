@@ -39,8 +39,12 @@ describe("Integration", () => {
 
   it.effect("bootstrap stream starts with Init frame", () =>
     readSnapshotMeta("./db").pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
-      Effect.flatMap(({ meta, preloaded }) => bootstrapStream(meta, preloaded).pipe(Stream.take(1), Stream.runCollect)),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
+      Effect.flatMap(({ meta, preloaded }) =>
+        bootstrapStream(meta, preloaded).pipe(Stream.take(1), Stream.runCollect),
+      ),
       Effect.tap((frames) =>
         Effect.sync(() => {
           assert.strictEqual(frames.length, 1);
@@ -58,8 +62,12 @@ describe("Integration", () => {
 
   it.effect("bootstrap stream delivers LedgerState after Init", () =>
     readSnapshotMeta("./db").pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
-      Effect.flatMap(({ meta, preloaded }) => bootstrapStream(meta, preloaded).pipe(Stream.take(2), Stream.runCollect)),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
+      Effect.flatMap(({ meta, preloaded }) =>
+        bootstrapStream(meta, preloaded).pipe(Stream.take(2), Stream.runCollect),
+      ),
       Effect.tap((frames) =>
         Effect.sync(() => {
           assert.strictEqual(frames.length, 2);
@@ -80,8 +88,12 @@ describe("Integration", () => {
 
   it.effect("bootstrap stream includes LedgerMeta with backend info", () =>
     readSnapshotMeta("./db").pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
-      Effect.flatMap(({ meta, preloaded }) => bootstrapStream(meta, preloaded).pipe(Stream.take(3), Stream.runCollect)),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
+      Effect.flatMap(({ meta, preloaded }) =>
+        bootstrapStream(meta, preloaded).pipe(Stream.take(3), Stream.runCollect),
+      ),
       Effect.tap((frames) =>
         Effect.sync(() => {
           const metaMsg = decodeFrame(frames[2]!);
@@ -99,7 +111,9 @@ describe("Integration", () => {
 
   it.effect("bootstrap stream includes blob entries after metadata", () =>
     readSnapshotMeta("./db").pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
       Effect.flatMap(({ meta, preloaded }) =>
         bootstrapStream(meta, preloaded).pipe(
           // Init + LedgerState + LedgerMeta + first blob batch
@@ -126,7 +140,9 @@ describe("Integration", () => {
     "complete message stream ordering: Init, LedgerState, LedgerMeta, BlobEntries, Blocks, Complete",
     () =>
       readSnapshotMeta("./db").pipe(
-        Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
+        Effect.flatMap((meta) =>
+          preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+        ),
         Effect.flatMap(({ meta, preloaded }) =>
           bootstrapStream(meta, preloaded).pipe(
             // Collect first 10 frames to verify ordering pattern

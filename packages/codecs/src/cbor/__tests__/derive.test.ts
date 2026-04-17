@@ -207,9 +207,7 @@ describe("toCodecCbor — property tests", () => {
         }),
         (arr) => {
           const out = decode(codec, encode(codec, arr));
-          return (
-            out.length === arr.length && out.every((v, i) => v === arr[i])
-          );
+          return out.length === arr.length && out.every((v, i) => v === arr[i]);
         },
       ),
       { numRuns: 200 },

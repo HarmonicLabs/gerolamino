@@ -70,7 +70,10 @@ const unwrapSet = (node: CborSchemaType): readonly CborSchemaType[] => {
 };
 
 /** Look up an integer key in a CBOR map. */
-const mapGet = (entries: readonly { readonly k: CborSchemaType; readonly v: CborSchemaType }[], key: number): CborSchemaType | undefined => {
+const mapGet = (
+  entries: readonly { readonly k: CborSchemaType; readonly v: CborSchemaType }[],
+  key: number,
+): CborSchemaType | undefined => {
   for (const e of entries) {
     if (e.k._tag === CborKinds.UInt && Number(e.k.num) === key) return e.v;
   }
@@ -97,11 +100,22 @@ const extractDRep = (node: CborSchemaType | undefined): { kind: number; hash: Ui
   const tag = node.items[0];
   if (tag?._tag !== CborKinds.UInt) return none;
   switch (Number(tag.num)) {
-    case 0: return { kind: 1, hash: node.items[1]?._tag === CborKinds.Bytes ? node.items[1].bytes : EMPTY_28 };
-    case 1: return { kind: 2, hash: node.items[1]?._tag === CborKinds.Bytes ? node.items[1].bytes : EMPTY_28 };
-    case 2: return { kind: 3, hash: EMPTY_28 };
-    case 3: return { kind: 4, hash: EMPTY_28 };
-    default: return none;
+    case 0:
+      return {
+        kind: 1,
+        hash: node.items[1]?._tag === CborKinds.Bytes ? node.items[1].bytes : EMPTY_28,
+      };
+    case 1:
+      return {
+        kind: 2,
+        hash: node.items[1]?._tag === CborKinds.Bytes ? node.items[1].bytes : EMPTY_28,
+      };
+    case 2:
+      return { kind: 3, hash: EMPTY_28 };
+    case 3:
+      return { kind: 4, hash: EMPTY_28 };
+    default:
+      return none;
   }
 };
 
@@ -191,11 +205,13 @@ const processCerts = (
 
     switch (tag) {
       // --- Registration (create account with zero balance) ---
-      case 0:   // StakeRegistration [0, credential]
-      case 7: { // RegDeposit [7, credential, deposit]
+      case 0: // StakeRegistration [0, credential]
+      case 7: {
+        // RegDeposit [7, credential, deposit]
         const h = credentialHash(cert.items[1]);
         if (!h) break;
-        const deposit = tag === 7 && cert.items[2]?._tag === CborKinds.UInt ? cert.items[2].num : 0n;
+        const deposit =
+          tag === 7 && cert.items[2]?._tag === CborKinds.UInt ? cert.items[2].num : 0n;
         accountUpdates.push({
           key: accountKey(h),
           value: encodeAccountValue(0n, deposit, 0, EMPTY_28, EMPTY_28),
@@ -204,15 +220,17 @@ const processCerts = (
       }
 
       // --- Deregistration (delete account) ---
-      case 1:   // StakeDeregistration [1, credential]
-      case 8: { // UnregDeposit [8, credential, deposit]
+      case 1: // StakeDeregistration [1, credential]
+      case 8: {
+        // UnregDeposit [8, credential, deposit]
         const h = credentialHash(cert.items[1]);
         if (h) accountDeletes.push(accountKey(h));
         break;
       }
 
       // --- Pool delegation only ---
-      case 2: { // StakeDelegation [2, credential, poolKeyHash]
+      case 2: {
+        // StakeDelegation [2, credential, poolKeyHash]
         const h = credentialHash(cert.items[1]);
         const pool = cert.items[2]?._tag === CborKinds.Bytes ? cert.items[2].bytes : undefined;
         if (!h || !pool) break;
@@ -224,7 +242,8 @@ const processCerts = (
       }
 
       // --- Pool registration ---
-      case 3: { // PoolRegistration [3, operator, vrfKeyhash, pledge, cost, margin, rewardAcct, ...]
+      case 3: {
+        // PoolRegistration [3, operator, vrfKeyhash, pledge, cost, margin, rewardAcct, ...]
         const operator = cert.items[1]?._tag === CborKinds.Bytes ? cert.items[1].bytes : undefined;
         if (operator && operator.byteLength === 28) {
           stakeUpdates.push({ key: stakeKey(operator), value: encodeStakeValue(0n) });
@@ -235,7 +254,8 @@ const processCerts = (
       // Pool retirement (tag 4): deferred to epoch boundary — no immediate state change.
 
       // --- DRep delegation only ---
-      case 9: { // VoteDeleg [9, credential, drep]
+      case 9: {
+        // VoteDeleg [9, credential, drep]
         const h = credentialHash(cert.items[1]);
         if (!h) break;
         const drep = extractDRep(cert.items[2]);
@@ -247,7 +267,8 @@ const processCerts = (
       }
 
       // --- Pool + DRep delegation ---
-      case 10: { // StakeVoteDeleg [10, credential, poolKeyHash, drep]
+      case 10: {
+        // StakeVoteDeleg [10, credential, poolKeyHash, drep]
         const h = credentialHash(cert.items[1]);
         const pool = cert.items[2]?._tag === CborKinds.Bytes ? cert.items[2].bytes : undefined;
         if (!h || !pool) break;
@@ -260,7 +281,8 @@ const processCerts = (
       }
 
       // --- Registration + pool delegation ---
-      case 11: { // StakeRegDeleg [11, credential, poolKeyHash, deposit]
+      case 11: {
+        // StakeRegDeleg [11, credential, poolKeyHash, deposit]
         const h = credentialHash(cert.items[1]);
         const pool = cert.items[2]?._tag === CborKinds.Bytes ? cert.items[2].bytes : undefined;
         const deposit = cert.items[3]?._tag === CborKinds.UInt ? cert.items[3].num : 0n;
@@ -273,7 +295,8 @@ const processCerts = (
       }
 
       // --- Registration + DRep delegation ---
-      case 12: { // VoteRegDeleg [12, credential, drep, deposit]
+      case 12: {
+        // VoteRegDeleg [12, credential, drep, deposit]
         const h = credentialHash(cert.items[1]);
         const deposit = cert.items[3]?._tag === CborKinds.UInt ? cert.items[3].num : 0n;
         if (!h) break;
@@ -286,7 +309,8 @@ const processCerts = (
       }
 
       // --- Registration + pool + DRep delegation ---
-      case 13: { // StakeVoteRegDeleg [13, credential, poolKeyHash, drep, deposit]
+      case 13: {
+        // StakeVoteRegDeleg [13, credential, poolKeyHash, drep, deposit]
         const h = credentialHash(cert.items[1]);
         const pool = cert.items[2]?._tag === CborKinds.Bytes ? cert.items[2].bytes : undefined;
         const deposit = cert.items[4]?._tag === CborKinds.UInt ? cert.items[4].num : 0n;
@@ -377,14 +401,14 @@ export const applyBlock = (
       if (isValid) {
         // UTXOS rule for valid tx:
         //   utxo' = (utxo ⊳ txins^c) ∪l outs(txb)
-        collectInputDeletes(mapGet(entries, 0), utxoDeletes);       // key 0: inputs
+        collectInputDeletes(mapGet(entries, 0), utxoDeletes); // key 0: inputs
         collectOutputInserts(mapGet(entries, 1), txId, utxoInserts); // key 1: outputs
         processCerts(mapGet(entries, 4), accountUpdates, accountDeletes, stakeUpdates); // key 4: certs
         // key 5 (withdrawals): only affects reward balance which we don't track incrementally
       } else {
         // UTXOS rule for invalid (Phase-2 failed) tx:
         //   utxo' = (utxo ⊳ collateral^c) ∪l colReturnUTxO
-        collectInputDeletes(mapGet(entries, 13), utxoDeletes);      // key 13: collateral inputs
+        collectInputDeletes(mapGet(entries, 13), utxoDeletes); // key 13: collateral inputs
 
         // Collateral return (Babbage+, key 16): indexed at len(txOuts)
         const collReturn = mapGet(entries, 16);

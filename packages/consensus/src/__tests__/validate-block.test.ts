@@ -48,7 +48,11 @@ const computeBodyHash = (
     const h = new Bun.CryptoHasher("blake2b256");
     return new Uint8Array(h.update(data).digest().buffer);
   };
-  const segHashes = [hash(encodeSync(txBodies)), hash(encodeSync(witnesses)), hash(encodeSync(auxData))];
+  const segHashes = [
+    hash(encodeSync(txBodies)),
+    hash(encodeSync(witnesses)),
+    hash(encodeSync(auxData)),
+  ];
   if (invalidTxs) segHashes.push(hash(encodeSync(invalidTxs)));
 
   let total = 0;

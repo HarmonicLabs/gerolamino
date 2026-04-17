@@ -64,11 +64,15 @@ export class SyncState extends Schema.Class<SyncState>("SyncState")({
   peerCount: Schema.optional(Schema.Number),
   gsmState: Schema.optional(Schema.String),
   /** Peer list — tipSlot as string (chrome.storage.session is JSON-only). */
-  peers: Schema.optional(Schema.Array(Schema.Struct({
-    id: Schema.String,
-    status: Schema.String,
-    tipSlot: Schema.String,
-  }))),
+  peers: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        status: Schema.String,
+        tipSlot: Schema.String,
+      }),
+    ),
+  ),
   /** Network info — derived from Init protocolMagic + bootstrap URL. */
   network: Schema.optional(Schema.String),
   relayHost: Schema.optional(Schema.String),

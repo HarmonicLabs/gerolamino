@@ -1,11 +1,6 @@
 import { describe, it } from "@effect/vitest";
 import * as FastCheck from "effect/testing/FastCheck";
-import {
-  CborKinds,
-  type CborValue,
-  encodeSync,
-  parseSync,
-} from "../index";
+import { CborKinds, type CborValue, encodeSync, parseSync } from "../index";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Property tests for CBOR Layer 1 — `parseSync` + `encodeSync` on random
@@ -66,9 +61,7 @@ const makeCborArb = (): FastCheck.Arbitrary<CborValue> => {
     FastCheck.string({ maxLength: 24 }).map(
       (text) => ({ _tag: CborKinds.Text, text }) satisfies CborValue,
     ),
-    FastCheck.boolean().map(
-      (b) => ({ _tag: CborKinds.Simple, value: b }) satisfies CborValue,
-    ),
+    FastCheck.boolean().map((b) => ({ _tag: CborKinds.Simple, value: b }) satisfies CborValue),
     FastCheck.constant({ _tag: CborKinds.Simple, value: null } satisfies CborValue),
     FastCheck.constant({ _tag: CborKinds.Simple, value: undefined } satisfies CborValue),
   );
@@ -82,10 +75,7 @@ const makeCborArb = (): FastCheck.Arbitrary<CborValue> => {
       FastCheck.array(t("tree"), { maxLength: 4 }).map(
         (items) => ({ _tag: CborKinds.Array, items }) satisfies CborValue,
       ),
-      FastCheck.array(
-        FastCheck.record({ k: t("tree"), v: t("tree") }),
-        { maxLength: 3 },
-      ).map(
+      FastCheck.array(FastCheck.record({ k: t("tree"), v: t("tree") }), { maxLength: 3 }).map(
         (entries) => ({ _tag: CborKinds.Map, entries }) satisfies CborValue,
       ),
       FastCheck.record({
@@ -98,10 +88,7 @@ const makeCborArb = (): FastCheck.Arbitrary<CborValue> => {
           FastCheck.bigInt({ min: 4n, max: 255n }),
         ),
         data: t("tree"),
-      }).map(
-        ({ tag, data }) =>
-          ({ _tag: CborKinds.Tag, tag, data }) satisfies CborValue,
-      ),
+      }).map(({ tag, data }) => ({ _tag: CborKinds.Tag, tag, data }) satisfies CborValue),
     ),
   }));
 
@@ -124,10 +111,10 @@ describe("CBOR round-trip properties", () => {
       FastCheck.property(cborValueArb, (v) => {
         const bytes = encodeSync(v);
         const parsed = parseSync(bytes);
-        return JSON.stringify(
-          stripAddInfos(parsed),
-          bigintReplacer,
-        ) === JSON.stringify(stripAddInfos(v), bigintReplacer);
+        return (
+          JSON.stringify(stripAddInfos(parsed), bigintReplacer) ===
+          JSON.stringify(stripAddInfos(v), bigintReplacer)
+        );
       }),
       { numRuns: 300 },
     );
@@ -141,9 +128,7 @@ describe("CBOR round-trip properties", () => {
 
   it("P1: encodeSync(v) is deterministic across calls", () => {
     FastCheck.assert(
-      FastCheck.property(cborValueArb, (v) =>
-        bytesEqual(encodeSync(v), encodeSync(v)),
-      ),
+      FastCheck.property(cborValueArb, (v) => bytesEqual(encodeSync(v), encodeSync(v))),
       { numRuns: 200 },
     );
   });
@@ -259,5 +244,4 @@ describe("CBOR length-prefix boundary properties", () => {
   });
 });
 
-const bigintReplacer = (_: string, v: unknown): unknown =>
-  typeof v === "bigint" ? `${v}n` : v;
+const bigintReplacer = (_: string, v: unknown): unknown => (typeof v === "bigint" ? `${v}n` : v);

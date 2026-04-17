@@ -22,10 +22,7 @@ export const LedgerDBLive: Layer.Layer<LedgerDB, never, BlobStore | SqlClient> =
     const store = yield* BlobStore;
     const sql = yield* SqlClient;
     const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
-      effect.pipe(
-        Effect.provideService(BlobStore, store),
-        Effect.provideService(SqlClient, sql),
-      );
+      effect.pipe(Effect.provideService(BlobStore, store), Effect.provideService(SqlClient, sql));
     return {
       writeSnapshot: (snapshot: LedgerStateSnapshot) => provide(writeSnapshot(snapshot)),
       readLatestSnapshot: provide(readLatestSnapshot),

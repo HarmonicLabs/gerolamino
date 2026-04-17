@@ -29,22 +29,18 @@ export class VolatileDB extends Context.Service<
   }
 >()("storage/VolatileDB") {}
 
-export const VolatileDBLive: Layer.Layer<VolatileDB, never, BlobStore | SqlClient> =
-  Layer.effect(
-    VolatileDB,
-    Effect.gen(function* () {
-      const store = yield* BlobStore;
-      const sql = yield* SqlClient;
-      const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
-        effect.pipe(
-          Effect.provideService(BlobStore, store),
-          Effect.provideService(SqlClient, sql),
-        );
-      return {
-        addBlock: (block: StoredBlock) => provide(writeVolatileBlock(block)),
-        getBlock: (hash: Uint8Array) => provide(readVolatileBlock(hash)),
-        getSuccessors: (hash: Uint8Array) => provide(getVolatileSuccessors(hash)),
-        garbageCollect: (belowSlot: number) => provide(garbageCollectVolatile(belowSlot)),
-      };
-    }),
-  );
+export const VolatileDBLive: Layer.Layer<VolatileDB, never, BlobStore | SqlClient> = Layer.effect(
+  VolatileDB,
+  Effect.gen(function* () {
+    const store = yield* BlobStore;
+    const sql = yield* SqlClient;
+    const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
+      effect.pipe(Effect.provideService(BlobStore, store), Effect.provideService(SqlClient, sql));
+    return {
+      addBlock: (block: StoredBlock) => provide(writeVolatileBlock(block)),
+      getBlock: (hash: Uint8Array) => provide(readVolatileBlock(hash)),
+      getSuccessors: (hash: Uint8Array) => provide(getVolatileSuccessors(hash)),
+      garbageCollect: (belowSlot: number) => provide(garbageCollectVolatile(belowSlot)),
+    };
+  }),
+);

@@ -29,10 +29,7 @@ declare module "effect/SchemaAST" {
   // Walker primitives (top-level exports)
   export function toCodec(f: (ast: AST.AST) => AST.AST): (ast: AST.AST) => AST.AST;
 
-  export function replaceEncoding<A extends AST.AST>(
-    ast: A,
-    encoding: AST.Encoding | undefined,
-  ): A;
+  export function replaceEncoding<A extends AST.AST>(ast: A, encoding: AST.Encoding | undefined): A;
 
   export function optionalKeyLastLink<A extends AST.AST>(ast: A): A;
 

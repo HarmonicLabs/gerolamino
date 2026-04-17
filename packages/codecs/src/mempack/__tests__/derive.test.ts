@@ -6,10 +6,11 @@ import { bool, bytes, length, tag, text, varLen, word64 } from "../primitives";
 
 describe("mempack/derive/toCodecMemPackBytes", () => {
   it("lifts a MemPackCodec<bigint> into a Schema.Codec<bigint, Uint8Array>", () => {
-    const schema = Schema.BigInt.pipe(
-      Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n)),
+    const schema = Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n)));
+    const lifted = toCodecMemPackBytes(
+      schema as Schema.Codec<bigint, bigint, never, never>,
+      varLen,
     );
-    const lifted = toCodecMemPackBytes(schema as Schema.Codec<bigint, bigint, never, never>, varLen);
 
     const value = 1_000_000n;
     const encoded = Effect.runSync(Schema.encodeEffect(lifted)(value));

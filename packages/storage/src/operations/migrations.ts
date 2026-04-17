@@ -376,7 +376,8 @@ const migrations = Migrator.fromRecord({
       )
     `.unprepared;
 
-    yield* sql`CREATE INDEX IF NOT EXISTS idx_epoch_stake_epoch ON epoch_stake(epoch_no)`.unprepared;
+    yield* sql`CREATE INDEX IF NOT EXISTS idx_epoch_stake_epoch ON epoch_stake(epoch_no)`
+      .unprepared;
     yield* sql`CREATE INDEX IF NOT EXISTS idx_epoch_stake_pool ON epoch_stake(pool_id)`.unprepared;
 
     // Rewards

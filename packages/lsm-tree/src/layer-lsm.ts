@@ -135,8 +135,7 @@ const lessThan = (a: Uint8Array, b: Uint8Array): boolean => {
   return a.byteLength < b.byteLength;
 };
 
-const toBlobStoreError = (cause: unknown) =>
-  new BlobStoreError({ operation: "lsm", cause });
+const toBlobStoreError = (cause: unknown) => new BlobStoreError({ operation: "lsm", cause });
 
 /** Build BlobStore operations from an initialized FFI handle. */
 const makeBlobStoreOps = (ffi: BridgeLib) => ({

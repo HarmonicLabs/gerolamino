@@ -282,7 +282,12 @@ export function encodeProgress(phase: string, current: number, total: number): U
 
 export function decodeProgress(payload: Uint8Array) {
   const json = JSON.parse(textDecoder.decode(payload));
-  return { _tag: BootstrapMessageKind.Progress as const, phase: json.phase, current: json.current, total: json.total };
+  return {
+    _tag: BootstrapMessageKind.Progress as const,
+    phase: json.phase,
+    current: json.current,
+    total: json.total,
+  };
 }
 
 // ---------------------------------------------------------------------------

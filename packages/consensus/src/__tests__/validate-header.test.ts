@@ -73,7 +73,10 @@ describe("validateHeader", () => {
     const header = makeHeader();
     // Use a non-empty map with a different pool to avoid triggering the genesis-skip guard
     const result = await run(
-      validateHeader(header, makeView(header, { poolVrfKeys: HashMap.make(["other_pool", makeVk(99)]) })),
+      validateHeader(
+        header,
+        makeView(header, { poolVrfKeys: HashMap.make(["other_pool", makeVk(99)]) }),
+      ),
     );
     expect(Exit.isFailure(result)).toBe(true);
   });

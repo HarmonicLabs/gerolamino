@@ -12,17 +12,32 @@ describe("parseSync", () => {
     });
 
     it("1-byte (24-255)", () => {
-      expect(parseSync(Uint8Array.fromHex("1818"))).toMatchObject({ _tag: CborKinds.UInt, num: 24n });
-      expect(parseSync(Uint8Array.fromHex("18ff"))).toMatchObject({ _tag: CborKinds.UInt, num: 255n });
+      expect(parseSync(Uint8Array.fromHex("1818"))).toMatchObject({
+        _tag: CborKinds.UInt,
+        num: 24n,
+      });
+      expect(parseSync(Uint8Array.fromHex("18ff"))).toMatchObject({
+        _tag: CborKinds.UInt,
+        num: 255n,
+      });
     });
 
     it("2-byte", () => {
-      expect(parseSync(Uint8Array.fromHex("190100"))).toMatchObject({ _tag: CborKinds.UInt, num: 256n });
-      expect(parseSync(Uint8Array.fromHex("19ffff"))).toMatchObject({ _tag: CborKinds.UInt, num: 65535n });
+      expect(parseSync(Uint8Array.fromHex("190100"))).toMatchObject({
+        _tag: CborKinds.UInt,
+        num: 256n,
+      });
+      expect(parseSync(Uint8Array.fromHex("19ffff"))).toMatchObject({
+        _tag: CborKinds.UInt,
+        num: 65535n,
+      });
     });
 
     it("4-byte", () => {
-      expect(parseSync(Uint8Array.fromHex("1a00010000"))).toMatchObject({ _tag: CborKinds.UInt, num: 65536n });
+      expect(parseSync(Uint8Array.fromHex("1a00010000"))).toMatchObject({
+        _tag: CborKinds.UInt,
+        num: 65536n,
+      });
       expect(parseSync(Uint8Array.fromHex("1affffffff"))).toMatchObject({
         _tag: CborKinds.UInt,
         num: 4294967295n,
@@ -44,14 +59,29 @@ describe("parseSync", () => {
 
   describe("negative integers", () => {
     it("inline", () => {
-      expect(parseSync(Uint8Array.fromHex("20"))).toMatchObject({ _tag: CborKinds.NegInt, num: -1n });
-      expect(parseSync(Uint8Array.fromHex("24"))).toMatchObject({ _tag: CborKinds.NegInt, num: -5n });
-      expect(parseSync(Uint8Array.fromHex("37"))).toMatchObject({ _tag: CborKinds.NegInt, num: -24n });
+      expect(parseSync(Uint8Array.fromHex("20"))).toMatchObject({
+        _tag: CborKinds.NegInt,
+        num: -1n,
+      });
+      expect(parseSync(Uint8Array.fromHex("24"))).toMatchObject({
+        _tag: CborKinds.NegInt,
+        num: -5n,
+      });
+      expect(parseSync(Uint8Array.fromHex("37"))).toMatchObject({
+        _tag: CborKinds.NegInt,
+        num: -24n,
+      });
     });
 
     it("1-byte", () => {
-      expect(parseSync(Uint8Array.fromHex("3818"))).toMatchObject({ _tag: CborKinds.NegInt, num: -25n });
-      expect(parseSync(Uint8Array.fromHex("38ff"))).toMatchObject({ _tag: CborKinds.NegInt, num: -256n });
+      expect(parseSync(Uint8Array.fromHex("3818"))).toMatchObject({
+        _tag: CborKinds.NegInt,
+        num: -25n,
+      });
+      expect(parseSync(Uint8Array.fromHex("38ff"))).toMatchObject({
+        _tag: CborKinds.NegInt,
+        num: -256n,
+      });
     });
 
     it("8-byte", () => {
@@ -120,7 +150,9 @@ describe("parseSync", () => {
 
     it("indefinite with data", () => {
       // Indefinite bytes: chunk [01,07,0a,0f,14,18] + chunk [01,07,0a,0f,14,18] + chunk [01,07,0a,0f,14,18]
-      const result = parseSync(Uint8Array.fromHex("5f4601070a0f14184601070a0f14184601070a0f1418ff"));
+      const result = parseSync(
+        Uint8Array.fromHex("5f4601070a0f14184601070a0f14184601070a0f1418ff"),
+      );
       expect(result._tag).toBe(CborKinds.Bytes);
       if (result._tag === CborKinds.Bytes) {
         expect(result.chunks).toHaveLength(3);
@@ -160,7 +192,10 @@ describe("parseSync", () => {
 
   describe("arrays", () => {
     it("empty", () => {
-      expect(parseSync(Uint8Array.fromHex("80"))).toMatchObject({ _tag: CborKinds.Array, items: [] });
+      expect(parseSync(Uint8Array.fromHex("80"))).toMatchObject({
+        _tag: CborKinds.Array,
+        items: [],
+      });
     });
 
     it("[1, 2, 3]", () => {
@@ -186,7 +221,10 @@ describe("parseSync", () => {
 
   describe("maps", () => {
     it("empty", () => {
-      expect(parseSync(Uint8Array.fromHex("a0"))).toMatchObject({ _tag: CborKinds.Map, entries: [] });
+      expect(parseSync(Uint8Array.fromHex("a0"))).toMatchObject({
+        _tag: CborKinds.Map,
+        entries: [],
+      });
     });
 
     it("{bytes: text, uint: array}", () => {
@@ -233,13 +271,25 @@ describe("parseSync", () => {
 
   describe("simple values", () => {
     it("false", () =>
-      expect(parseSync(Uint8Array.fromHex("f4"))).toMatchObject({ _tag: CborKinds.Simple, value: false }));
+      expect(parseSync(Uint8Array.fromHex("f4"))).toMatchObject({
+        _tag: CborKinds.Simple,
+        value: false,
+      }));
     it("true", () =>
-      expect(parseSync(Uint8Array.fromHex("f5"))).toMatchObject({ _tag: CborKinds.Simple, value: true }));
+      expect(parseSync(Uint8Array.fromHex("f5"))).toMatchObject({
+        _tag: CborKinds.Simple,
+        value: true,
+      }));
     it("null", () =>
-      expect(parseSync(Uint8Array.fromHex("f6"))).toMatchObject({ _tag: CborKinds.Simple, value: null }));
+      expect(parseSync(Uint8Array.fromHex("f6"))).toMatchObject({
+        _tag: CborKinds.Simple,
+        value: null,
+      }));
     it("undefined", () =>
-      expect(parseSync(Uint8Array.fromHex("f7"))).toMatchObject({ _tag: CborKinds.Simple, value: undefined }));
+      expect(parseSync(Uint8Array.fromHex("f7"))).toMatchObject({
+        _tag: CborKinds.Simple,
+        value: undefined,
+      }));
   });
 
   describe("floats", () => {

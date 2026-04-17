@@ -100,7 +100,11 @@ export const extractSnapshotTip = (
 function extractPParamUint(pparams: CborSchemaType, key: number): number | undefined {
   if (pparams._tag !== CborKinds.Map) return undefined;
   for (const entry of pparams.entries) {
-    if (entry.k._tag === CborKinds.UInt && Number(entry.k.num) === key && entry.v._tag === CborKinds.UInt) {
+    if (
+      entry.k._tag === CborKinds.UInt &&
+      Number(entry.k.num) === key &&
+      entry.v._tag === CborKinds.UInt
+    ) {
       return Number(entry.v.num);
     }
   }
@@ -173,7 +177,9 @@ function extractEpochNonceFromChainDepState(chainDepState: CborSchemaType): Uint
  * Per Haskell PraosState: index [1] is `praosStateOCertCounters :: Map (KeyHash BlockIssuer) Word64`.
  * The CBOR Map has 28-byte key hashes (blake2b-224 of pool cold VKey) and uint64 seqNo values.
  */
-export function extractOcertCounters(chainDepState: CborSchemaType): HashMap.HashMap<string, number> {
+export function extractOcertCounters(
+  chainDepState: CborSchemaType,
+): HashMap.HashMap<string, number> {
   if (chainDepState._tag !== CborKinds.Array || chainDepState.items.length < 7) {
     return HashMap.empty();
   }

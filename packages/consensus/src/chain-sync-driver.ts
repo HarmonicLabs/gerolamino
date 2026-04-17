@@ -30,7 +30,9 @@ export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDrive
 
 /** Volatile chain state — tracks the mutable tip and recent blocks. */
 export const VolatileState = Schema.Struct({
-  tip: Schema.optional(Schema.Struct({ slot: Schema.BigInt, blockNo: Schema.BigInt, hash: Schema.Uint8Array })),
+  tip: Schema.optional(
+    Schema.Struct({ slot: Schema.BigInt, blockNo: Schema.BigInt, hash: Schema.Uint8Array }),
+  ),
   nonces: Nonces,
   /** Per-pool opcert sequence counters (poolId hex → last seqNo). */
   ocertCounters: Schema.HashMap(Schema.String, Schema.Number),
@@ -152,7 +154,11 @@ export const handleRollForward = (
           let nonces = state.nonces;
 
           if (blockEpoch > state.nonces.epoch) {
-            const newEpochNonce = deriveEpochNonce(state.nonces.candidate, header.prevHash, crypto.blake2b256);
+            const newEpochNonce = deriveEpochNonce(
+              state.nonces.candidate,
+              header.prevHash,
+              crypto.blake2b256,
+            );
             nonces = new Nonces({
               active: newEpochNonce,
               evolving: newEpochNonce,
@@ -161,7 +167,11 @@ export const handleRollForward = (
             });
           }
 
-          const newEvolving = evolveNonce(nonces.evolving, header.nonceVrfOutput, crypto.blake2b256);
+          const newEvolving = evolveNonce(
+            nonces.evolving,
+            header.nonceVrfOutput,
+            crypto.blake2b256,
+          );
           const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
           const pastCollection = isPastStabilizationWindow(
             slotInEpoch,

@@ -68,7 +68,11 @@ export const processBlock = (
       blockEpoch > currentNonces.epoch
         ? (() => {
             // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
-            const newEpochNonce = deriveEpochNonce(currentNonces.candidate, header.prevHash, crypto.blake2b256);
+            const newEpochNonce = deriveEpochNonce(
+              currentNonces.candidate,
+              header.prevHash,
+              crypto.blake2b256,
+            );
             return new Nonces({
               active: newEpochNonce,
               evolving: newEpochNonce,

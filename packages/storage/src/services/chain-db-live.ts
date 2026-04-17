@@ -20,7 +20,14 @@ import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { createActor, fromPromise } from "xstate";
 import { ChainDB, ChainDBError } from "./chain-db.ts";
-import { BlobStore, blockKey, blockIndexKey, cborOffsetKey, snapshotKey, analyzeBlockCbor } from "../blob-store";
+import {
+  BlobStore,
+  blockKey,
+  blockIndexKey,
+  cborOffsetKey,
+  snapshotKey,
+  analyzeBlockCbor,
+} from "../blob-store";
 import { chainDBMachine } from "../machines/chaindb.ts";
 import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
@@ -244,25 +251,27 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             }).pipe(Effect.runPromise);
           }),
           collectGarbage: fromPromise<void, { belowSlot: bigint }>(({ input }) =>
-            sql.withTransaction(
-              Effect.gen(function* () {
-                const findToDelete = SqlSchema.findAll({
-                  Request: Schema.Struct({ belowSlot: Schema.Number }),
-                  Result: PointRow,
-                  execute: (req) => sql`
+            sql
+              .withTransaction(
+                Effect.gen(function* () {
+                  const findToDelete = SqlSchema.findAll({
+                    Request: Schema.Struct({ belowSlot: Schema.Number }),
+                    Result: PointRow,
+                    execute: (req) => sql`
                     SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
                   `,
-                });
+                  });
 
-                const rows = yield* findToDelete({ belowSlot: Number(input.belowSlot) });
-                if (rows.length > 0) {
-                  yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
-                }
-                yield* sql`
+                  const rows = yield* findToDelete({ belowSlot: Number(input.belowSlot) });
+                  if (rows.length > 0) {
+                    yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
+                  }
+                  yield* sql`
                   DELETE FROM volatile_blocks WHERE slot < ${Number(input.belowSlot)}
                 `.unprepared;
-              }),
-            ).pipe(Effect.runPromise),
+                }),
+              )
+              .pipe(Effect.runPromise),
           ),
         },
       });
@@ -279,10 +288,9 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
       return {
         // --- Lookups (volatile first, spec 12.1.1) ---
         getBlock: (hash: Uint8Array) =>
-          lookupBlock(
-            findVolatileByHash({ hash }),
-            findImmutableByHash({ hash }),
-          ).pipe(Effect.mapError((c) => fail("getBlock", c))),
+          lookupBlock(findVolatileByHash({ hash }), findImmutableByHash({ hash })).pipe(
+            Effect.mapError((c) => fail("getBlock", c)),
+          ),
 
         getBlockAt: (point: RealPoint) =>
           lookupBlock(
@@ -310,7 +318,10 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
         getImmutableTip: Effect.gen(function* () {
           const row = yield* findImmutableTipPoint(undefined);
-          return Option.map(row, (r) => ({ slot: BigInt(r.slot), hash: r.hash }) satisfies RealPoint);
+          return Option.map(
+            row,
+            (r) => ({ slot: BigInt(r.slot), hash: r.hash }) satisfies RealPoint,
+          );
         }).pipe(Effect.mapError((c) => fail("getImmutableTip", c))),
 
         // --- Writing ---
@@ -339,9 +350,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                 [
                   store.put(blockKey(block.slot, block.hash), block.blockCbor),
                   store.put(blockIndexKey(block.blockNo), idxVal),
-                  offsetEntries.length > 0
-                    ? store.putBatch(offsetEntries)
-                    : Effect.void,
+                  offsetEntries.length > 0 ? store.putBatch(offsetEntries) : Effect.void,
                   sql`
                     INSERT INTO volatile_blocks (hash, slot, prev_hash, block_no, block_size_bytes)
                     VALUES (${block.hash}, ${Number(block.slot)}, ${block.prevHash ?? null}, ${Number(block.blockNo)}, ${block.blockSizeBytes})
@@ -501,25 +510,27 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
         // --- Garbage collection ---
         garbageCollect: (belowSlot: bigint) =>
-          sql.withTransaction(
-            Effect.gen(function* () {
-              const findToDelete = SqlSchema.findAll({
-                Request: Schema.Struct({ belowSlot: Schema.Number }),
-                Result: PointRow,
-                execute: (req) => sql`
+          sql
+            .withTransaction(
+              Effect.gen(function* () {
+                const findToDelete = SqlSchema.findAll({
+                  Request: Schema.Struct({ belowSlot: Schema.Number }),
+                  Result: PointRow,
+                  execute: (req) => sql`
                   SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
                 `,
-              });
+                });
 
-              const rows = yield* findToDelete({ belowSlot: Number(belowSlot) });
-              if (rows.length > 0) {
-                yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
-              }
-              yield* sql`
+                const rows = yield* findToDelete({ belowSlot: Number(belowSlot) });
+                if (rows.length > 0) {
+                  yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
+                }
+                yield* sql`
                 DELETE FROM volatile_blocks WHERE slot < ${Number(belowSlot)}
               `.unprepared;
-            }),
-          ).pipe(Effect.mapError((c) => fail("garbageCollect", c))),
+              }),
+            )
+            .pipe(Effect.mapError((c) => fail("garbageCollect", c))),
 
         // --- Ledger state ---
         writeLedgerSnapshot: (
@@ -528,19 +539,21 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
           epoch: bigint,
           stateBytes: Uint8Array,
         ) =>
-          sql.withTransaction(
-            Effect.all(
-              [
-                store.put(snapshotKey(slot), stateBytes),
-                sql`
+          sql
+            .withTransaction(
+              Effect.all(
+                [
+                  store.put(snapshotKey(slot), stateBytes),
+                  sql`
                   INSERT INTO ledger_snapshots (slot, hash, epoch)
                   VALUES (${Number(slot)}, ${hash}, ${Number(epoch)})
                   ON CONFLICT (slot) DO UPDATE SET hash = ${hash}
                 `.unprepared,
-              ],
-              { concurrency: "unbounded" },
-            ),
-          ).pipe(Effect.mapError((c) => fail("writeLedgerSnapshot", c))),
+                ],
+                { concurrency: "unbounded" },
+              ),
+            )
+            .pipe(Effect.mapError((c) => fail("writeLedgerSnapshot", c))),
 
         readLatestLedgerSnapshot: Effect.gen(function* () {
           const row = yield* findLatestSnapshot(undefined);
@@ -556,7 +569,12 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         }).pipe(Effect.mapError((c) => fail("readLatestLedgerSnapshot", c))),
 
         // --- Nonce persistence ---
-        writeNonces: (epoch: bigint, active: Uint8Array, evolving: Uint8Array, candidate: Uint8Array) =>
+        writeNonces: (
+          epoch: bigint,
+          active: Uint8Array,
+          evolving: Uint8Array,
+          candidate: Uint8Array,
+        ) =>
           sql`
             INSERT INTO nonces (epoch, active, evolving, candidate)
             VALUES (${Number(epoch)}, ${active}, ${evolving}, ${candidate})

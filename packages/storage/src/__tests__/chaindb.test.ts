@@ -11,9 +11,7 @@ import { chainDBMachine } from "../machines/chaindb.ts";
 /** Machine with mock actors that resolve immediately. */
 const testMachine = chainDBMachine.provide({
   actors: {
-    promoteBlocks: fromPromise<number, { tip: { slot: bigint; hash: Uint8Array } }>(
-      async () => 1,
-    ),
+    promoteBlocks: fromPromise<number, { tip: { slot: bigint; hash: Uint8Array } }>(async () => 1),
     collectGarbage: fromPromise<void, { belowSlot: bigint }>(async () => {}),
   },
 });

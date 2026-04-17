@@ -108,11 +108,7 @@ export const BlockFetchMessageBytes = cborSyncCodec(
   BlockFetchMessage.match({
     RequestRange: (m): CborSchemaType => ({
       _tag: CborKinds.Array,
-      items: [
-        { _tag: CborKinds.UInt, num: 0n },
-        encodeChainPoint(m.from),
-        encodeChainPoint(m.to),
-      ],
+      items: [{ _tag: CborKinds.UInt, num: 0n }, encodeChainPoint(m.from), encodeChainPoint(m.to)],
     }),
     ClientDone: (): CborSchemaType => ({
       _tag: CborKinds.Array,

@@ -40,8 +40,12 @@ describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
 
   it("bootstrap stream starts with Init frame", async () => {
     const frames = await readSnapshotMeta(SNAPSHOT_PATH!).pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
-      Effect.flatMap(({ meta, preloaded }) => bootstrapStream(meta, preloaded).pipe(Stream.take(1), Stream.runCollect)),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
+      Effect.flatMap(({ meta, preloaded }) =>
+        bootstrapStream(meta, preloaded).pipe(Stream.take(1), Stream.runCollect),
+      ),
       Effect.provide(testLayers()),
       Effect.runPromise,
     );
@@ -52,7 +56,9 @@ describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
 
   it("bootstrap stream includes LedgerState and LedgerMeta", async () => {
     const tags = await readSnapshotMeta(SNAPSHOT_PATH!).pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
       Effect.flatMap(({ meta, preloaded }) =>
         bootstrapStream(meta, preloaded).pipe(
           Stream.take(3),
@@ -63,12 +69,18 @@ describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
       Effect.provide(testLayers()),
       Effect.runPromise,
     );
-    expect(tags).toEqual([BootstrapMessageKind.Init, BootstrapMessageKind.LedgerState, BootstrapMessageKind.LedgerMeta]);
+    expect(tags).toEqual([
+      BootstrapMessageKind.Init,
+      BootstrapMessageKind.LedgerState,
+      BootstrapMessageKind.LedgerMeta,
+    ]);
   });
 
   it("streams UTxO entries from LSM via BlobStore.scan", async () => {
     const tags = await readSnapshotMeta(SNAPSHOT_PATH!).pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
       Effect.flatMap(({ meta, preloaded }) =>
         bootstrapStream(meta, preloaded).pipe(
           Stream.take(10), // Init + State + Meta + some UTxO batches
@@ -86,7 +98,9 @@ describe.skipIf(skip)("Bootstrap server with V2LSM snapshot", () => {
 
   it("complete stream ends with Complete frame", async () => {
     const lastTag = await readSnapshotMeta(SNAPSHOT_PATH!).pipe(
-      Effect.flatMap((meta) => preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded })))),
+      Effect.flatMap((meta) =>
+        preloadLedgerFiles(meta).pipe(Effect.map((preloaded) => ({ meta, preloaded }))),
+      ),
       Effect.flatMap(({ meta, preloaded }) =>
         bootstrapStream(meta, preloaded).pipe(
           Stream.runCollect,

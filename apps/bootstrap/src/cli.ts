@@ -74,7 +74,9 @@ const serve = Command.make(
         const preloaded = yield* preloadLedgerFiles(meta);
         lsmLayer = layerLsmFromSnapshot(meta.lsmDir, snapshotName);
 
-        yield* startServer(meta, { port: config.port, upstreamUrl }, preloaded).pipe(Effect.provide(lsmLayer));
+        yield* startServer(meta, { port: config.port, upstreamUrl }, preloaded).pipe(
+          Effect.provide(lsmLayer),
+        );
       } else {
         // Mithril snapshot mode
         const meta = yield* readSnapshotMeta(snapshotPath!);
@@ -84,7 +86,9 @@ const serve = Command.make(
         const preloaded = yield* preloadLedgerFiles(meta);
         lsmLayer = layerLsm(meta.lsmDir);
 
-        yield* startServer(meta, { port: config.port, upstreamUrl }, preloaded).pipe(Effect.provide(lsmLayer));
+        yield* startServer(meta, { port: config.port, upstreamUrl }, preloaded).pipe(
+          Effect.provide(lsmLayer),
+        );
       }
 
       yield* Effect.log(`Bootstrap server ready on :${config.port}`);

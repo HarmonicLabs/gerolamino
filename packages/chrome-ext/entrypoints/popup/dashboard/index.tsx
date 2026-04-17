@@ -32,9 +32,7 @@ const decodeSyncState = Schema.decodeUnknownOption(SyncState);
 
 /** Map consensus peer status → dashboard PeerInfo status. */
 const mapPeerStatus = (s: string): PeerInfo["status"] =>
-  s === "stalled" ? "stalled"
-    : s === "disconnected" ? "disconnected"
-    : "connected";
+  s === "stalled" ? "stalled" : s === "disconnected" ? "disconnected" : "connected";
 
 /** Map SyncState from chrome.storage → dashboard atoms. */
 const pushSyncState = (s: SyncState) => {
@@ -50,9 +48,12 @@ const pushSyncState = (s: SyncState) => {
     ...(s.syncPercent !== undefined ? { syncPercent: s.syncPercent } : {}),
     ...(s.gsmState !== undefined
       ? {
-          gsmState: s.gsmState === "CaughtUp" ? "CaughtUp" as const
-            : s.gsmState === "PreSyncing" ? "PreSyncing" as const
-            : "Syncing" as const,
+          gsmState:
+            s.gsmState === "CaughtUp"
+              ? ("CaughtUp" as const)
+              : s.gsmState === "PreSyncing"
+                ? ("PreSyncing" as const)
+                : ("Syncing" as const),
         }
       : {}),
     blocksProcessed: s.blocksProcessed !== undefined ? s.blocksProcessed : s.blocksReceived,
@@ -92,9 +93,12 @@ const pushSyncState = (s: SyncState) => {
   if (s.network !== undefined) {
     registry.update(networkInfoAtom, (prev) => ({
       ...prev,
-      network: s.network === "mainnet" ? "mainnet" as const
-        : s.network === "preview" ? "preview" as const
-        : "preprod" as const,
+      network:
+        s.network === "mainnet"
+          ? ("mainnet" as const)
+          : s.network === "preview"
+            ? ("preview" as const)
+            : ("preprod" as const),
       protocolMagic: s.protocolMagic,
       ...(s.relayHost !== undefined ? { relayHost: s.relayHost } : {}),
       ...(s.relayPort !== undefined ? { relayPort: s.relayPort } : {}),

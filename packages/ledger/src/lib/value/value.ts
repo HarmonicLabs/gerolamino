@@ -134,8 +134,7 @@ export function decodeValue(cbor: CborSchemaType): Effect.Effect<Value, SchemaIs
 }
 
 export function encodeValue(value: Value): CborSchemaType {
-  if (value.multiAsset === undefined || value.multiAsset.length === 0)
-    return uint(value.coin);
+  if (value.multiAsset === undefined || value.multiAsset.length === 0) return uint(value.coin);
 
   return arr(uint(value.coin), encodeMultiAsset(value.multiAsset));
 }

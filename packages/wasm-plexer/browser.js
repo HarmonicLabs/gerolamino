@@ -30,4 +30,8 @@ export async function init() {
   initialized = true;
 }
 
-export { MultiplexerBuffer, unwrap_multiplexer_message, wrap_multiplexer_message } from "./result/wasm_plexer_bg.js";
+export {
+  MultiplexerBuffer,
+  unwrap_multiplexer_message,
+  wrap_multiplexer_message,
+} from "./result/wasm_plexer_bg.js";

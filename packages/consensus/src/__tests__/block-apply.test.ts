@@ -17,7 +17,11 @@ const map = (...entries: [CborSchemaType, CborSchemaType][]): CborSchemaType => 
   _tag: CborKinds.Map,
   entries: entries.map(([k, v]) => ({ k, v })),
 });
-const tag258 = (inner: CborSchemaType): CborSchemaType => ({ _tag: CborKinds.Tag, tag: 258n, data: inner });
+const tag258 = (inner: CborSchemaType): CborSchemaType => ({
+  _tag: CborKinds.Tag,
+  tag: 258n,
+  data: inner,
+});
 
 /** Build a minimal valid post-Byron block CBOR that analyzeBlockCbor can navigate. */
 const makeBlock = (
@@ -41,16 +45,18 @@ const makeBlock = (
 };
 
 /** Build a TxIn CBOR: [txId_bytes32, index_uint] */
-const makeTxIn = (txId: Uint8Array, index: number): CborSchemaType =>
-  arr(bytes(txId), uint(index));
+const makeTxIn = (txId: Uint8Array, index: number): CborSchemaType => arr(bytes(txId), uint(index));
 
 /** Build a simple Shelley-era TxOut: [address_bytes, coin_uint] */
-const makeTxOut = (addr: Uint8Array, coin: bigint): CborSchemaType =>
-  arr(bytes(addr), uint(coin));
+const makeTxOut = (addr: Uint8Array, coin: bigint): CborSchemaType => arr(bytes(addr), uint(coin));
 
 /** Build a tx body map with given fields */
 const makeTxBody = (fields: Record<number, CborSchemaType>): CborSchemaType =>
-  map(...Object.entries(fields).map(([k, v]) => [uint(Number(k)), v] as [CborSchemaType, CborSchemaType]));
+  map(
+    ...Object.entries(fields).map(
+      ([k, v]) => [uint(Number(k)), v] as [CborSchemaType, CborSchemaType],
+    ),
+  );
 
 /** Known txId for test — hash of a specific tx body */
 const knownTxId = new Uint8Array(32).fill(0xaa);
@@ -116,7 +122,7 @@ describe("applyBlock", () => {
     const regularInput = makeTxIn(knownTxId, 0);
     const collateralInput = makeTxIn(knownTxId, 5);
     const txBody = makeTxBody({
-      0: arr(regularInput),     // regular inputs
+      0: arr(regularInput), // regular inputs
       1: arr(makeTxOut(addr1, 5000000n)), // outputs
       2: uint(200000),
       13: arr(collateralInput), // collateral inputs

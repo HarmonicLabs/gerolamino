@@ -90,13 +90,9 @@ const runHandshake = (networkMagic: number) =>
           }),
         ),
       [HandshakeMessageType.MsgProposeVersions]: (msg) =>
-        Effect.fail(
-          new RelayError({ message: `Unexpected handshake response: ${msg._tag}` }),
-        ),
+        Effect.fail(new RelayError({ message: `Unexpected handshake response: ${msg._tag}` })),
       [HandshakeMessageType.MsgQueryReply]: (msg) =>
-        Effect.fail(
-          new RelayError({ message: `Unexpected handshake response: ${msg._tag}` }),
-        ),
+        Effect.fail(new RelayError({ message: `Unexpected handshake response: ${msg._tag}` })),
     });
   });
 
@@ -264,9 +260,7 @@ const chainSyncLoop = (
                   if (currentState.tip && msg.eraVariant > 1) {
                     yield* fetchAndStoreFullBlock(currentState.tip).pipe(
                       Effect.scoped,
-                      Effect.catch((err) =>
-                        Effect.logWarning(`[sync] BlockFetch skipped: ${err}`),
-                      ),
+                      Effect.catch((err) => Effect.logWarning(`[sync] BlockFetch skipped: ${err}`)),
                     );
                   }
                 }),
@@ -369,15 +363,15 @@ export const connectToRelay = (
           epoch: persistedNonces.value.epoch,
         })
       : (snapshotState?.nonces ??
-          (() => {
-            const epoch = intersectionTip ? slotClock.slotToEpoch(intersectionTip.slot) : 0n;
-            return new Nonces({
-              active: new Uint8Array(32),
-              evolving: new Uint8Array(32),
-              candidate: new Uint8Array(32),
-              epoch,
-            });
-          })());
+        (() => {
+          const epoch = intersectionTip ? slotClock.slotToEpoch(intersectionTip.slot) : 0n;
+          return new Nonces({
+            active: new Uint8Array(32),
+            evolving: new Uint8Array(32),
+            candidate: new Uint8Array(32),
+            epoch,
+          });
+        })());
 
     // 4. Run ChainSync + KeepAlive in parallel.
     // Initial tip is undefined — envelope validation (blockNo/slot/prevHash) is skipped
@@ -395,7 +389,12 @@ export const connectToRelay = (
   }).pipe(
     // Provide protocol client layers (require Multiplexer in environment)
     Effect.provide(
-      Layer.mergeAll(HandshakeClient.layer, ChainSyncClient.layer, KeepAliveClient.layer, BlockFetchClient.layer),
+      Layer.mergeAll(
+        HandshakeClient.layer,
+        ChainSyncClient.layer,
+        KeepAliveClient.layer,
+        BlockFetchClient.layer,
+      ),
     ),
     // Provide Multiplexer + Buffer layers (requires Socket in environment)
     Effect.provide(Multiplexer.layer.pipe(Layer.provide(MultiplexerBuffer.layer))),

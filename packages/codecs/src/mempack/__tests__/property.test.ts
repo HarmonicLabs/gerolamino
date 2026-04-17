@@ -66,9 +66,8 @@ describe("MemPack primitive round-trip properties", () => {
 
   it("word32 round-trips across full 32-bit range", () => {
     FastCheck.assert(
-      FastCheck.property(
-        FastCheck.integer({ min: 0, max: 0xff_ff_ff_ff }),
-        (n) => roundTripInvariant(word32, n),
+      FastCheck.property(FastCheck.integer({ min: 0, max: 0xff_ff_ff_ff }), (n) =>
+        roundTripInvariant(word32, n),
       ),
       { numRuns: 300 },
     );
@@ -76,9 +75,8 @@ describe("MemPack primitive round-trip properties", () => {
 
   it("word64 round-trips across full 64-bit range", () => {
     FastCheck.assert(
-      FastCheck.property(
-        FastCheck.bigInt({ min: 0n, max: (1n << 64n) - 1n }),
-        (n) => roundTripInvariant(word64, n, (a, b) => a === b),
+      FastCheck.property(FastCheck.bigInt({ min: 0n, max: (1n << 64n) - 1n }), (n) =>
+        roundTripInvariant(word64, n, (a, b) => a === b),
       ),
       { numRuns: 300 },
     );
@@ -126,16 +124,7 @@ describe("MemPack VarLen boundary properties (P4)", () => {
     // Explicit boundary guards — off-by-one bugs at width transitions are
     // common. These are sampled by the band properties above but asserted
     // directly to pin the failure mode.
-    const boundaries = [
-      0n,
-      127n,
-      128n,
-      16383n,
-      16384n,
-      2097151n,
-      2097152n,
-      (1n << 63n) - 1n,
-    ];
+    const boundaries = [0n, 127n, 128n, 16383n, 16384n, 2097151n, 2097152n, (1n << 63n) - 1n];
     for (const n of boundaries) {
       const bytes = packToUint8Array(varLen, n);
       FastCheck.pre(bytes.byteLength === varLen.packedByteCount(n));
@@ -152,9 +141,8 @@ describe("MemPack VarLen boundary properties (P4)", () => {
 describe("MemPack Length property", () => {
   it("Length round-trips across JS-safe integer range", () => {
     FastCheck.assert(
-      FastCheck.property(
-        FastCheck.integer({ min: 0, max: Number.MAX_SAFE_INTEGER }),
-        (n) => roundTripInvariant(length, n),
+      FastCheck.property(FastCheck.integer({ min: 0, max: Number.MAX_SAFE_INTEGER }), (n) =>
+        roundTripInvariant(length, n),
       ),
       { numRuns: 300 },
     );

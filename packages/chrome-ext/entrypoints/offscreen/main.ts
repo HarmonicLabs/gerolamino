@@ -213,22 +213,21 @@ channel.addEventListener("message", (event) => {
   const msg = event.data as OffscreenRequest | undefined;
   if (!msg || typeof msg !== "object" || msg.tag !== "decode-ledger-state") return;
 
-  handleDecode(msg.requestId, msg.payload)
-    .pipe(
-      Effect.provide(runtimeLayer),
-      Effect.tapError((e) =>
-        Effect.sync(() =>
-          post({ tag: "decode-error", requestId: msg.requestId, message: String(e) }),
-        ),
+  handleDecode(msg.requestId, msg.payload).pipe(
+    Effect.provide(runtimeLayer),
+    Effect.tapError((e) =>
+      Effect.sync(() =>
+        post({ tag: "decode-error", requestId: msg.requestId, message: String(e) }),
       ),
-      Effect.catchDefect((defect) =>
-        Effect.sync(() => {
-          const message = defect instanceof Error ? defect.message : String(defect);
-          post({ tag: "decode-error", requestId: msg.requestId, message });
-        }),
-      ),
-      Effect.runFork,
-    );
+    ),
+    Effect.catchDefect((defect) =>
+      Effect.sync(() => {
+        const message = defect instanceof Error ? defect.message : String(defect);
+        post({ tag: "decode-error", requestId: msg.requestId, message });
+      }),
+    ),
+    Effect.runFork,
+  );
 });
 
 Effect.logInfo("[offscreen] Offscreen decode worker booted").pipe(Effect.runFork);

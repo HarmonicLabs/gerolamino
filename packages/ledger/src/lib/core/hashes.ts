@@ -74,7 +74,9 @@ export class SignatureObj extends Schema.TaggedClass<SignatureObj>()("Signature"
     return bytesEqual(this.bytes, other.bytes);
   }
   static fromHex(hex: string): SignatureObj {
-    return new SignatureObj({ bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex) });
+    return new SignatureObj({
+      bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex),
+    });
   }
 }
 

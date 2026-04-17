@@ -102,8 +102,7 @@ export const cborBytesCodec = <T extends Uint8Array, RD, RE>(
             ),
       ),
       encode: SchemaGetter.transform(
-        (bytes: Uint8Array): CborValue =>
-          CborValueSchema.make({ _tag: CborKinds.Bytes, bytes }),
+        (bytes: Uint8Array): CborValue => CborValueSchema.make({ _tag: CborKinds.Bytes, bytes }),
       ),
     }),
   );

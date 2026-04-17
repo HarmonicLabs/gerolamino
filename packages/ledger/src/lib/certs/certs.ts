@@ -382,19 +382,9 @@ export const encodeDCert = DCert.match({
   [CertKind.VoteDeleg]: (c): CborSchemaType =>
     arr(uint(9), encodeCredential(c.credential), encodeDRep(c.drep)),
   [CertKind.StakeVoteDeleg]: (c): CborSchemaType =>
-    arr(
-      uint(10),
-      encodeCredential(c.credential),
-      cborBytes(c.poolKeyHash),
-      encodeDRep(c.drep),
-    ),
+    arr(uint(10), encodeCredential(c.credential), cborBytes(c.poolKeyHash), encodeDRep(c.drep)),
   [CertKind.StakeRegDeleg]: (c): CborSchemaType =>
-    arr(
-      uint(11),
-      encodeCredential(c.credential),
-      cborBytes(c.poolKeyHash),
-      uint(c.deposit),
-    ),
+    arr(uint(11), encodeCredential(c.credential), cborBytes(c.poolKeyHash), uint(c.deposit)),
   [CertKind.VoteRegDeleg]: (c): CborSchemaType =>
     arr(uint(12), encodeCredential(c.credential), encodeDRep(c.drep), uint(c.deposit)),
   [CertKind.StakeVoteRegDeleg]: (c): CborSchemaType =>

@@ -40,8 +40,7 @@ const makeInMemoryBlobStore = () => {
         [...store.entries()]
           .filter(([k]) => {
             const keyBytes = Uint8Array.fromHex(k);
-            return keyBytes.length >= prefix.length &&
-              prefix.every((b, i) => keyBytes[i] === b);
+            return keyBytes.length >= prefix.length && prefix.every((b, i) => keyBytes[i] === b);
           })
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([k, v]) => ({ key: Uint8Array.fromHex(k), value: v })),
@@ -63,21 +62,13 @@ const fullLayer = Layer.provideMerge(ChainDBLive, storageLayer);
 
 /** Run a ChainDB effect with fresh migrations + real SQLite. */
 const run = <A>(effect: Effect.Effect<A, unknown, ChainDB>) =>
-  runMigrations.pipe(
-    Effect.andThen(effect),
-    Effect.provide(fullLayer),
-    Effect.runPromise,
-  );
+  runMigrations.pipe(Effect.andThen(effect), Effect.provide(fullLayer), Effect.runPromise);
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const makeBlock = (
-  slot: bigint,
-  blockNo: bigint,
-  prevHash?: Uint8Array,
-): StoredBlock => ({
+const makeBlock = (slot: bigint, blockNo: bigint, prevHash?: Uint8Array): StoredBlock => ({
   slot,
   blockNo,
   hash: new Uint8Array(32).fill(Number(slot & 0xffn)),

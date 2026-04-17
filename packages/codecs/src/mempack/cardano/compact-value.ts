@@ -58,10 +58,7 @@ export const readCompactValue = (
  * from the delta between consecutive unique name offsets (with `rep.length`
  * as the implicit sentinel after the last one).
  */
-const decodeCompactMultiAsset = (
-  rep: Uint8Array,
-  numAssets: number,
-): readonly DecodedPolicy[] => {
+const decodeCompactMultiAsset = (rep: Uint8Array, numAssets: number): readonly DecodedPolicy[] => {
   if (numAssets === 0) return [];
 
   // Safety: the ABC regions must fit within rep. If not, the enclosing coin
@@ -82,14 +79,14 @@ const decodeCompactMultiAsset = (
   // ES2025: Array.prototype.toSorted produces a sorted copy (no mutation).
   const uniqueAnameOffs = [...new Set(triples.map((t) => t.anameOff))].toSorted((a, b) => a - b);
   const anameLenMap = new Map<number, number>(
-    uniqueAnameOffs.map((off, i) => [
-      off,
-      (uniqueAnameOffs[i + 1] ?? rep.length) - off,
-    ]),
+    uniqueAnameOffs.map((off, i) => [off, (uniqueAnameOffs[i + 1] ?? rep.length) - off]),
   );
 
   // Group triples by policy-id offset.
-  const policyMap = new Map<number, { policy: Uint8Array; assets: Array<typeof DecodedAssetSchema.Type> }>();
+  const policyMap = new Map<
+    number,
+    { policy: Uint8Array; assets: Array<typeof DecodedAssetSchema.Type> }
+  >();
   for (const { pidOff, anameOff, quantity } of triples) {
     if (pidOff + 28 > rep.length) continue;
     let entry = policyMap.get(pidOff);

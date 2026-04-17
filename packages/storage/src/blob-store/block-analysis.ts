@@ -64,14 +64,16 @@ function skipItem(buf: Uint8Array, pos: number): number {
     case 1: // negInt
       return pos;
     case 2: // bytes
-    case 3: { // text
+    case 3: {
+      // text
       if (value < 0n) {
         while (buf[pos] !== 0xff) pos = skipItem(buf, pos);
         return pos + 1;
       }
       return pos + Number(value);
     }
-    case 4: { // array
+    case 4: {
+      // array
       if (value < 0n) {
         while (buf[pos] !== 0xff) pos = skipItem(buf, pos);
         return pos + 1;
@@ -80,7 +82,8 @@ function skipItem(buf: Uint8Array, pos: number): number {
       for (let i = 0; i < n; i++) pos = skipItem(buf, pos);
       return pos;
     }
-    case 5: { // map
+    case 5: {
+      // map
       if (value < 0n) {
         while (buf[pos] !== 0xff) {
           pos = skipItem(buf, pos);

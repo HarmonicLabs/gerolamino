@@ -240,7 +240,11 @@ export function encodePoolParams(pp: PoolParams): CborSchemaType {
     cborBytes(pp.vrfKeyHash),
     uint(pp.pledge),
     uint(pp.cost),
-    { _tag: CborKinds.Tag, tag: 30n, data: arr(uint(pp.margin.numerator), uint(pp.margin.denominator)) },
+    {
+      _tag: CborKinds.Tag,
+      tag: 30n,
+      data: arr(uint(pp.margin.numerator), uint(pp.margin.denominator)),
+    },
     cborBytes(pp.rewardAccount),
     arr(...pp.owners.map(cborBytes)),
     arr(...pp.relays.map(encodeRelay)),

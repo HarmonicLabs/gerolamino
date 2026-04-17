@@ -146,11 +146,12 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
       const blockCountRef = yield* Ref.make(0);
       const snapshotStateRef = yield* Ref.make<SnapshotState | undefined>(undefined);
       const ledgerViewRef = yield* Ref.make<LedgerView | undefined>(undefined);
-      const pendingBlockEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> = [];
+      const pendingBlockEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> =
+        [];
       const BLOCK_BATCH = 50;
-      const ledgerDecodeFiberRef = yield* Ref.make<
-        Fiber.Fiber<void, unknown> | undefined
-      >(undefined);
+      const ledgerDecodeFiberRef = yield* Ref.make<Fiber.Fiber<void, unknown> | undefined>(
+        undefined,
+      );
 
       yield* decodeStream(Stream.fromQueue(byteQueue)).pipe(
         Stream.takeUntil(BootstrapMessage.guards.Complete),
@@ -169,9 +170,12 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                   totalChunks: m.totalChunks,
                   totalBlobEntries: m.totalBlobEntries,
                   bootstrapPhase: "awaiting-ledger-state",
-                  network: m.protocolMagic === 1 ? "preprod"
-                    : m.protocolMagic === 764824073 ? "mainnet"
-                    : "preview",
+                  network:
+                    m.protocolMagic === 1
+                      ? "preprod"
+                      : m.protocolMagic === 764824073
+                        ? "mainnet"
+                        : "preview",
                   relayHost: parsed.hostname,
                   relayPort: parseInt(parsed.port, 10) || 3040,
                 });
@@ -236,9 +240,10 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
             Block: (m) =>
               Effect.gen(function* () {
                 const { blockNo, txOffsets } = analyzeBlockCbor(m.blockCbor);
-                pendingBlockEntries.push(
-                  { key: blockKey(m.slotNo, m.headerHash), value: m.blockCbor },
-                );
+                pendingBlockEntries.push({
+                  key: blockKey(m.slotNo, m.headerHash),
+                  value: m.blockCbor,
+                });
                 if (blockNo > 0n) {
                   const idxVal = new Uint8Array(40);
                   new DataView(idxVal.buffer).setBigUint64(0, m.slotNo, false);
@@ -306,9 +311,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
         return yield* Effect.die("Bootstrap completed without receiving LedgerState");
       }
 
-      yield* Effect.log(
-        "[bootstrap] All tables populated. Switching to relay sync...",
-      );
+      yield* Effect.log("[bootstrap] All tables populated. Switching to relay sync...");
     }
 
     // Empty ledger view for relay-only mode — pool-dependent assertions
@@ -342,126 +345,123 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
 
     yield* syncState.update({ status: "syncing", bootstrapPhase: "complete" });
 
-  // --- Phase 2: Relay sync ---
-  // Stream.takeUntil(Complete) stops pulling from byteQueue — any bytes
-  // received after Complete remain in the queue for the relay phase.
-  // The same WebSocket is now proxied to the upstream Cardano relay.
-  // Create a Socket.Socket that reads from the shared byte queue.
-  const relaySocket: Socket.Socket = {
-    [Socket.TypeId]: Socket.TypeId,
-    run: (handler, _options?) =>
-      Stream.fromQueue(byteQueue).pipe(
-        Stream.runForEach((data) => {
-          const result = handler(data);
-          return result ?? Effect.void;
-        }),
-      ),
-    runRaw: (handler, _options?) =>
-      Stream.fromQueue(byteQueue).pipe(
-        Stream.runForEach((data) => {
-          const result = handler(data);
-          return result ?? Effect.void;
-        }),
-      ),
-    writer: socket.writer,
-  };
-
-  // Shared volatile state ref — written by relay sync loop, read by monitor.
-  const volatileRef = yield* Ref.make(
-    initialVolatileState(
-      snapshotState?.tip,
-      snapshotState?.nonces ?? new Nonces({
-        active: new Uint8Array(32),
-        evolving: new Uint8Array(32),
-        candidate: new Uint8Array(32),
-        epoch: 0n,
-      }),
-      snapshotState?.ocertCounters ?? HashMap.empty(),
-    ),
-  );
-
-  const peerId = "bootstrap-proxy:3001";
-
-  // Push initial peer entry so the dashboard shows the peer immediately
-  // (the 10s monitor loop will update with real tip/status data).
-  yield* syncState.update({
-    peers: [{ id: peerId, status: "connected", tipSlot: "0" }],
-  });
-
-  // Relay sync + monitor loop in parallel (with relay-only retry)
-  yield* Effect.log(`[relay] Starting Ouroboros miniprotocol sync over proxy (peerId=${peerId})`);
-  yield* Effect.retry(
-    Effect.all(
-      [
-        connectToRelay(peerId, PREPROD_MAGIC, ledgerView, snapshotState, volatileRef).pipe(
-          Effect.provideService(Socket.Socket, relaySocket),
-          Effect.tapError((e) =>
-            Effect.gen(function* () {
-              yield* Effect.logWarning(`[relay] Error: ${e} — will retry`);
-              yield* syncState.update({ status: "error", lastError: String(e) });
-            }),
-          ),
+    // --- Phase 2: Relay sync ---
+    // Stream.takeUntil(Complete) stops pulling from byteQueue — any bytes
+    // received after Complete remain in the queue for the relay phase.
+    // The same WebSocket is now proxied to the upstream Cardano relay.
+    // Create a Socket.Socket that reads from the shared byte queue.
+    const relaySocket: Socket.Socket = {
+      [Socket.TypeId]: Socket.TypeId,
+      run: (handler, _options?) =>
+        Stream.fromQueue(byteQueue).pipe(
+          Stream.runForEach((data) => {
+            const result = handler(data);
+            return result ?? Effect.void;
+          }),
         ),
-        // Monitor loop: push relay progress to SyncStateRef every 10s.
-        // A counter Ref throttles tip/progress logs to once per minute while
-        // still updating SyncStateRef (and thus the popup UI) every 10s.
-        Effect.gen(function* () {
-          const tickRef = yield* Ref.make(0);
-          const lastTipRef = yield* Ref.make<string>("");
-          yield* Effect.repeat(
-            Effect.gen(function* () {
-              const nodeStatus = yield* getNodeStatus(volatileRef);
-              const peerManager = yield* PeerManager;
-              const peers = yield* peerManager.getPeers;
-              const tick = yield* Ref.updateAndGet(tickRef, (n) => n + 1);
-              const tipStr = nodeStatus.tipSlot.toString();
-              const lastTip = yield* Ref.get(lastTipRef);
-              if (lastTip === "" && tipStr !== "0") {
-                yield* Effect.log(
-                  `[relay] First tip observed: slot ${tipStr} (epoch ${nodeStatus.epochNumber}, ${nodeStatus.blocksProcessed} blocks processed)`,
-                );
-                yield* Ref.set(lastTipRef, tipStr);
-              } else if (tick % 6 === 0) {
-                // Every 60s (10s × 6): periodic sync snapshot
-                yield* Effect.log(
-                  `[relay] tip=${tipStr} epoch=${nodeStatus.epochNumber} sync=${nodeStatus.syncPercent}% gsm=${nodeStatus.gsmState} peers=${nodeStatus.peerCount}`,
-                );
-              }
-              yield* syncState.update({
-                status: nodeStatus.syncPercent >= 100 ? "caught-up" : "syncing",
-                tipSlot: tipStr,
-                blocksProcessed: nodeStatus.blocksProcessed,
-                syncPercent: nodeStatus.syncPercent,
-                currentSlot: nodeStatus.currentSlot.toString(),
-                epochNumber: nodeStatus.epochNumber.toString(),
-                peerCount: nodeStatus.peerCount,
-                gsmState: nodeStatus.gsmState,
-                peers: peers.map((p) => ({
-                  id: p.peerId,
-                  status: p.status,
-                  tipSlot: (p.tip?.slot ?? 0n).toString(),
-                })),
-              });
-            }).pipe(
-              Effect.catch((e) => Effect.logWarning(`[monitor] Check failed: ${e}`)),
+      runRaw: (handler, _options?) =>
+        Stream.fromQueue(byteQueue).pipe(
+          Stream.runForEach((data) => {
+            const result = handler(data);
+            return result ?? Effect.void;
+          }),
+        ),
+      writer: socket.writer,
+    };
+
+    // Shared volatile state ref — written by relay sync loop, read by monitor.
+    const volatileRef = yield* Ref.make(
+      initialVolatileState(
+        snapshotState?.tip,
+        snapshotState?.nonces ??
+          new Nonces({
+            active: new Uint8Array(32),
+            evolving: new Uint8Array(32),
+            candidate: new Uint8Array(32),
+            epoch: 0n,
+          }),
+        snapshotState?.ocertCounters ?? HashMap.empty(),
+      ),
+    );
+
+    const peerId = "bootstrap-proxy:3001";
+
+    // Push initial peer entry so the dashboard shows the peer immediately
+    // (the 10s monitor loop will update with real tip/status data).
+    yield* syncState.update({
+      peers: [{ id: peerId, status: "connected", tipSlot: "0" }],
+    });
+
+    // Relay sync + monitor loop in parallel (with relay-only retry)
+    yield* Effect.log(`[relay] Starting Ouroboros miniprotocol sync over proxy (peerId=${peerId})`);
+    yield* Effect.retry(
+      Effect.all(
+        [
+          connectToRelay(peerId, PREPROD_MAGIC, ledgerView, snapshotState, volatileRef).pipe(
+            Effect.provideService(Socket.Socket, relaySocket),
+            Effect.tapError((e) =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning(`[relay] Error: ${e} — will retry`);
+                yield* syncState.update({ status: "error", lastError: String(e) });
+              }),
             ),
-            Schedule.fixed("10 seconds"),
-          );
-        }),
-      ],
-      { concurrency: "unbounded" },
-    ),
-    Schedule.exponential("5 seconds", 2).pipe(Schedule.take(5)),
-  );
+          ),
+          // Monitor loop: push relay progress to SyncStateRef every 10s.
+          // A counter Ref throttles tip/progress logs to once per minute while
+          // still updating SyncStateRef (and thus the popup UI) every 10s.
+          Effect.gen(function* () {
+            const tickRef = yield* Ref.make(0);
+            const lastTipRef = yield* Ref.make<string>("");
+            yield* Effect.repeat(
+              Effect.gen(function* () {
+                const nodeStatus = yield* getNodeStatus(volatileRef);
+                const peerManager = yield* PeerManager;
+                const peers = yield* peerManager.getPeers;
+                const tick = yield* Ref.updateAndGet(tickRef, (n) => n + 1);
+                const tipStr = nodeStatus.tipSlot.toString();
+                const lastTip = yield* Ref.get(lastTipRef);
+                if (lastTip === "" && tipStr !== "0") {
+                  yield* Effect.log(
+                    `[relay] First tip observed: slot ${tipStr} (epoch ${nodeStatus.epochNumber}, ${nodeStatus.blocksProcessed} blocks processed)`,
+                  );
+                  yield* Ref.set(lastTipRef, tipStr);
+                } else if (tick % 6 === 0) {
+                  // Every 60s (10s × 6): periodic sync snapshot
+                  yield* Effect.log(
+                    `[relay] tip=${tipStr} epoch=${nodeStatus.epochNumber} sync=${nodeStatus.syncPercent}% gsm=${nodeStatus.gsmState} peers=${nodeStatus.peerCount}`,
+                  );
+                }
+                yield* syncState.update({
+                  status: nodeStatus.syncPercent >= 100 ? "caught-up" : "syncing",
+                  tipSlot: tipStr,
+                  blocksProcessed: nodeStatus.blocksProcessed,
+                  syncPercent: nodeStatus.syncPercent,
+                  currentSlot: nodeStatus.currentSlot.toString(),
+                  epochNumber: nodeStatus.epochNumber.toString(),
+                  peerCount: nodeStatus.peerCount,
+                  gsmState: nodeStatus.gsmState,
+                  peers: peers.map((p) => ({
+                    id: p.peerId,
+                    status: p.status,
+                    tipSlot: (p.tip?.slot ?? 0n).toString(),
+                  })),
+                });
+              }).pipe(Effect.catch((e) => Effect.logWarning(`[monitor] Check failed: ${e}`))),
+              Schedule.fixed("10 seconds"),
+            );
+          }),
+        ],
+        { concurrency: "unbounded" },
+      ),
+      Schedule.exponential("5 seconds", 2).pipe(Schedule.take(5)),
+    );
   }).pipe(
     Effect.scoped,
     Effect.tapError((err) =>
       Effect.logWarning(`[bootstrap] Connection failed (${String(err)}) — will reconnect`),
     ),
     Effect.retry(
-      Schedule.exponential("1 second", 2).pipe(
-        Schedule.either(Schedule.spaced("30 seconds")),
-      ),
+      Schedule.exponential("1 second", 2).pipe(Schedule.either(Schedule.spaced("30 seconds"))),
     ),
   );
 }).pipe(Effect.provide(browserLayers()));

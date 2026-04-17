@@ -85,7 +85,9 @@ const rehydrateNonces = (n: SerializedNonces): Nonces =>
 export type DecodeResult = {
   readonly ledgerView: LedgerView;
   readonly nonces: Nonces;
-  readonly tip: { readonly slot: bigint; readonly blockNo: bigint; readonly hash: Uint8Array } | undefined;
+  readonly tip:
+    | { readonly slot: bigint; readonly blockNo: bigint; readonly hash: Uint8Array }
+    | undefined;
   readonly accountsWritten: number;
   readonly stakeEntriesWritten: number;
 };

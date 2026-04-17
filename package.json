@@ -25,8 +25,8 @@
     "@effect/language-service": "^0.85.1",
     "@effect/vitest": "^4.0.0-beta.50",
     "@types/chrome": "^0.1.40",
-    "chrome-ext": "workspace:*",
     "@typescript/native-preview": "^7.0.0-dev.20260416.2",
+    "chrome-ext": "workspace:*",
     "tslib": "^2.8.1",
     "vitest": "^4.1.4"
   }

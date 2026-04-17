@@ -64,21 +64,13 @@ const testLayer = Layer.merge(sqlLayer, blobLayer);
 
 /** Run an effect that needs SqlClient + BlobStore, with fresh migrations. */
 const run = <A>(effect: Effect.Effect<A, unknown, SqlClient | BlobStore>) =>
-  runMigrations.pipe(
-    Effect.andThen(effect),
-    Effect.provide(testLayer),
-    Effect.runPromise,
-  );
+  runMigrations.pipe(Effect.andThen(effect), Effect.provide(testLayer), Effect.runPromise);
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const makeBlock = (
-  slot: bigint,
-  blockNo: bigint,
-  prevHash?: Uint8Array,
-): StoredBlock => ({
+const makeBlock = (slot: bigint, blockNo: bigint, prevHash?: Uint8Array): StoredBlock => ({
   slot,
   blockNo,
   hash: new Uint8Array(32).fill(Number(slot & 0xffn)),

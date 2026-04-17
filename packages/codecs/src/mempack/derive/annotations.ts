@@ -23,11 +23,9 @@ declare module "effect/Schema" {
   namespace Annotations {
     interface Declaration<T, TypeParameters extends ReadonlyArray<SchemaNS.Top> = readonly []> {
       readonly toCodecMemPack?:
-        | ((
-            typeParameters: {
-              readonly [K in keyof TypeParameters]: MemPackCodec<TypeParameters[K]["Type"]>;
-            },
-          ) => MemPackCodec<T>)
+        | ((typeParameters: {
+            readonly [K in keyof TypeParameters]: MemPackCodec<TypeParameters[K]["Type"]>;
+          }) => MemPackCodec<T>)
         | undefined;
     }
   }
@@ -45,9 +43,9 @@ declare module "effect/SchemaAST" {
   export function memoizeThunk<A>(f: () => A): () => A;
 }
 
-export type MemPackAnnotation<T, TypeParameters extends ReadonlyArray<unknown>> = (
-  typeParameters: { readonly [K in keyof TypeParameters]: MemPackCodec<TypeParameters[K]> },
-) => MemPackCodec<T>;
+export type MemPackAnnotation<T, TypeParameters extends ReadonlyArray<unknown>> = (typeParameters: {
+  readonly [K in keyof TypeParameters]: MemPackCodec<TypeParameters[K]>;
+}) => MemPackCodec<T>;
 
 /**
  * Private reader that retrieves the `toCodecMemPack` annotation without

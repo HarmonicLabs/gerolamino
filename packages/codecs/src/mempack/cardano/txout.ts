@@ -155,10 +155,7 @@ const toDatumOption = (datum: DecodedInlineDatum): DecodedDatumOption | undefine
  *   bit 4: payment credential kind (1=script, 0=key)
  *   bit 5: stake credential kind (1=script, 0=key)
  */
-const buildAddress = (
-  addr28: DecodedAddr28Extra,
-  cred: DecodedCredential,
-): Uint8Array => {
+const buildAddress = (addr28: DecodedAddr28Extra, cred: DecodedCredential): Uint8Array => {
   const headerByte =
     (addr28.isMainnet ? 1 : 0) | (addr28.isScript ? 0x10 : 0) | (cred.isScript ? 0x20 : 0);
   const address = new Uint8Array(1 + 28 + 28);

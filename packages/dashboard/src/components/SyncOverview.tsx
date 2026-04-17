@@ -131,9 +131,7 @@ export const SyncOverview = () => {
                   : "Awaiting ledger state"}
               </Badge>
               <Badge variant={bootstrap().ledgerStateDecoded ? "success" : "outline"}>
-                {bootstrap().ledgerStateDecoded
-                  ? "Ledger state decoded"
-                  : "Decoding ledger state"}
+                {bootstrap().ledgerStateDecoded ? "Ledger state decoded" : "Decoding ledger state"}
               </Badge>
             </Box>
 
@@ -152,14 +150,9 @@ export const SyncOverview = () => {
                   </Text>
                 </Box>
                 <Show
-                  when={
-                    bootstrap().totalAccounts !== undefined && bootstrap().totalAccounts! > 0
-                  }
+                  when={bootstrap().totalAccounts !== undefined && bootstrap().totalAccounts! > 0}
                 >
-                  <Progress
-                    value={bootstrap().accountsWritten}
-                    max={bootstrap().totalAccounts!}
-                  />
+                  <Progress value={bootstrap().accountsWritten} max={bootstrap().totalAccounts!} />
                 </Show>
               </Box>
             </Show>

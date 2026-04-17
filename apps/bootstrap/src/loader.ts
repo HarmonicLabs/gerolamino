@@ -82,9 +82,12 @@ export const bootstrapStream = (
       const store = yield* BlobStore;
 
       // Count UTxO entries so clients can verify set completeness.
-      const totalBlobEntries = yield* store
-        .scan(new Uint8Array(0))
-        .pipe(Stream.runFold(() => 0, (n, _) => n + 1));
+      const totalBlobEntries = yield* store.scan(new Uint8Array(0)).pipe(
+        Stream.runFold(
+          () => 0,
+          (n, _) => n + 1,
+        ),
+      );
 
       const initStream = Stream.succeed(
         encodeFrame(

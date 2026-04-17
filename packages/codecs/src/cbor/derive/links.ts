@@ -1,4 +1,11 @@
-import { BigDecimal, Effect, Option, SchemaAST as AST, SchemaIssue, SchemaTransformation } from "effect";
+import {
+  BigDecimal,
+  Effect,
+  Option,
+  SchemaAST as AST,
+  SchemaIssue,
+  SchemaTransformation,
+} from "effect";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -46,8 +53,7 @@ export const stringLink: AST.Link = new AST.Link(
       ...failOthers("Text for string"),
       [CborKinds.Text]: (v) => Effect.succeed(v.text),
     }),
-    encode: (text) =>
-      Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Text, text })),
+    encode: (text) => Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Text, text })),
   }),
 );
 
@@ -186,8 +192,7 @@ export const booleanLink: AST.Link = new AST.Link(
           ? Effect.succeed(v.value)
           : invalid(v, "Expected CBOR Simple(boolean), got non-boolean Simple"),
     }),
-    encode: (b) =>
-      Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Simple, value: b })),
+    encode: (b) => Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Simple, value: b })),
   }),
 );
 
@@ -205,8 +210,7 @@ export const nullLink: AST.Link = new AST.Link(
           ? Effect.succeed(null)
           : invalid(v, "Expected CBOR Simple(null), got different Simple value"),
     }),
-    encode: () =>
-      Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Simple, value: null })),
+    encode: () => Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Simple, value: null })),
   }),
 );
 

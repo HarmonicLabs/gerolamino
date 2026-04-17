@@ -50,14 +50,7 @@ import type { LedgerView } from "consensus";
 import { decodeExtLedgerState } from "ledger";
 import { connect, BootstrapMessage, BootstrapMessageKind } from "bootstrap";
 import type { BootstrapMessageType } from "bootstrap";
-import {
-  BlobStore,
-  PREFIX_UTXO,
-  blockKey,
-  stakeKey,
-  ChainDBLive,
-  runMigrations,
-} from "storage";
+import { BlobStore, PREFIX_UTXO, blockKey, stakeKey, ChainDBLive, runMigrations } from "storage";
 import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient";
 import { layerLsm } from "lsm-tree";
 import {
@@ -252,7 +245,8 @@ const start = Command.make(
             if (!lv) return yield* new BootstrapMissingLedgerState();
 
             // Populate stake distribution table from LedgerView
-            const stakeEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> = [];
+            const stakeEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> =
+              [];
             for (const [poolHashHex, stake] of lv.poolStake) {
               const val = new Uint8Array(8);
               new DataView(val.buffer).setBigUint64(0, stake);
@@ -273,12 +267,13 @@ const start = Command.make(
       const volatileRef = yield* Ref.make(
         initialVolatileState(
           snapshotState?.tip,
-          snapshotState?.nonces ?? new Nonces({
-            active: new Uint8Array(32),
-            evolving: new Uint8Array(32),
-            candidate: new Uint8Array(32),
-            epoch: 0n,
-          }),
+          snapshotState?.nonces ??
+            new Nonces({
+              active: new Uint8Array(32),
+              evolving: new Uint8Array(32),
+              candidate: new Uint8Array(32),
+              epoch: 0n,
+            }),
         ),
       );
 

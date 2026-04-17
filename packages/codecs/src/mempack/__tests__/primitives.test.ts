@@ -21,7 +21,11 @@ import {
 } from "../index";
 import type { MemPackCodec } from "../MemPackCodec";
 
-const roundTrip = <T>(codec: MemPackCodec<T>, value: T, eq: (a: T, b: T) => boolean = Object.is): Uint8Array => {
+const roundTrip = <T>(
+  codec: MemPackCodec<T>,
+  value: T,
+  eq: (a: T, b: T) => boolean = Object.is,
+): Uint8Array => {
   const bytes = packToUint8Array(codec, value);
   expect(bytes.byteLength).toBe(codec.packedByteCount(value));
   const decoded = unpackFromUint8Array(codec, bytes);

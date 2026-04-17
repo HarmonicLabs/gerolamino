@@ -115,25 +115,25 @@
       systems = [ "x86_64-linux" ];
       perSystem = { pkgs, system, config, inputs', ... }:
         # let
-          # Mithril client + verification keys (for snapshot download task)
-          # Tests skipped: upstream reqwest HTTP tests fail in Nix sandbox (no CA certs)
-          # mithril-client = inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: {
-          #   doCheck = false;
-          # });
-          # mithrilSrc = inputs.mithril;
-          # mithrilEnv = {
-          #   AGGREGATOR_ENDPOINT = "https://aggregator.release-preprod.api.mithril.network/aggregator";
-          #   GENESIS_VERIFICATION_KEY = builtins.readFile
-          #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/genesis.vkey";
-          #   ANCILLARY_VERIFICATION_KEY = builtins.readFile
-          #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
-          # };
+        # Mithril client + verification keys (for snapshot download task)
+        # Tests skipped: upstream reqwest HTTP tests fail in Nix sandbox (no CA certs)
+        # mithril-client = inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: {
+        #   doCheck = false;
+        # });
+        # mithrilSrc = inputs.mithril;
+        # mithrilEnv = {
+        #   AGGREGATOR_ENDPOINT = "https://aggregator.release-preprod.api.mithril.network/aggregator";
+        #   GENESIS_VERIFICATION_KEY = builtins.readFile
+        #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/genesis.vkey";
+        #   ANCILLARY_VERIFICATION_KEY = builtins.readFile
+        #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
+        # };
 
-          # Ouroboros consensus snapshot-converter (LMDB → V2LSM)
-          # snapshot-converter = inputs'.ouroboros-consensus.packages.snapshot-converter;
+        # Ouroboros consensus snapshot-converter (LMDB → V2LSM)
+        # snapshot-converter = inputs'.ouroboros-consensus.packages.snapshot-converter;
 
-          # Preprod Cardano config files (for snapshot-converter --config)
-          # preprodConfigDir = "${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node";
+        # Preprod Cardano config files (for snapshot-converter --config)
+        # preprodConfigDir = "${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node";
 
         # in
         {

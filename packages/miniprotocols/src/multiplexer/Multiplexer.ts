@@ -1,15 +1,4 @@
-import {
-  Effect,
-  Fiber,
-  HashMap,
-  Layer,
-  Option,
-  PubSub,
-  Ref,
-  Schema,
-  Scope,
-  Context,
-} from "effect";
+import { Effect, Fiber, HashMap, Layer, Option, PubSub, Ref, Schema, Scope, Context } from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 
 import { wrap_multiplexer_message } from "wasm-plexer";
@@ -25,12 +14,18 @@ import { MultiplexerEncodingError, MultiplexerHeaderError } from "./Errors";
  */
 const protocolBufferSize = (proto: MiniProtocol): number => {
   switch (proto) {
-    case MiniProtocol.ChainSync: return 10;
-    case MiniProtocol.BlockFetch: return 20;
-    case MiniProtocol.TxSubmission: return 10;
-    case MiniProtocol.KeepAlive: return 4;
-    case MiniProtocol.Handshake: return 4;
-    default: return 8;
+    case MiniProtocol.ChainSync:
+      return 10;
+    case MiniProtocol.BlockFetch:
+      return 20;
+    case MiniProtocol.TxSubmission:
+      return 10;
+    case MiniProtocol.KeepAlive:
+      return 4;
+    case MiniProtocol.Handshake:
+      return 4;
+    default:
+      return 8;
   }
 };
 

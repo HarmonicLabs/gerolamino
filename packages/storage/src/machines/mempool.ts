@@ -52,9 +52,7 @@ export const mempoolMachine = setup({
         BLOCK_APPLIED: {
           actions: assign(({ context, event }) => {
             const idSet = new Set(event.txIds.map((id) => id.toHex()));
-            const remaining = context.txs.filter(
-              (tx) => !idSet.has(tx.txId.toHex()),
-            );
+            const remaining = context.txs.filter((tx) => !idSet.has(tx.txId.toHex()));
             return {
               txs: remaining,
               totalBytes: remaining.reduce((sum, tx) => sum + tx.txSizeBytes, 0),

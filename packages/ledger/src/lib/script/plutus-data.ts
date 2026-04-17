@@ -13,7 +13,15 @@
  */
 import { Effect, Option, Schema, SchemaIssue } from "effect";
 import { CborKinds, type CborSchemaType } from "codecs";
-import { uint, negInt, cborBytes, arr, expectArray, expectUint, expectBytes } from "../core/cbor-utils.ts";
+import {
+  uint,
+  negInt,
+  cborBytes,
+  arr,
+  expectArray,
+  expectUint,
+  expectBytes,
+} from "../core/cbor-utils.ts";
 
 // ---------------------------------------------------------------------------
 // PlutusData — recursive Schema using Schema.suspend
@@ -168,8 +176,7 @@ export function decodePlutusData(
 // ---------------------------------------------------------------------------
 
 export const encodePlutusData: (data: PlutusData) => CborSchemaType = PlutusData.match({
-  [PlutusDataKind.Int]: (d): CborSchemaType =>
-    d.value >= 0n ? uint(d.value) : negInt(d.value),
+  [PlutusDataKind.Int]: (d): CborSchemaType => (d.value >= 0n ? uint(d.value) : negInt(d.value)),
 
   [PlutusDataKind.Bytes]: (d): CborSchemaType => cborBytes(d.value),
 

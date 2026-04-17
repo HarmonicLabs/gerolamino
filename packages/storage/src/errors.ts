@@ -26,8 +26,4 @@ export class MempoolError extends Schema.TaggedErrorClass<MempoolError>()("Mempo
   cause: Schema.Defect,
 }) {}
 
-export type StorageError =
-  | ImmutableDBError
-  | VolatileDBError
-  | LedgerDBError
-  | MempoolError;
+export type StorageError = ImmutableDBError | VolatileDBError | LedgerDBError | MempoolError;

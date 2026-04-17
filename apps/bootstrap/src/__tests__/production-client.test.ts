@@ -10,21 +10,16 @@ import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer, Stream } from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 import { connect } from "bootstrap";
-import {
-  BootstrapMessage,
-  BootstrapMessageKind,
-  type BootstrapMessageType,
-} from "bootstrap";
+import { BootstrapMessage, BootstrapMessageKind, type BootstrapMessageType } from "bootstrap";
 
 const SERVER_URL = "ws://178.156.252.81:3040/bootstrap";
 
-describe.skipIf(!process.env["E2E_PRODUCTION"])(
-  "production bootstrap client",
-  () => {
-    it.effect(
-      "receives Init + data + Complete messages",
-      () =>
-        Effect.scoped(Effect.gen(function* () {
+describe.skipIf(!process.env["E2E_PRODUCTION"])("production bootstrap client", () => {
+  it.effect(
+    "receives Init + data + Complete messages",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
           const stream = yield* connect(SERVER_URL);
 
           const messages: BootstrapMessageType[] = [];
@@ -63,8 +58,8 @@ describe.skipIf(!process.env["E2E_PRODUCTION"])(
             Complete: () => "complete" as const,
           });
           expect(firstTag).toBe("init");
-        })).pipe(Effect.provide(Socket.layerWebSocketConstructorGlobal)),
-      { timeout: 30_000 },
-    );
-  },
-);
+        }),
+      ).pipe(Effect.provide(Socket.layerWebSocketConstructorGlobal)),
+    { timeout: 30_000 },
+  );
+});

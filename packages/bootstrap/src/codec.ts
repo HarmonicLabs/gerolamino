@@ -45,6 +45,4 @@ export const transformation = Transformation.transform<BootstrapMessageType, Uin
   encode: encodeMessage,
 });
 
-export const schema = Schema.Uint8Array.pipe(
-  Schema.decodeTo(BootstrapMessage, transformation),
-);
+export const schema = Schema.Uint8Array.pipe(Schema.decodeTo(BootstrapMessage, transformation));

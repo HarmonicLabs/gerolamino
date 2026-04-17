@@ -217,8 +217,9 @@ describe("toCodecMemPack — Objects (Struct)", () => {
             codec,
             value as { label: string; items: readonly boolean[] },
           );
-          return packed.byteLength === codec.packedByteCount(
-            value as { label: string; items: readonly boolean[] },
+          return (
+            packed.byteLength ===
+            codec.packedByteCount(value as { label: string; items: readonly boolean[] })
           );
         },
       ),
@@ -277,9 +278,7 @@ describe("toCodecMemPack — tagged unions", () => {
       Schema.TaggedStruct("Bar", {}),
     ]).pipe(Schema.toTaggedUnion("_tag"));
 
-    expect(() => toCodecMemPack(StringU)).toThrow(
-      /0\.\.255 integer tags/,
-    );
+    expect(() => toCodecMemPack(StringU)).toThrow(/0\.\.255 integer tags/);
   });
 
   it("rejects untagged unions at derivation time", () => {
@@ -289,30 +288,24 @@ describe("toCodecMemPack — tagged unions", () => {
   });
 
   it("surfaces unknown tag bytes at unpack time as MemPackDecodeError", () => {
-    const U = Schema.Union([
-      Schema.TaggedStruct(0, {}),
-      Schema.TaggedStruct(1, {}),
-    ]).pipe(Schema.toTaggedUnion("_tag"));
+    const U = Schema.Union([Schema.TaggedStruct(0, {}), Schema.TaggedStruct(1, {})]).pipe(
+      Schema.toTaggedUnion("_tag"),
+    );
     const codec = toCodecMemPack(U);
     // Tag byte 99 has no corresponding member.
-    expect(() => unpackFromUint8Array(codec, Uint8Array.of(99))).toThrow(
-      MemPackDecodeError,
-    );
+    expect(() => unpackFromUint8Array(codec, Uint8Array.of(99))).toThrow(MemPackDecodeError);
   });
 
   it("rejects encoding unknown _tag value as MemPackEncodeError", () => {
-    const U = Schema.Union([
-      Schema.TaggedStruct(0, {}),
-      Schema.TaggedStruct(1, {}),
-    ]).pipe(Schema.toTaggedUnion("_tag"));
+    const U = Schema.Union([Schema.TaggedStruct(0, {}), Schema.TaggedStruct(1, {})]).pipe(
+      Schema.toTaggedUnion("_tag"),
+    );
     const codec = toCodecMemPack(U);
     // The walker's tag-number path throws when the runtime _tag isn't in the
     // declared literals. We construct the bad value manually to bypass schema.
     expect(() =>
       packToUint8Array(
-        codec as unknown as import("../MemPackCodec").MemPackCodec<
-          Record<string, unknown>
-        >,
+        codec as unknown as import("../MemPackCodec").MemPackCodec<Record<string, unknown>>,
         { _tag: 7 },
       ),
     ).toThrow(MemPackEncodeError);
@@ -380,10 +373,9 @@ describe("toCodecMemPack — packedByteCount === pack().byteLength invariant", (
           count: FastCheck.bigInt({ min: 0n, max: (1n << 50n) - 1n }),
           kind: FastCheck.constantFrom<Kind>(Kind.Zero, Kind.One, Kind.Two),
           tuple: FastCheck.tuple(FastCheck.boolean(), FastCheck.string()),
-          list: FastCheck.array(
-            FastCheck.bigInt({ min: 0n, max: (1n << 40n) - 1n }),
-            { maxLength: 10 },
-          ),
+          list: FastCheck.array(FastCheck.bigInt({ min: 0n, max: (1n << 40n) - 1n }), {
+            maxLength: 10,
+          }),
         }),
         (value) => {
           const v = value as V;

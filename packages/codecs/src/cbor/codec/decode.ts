@@ -275,24 +275,32 @@ export const skipCborItem = (buf: Uint8Array, offset: number): number => {
 
   // Read argument (length/value) from addInfo
   let length: bigint;
-  if (addInfo < CborKinds.AI_1BYTE) {
-    length = BigInt(addInfo);
-  } else if (addInfo === CborKinds.AI_1BYTE) {
-    length = BigInt(buf[pos]!);
-    pos += 1;
-  } else if (addInfo === CborKinds.AI_2BYTE) {
-    length = BigInt(view.getUint16(pos));
-    pos += 2;
-  } else if (addInfo === CborKinds.AI_4BYTE) {
-    length = BigInt(view.getUint32(pos));
-    pos += 4;
-  } else if (addInfo === CborKinds.AI_8BYTE) {
-    length = view.getBigUint64(pos);
-    pos += 8;
-  } else if (addInfo === CborKinds.AI_INDEFINITE) {
-    length = -1n;
-  } else {
-    throw new Error(`skipCborItem: invalid addInfo ${addInfo}`);
+  switch (addInfo) {
+    case CborKinds.AI_1BYTE:
+      length = BigInt(buf[pos]!);
+      pos += 1;
+      break;
+    case CborKinds.AI_2BYTE:
+      length = BigInt(view.getUint16(pos));
+      pos += 2;
+      break;
+    case CborKinds.AI_4BYTE:
+      length = BigInt(view.getUint32(pos));
+      pos += 4;
+      break;
+    case CborKinds.AI_8BYTE:
+      length = view.getBigUint64(pos);
+      pos += 8;
+      break;
+    case CborKinds.AI_INDEFINITE:
+      length = -1n;
+      break;
+    default:
+      if (addInfo < CborKinds.AI_1BYTE) {
+        length = BigInt(addInfo);
+        break;
+      }
+      throw new Error(`skipCborItem: invalid addInfo ${addInfo}`);
   }
 
   switch (majorType) {

@@ -21,7 +21,10 @@ src/
     CborError.ts              <- CborDecodeError, CborEncodeError
     codec/                    <- bytes <-> CborValue (parse, encode, CborBytes)
     primitives/               <- CborValue constructors + narrowers
-    derive/                   <- (placeholder) Layer 2 Schema-native derivation
+    derive/                   <- Layer 2 Schema-native derivation: toCodecCbor/
+                                 toCodecCborBytes walker + six composite Links
+                                 (taggedUnion, sparseMap, cborTagged, cborInCbor
+                                 + cborInCborPreserving, strictMaybe, positionalArray)
     __tests__/                <- parse / identity / encode example tests
   mempack/
     index.ts                  <- barrel

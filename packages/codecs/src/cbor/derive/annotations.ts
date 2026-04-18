@@ -1,4 +1,5 @@
 import type { Schema as SchemaNS, SchemaAST as AST } from "effect";
+import type { CborLinkFactory } from "./compositeLinks";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Module augmentations for the `toCodecCbor` annotation + the walker
@@ -21,6 +22,16 @@ declare module "effect/Schema" {
       readonly toCodecCbor?:
         | ((typeParameters: TypeParameters.Encoded<TypeParameters>) => AST.Link)
         | undefined;
+    }
+    interface Annotations {
+      /**
+       * Attach a Cardano-flavoured composite CBOR Link factory (tagged-union,
+       * sparse-map, positional-array, Tag(n), Tag(24) encoded-CBOR, StrictMaybe).
+       * The walker invokes the factory after recurring into children, passing
+       * the walked AST; the factory returns an `AST.Link` that replaces the
+       * node's default encoding.
+       */
+      readonly toCborLink?: CborLinkFactory | undefined;
     }
   }
 }

@@ -11,6 +11,11 @@ import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../Cbor
 import { CborBytes } from "../codec/CborBytes";
 import "./annotations";
 import {
+  collectUnionSentinels,
+  isCborLinkFactory,
+  taggedUnionLink,
+} from "./compositeLinks";
+import {
   bigintLink,
   booleanLink,
   literalLink,
@@ -150,13 +155,78 @@ const enumLink = (enums: ReadonlyArray<readonly [string, string | number]>): AST
 // Main walker — mirrors toCodecJsonBase arm-by-arm.
 // ────────────────────────────────────────────────────────────────────────────
 
-const deriveCborWalker = AST.toCodec((ast) => {
+/**
+ * Read a `toCborLink` annotation if present, returning the factory. Returns
+ * `undefined` when the annotation is absent or not a function (the walker
+ * falls through to default derivation in that case).
+ */
+const readCborLinkAnnotation = (ast: AST.AST): ((ast: AST.AST) => AST.Link) | undefined => {
+  const ann = ast.annotations?.toCborLink;
+  return isCborLinkFactory(ann) ? ann : undefined;
+};
+
+/**
+ * Prepare each member of a sentinel-based Union for `taggedUnionLink` by:
+ *
+ *   1. Stripping the member Objects' top-level encoding (otherwise Effect's
+ *      Objects parser would fire `objectsLink` before `taggedUnionLink`,
+ *      producing a CBOR Map that the Union-level Link can't dispatch).
+ *   2. Stripping the tag propertySignature's `type.encoding` so Effect's
+ *      field walk leaves `_tag` as the raw literal during both encode and
+ *      decode. `taggedUnionLink` is responsible for moving the tag to/from
+ *      the first slot of the CBOR Array; per-field literal encoding on the
+ *      tag would round-trip it through CborValue unnecessarily.
+ *
+ * All other propertySignatures' encodings survive — they stay on
+ * `ps.type.encoding` and are applied by Effect's Objects parser in the
+ * normal way, producing a record of CborValue field values that
+ * `taggedUnionLink` just arranges positionally.
+ */
+const stripTagMemberEncodings = (union: AST.Union, tagField: string): AST.Union =>
+  new AST.Union(
+    union.types.map((m) => {
+      if (!AST.isObjects(m)) return AST.replaceEncoding(m, undefined);
+      const newPropertySignatures = m.propertySignatures.map((ps) =>
+        String(ps.name) === tagField
+          ? new AST.PropertySignature(ps.name, AST.replaceEncoding(ps.type, undefined))
+          : ps,
+      );
+      const stripped = new AST.Objects(
+        newPropertySignatures,
+        m.indexSignatures,
+        m.annotations,
+        m.checks,
+        undefined,
+        m.context,
+      );
+      return stripped;
+    }),
+    union.mode,
+    union.annotations,
+    union.checks,
+    union.encoding,
+    union.context,
+  );
+
+export const deriveCborWalker = AST.toCodec((ast) => {
   const out = deriveCborBase(ast);
   if (out !== ast && AST.isOptional(ast)) {
     return AST.optionalKeyLastLink(out);
   }
   return out;
 });
+
+/**
+ * Apply custom `toCborLink` annotation on top of an AST that already has a
+ * default encoding. Wrapping primitives (`cborTaggedLink`, `cborInCborLink`,
+ * `strictMaybe`) rely on `lastLink(walked)` returning the default — so
+ * the walker attaches default first, then calls custom, then replaces the
+ * encoding array with the custom Link.
+ */
+function applyCustom(walked: AST.AST): AST.AST {
+  const custom = readCborLinkAnnotation(walked);
+  return custom ? AST.replaceEncoding(walked, [custom(walked)]) : walked;
+}
 
 function deriveCborBase(ast: AST.AST): AST.AST {
   switch (ast._tag) {
@@ -172,44 +242,65 @@ function deriveCborBase(ast: AST.AST): AST.AST {
           to === link.to ? [link] : [new AST.Link(to, link.transformation)],
         );
       }
-      return ast;
+      return applyCustom(ast);
     }
 
     case "String":
-      return AST.replaceEncoding(ast, [stringLink]);
+      return applyCustom(AST.replaceEncoding(ast, [stringLink]));
     case "Number":
-      return AST.replaceEncoding(ast, [numberLink]);
+      return applyCustom(AST.replaceEncoding(ast, [numberLink]));
     case "BigInt":
-      return AST.replaceEncoding(ast, [bigintLink]);
+      return applyCustom(AST.replaceEncoding(ast, [bigintLink]));
     case "Boolean":
-      return AST.replaceEncoding(ast, [booleanLink]);
+      return applyCustom(AST.replaceEncoding(ast, [booleanLink]));
     case "Null":
-      return AST.replaceEncoding(ast, [nullLink]);
+      return applyCustom(AST.replaceEncoding(ast, [nullLink]));
     case "Undefined":
     case "Void":
-      return AST.replaceEncoding(ast, [undefinedLink]);
+      return applyCustom(AST.replaceEncoding(ast, [undefinedLink]));
     case "Literal":
-      return AST.replaceEncoding(ast, [literalLink(ast.literal)]);
+      return applyCustom(AST.replaceEncoding(ast, [literalLink(ast.literal)]));
     case "Enum":
-      return AST.replaceEncoding(ast, [enumLink(ast.enums)]);
+      return applyCustom(AST.replaceEncoding(ast, [enumLink(ast.enums)]));
 
     case "Objects": {
       if (ast.propertySignatures.some((ps) => typeof ps.name !== "string")) {
         throw new Error("CBOR Struct property names must be strings", { cause: ast });
       }
       const recurred = ast.recur(deriveCborWalker);
-      if (recurred._tag === "Objects") {
-        return AST.replaceEncoding(recurred, [objectsLink(recurred)]);
-      }
-      return recurred;
+      if (!AST.isObjects(recurred)) return recurred;
+      const withDefault = AST.replaceEncoding(recurred, [objectsLink(recurred)]);
+      return applyCustom(withDefault);
     }
 
     case "Arrays": {
       const recurred = ast.recur(deriveCborWalker);
-      return AST.replaceEncoding(recurred, [arraysLink]);
+      const withDefault = AST.replaceEncoding(recurred, [arraysLink]);
+      return applyCustom(withDefault);
     }
 
-    case "Union":
+    case "Union": {
+      const recurred = ast.recur(deriveCborWalker);
+      if (!AST.isUnion(recurred)) return recurred;
+      // Explicit `toCborLink` wins over auto-detection. Custom links on
+      // non-tagged unions don't need tag stripping — assume the author knows
+      // what they want and pass the walked Union through as-is.
+      const custom = readCborLinkAnnotation(recurred);
+      if (custom) {
+        return AST.replaceEncoding(recurred, [custom(recurred)]);
+      }
+      // Auto-detect Cardano-style tagged unions via the `_tag` sentinel that
+      // `Schema.toTaggedUnion("_tag")` attaches. When every member exposes a
+      // literal sentinel at that key, the union encodes as `[tag, ...fields]`
+      // per the Cardano convention without further annotation.
+      const sentinels = collectUnionSentinels(recurred, "_tag");
+      if (sentinels.length > 0) {
+        const stripped = stripTagMemberEncodings(recurred, "_tag");
+        return AST.replaceEncoding(stripped, [taggedUnionLink("_tag")(stripped)]);
+      }
+      return recurred;
+    }
+
     case "Suspend":
       return ast.recur(deriveCborWalker);
   }

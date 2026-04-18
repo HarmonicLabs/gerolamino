@@ -1,4 +1,4 @@
-import { BigDecimal, Config, Effect } from "effect";
+import { BigDecimal, Config, Effect, Schema } from "effect";
 import { CborEncodeError } from "../CborError";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
 
@@ -270,26 +270,35 @@ export const encodeSync = (
           writeByte(header | CborKinds.AI_2BYTE);
           writeByte(0x7e);
           writeByte(0x00);
-        } else if (addInfos === CborKinds.AI_2BYTE) {
-          writeByte(header | CborKinds.AI_2BYTE);
-          writeFloat16BE(n);
-        } else if (addInfos === CborKinds.AI_4BYTE) {
-          writeByte(header | CborKinds.AI_4BYTE);
-          writeFloat32BE(n);
-        } else if (addInfos === CborKinds.AI_8BYTE) {
-          writeByte(header | CborKinds.AI_8BYTE);
-          writeFloat64BE(n);
-        } else if (addInfos === CborKinds.AI_1BYTE) {
-          // Simple value 24-255
-          writeByte(header | CborKinds.AI_1BYTE);
-          writeByte(Number(n));
-        } else if (addInfos !== undefined && addInfos < CborKinds.SIMPLE_FALSE) {
-          // Simple value 0-19 (inline)
-          writeByte(header | addInfos);
         } else {
-          // Default: float64
-          writeByte(header | CborKinds.AI_8BYTE);
-          writeFloat64BE(n);
+          switch (addInfos) {
+            case CborKinds.AI_2BYTE:
+              writeByte(header | CborKinds.AI_2BYTE);
+              writeFloat16BE(n);
+              break;
+            case CborKinds.AI_4BYTE:
+              writeByte(header | CborKinds.AI_4BYTE);
+              writeFloat32BE(n);
+              break;
+            case CborKinds.AI_8BYTE:
+              writeByte(header | CborKinds.AI_8BYTE);
+              writeFloat64BE(n);
+              break;
+            case CborKinds.AI_1BYTE:
+              // Simple value 24-255
+              writeByte(header | CborKinds.AI_1BYTE);
+              writeByte(Number(n));
+              break;
+            default:
+              if (addInfos !== undefined && addInfos < CborKinds.SIMPLE_FALSE) {
+                // Simple value 0-19 (inline)
+                writeByte(header | addInfos);
+              } else {
+                // Default: float64
+                writeByte(header | CborKinds.AI_8BYTE);
+                writeFloat64BE(n);
+              }
+          }
         }
       }
     },
@@ -311,5 +320,5 @@ export const encode = (obj: CborValue): Effect.Effect<Uint8Array, CborEncodeErro
       catch: (e) => new CborEncodeError({ cause: e }),
     });
   }).pipe(
-    Effect.mapError((e) => (e instanceof CborEncodeError ? e : new CborEncodeError({ cause: e }))),
+    Effect.mapError((e) => (Schema.is(CborEncodeError)(e) ? e : new CborEncodeError({ cause: e }))),
   );

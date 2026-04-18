@@ -27,10 +27,10 @@ import { MemPackDecodeError, MemPackEncodeError } from "../MemPackError";
  * TS stores values as bigint to avoid the 53-bit Number limit.
  */
 
-const varLenByteCount = (value: bigint): number => {
+const varLenByteCount = (value: bigint, typeName = "VarLen"): number => {
   if (value < 0n) {
     throw new MemPackEncodeError({
-      cause: `VarLen requires non-negative value, got ${value}`,
+      cause: `${typeName} requires non-negative value, got ${value}`,
     });
   }
   if (value === 0n) return 1;
@@ -40,13 +40,13 @@ const varLenByteCount = (value: bigint): number => {
   return Math.ceil(bits / 7);
 };
 
-const packVarLenInto = (value: bigint, view: DataView, offset: number): number => {
-  if (value < 0n) {
-    throw new MemPackEncodeError({
-      cause: `VarLen requires non-negative value, got ${value}`,
-    });
-  }
-  const byteCount = varLenByteCount(value);
+const packVarLenInto = (
+  value: bigint,
+  view: DataView,
+  offset: number,
+  typeName = "VarLen",
+): number => {
+  const byteCount = varLenByteCount(value, typeName);
   let pos = offset;
   // Emit high-order 7-bit groups first, each with continuation bit set.
   // n counts down from (byteCount - 1) * 7 ... to 7, stepping by -7.
@@ -116,14 +116,8 @@ export const varLenNumber: MemPackCodec<number> = {
  */
 export const length: MemPackCodec<number> = {
   typeName: "Length",
-  packedByteCount: (n) => {
-    if (n < 0) throw new MemPackEncodeError({ cause: `Length: negative ${n}` });
-    return varLenByteCount(BigInt(n));
-  },
-  packInto: (n, view, offset) => {
-    if (n < 0) throw new MemPackEncodeError({ cause: `Length: negative ${n}` });
-    return packVarLenInto(BigInt(n), view, offset);
-  },
+  packedByteCount: (n) => varLenByteCount(BigInt(n), "Length"),
+  packInto: (n, view, offset) => packVarLenInto(BigInt(n), view, offset, "Length"),
   unpack: (view, offset) => {
     const { value, offset: next } = unpackVarLen(view, offset);
     if (value > BigInt(Number.MAX_SAFE_INTEGER)) {

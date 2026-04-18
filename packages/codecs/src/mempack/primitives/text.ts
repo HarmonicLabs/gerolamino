@@ -1,5 +1,5 @@
 import type { MemPackCodec } from "../MemPackCodec";
-import { MemPackDecodeError } from "../MemPackError";
+import { MemPackDecodeError, MemPackEncodeError } from "../MemPackError";
 import { bytes } from "./bytes";
 import { length } from "./varlen";
 
@@ -16,6 +16,24 @@ const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 /**
+ * Reject ill-formed UTF-16 inputs (unpaired surrogates) on the encode path.
+ *
+ * `TextEncoder.encode` silently substitutes U+FFFD for each unpaired
+ * surrogate, which would break round-trip identity: the decoded string
+ * would differ from the encoded source, and a property test asserting
+ * `decode(encode(s)) === s` would fail. ES2025 `String.prototype.isWellFormed`
+ * (ECMA-262 §22.1.3.9) is the native check — `false` means at least one
+ * lone surrogate is present.
+ */
+const checkWellFormed = (s: string): void => {
+  if (!s.isWellFormed()) {
+    throw new MemPackEncodeError({
+      cause: `Text: input contains unpaired UTF-16 surrogates (ill-formed) — TextEncoder would silently substitute U+FFFD and break round-trip identity`,
+    });
+  }
+};
+
+/**
  * Variable-length UTF-8 text: same layout as `bytes` (Length prefix + raw
  * bytes) but with UTF-8 validation on decode. Reference:
  * `~/code/reference/mempack/src/Data/MemPack.hs:1047-1070`.
@@ -26,8 +44,12 @@ const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
  */
 export const text: MemPackCodec<string> = {
   typeName: "Text",
-  packedByteCount: (s) => bytes.packedByteCount(TEXT_ENCODER.encode(s)),
+  packedByteCount: (s) => {
+    checkWellFormed(s);
+    return bytes.packedByteCount(TEXT_ENCODER.encode(s));
+  },
   packInto: (s, view, offset) => {
+    checkWellFormed(s);
     const utf8 = TEXT_ENCODER.encode(s);
     const afterLen = length.packInto(utf8.byteLength, view, offset);
     new Uint8Array(view.buffer, view.byteOffset + afterLen, utf8.byteLength).set(utf8);

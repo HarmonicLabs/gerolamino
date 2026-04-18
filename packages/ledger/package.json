@@ -8,6 +8,9 @@
     ".": "./src/index.ts",
     "./*": "./src/*"
   },
+  "scripts": {
+    "type-check": "tsgo --noEmit"
+  },
   "dependencies": {
     "@harmoniclabs/crypto": "^0.3.0",
     "codecs": "workspace:*",

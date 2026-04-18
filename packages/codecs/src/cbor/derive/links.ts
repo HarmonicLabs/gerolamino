@@ -134,46 +134,53 @@ export const bigintLink: AST.Link = new AST.Link(
       ...failOthers("Integer or Bignum for bigint"),
       [CborKinds.UInt]: (v) => Effect.succeed(v.num),
       [CborKinds.NegInt]: (v) => Effect.succeed(v.num),
-      [CborKinds.Tag]: (v) =>
-        v.tag === 2n
-          ? bignumPayload(v.data).pipe(
+      [CborKinds.Tag]: (v) => {
+        switch (v.tag) {
+          case 2n:
+            return bignumPayload(v.data).pipe(
               Option.match({
                 onNone: () => invalid(v, "Tag 2 (positive bignum) payload must be Bytes"),
                 onSome: (bytes) => Effect.succeed(bytesToBigint(bytes)),
               }),
-            )
-          : v.tag === 3n
-            ? bignumPayload(v.data).pipe(
-                Option.match({
-                  onNone: () => invalid(v, "Tag 3 (negative bignum) payload must be Bytes"),
-                  onSome: (bytes) => Effect.succeed(-1n - bytesToBigint(bytes)),
-                }),
-              )
-            : invalid(v, `Expected Tag 2 or 3 (bignum) for bigint, got Tag ${v.tag}`),
+            );
+          case 3n:
+            return bignumPayload(v.data).pipe(
+              Option.match({
+                onNone: () => invalid(v, "Tag 3 (negative bignum) payload must be Bytes"),
+                onSome: (bytes) => Effect.succeed(-1n - bytesToBigint(bytes)),
+              }),
+            );
+          default:
+            return invalid(v, `Expected Tag 2 or 3 (bignum) for bigint, got Tag ${v.tag}`);
+        }
+      },
     }),
     encode: (n) => {
-      if (n >= 0n && n <= U64_MAX) {
-        return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.UInt, num: n }));
+      // `switch (true)` dispatches on whichever predicate matches first; the
+      // four arms partition ℤ into UInt64 / NegInt64 / positive-bignum /
+      // negative-bignum without overlap, so ordering is exhaustive.
+      switch (true) {
+        case n >= 0n && n <= U64_MAX:
+          return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.UInt, num: n }));
+        case n < 0n && -1n - n <= U64_MAX:
+          return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.NegInt, num: n }));
+        case n > U64_MAX:
+          return Effect.succeed(
+            CborValueSchema.make({
+              _tag: CborKinds.Tag,
+              tag: 2n,
+              data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: bigintToBytes(n) }),
+            }),
+          );
+        default:
+          return Effect.succeed(
+            CborValueSchema.make({
+              _tag: CborKinds.Tag,
+              tag: 3n,
+              data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: bigintToBytes(-1n - n) }),
+            }),
+          );
       }
-      if (n < 0n && -1n - n <= U64_MAX) {
-        return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.NegInt, num: n }));
-      }
-      if (n > U64_MAX) {
-        return Effect.succeed(
-          CborValueSchema.make({
-            _tag: CborKinds.Tag,
-            tag: 2n,
-            data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: bigintToBytes(n) }),
-          }),
-        );
-      }
-      return Effect.succeed(
-        CborValueSchema.make({
-          _tag: CborKinds.Tag,
-          tag: 3n,
-          data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: bigintToBytes(-1n - n) }),
-        }),
-      );
     },
   }),
 );
@@ -234,31 +241,29 @@ export const undefinedLink: AST.Link = new AST.Link(
 // equality. Literal types: string | number | bigint | boolean (AST.LiteralValue).
 // ────────────────────────────────────────────────────────────────────────────
 
+const bigintToCbor = (n: bigint): CborValue =>
+  n >= 0n
+    ? CborValueSchema.make({ _tag: CborKinds.UInt, num: n })
+    : CborValueSchema.make({ _tag: CborKinds.NegInt, num: n });
+
 const literalToCbor = (literal: AST.LiteralValue): CborValue => {
-  if (typeof literal === "string") {
-    return CborValueSchema.make({ _tag: CborKinds.Text, text: literal });
+  switch (typeof literal) {
+    case "string":
+      return CborValueSchema.make({ _tag: CborKinds.Text, text: literal });
+    case "boolean":
+      return CborValueSchema.make({ _tag: CborKinds.Simple, value: literal });
+    case "bigint":
+      return bigintToCbor(literal);
+    case "number":
+      return Number.isInteger(literal)
+        ? bigintToCbor(BigInt(literal))
+        : CborValueSchema.make({
+            _tag: CborKinds.Simple,
+            value: BigDecimal.fromNumberUnsafe(literal),
+          });
+    default:
+      throw new Error(`Unsupported literal type: ${typeof literal}`);
   }
-  if (typeof literal === "boolean") {
-    return CborValueSchema.make({ _tag: CborKinds.Simple, value: literal });
-  }
-  if (typeof literal === "bigint") {
-    return literal >= 0n
-      ? CborValueSchema.make({ _tag: CborKinds.UInt, num: literal })
-      : CborValueSchema.make({ _tag: CborKinds.NegInt, num: literal });
-  }
-  if (typeof literal === "number") {
-    if (Number.isInteger(literal)) {
-      const big = BigInt(literal);
-      return big >= 0n
-        ? CborValueSchema.make({ _tag: CborKinds.UInt, num: big })
-        : CborValueSchema.make({ _tag: CborKinds.NegInt, num: big });
-    }
-    return CborValueSchema.make({
-      _tag: CborKinds.Simple,
-      value: BigDecimal.fromNumberUnsafe(literal),
-    });
-  }
-  throw new Error(`Unsupported literal type: ${typeof literal}`);
 };
 
 /**
@@ -266,31 +271,29 @@ const literalToCbor = (literal: AST.LiteralValue): CborValue => {
  * uses `CborValueSchema.guards[...]` for kind narrowing — no `_tag` compares.
  */
 const cborEqualsLiteral = (cbor: CborValue, literal: AST.LiteralValue): boolean => {
-  if (typeof literal === "string") {
-    return CborValueSchema.guards[CborKinds.Text](cbor) && cbor.text === literal;
-  }
-  if (typeof literal === "boolean") {
-    return CborValueSchema.guards[CborKinds.Simple](cbor) && cbor.value === literal;
-  }
-  if (typeof literal === "bigint") {
-    if (CborValueSchema.guards[CborKinds.UInt](cbor)) return cbor.num === literal;
-    if (CborValueSchema.guards[CborKinds.NegInt](cbor)) return cbor.num === literal;
-    return false;
-  }
-  if (typeof literal === "number") {
-    if (Number.isInteger(literal)) {
-      const big = BigInt(literal);
-      if (CborValueSchema.guards[CborKinds.UInt](cbor)) return cbor.num === big;
-      if (CborValueSchema.guards[CborKinds.NegInt](cbor)) return cbor.num === big;
+  // `isAnyOf([UInt, NegInt])` narrows `cbor` to the two integer variants,
+  // both of which expose `num: bigint` — so the bigint / integer-number arms
+  // collapse to a single comparison per case.
+  switch (typeof literal) {
+    case "string":
+      return CborValueSchema.guards[CborKinds.Text](cbor) && cbor.text === literal;
+    case "boolean":
+      return CborValueSchema.guards[CborKinds.Simple](cbor) && cbor.value === literal;
+    case "bigint":
+      return (
+        CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt])(cbor) &&
+        cbor.num === literal
+      );
+    case "number":
+      return Number.isInteger(literal)
+        ? CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt])(cbor) &&
+            cbor.num === BigInt(literal)
+        : CborValueSchema.guards[CborKinds.Simple](cbor) &&
+            BigDecimal.isBigDecimal(cbor.value) &&
+            BigDecimal.toNumberUnsafe(cbor.value) === literal;
+    default:
       return false;
-    }
-    return (
-      CborValueSchema.guards[CborKinds.Simple](cbor) &&
-      BigDecimal.isBigDecimal(cbor.value) &&
-      BigDecimal.toNumberUnsafe(cbor.value) === literal
-    );
   }
-  return false;
 };
 
 export const literalLink = (literal: AST.LiteralValue): AST.Link =>

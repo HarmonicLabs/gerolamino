@@ -148,6 +148,9 @@
           flake-root.projectRootFile = "flake.nix";
           treefmt = {
             projectRootFile = "flake.nix";
+            settings.global.excludes = [
+              "packages/wasm-utils/amaru-curve25519-dalek/**"
+            ];
             programs = {
               oxfmt.enable = true;
               nixpkgs-fmt.enable = true;
@@ -190,10 +193,10 @@
                   targets = [ "wasm32-unknown-unknown" ];
                   lsp.enable = true;
                 };
-                typescript = {
-                  enable = true;
-                  lsp.enable = true;
-                };
+                # typescript = {
+                #   enable = true;
+                #   lsp.enable = true;
+                # };
                 javascript = {
                   enable = true;
                   npm.enable = true;

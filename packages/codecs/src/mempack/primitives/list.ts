@@ -18,15 +18,9 @@ import { length } from "./varlen";
 export const list = <A>(item: MemPackCodec<A>): MemPackCodec<ReadonlyArray<A>> => ({
   typeName: `List(${item.typeName})`,
   packedByteCount: (xs) =>
-    xs.reduce(
-      (size, x) => size + item.packedByteCount(x),
-      length.packedByteCount(xs.length),
-    ),
+    xs.reduce((size, x) => size + item.packedByteCount(x), length.packedByteCount(xs.length)),
   packInto: (xs, view, offset) =>
-    xs.reduce(
-      (pos, x) => item.packInto(x, view, pos),
-      length.packInto(xs.length, view, offset),
-    ),
+    xs.reduce((pos, x) => item.packInto(x, view, pos), length.packInto(xs.length, view, offset)),
   unpack: (view, offset) => {
     const { value: rawLength, offset: afterLen } = length.unpack(view, offset);
     // `length` is non-negative by construction; this guard defends against

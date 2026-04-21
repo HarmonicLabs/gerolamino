@@ -50,8 +50,10 @@ export type PlutusData =
   | { readonly _tag: PlutusDataKind.Bytes; readonly value: Uint8Array };
 
 // Recursive Schema using suspend — references _PlutusDataSchema lazily.
-// The return type annotation breaks the circular inference chain.
-const PlutusDataRef = Schema.suspend((): Schema.Schema<PlutusData> => _PlutusDataSchema);
+// Schema.Codec<T> default is Codec<T, T, never, never>, which keeps Encoded = T
+// and allows toCodecCbor to propagate through Schema.Array(PlutusDataRef).
+// Schema.Schema<T> would leave Encoded = unknown and break toCodecCbor derivation.
+const PlutusDataRef = Schema.suspend((): Schema.Codec<PlutusData> => _PlutusDataSchema);
 
 // Internal schema with full inferred type (preserves .match(), .guards, .isAnyOf())
 const _PlutusDataSchema = Schema.Union([

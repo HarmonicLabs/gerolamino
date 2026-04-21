@@ -8,7 +8,7 @@
 import { Effect, HashMap, Option, Schema } from "effect";
 import { CborKinds, type CborSchemaType } from "codecs";
 import { hex } from "./util";
-import type { ExtLedgerState, ShelleyTip } from "ledger";
+import type { ExtLedgerState } from "ledger";
 import type { LedgerView } from "./validate-header";
 import { SlotClock } from "./clock";
 import { Nonces } from "./nonce";
@@ -29,14 +29,15 @@ export const extractLedgerView = (state: ExtLedgerState) =>
     const slotClock = yield* SlotClock;
     const poolDistr = state.newEpochState.poolDistr;
 
-    // Build VRF key map: poolHash (hex) → vrfKeyHash
+    // Ledger `poolDistr.pools` is `HashMap<Uint8Array, IndividualPoolStake>`;
+    // `LedgerView` keys are hex strings (computed from `hex(blake2b256(issuerVk))`
+    // at header-validation time). Convert at the bridge boundary.
+    const poolEntries = Array.from(HashMap.entries(poolDistr.pools));
     const poolVrfKeys = HashMap.fromIterable(
-      Array.from(poolDistr.pools, ([poolHash, ps]) => [poolHash, ps.vrfKeyHash] as const),
+      poolEntries.map(([poolHash, ps]) => [hex(poolHash), ps.vrfKeyHash] as const),
     );
-
-    // Build stake map: poolHash (hex) → totalStake (absolute lovelace)
     const poolStake = HashMap.fromIterable(
-      Array.from(poolDistr.pools, ([poolHash, ps]) => [poolHash, ps.totalStake] as const),
+      poolEntries.map(([poolHash, ps]) => [hex(poolHash), ps.totalStake] as const),
     );
 
     // Extract epoch nonce from PraosChainDepState if available

@@ -1,7 +1,8 @@
 import { describe, it, assert } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Path } from "effect";
+import { Effect, FileSystem, HashMap, Layer, Option, Path } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
 import { decodeExtLedgerState, type ExtLedgerState, Era } from "..";
+import { CborKinds } from "codecs";
 import pathNode from "path";
 import { fileURLToPath } from "url";
 
@@ -37,11 +38,11 @@ describe("NewEpochState decoder", () => {
             assert.strictEqual(ext.pastEras.length, 6);
             assert.strictEqual(ext.pastEras[0]!.era, Era.Byron);
             assert.strictEqual(ext.pastEras[5]!.era, Era.Babbage);
-            assert.isDefined(ext.tip);
-            assert.strictEqual(ext.tip!.slot, 119401006n);
+            assert.isTrue(Option.isSome(ext.tip));
+            assert.strictEqual(Option.getOrThrow(ext.tip).slot, 119401006n);
             assert.strictEqual(ext.newEpochState.epoch, 280n);
-            assert.isTrue(ext.newEpochState.blocksMadePrev.size > 0);
-            assert.isTrue(ext.newEpochState.blocksMadeCur.size > 0);
+            assert.isTrue(HashMap.size(ext.newEpochState.blocksMadePrev) > 0);
+            assert.isTrue(HashMap.size(ext.newEpochState.blocksMadeCur) > 0);
           }),
         ),
       ),
@@ -66,10 +67,10 @@ describe("NewEpochState decoder", () => {
       Effect.tap((ext) =>
         Effect.sync(() => {
           const cert = ext.newEpochState.epochState.ledgerState.certState;
-          assert.isTrue(cert.vState.dreps.size > 100);
-          assert.isTrue(cert.vState.committeeState.length > 0);
-          assert.isTrue(cert.pState.stakePools.size > 0);
-          assert.isTrue(cert.dState.accounts.size > 100);
+          assert.isTrue(HashMap.size(cert.vState.dreps) > 100);
+          assert.strictEqual(cert.vState.committeeState._tag, CborKinds.Array);
+          assert.isTrue(HashMap.size(cert.pState.stakePools) > 0);
+          assert.isTrue(HashMap.size(cert.dState.accounts) > 100);
         }),
       ),
     ),
@@ -106,7 +107,7 @@ describe("NewEpochState decoder", () => {
     decoded.pipe(
       Effect.tap((ext) =>
         Effect.sync(() => {
-          assert.isTrue(ext.newEpochState.poolDistr.pools.size > 0);
+          assert.isTrue(HashMap.size(ext.newEpochState.poolDistr.pools) > 0);
           assert.isTrue(ext.newEpochState.poolDistr.totalActiveStake > 0n);
         }),
       ),

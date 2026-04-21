@@ -156,7 +156,7 @@ describe("Multi-era TxOut decoding", () => {
       const txOut = yield* decodeTxOut(shelleyCbor);
 
       // Encode always produces Babbage Map format
-      const encoded = encodeTxOut(txOut);
+      const encoded = yield* encodeTxOut(txOut);
       assert.strictEqual(encoded._tag, CborKinds.Map);
 
       // Decode the Map format back

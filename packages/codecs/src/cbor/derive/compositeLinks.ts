@@ -218,12 +218,8 @@ const buildTaggedMembers = (
 
   const byTag = new Map(members.map((m) => [m.tagKey, m] as const));
   if (byTag.size === members.length) return byTag;
-  const firstDup = members.find(
-    (m, i) => members.findIndex((n) => n.tagKey === m.tagKey) !== i,
-  );
-  throw new Error(
-    `taggedUnionLink: duplicate discriminant value ${String(firstDup?.tagKey)}`,
-  );
+  const firstDup = members.find((m, i) => members.findIndex((n) => n.tagKey === m.tagKey) !== i);
+  throw new Error(`taggedUnionLink: duplicate discriminant value ${String(firstDup?.tagKey)}`);
 };
 
 /**
@@ -245,9 +241,7 @@ const encodeDiscriminant = (tagKey: TagKey): CborValue => {
  * Pull the raw discriminant from the leading CBOR Array slot. `UInt`/`NegInt`
  * yield `bigint` (CBOR integers arrive as bigint); `Text` yields `string`.
  */
-const decodeDiscriminant = (
-  head: CborValue,
-): Effect.Effect<bigint | string, SchemaIssue.Issue> =>
+const decodeDiscriminant = (head: CborValue): Effect.Effect<bigint | string, SchemaIssue.Issue> =>
   CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt])(head)
     ? Effect.succeed(head.num)
     : CborValueSchema.guards[CborKinds.Text](head)
@@ -293,103 +287,105 @@ const lookupMemberByTag = (
  * parser, which walks the remaining propertySignature encodings to produce
  * the final domain values.
  */
-export const taggedUnionLink = (tagField: string): CborLinkFactory => (walkedAst) => {
-  const union = Option.liftPredicate(walkedAst, AST.isUnion).pipe(
-    Option.getOrThrowWith(
-      () => new Error(`taggedUnionLink: expected Union AST, got ${walkedAst._tag}`),
-    ),
-  );
-  const byTag = buildTaggedMembers(union, tagField);
+export const taggedUnionLink =
+  (tagField: string): CborLinkFactory =>
+  (walkedAst) => {
+    const union = Option.liftPredicate(walkedAst, AST.isUnion).pipe(
+      Option.getOrThrowWith(
+        () => new Error(`taggedUnionLink: expected Union AST, got ${walkedAst._tag}`),
+      ),
+    );
+    const byTag = buildTaggedMembers(union, tagField);
 
-  return new AST.Link(
-    CborValueSchema.ast,
-    SchemaTransformation.transformOrFail<Record<string, unknown>, CborValue>({
-      decode: CborValueSchema.match({
-        ...failOthers("Array for tagged union"),
-        [CborKinds.Array]: (cbor) =>
+    return new AST.Link(
+      CborValueSchema.ast,
+      SchemaTransformation.transformOrFail<Record<string, unknown>, CborValue>({
+        decode: CborValueSchema.match({
+          ...failOthers("Array for tagged union"),
+          [CborKinds.Array]: (cbor) =>
+            Effect.gen(function* () {
+              // `noUncheckedIndexedAccess` types `cbor.items[0]` as
+              // `CborValue | undefined`; lifting through `Option.fromUndefinedOr`
+              // routes empty arrays and unknown-tag lookups through the shared
+              // `unwrapOrFail` helper, keeping every miss a one-liner.
+              const head = yield* unwrapOrFail(
+                Option.fromUndefinedOr(cbor.items[0]),
+                cbor,
+                "tagged-union array must have at least the discriminant",
+              );
+              const rawTag = yield* decodeDiscriminant(head);
+              const candidate = yield* unwrapOrFail(
+                lookupMemberByTag(byTag, rawTag),
+                head,
+                `tagged-union discriminant ${String(rawTag)} matches no member`,
+              );
+              // Per-field Effects: present slots resolve to `[name, cbor]`,
+              // absent optionals resolve to `undefined` (filtered out below via
+              // the typed-tuple Schema.is predicate), absent requireds
+              // short-circuit the whole `Effect.all` on the first miss.
+              const fieldEntries = yield* Effect.all(
+                candidate.fields.map((f, i) => {
+                  const slot = cbor.items[i + 1];
+                  if (slot !== undefined) return Effect.succeed([f.name, slot] as const);
+                  return f.isOptional
+                    ? Effect.succeed(undefined)
+                    : invalid(
+                        cbor,
+                        `tagged-union member ${String(candidate.tagKey)} missing field "${f.name}"`,
+                      );
+                }),
+              );
+              return {
+                [tagField]: candidate.tagKey,
+                ...Object.fromEntries(
+                  fieldEntries.filter(Schema.is(Schema.Tuple([Schema.String, CborValueSchema]))),
+                ),
+              };
+            }),
+        }),
+        encode: (value) =>
           Effect.gen(function* () {
-            // `noUncheckedIndexedAccess` types `cbor.items[0]` as
-            // `CborValue | undefined`; lifting through `Option.fromUndefinedOr`
-            // routes empty arrays and unknown-tag lookups through the shared
-            // `unwrapOrFail` helper, keeping every miss a one-liner.
-            const head = yield* unwrapOrFail(
-              Option.fromUndefinedOr(cbor.items[0]),
-              cbor,
-              "tagged-union array must have at least the discriminant",
+            // `Option.liftPredicate(…, isTagKey)` narrows rawTag to TagKey on
+            // Some; `lookupMemberByTag` already returns `Option<TaggedMember>`.
+            // Both gates collapse to `unwrapOrFail`, keeping the happy path
+            // a single straight line of `yield*`s.
+            const rawTag = yield* unwrapOrFail(
+              Option.liftPredicate(value[tagField], isTagKey),
+              value,
+              `tagged-union discriminant must be number | bigint | string; got ${typeof value[tagField]}`,
             );
-            const rawTag = yield* decodeDiscriminant(head);
-            const candidate = yield* unwrapOrFail(
+            const entry = yield* unwrapOrFail(
               lookupMemberByTag(byTag, rawTag),
-              head,
-              `tagged-union discriminant ${String(rawTag)} matches no member`,
+              value,
+              `tagged-union value has unknown discriminant ${String(rawTag)}`,
             );
-            // Per-field Effects: present slots resolve to `[name, cbor]`,
-            // absent optionals resolve to `undefined` (filtered out below via
-            // the typed-tuple Schema.is predicate), absent requireds
-            // short-circuit the whole `Effect.all` on the first miss.
-            const fieldEntries = yield* Effect.all(
-              candidate.fields.map((f, i) => {
-                const slot = cbor.items[i + 1];
-                if (slot !== undefined) return Effect.succeed([f.name, slot] as const);
+            // Per-field Effects: `ensureCborValue` for present slots, an absent
+            // optional resolves to `undefined` (filtered out below), an absent
+            // required short-circuits the whole `Effect.all` on the first miss.
+            const fieldItems = yield* Effect.all(
+              entry.fields.map((f) => {
+                const slot = value[f.name];
+                if (slot !== undefined)
+                  return ensureCborValue(slot, `tagged-union field "${f.name}" not a CborValue`);
                 return f.isOptional
                   ? Effect.succeed(undefined)
                   : invalid(
-                      cbor,
-                      `tagged-union member ${String(candidate.tagKey)} missing field "${f.name}"`,
+                      value,
+                      `tagged-union member ${String(entry.tagKey)} missing field "${f.name}"`,
                     );
               }),
             );
-            return {
-              [tagField]: candidate.tagKey,
-              ...Object.fromEntries(
-                fieldEntries.filter(Schema.is(Schema.Tuple([Schema.String, CborValueSchema]))),
-              ),
-            };
+            return CborValueSchema.make({
+              _tag: CborKinds.Array,
+              items: [
+                encodeDiscriminant(entry.tagKey),
+                ...fieldItems.filter(Schema.is(CborValueSchema)),
+              ],
+            });
           }),
       }),
-      encode: (value) =>
-        Effect.gen(function* () {
-          // `Option.liftPredicate(…, isTagKey)` narrows rawTag to TagKey on
-          // Some; `lookupMemberByTag` already returns `Option<TaggedMember>`.
-          // Both gates collapse to `unwrapOrFail`, keeping the happy path
-          // a single straight line of `yield*`s.
-          const rawTag = yield* unwrapOrFail(
-            Option.liftPredicate(value[tagField], isTagKey),
-            value,
-            `tagged-union discriminant must be number | bigint | string; got ${typeof value[tagField]}`,
-          );
-          const entry = yield* unwrapOrFail(
-            lookupMemberByTag(byTag, rawTag),
-            value,
-            `tagged-union value has unknown discriminant ${String(rawTag)}`,
-          );
-          // Per-field Effects: `ensureCborValue` for present slots, an absent
-          // optional resolves to `undefined` (filtered out below), an absent
-          // required short-circuits the whole `Effect.all` on the first miss.
-          const fieldItems = yield* Effect.all(
-            entry.fields.map((f) => {
-              const slot = value[f.name];
-              if (slot !== undefined)
-                return ensureCborValue(slot, `tagged-union field "${f.name}" not a CborValue`);
-              return f.isOptional
-                ? Effect.succeed(undefined)
-                : invalid(
-                    value,
-                    `tagged-union member ${String(entry.tagKey)} missing field "${f.name}"`,
-                  );
-            }),
-          );
-          return CborValueSchema.make({
-            _tag: CborKinds.Array,
-            items: [
-              encodeDiscriminant(entry.tagKey),
-              ...fieldItems.filter(Schema.is(CborValueSchema)),
-            ],
-          });
-        }),
-    }),
-  );
-};
+    );
+  };
 
 /**
  * Return a list of `{ key, literal }` sentinels for a Union AST by walking
@@ -427,9 +423,7 @@ const validateKeyMapping = (keyMapping: Record<string, number>): void => {
   const entries = Object.entries(keyMapping);
   const byKeyNum = new Map(entries.map(([name, keyNum]) => [keyNum, name] as const));
   if (byKeyNum.size === entries.length) return;
-  Option.fromUndefinedOr(
-    entries.find(([name, keyNum]) => byKeyNum.get(keyNum) !== name),
-  ).pipe(
+  Option.fromUndefinedOr(entries.find(([name, keyNum]) => byKeyNum.get(keyNum) !== name)).pipe(
     Option.match({
       onNone: () => undefined,
       onSome: ([loserName, keyNum]) => {
@@ -494,9 +488,7 @@ export const sparseMapLink =
               const pairs = yield* Effect.all(
                 cbor.entries.map((entry) =>
                   isIntKey(entry.k)
-                    ? Effect.succeed(
-                        [fieldByKey.get(Number(entry.k.num))?.name, entry.v] as const,
-                      )
+                    ? Effect.succeed([fieldByKey.get(Number(entry.k.num))?.name, entry.v] as const)
                     : invalid(entry.k, "sparse-map key must be UInt/NegInt"),
                 ),
               );
@@ -696,10 +688,7 @@ export const cborInCborPreserving = <T>(
         ...failOthers("Tag(24) for encoded-CBOR"),
         [CborKinds.Tag]: (cbor) => {
           if (cbor.tag !== ENCODED_CBOR_TAG) {
-            return invalid(
-              cbor,
-              `Expected Tag(${String(ENCODED_CBOR_TAG)}), got Tag ${cbor.tag}`,
-            );
+            return invalid(cbor, `Expected Tag(${String(ENCODED_CBOR_TAG)}), got Tag ${cbor.tag}`);
           }
           if (!CborValueSchema.guards[CborKinds.Bytes](cbor.data)) {
             return invalid(cbor.data, "Tag(24) payload must be Bytes");
@@ -881,9 +870,7 @@ export const positionalArrayLink =
                   `positional array expected at most ${slots.length} slots, got ${cbor.items.length}`,
                 );
               }
-              return Object.fromEntries(
-                cbor.items.map((item, i) => [slots[i]!.name, item]),
-              );
+              return Object.fromEntries(cbor.items.map((item, i) => [slots[i]!.name, item]));
             }),
         }),
         encode: (obj) =>
@@ -894,18 +881,16 @@ export const positionalArrayLink =
             // slots resolve to `undefined`; the gap check after Effect.all
             // inspects the resolved tuple for trailing-only undefineds.
             const maybeItems = yield* Effect.all(
-              slots.map(
-                (slot, i): Effect.Effect<CborValue | undefined, SchemaIssue.Issue> => {
-                  const v = obj[slot.name];
-                  if (v !== undefined) return Effect.succeed(v);
-                  return slot.isOptional
-                    ? Effect.succeed(undefined)
-                    : invalid(
-                        obj,
-                        `positional array missing required field "${slot.name}" at slot ${i}`,
-                      );
-                },
-              ),
+              slots.map((slot, i): Effect.Effect<CborValue | undefined, SchemaIssue.Issue> => {
+                const v = obj[slot.name];
+                if (v !== undefined) return Effect.succeed(v);
+                return slot.isOptional
+                  ? Effect.succeed(undefined)
+                  : invalid(
+                      obj,
+                      `positional array missing required field "${slot.name}" at slot ${i}`,
+                    );
+              }),
             );
 
             const firstAbsent = maybeItems.indexOf(undefined);

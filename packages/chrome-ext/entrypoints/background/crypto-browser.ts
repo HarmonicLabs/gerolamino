@@ -15,16 +15,12 @@ import init, {
   vrf_verify_proof,
   vrf_proof_to_hash,
 } from "wasm-utils";
-import { init as initPlexer } from "wasm-plexer";
 
-/** Initialize WASM once — cached after first call. */
+/** Initialize WASM once — cached after first call. wasm-plexer is eagerly loaded by the bundler. */
 export const initWasm = Effect.gen(function* () {
   yield* Effect.log("[crypto] Loading wasm-utils module (blake2b/ed25519/KES)...");
   yield* Effect.promise(() => init());
   yield* Effect.log("[crypto] wasm-utils loaded");
-  yield* Effect.log("[crypto] Loading wasm-plexer module (multiplexer framing)...");
-  yield* Effect.promise(() => initPlexer());
-  yield* Effect.log("[crypto] wasm-plexer loaded");
 });
 
 /**

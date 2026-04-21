@@ -130,8 +130,7 @@ const structCodec = (
   return {
     typeName,
     packedByteCount: (obj) => slots.reduce((size, s) => size + s.sizeOf(obj), 0),
-    packInto: (obj, view, offset) =>
-      slots.reduce((pos, s) => s.writeInto(obj, view, pos), offset),
+    packInto: (obj, view, offset) => slots.reduce((pos, s) => s.writeInto(obj, view, pos), offset),
     unpack: (view, offset) => {
       const out: Record<string, unknown> = {};
       const finalPos = slots.reduce((pos, s) => s.readInto(view, pos, out), offset);
@@ -178,14 +177,9 @@ const taggedUnionCodec = (
   const byTag = new Map(arms.map((a) => [a.tagByte, a] as const));
   const typeName = `Union(${arms.map((a) => a.label).join(" | ")})`;
 
-  const armFor = (
-    tagValue: unknown,
-    makeError: (cause: string) => Error,
-  ): UnionArm =>
+  const armFor = (tagValue: unknown, makeError: (cause: string) => Error): UnionArm =>
     Option.fromUndefinedOr(byTag.get(Number(tagValue))).pipe(
-      Option.getOrThrowWith(() =>
-        makeError(`${typeName}: unknown tag ${String(tagValue)}`),
-      ),
+      Option.getOrThrowWith(() => makeError(`${typeName}: unknown tag ${String(tagValue)}`)),
     );
   const encodeArm = (v: Record<string, unknown>): UnionArm =>
     armFor(v[keyStr], (cause) => new MemPackEncodeError({ cause }));
@@ -240,9 +234,9 @@ const detectTaggedUnion = (
   // Candidate keys = keys on the first member's sentinel list (empty when
   // the first member has none, which correctly yields `undefined`).
   // `firstSomeOf` returns the first successful probe.
-  return Option.firstSomeOf(
-    (memberSentinels[0] ?? []).map((s) => tryKey(s.key)),
-  ).pipe(Option.getOrUndefined);
+  return Option.firstSomeOf((memberSentinels[0] ?? []).map((s) => tryKey(s.key))).pipe(
+    Option.getOrUndefined,
+  );
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -392,9 +386,7 @@ const unionCodec = (ast: AST.Union): MemPackCodec<Record<string, unknown>> => {
       Option.map(objectsCodec),
       Option.getOrThrowWith(
         () =>
-          new Error(
-            `MemPack Union: member ${i} must be a struct (Objects AST), got '${t._tag}'`,
-          ),
+          new Error(`MemPack Union: member ${i} must be a struct (Objects AST), got '${t._tag}'`),
       ),
     ),
   );
@@ -430,6 +422,5 @@ const suspendCodec = (ast: AST.Suspend): MemPackCodec<unknown> => {
  * `./annotations.ts`) overrides the default derivation for any schema.
  */
 export const toCodecMemPack = memoize(
-  <T, E, RD, RE>(schema: Schema.Codec<T, E, RD, RE>): MemPackCodec<T> =>
-    reify<T>(walk(schema.ast)),
+  <T, E, RD, RE>(schema: Schema.Codec<T, E, RD, RE>): MemPackCodec<T> => reify<T>(walk(schema.ast)),
 );

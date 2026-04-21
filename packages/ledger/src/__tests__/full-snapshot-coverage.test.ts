@@ -5,7 +5,7 @@
  * Uses Effect FileSystem abstraction with BunFileSystem layer.
  */
 import { describe, it, assert } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, HashMap } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
 import { CborKinds } from "codecs";
 import { decodeMultiEraBlock, isByronBlock, type BlockHeader, decodeExtLedgerState } from "..";
@@ -166,24 +166,24 @@ describe("Full Mithril snapshot coverage", () => {
 
         assert.isDefined(ext.newEpochState);
         assert.isTrue(ext.newEpochState.epoch > 0n);
-        assert.isTrue(ext.newEpochState.blocksMadePrev.size > 0);
+        assert.isTrue(HashMap.size(ext.newEpochState.blocksMadePrev) > 0);
 
         const es = ext.newEpochState.epochState;
         assert.isTrue(es.chainAccountState.treasury > 0n);
 
         const cert = es.ledgerState.certState;
-        assert.isTrue(cert.vState.dreps.size > 0);
-        assert.isTrue(cert.pState.stakePools.size > 0);
+        assert.isTrue(HashMap.size(cert.vState.dreps) > 0);
+        assert.isTrue(HashMap.size(cert.pState.stakePools) > 0);
 
-        assert.isTrue(ext.newEpochState.poolDistr.pools.size > 0);
+        assert.isTrue(HashMap.size(ext.newEpochState.poolDistr.pools) > 0);
         assert.strictEqual(ext.pastEras.length, 6);
         assert.isDefined(ext.newEpochState.stashedAVVMAddresses);
         assert.isDefined(ext.chainDepState);
 
         yield* Effect.log(
           `State: epoch ${ext.newEpochState.epoch}, ` +
-            `${ext.newEpochState.poolDistr.pools.size} pools, ` +
-            `${cert.vState.dreps.size} DReps`,
+            `${HashMap.size(ext.newEpochState.poolDistr.pools)} pools, ` +
+            `${HashMap.size(cert.vState.dreps)} DReps`,
         );
       }).pipe(Effect.provide(FsLayer)),
     { timeout: 60_000 },

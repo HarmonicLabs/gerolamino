@@ -1,25 +1,30 @@
-import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { CborKinds, type CborSchemaType } from "codecs";
 import {
-  uint,
-  cborBytes,
-  nullVal,
-  arr,
-  expectArray,
-  expectUint,
-  expectBytes,
-  isNull,
-} from "../core/cbor-utils.ts";
+  Effect,
+  Option,
+  Schema,
+  SchemaAST as AST,
+  SchemaIssue,
+  SchemaTransformation,
+} from "effect";
+import {
+  CborKinds,
+  type CborValue,
+  CborValue as CborValueSchema,
+  type CborLinkFactory,
+  positionalArrayLink,
+  toCodecCbor,
+  toCodecCborBytes,
+  withCborLink,
+} from "codecs";
 import { Bytes28, Bytes32 } from "../core/hashes.ts";
-import {
-  Credential,
-  CredentialKind,
-  decodeCredential,
-  encodeCredential,
-} from "../core/credentials.ts";
-import { DRep, decodeDRep, encodeDRep } from "../governance/governance.ts";
-import { PoolParams, decodePoolParams, encodePoolParams } from "../pool/pool.ts";
-import { Anchor, decodeAnchor, encodeAnchor } from "../governance/governance.ts";
+import { Credential, CredentialCbor } from "../core/credentials.ts";
+import { Anchor, DRep } from "../governance/governance.ts";
+import { MAX_WORD64, UnitInterval } from "../core/primitives.ts";
+import { PoolMetadata, Relay, RewardAccount } from "../pool/pool.ts";
+
+const Word64BigInt = Schema.BigInt.pipe(
+  Schema.check(Schema.isBetweenBigInt({ minimum: 0n, maximum: MAX_WORD64 })),
+);
 
 // ────────────────────────────────────────────────────────────────────────────
 // Certificate kinds — Conway era (CDDL tags 0-18)
@@ -48,39 +53,180 @@ export enum CertKind {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// MIR target — coin amount or credential map
+// MIRTarget — shape-discriminated (not tag-discriminated) Union.
+// CBOR wire: UInt(coin) for the bare-coin variant; Map<Credential, Coin> for
+// the per-credential variant. Since the two arms are distinguished only by
+// outer CBOR major type, we attach a custom `toCborLink` that dispatches on
+// the observed CborValue shape and round-trips each arm manually.
 // ────────────────────────────────────────────────────────────────────────────
 
-export const MIRTarget = Schema.Union([
-  Schema.TaggedStruct("coin" as const, { value: Schema.BigInt }),
+// CDDL: bare `coin = uint` (non-negative, Word64); map variant values are
+// `delta_coin = int` (signed int64 — pool-deposit slashing can be negative).
+const NonNegBigInt = Schema.BigInt.pipe(
+  Schema.check(Schema.isBetweenBigInt({ minimum: 0n, maximum: MAX_WORD64 })),
+);
+const MIN_INT64 = -(2n ** 63n);
+const MAX_INT64 = 2n ** 63n - 1n;
+const DeltaCoin = Schema.BigInt.pipe(
+  Schema.check(Schema.isBetweenBigInt({ minimum: MIN_INT64, maximum: MAX_INT64 })),
+);
+
+const signedBigIntToCbor = (n: bigint): CborValue =>
+  CborValueSchema.make(
+    n >= 0n ? { _tag: CborKinds.UInt, num: n } : { _tag: CborKinds.NegInt, num: n },
+  );
+
+const isSignedCborInt = CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt]);
+
+// Internal binding: tagged-union-augmented base (exposes `.cases`/`.match`/
+// `.guards`/`.isAnyOf`). Referenced inside the `withCborLink` callback where
+// `MIRTarget` itself is still mid-assignment and not yet fully typed.
+const MIRTargetBase = Schema.Union([
+  Schema.TaggedStruct("coin" as const, { value: NonNegBigInt }),
   Schema.TaggedStruct("map" as const, {
-    entries: Schema.Array(Schema.Struct({ credential: Credential, coin: Schema.BigInt })),
+    entries: Schema.Array(Schema.Struct({ credential: Credential, coin: DeltaCoin })),
   }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
-export type MIRTarget = typeof MIRTarget.Type;
+export type MIRTarget = typeof MIRTargetBase.Type;
+
+export const MIRTarget = MIRTargetBase.pipe(
+  withCborLink(
+    (): ReturnType<CborLinkFactory> =>
+      new AST.Link(
+        CborValueSchema.ast,
+        SchemaTransformation.transformOrFail<MIRTarget, CborValue>({
+          decode: CborValueSchema.match({
+            [CborKinds.UInt]: (cbor) =>
+              Effect.succeed(MIRTargetBase.cases.coin.make({ value: cbor.num })),
+            [CborKinds.Map]: (cbor) =>
+              Effect.all(
+                cbor.entries.map((entry) =>
+                  Effect.gen(function* () {
+                    const credential = yield* Schema.decodeEffect(CredentialCbor)(entry.k).pipe(
+                      Effect.mapError((e) => e.issue),
+                    );
+                    if (!isSignedCborInt(entry.v)) {
+                      return yield* Effect.fail(
+                        new SchemaIssue.InvalidValue(Option.some(entry.v), {
+                          message: "MIRTarget.map: delta_coin entry must be UInt or NegInt",
+                        }),
+                      );
+                    }
+                    return { credential, coin: entry.v.num };
+                  }),
+                ),
+              ).pipe(Effect.map((entries) => MIRTargetBase.cases.map.make({ entries }))),
+            [CborKinds.NegInt]: (cbor) =>
+              Effect.fail(
+                new SchemaIssue.InvalidValue(Option.some(cbor), {
+                  message: "MIRTarget.coin: bare coin must be UInt (non-negative)",
+                }),
+              ),
+            [CborKinds.Bytes]: (cbor) =>
+              Effect.fail(
+                new SchemaIssue.InvalidValue(Option.some(cbor), {
+                  message: "MIRTarget: Bytes not allowed",
+                }),
+              ),
+            [CborKinds.Text]: (cbor) =>
+              Effect.fail(
+                new SchemaIssue.InvalidValue(Option.some(cbor), {
+                  message: "MIRTarget: Text not allowed",
+                }),
+              ),
+            [CborKinds.Array]: (cbor) =>
+              Effect.fail(
+                new SchemaIssue.InvalidValue(Option.some(cbor), {
+                  message: "MIRTarget: Array not allowed",
+                }),
+              ),
+            [CborKinds.Tag]: (cbor) =>
+              Effect.fail(
+                new SchemaIssue.InvalidValue(Option.some(cbor), {
+                  message: "MIRTarget: Tag not allowed",
+                }),
+              ),
+            [CborKinds.Simple]: (cbor) =>
+              Effect.fail(
+                new SchemaIssue.InvalidValue(Option.some(cbor), {
+                  message: "MIRTarget: Simple not allowed",
+                }),
+              ),
+          }),
+          encode: MIRTargetBase.match({
+            coin: (value) =>
+              Effect.succeed(CborValueSchema.make({ _tag: CborKinds.UInt, num: value.value })),
+            map: (value) =>
+              Effect.all(
+                value.entries.map((e) =>
+                  Schema.encodeEffect(CredentialCbor)(e.credential).pipe(
+                    Effect.mapError((err) => err.issue),
+                    Effect.map((k) => ({ k, v: signedBigIntToCbor(e.coin) })),
+                  ),
+                ),
+              ).pipe(
+                Effect.map((entries) => CborValueSchema.make({ _tag: CborKinds.Map, entries })),
+              ),
+          }),
+        }),
+      ),
+  ),
+);
 
 // ────────────────────────────────────────────────────────────────────────────
-// DCert — discriminated union of all certificate types
+// MirInner — the inner `[pot, target]` pair of MoveInstantRewards. The outer
+// `[6, ...]` wrapper is added by taggedUnionLink on DCert, so MirInner is a
+// 2-slot positional array one level deeper.
+// ────────────────────────────────────────────────────────────────────────────
+
+// CDDL: `mir_pot = 0 / 1` (0 = reserves, 1 = treasury).
+const MirPot = Schema.BigInt.pipe(
+  Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n)),
+  Schema.check(Schema.isLessThanOrEqualToBigInt(1n)),
+);
+
+const MirInner = Schema.Struct({
+  pot: MirPot,
+  target: MIRTarget,
+}).pipe(withCborLink((walked) => positionalArrayLink(["pot", "target"])(walked)));
+
+// ────────────────────────────────────────────────────────────────────────────
+// DCert — discriminated union of all certificate types.
+// Wire shape (taggedUnionLink): [tag, ...memberFields].
+//
+// Per Conway CDDL, pool_registration is an inline group: `(3, pool_params)`
+// flattens pool_params' 9 fields into the enclosing array — the variant must
+// therefore expose those 9 fields directly, NOT a nested `poolParams` struct.
 // ────────────────────────────────────────────────────────────────────────────
 
 export const DCert = Schema.Union([
   Schema.TaggedStruct(CertKind.StakeRegistration, { credential: Credential }),
   Schema.TaggedStruct(CertKind.StakeDeregistration, { credential: Credential }),
   Schema.TaggedStruct(CertKind.StakeDelegation, { credential: Credential, poolKeyHash: Bytes28 }),
-  Schema.TaggedStruct(CertKind.PoolRegistration, { poolParams: PoolParams }),
-  Schema.TaggedStruct(CertKind.PoolRetirement, { poolKeyHash: Bytes28, epoch: Schema.BigInt }),
+  // PoolRegistration is CDDL inline-group over pool_params — flat wire layout.
+  Schema.TaggedStruct(CertKind.PoolRegistration, {
+    operator: Bytes28,
+    vrfKeyHash: Bytes32,
+    pledge: Word64BigInt,
+    cost: Word64BigInt,
+    margin: UnitInterval,
+    rewardAccount: RewardAccount,
+    owners: Schema.Array(Bytes28),
+    relays: Schema.Array(Relay),
+    metadata: Schema.NullOr(PoolMetadata),
+  }),
+  Schema.TaggedStruct(CertKind.PoolRetirement, { poolKeyHash: Bytes28, epoch: Word64BigInt }),
   Schema.TaggedStruct(CertKind.GenesisKeyDelegation, {
     genesisHash: Bytes28,
     genesisDelegateHash: Bytes28,
     vrfKeyHash: Bytes32,
   }),
-  Schema.TaggedStruct(CertKind.MoveInstantRewards, {
-    pot: Schema.BigInt, // 0 = Reserves, 1 = Treasury
-    target: MIRTarget,
-  }),
-  Schema.TaggedStruct(CertKind.RegDeposit, { credential: Credential, deposit: Schema.BigInt }),
-  Schema.TaggedStruct(CertKind.UnregDeposit, { credential: Credential, deposit: Schema.BigInt }),
+  // MoveInstantRewards wire: [6, [pot, target]]. The nested 2-slot array
+  // lives under `inner` so taggedUnionLink preserves the extra nesting level.
+  Schema.TaggedStruct(CertKind.MoveInstantRewards, { inner: MirInner }),
+  Schema.TaggedStruct(CertKind.RegDeposit, { credential: Credential, deposit: Word64BigInt }),
+  Schema.TaggedStruct(CertKind.UnregDeposit, { credential: Credential, deposit: Word64BigInt }),
   Schema.TaggedStruct(CertKind.VoteDeleg, { credential: Credential, drep: DRep }),
   Schema.TaggedStruct(CertKind.StakeVoteDeleg, {
     credential: Credential,
@@ -90,18 +236,18 @@ export const DCert = Schema.Union([
   Schema.TaggedStruct(CertKind.StakeRegDeleg, {
     credential: Credential,
     poolKeyHash: Bytes28,
-    deposit: Schema.BigInt,
+    deposit: Word64BigInt,
   }),
   Schema.TaggedStruct(CertKind.VoteRegDeleg, {
     credential: Credential,
     drep: DRep,
-    deposit: Schema.BigInt,
+    deposit: Word64BigInt,
   }),
   Schema.TaggedStruct(CertKind.StakeVoteRegDeleg, {
     credential: Credential,
     poolKeyHash: Bytes28,
     drep: DRep,
-    deposit: Schema.BigInt,
+    deposit: Word64BigInt,
   }),
   Schema.TaggedStruct(CertKind.AuthCommitteeHot, {
     coldCredential: Credential,
@@ -109,23 +255,26 @@ export const DCert = Schema.Union([
   }),
   Schema.TaggedStruct(CertKind.ResignCommitteeCold, {
     coldCredential: Credential,
-    anchor: Schema.optional(Anchor),
+    anchor: Schema.NullOr(Anchor),
   }),
   Schema.TaggedStruct(CertKind.RegDRep, {
     credential: Credential,
-    deposit: Schema.BigInt,
-    anchor: Schema.optional(Anchor),
+    deposit: Word64BigInt,
+    anchor: Schema.NullOr(Anchor),
   }),
-  Schema.TaggedStruct(CertKind.UnregDRep, { credential: Credential, deposit: Schema.BigInt }),
+  Schema.TaggedStruct(CertKind.UnregDRep, { credential: Credential, deposit: Word64BigInt }),
   Schema.TaggedStruct(CertKind.UpdateDRep, {
     credential: Credential,
-    anchor: Schema.optional(Anchor),
+    anchor: Schema.NullOr(Anchor),
   }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
 export type DCert = typeof DCert.Type;
 
+// ────────────────────────────────────────────────────────────────────────────
 // Domain predicates
+// ────────────────────────────────────────────────────────────────────────────
+
 export const isDelegationCert = DCert.isAnyOf([
   CertKind.StakeDelegation,
   CertKind.VoteDeleg,
@@ -170,252 +319,8 @@ export const isCommitteeCert = DCert.isAnyOf([
 ]);
 
 // ────────────────────────────────────────────────────────────────────────────
-// CBOR decode/encode
-// CBOR: [certTag, ...fields]
+// Derived codecs
 // ────────────────────────────────────────────────────────────────────────────
 
-export function decodeDCert(cbor: CborSchemaType): Effect.Effect<DCert, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "DCert");
-    const tagNum = Number(yield* expectUint(items[0]!, "DCert.tag"));
-
-    // Positional extraction helpers
-    const credAt = (idx: number) => decodeCredential(items[idx]!);
-    const hashAt = (idx: number, len: number) =>
-      expectBytes(items[idx]!, `DCert(${tagNum})[${idx}]`, len);
-    const numAt = (idx: number) => expectUint(items[idx]!, `DCert(${tagNum})[${idx}]`);
-    const drepAt = (idx: number) => decodeDRep(items[idx]!);
-    const optAnchorAt = (idx: number) => {
-      const a = items[idx];
-      if (!a || isNull(a)) return Effect.succeed(undefined);
-      return decodeAnchor(a);
-    };
-
-    switch (tagNum) {
-      case CertKind.StakeRegistration:
-        return { _tag: CertKind.StakeRegistration as const, credential: yield* credAt(1) };
-      case CertKind.StakeDeregistration:
-        return { _tag: CertKind.StakeDeregistration as const, credential: yield* credAt(1) };
-      case CertKind.StakeDelegation:
-        return {
-          _tag: CertKind.StakeDelegation as const,
-          credential: yield* credAt(1),
-          poolKeyHash: yield* hashAt(2, 28),
-        };
-      case CertKind.PoolRegistration: {
-        // Pool params are flattened in the cert: [3, op, vrf, pledge, cost, margin, rwd, owners, relays, meta]
-        // Create a synthetic 9-element array from items[1..9]
-        const poolArray: CborSchemaType = arr(...items.slice(1, 10));
-        return {
-          _tag: CertKind.PoolRegistration as const,
-          poolParams: yield* decodePoolParams(poolArray),
-        };
-      }
-      case CertKind.PoolRetirement:
-        return {
-          _tag: CertKind.PoolRetirement as const,
-          poolKeyHash: yield* hashAt(1, 28),
-          epoch: yield* numAt(2),
-        };
-      case CertKind.GenesisKeyDelegation:
-        return {
-          _tag: CertKind.GenesisKeyDelegation as const,
-          genesisHash: yield* hashAt(1, 28),
-          genesisDelegateHash: yield* hashAt(2, 28),
-          vrfKeyHash: yield* hashAt(3, 32),
-        };
-      case CertKind.MoveInstantRewards: {
-        // CBOR: [6, [pot, target]] where target = Map<Credential, Coin> | Coin
-        const mirItems = yield* expectArray(items[1]!, "MIR", 2);
-        const pot = yield* expectUint(mirItems[0]!, "MIR.pot");
-        const targetCbor = mirItems[1]!;
-        if (targetCbor._tag === CborKinds.UInt) {
-          return {
-            _tag: CertKind.MoveInstantRewards as const,
-            pot,
-            target: { _tag: "coin" as const, value: targetCbor.num },
-          };
-        }
-        if (targetCbor._tag === CborKinds.Map) {
-          const entries = yield* Effect.all(
-            targetCbor.entries.map((e) =>
-              Effect.gen(function* () {
-                const credential = yield* decodeCredential(e.k);
-                const coin = yield* expectUint(e.v, "MIR.coin");
-                return { credential, coin };
-              }),
-            ),
-          );
-          return {
-            _tag: CertKind.MoveInstantRewards as const,
-            pot,
-            target: { _tag: "map" as const, entries },
-          };
-        }
-        return yield* Effect.fail(
-          new SchemaIssue.InvalidValue(Option.some(targetCbor), { message: "MIR: invalid target" }),
-        );
-      }
-      case CertKind.RegDeposit:
-        return {
-          _tag: CertKind.RegDeposit as const,
-          credential: yield* credAt(1),
-          deposit: yield* numAt(2),
-        };
-      case CertKind.UnregDeposit:
-        return {
-          _tag: CertKind.UnregDeposit as const,
-          credential: yield* credAt(1),
-          deposit: yield* numAt(2),
-        };
-      case CertKind.VoteDeleg:
-        return {
-          _tag: CertKind.VoteDeleg as const,
-          credential: yield* credAt(1),
-          drep: yield* drepAt(2),
-        };
-      case CertKind.StakeVoteDeleg:
-        return {
-          _tag: CertKind.StakeVoteDeleg as const,
-          credential: yield* credAt(1),
-          poolKeyHash: yield* hashAt(2, 28),
-          drep: yield* drepAt(3),
-        };
-      case CertKind.StakeRegDeleg:
-        return {
-          _tag: CertKind.StakeRegDeleg as const,
-          credential: yield* credAt(1),
-          poolKeyHash: yield* hashAt(2, 28),
-          deposit: yield* numAt(3),
-        };
-      case CertKind.VoteRegDeleg:
-        return {
-          _tag: CertKind.VoteRegDeleg as const,
-          credential: yield* credAt(1),
-          drep: yield* drepAt(2),
-          deposit: yield* numAt(3),
-        };
-      case CertKind.StakeVoteRegDeleg:
-        return {
-          _tag: CertKind.StakeVoteRegDeleg as const,
-          credential: yield* credAt(1),
-          poolKeyHash: yield* hashAt(2, 28),
-          drep: yield* drepAt(3),
-          deposit: yield* numAt(4),
-        };
-      case CertKind.AuthCommitteeHot:
-        return {
-          _tag: CertKind.AuthCommitteeHot as const,
-          coldCredential: yield* credAt(1),
-          hotCredential: yield* credAt(2),
-        };
-      case CertKind.ResignCommitteeCold:
-        return {
-          _tag: CertKind.ResignCommitteeCold as const,
-          coldCredential: yield* credAt(1),
-          anchor: yield* optAnchorAt(2),
-        };
-      case CertKind.RegDRep:
-        return {
-          _tag: CertKind.RegDRep as const,
-          credential: yield* credAt(1),
-          deposit: yield* numAt(2),
-          anchor: yield* optAnchorAt(3),
-        };
-      case CertKind.UnregDRep:
-        return {
-          _tag: CertKind.UnregDRep as const,
-          credential: yield* credAt(1),
-          deposit: yield* numAt(2),
-        };
-      case CertKind.UpdateDRep:
-        return {
-          _tag: CertKind.UpdateDRep as const,
-          credential: yield* credAt(1),
-          anchor: yield* optAnchorAt(2),
-        };
-      default:
-        return yield* Effect.fail(
-          new SchemaIssue.InvalidValue(Option.some(cbor), {
-            message: `DCert: unknown tag ${tagNum}`,
-          }),
-        );
-    }
-  });
-}
-
-// CBOR helpers imported from cbor-utils.ts
-
-export const encodeDCert = DCert.match({
-  [CertKind.StakeRegistration]: (c): CborSchemaType => arr(uint(0), encodeCredential(c.credential)),
-  [CertKind.StakeDeregistration]: (c): CborSchemaType =>
-    arr(uint(1), encodeCredential(c.credential)),
-  [CertKind.StakeDelegation]: (c): CborSchemaType =>
-    arr(uint(2), encodeCredential(c.credential), cborBytes(c.poolKeyHash)),
-  [CertKind.PoolRegistration]: (c): CborSchemaType => arr(uint(3), encodePoolParams(c.poolParams)),
-  [CertKind.PoolRetirement]: (c): CborSchemaType =>
-    arr(uint(4), cborBytes(c.poolKeyHash), uint(c.epoch)),
-  [CertKind.GenesisKeyDelegation]: (c): CborSchemaType =>
-    arr(
-      uint(5),
-      cborBytes(c.genesisHash),
-      cborBytes(c.genesisDelegateHash),
-      cborBytes(c.vrfKeyHash),
-    ),
-  [CertKind.MoveInstantRewards]: (c): CborSchemaType => {
-    const targetCbor: CborSchemaType = MIRTarget.match({
-      coin: (t): CborSchemaType => uint(t.value),
-      map: (t): CborSchemaType => ({
-        _tag: CborKinds.Map,
-        entries: t.entries.map((e) => ({
-          k: encodeCredential(e.credential),
-          v: uint(e.coin),
-        })),
-      }),
-    })(c.target);
-    return arr(uint(6), arr(uint(c.pot), targetCbor));
-  },
-  [CertKind.RegDeposit]: (c): CborSchemaType =>
-    arr(uint(7), encodeCredential(c.credential), uint(c.deposit)),
-  [CertKind.UnregDeposit]: (c): CborSchemaType =>
-    arr(uint(8), encodeCredential(c.credential), uint(c.deposit)),
-  [CertKind.VoteDeleg]: (c): CborSchemaType =>
-    arr(uint(9), encodeCredential(c.credential), encodeDRep(c.drep)),
-  [CertKind.StakeVoteDeleg]: (c): CborSchemaType =>
-    arr(uint(10), encodeCredential(c.credential), cborBytes(c.poolKeyHash), encodeDRep(c.drep)),
-  [CertKind.StakeRegDeleg]: (c): CborSchemaType =>
-    arr(uint(11), encodeCredential(c.credential), cborBytes(c.poolKeyHash), uint(c.deposit)),
-  [CertKind.VoteRegDeleg]: (c): CborSchemaType =>
-    arr(uint(12), encodeCredential(c.credential), encodeDRep(c.drep), uint(c.deposit)),
-  [CertKind.StakeVoteRegDeleg]: (c): CborSchemaType =>
-    arr(
-      uint(13),
-      encodeCredential(c.credential),
-      cborBytes(c.poolKeyHash),
-      encodeDRep(c.drep),
-      uint(c.deposit),
-    ),
-  [CertKind.AuthCommitteeHot]: (c): CborSchemaType =>
-    arr(uint(14), encodeCredential(c.coldCredential), encodeCredential(c.hotCredential)),
-  [CertKind.ResignCommitteeCold]: (c): CborSchemaType =>
-    arr(
-      uint(15),
-      encodeCredential(c.coldCredential),
-      c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal,
-    ),
-  [CertKind.RegDRep]: (c): CborSchemaType =>
-    arr(
-      uint(16),
-      encodeCredential(c.credential),
-      uint(c.deposit),
-      c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal,
-    ),
-  [CertKind.UnregDRep]: (c): CborSchemaType =>
-    arr(uint(17), encodeCredential(c.credential), uint(c.deposit)),
-  [CertKind.UpdateDRep]: (c): CborSchemaType =>
-    arr(
-      uint(18),
-      encodeCredential(c.credential),
-      c.anchor !== undefined ? encodeAnchor(c.anchor) : nullVal,
-    ),
-});
+export const DCertBytes = toCodecCborBytes(DCert);
+export const DCertCbor = toCodecCbor(DCert);

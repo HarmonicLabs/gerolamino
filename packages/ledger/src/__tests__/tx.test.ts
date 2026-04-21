@@ -58,7 +58,7 @@ describe("TxOut CBOR round-trip", () => {
       expect(decoded.datumOption).toBeUndefined();
       expect(decoded.scriptRef).toBeUndefined();
 
-      const reEncoded = encodeTxOut(decoded);
+      const reEncoded = yield* encodeTxOut(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );

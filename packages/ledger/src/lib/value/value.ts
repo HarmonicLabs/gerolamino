@@ -39,12 +39,7 @@ export type AssetName = typeof AssetName.Type;
 // ────────────────────────────────────────────────────────────────────────────
 
 // MultiAsset is a map of maps: PolicyId → (AssetName → bigint)
-// Represented as arrays of tuples for CBOR map compatibility
-export interface MultiAssetEntry {
-  readonly policy: Uint8Array;
-  readonly assets: readonly { readonly name: Uint8Array; readonly quantity: bigint }[];
-}
-
+// Represented as arrays of tuples for CBOR map compatibility.
 export const MultiAssetEntry = Schema.Struct({
   policy: PolicyIdBytes28,
   assets: Schema.Array(
@@ -54,6 +49,7 @@ export const MultiAssetEntry = Schema.Struct({
     }),
   ),
 });
+export type MultiAssetEntry = typeof MultiAssetEntry.Type;
 
 export const Value = Schema.Struct({
   coin: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
@@ -99,10 +95,35 @@ function decodeMultiAsset(
   );
 }
 
+// RFC 8949 canonical order on byte strings: shorter length first, then
+// bytewise lex. Cardano additionally requires MultiAsset outer keys sorted
+// on policy-id bytes and inner keys on asset-name bytes. Any encode path
+// that forwards insertion order diverges from the on-wire TxId of the same
+// logical value — wallet-visible bug.
+const compareBytes = (a: Uint8Array, b: Uint8Array): number => {
+  if (a.length !== b.length) return a.length - b.length;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i]! - b[i]!;
+  }
+  return 0;
+};
+
+export function multiAssetToSortedEntries(
+  ma: readonly MultiAssetEntry[],
+): readonly MultiAssetEntry[] {
+  return ma
+    .map((entry) => ({
+      policy: entry.policy,
+      assets: entry.assets.toSorted((a, b) => compareBytes(a.name, b.name)),
+    }))
+    .toSorted((a, b) => compareBytes(a.policy, b.policy));
+}
+
 function encodeMultiAsset(ma: readonly MultiAssetEntry[]): CborSchemaType {
+  const sorted = multiAssetToSortedEntries(ma);
   return {
     _tag: CborKinds.Map,
-    entries: ma.map((entry): { k: CborSchemaType; v: CborSchemaType } => ({
+    entries: sorted.map((entry): { k: CborSchemaType; v: CborSchemaType } => ({
       k: cborBytes(entry.policy),
       v: {
         _tag: CborKinds.Map,
@@ -133,10 +154,11 @@ export function decodeValue(cbor: CborSchemaType): Effect.Effect<Value, SchemaIs
   });
 }
 
-export function encodeValue(value: Value): CborSchemaType {
-  if (value.multiAsset === undefined || value.multiAsset.length === 0) return uint(value.coin);
+export function encodeValue(value: Value): Effect.Effect<CborSchemaType, SchemaIssue.Issue> {
+  if (value.multiAsset === undefined || value.multiAsset.length === 0)
+    return Effect.succeed(uint(value.coin));
 
-  return arr(uint(value.coin), encodeMultiAsset(value.multiAsset));
+  return Effect.succeed(arr(uint(value.coin), encodeMultiAsset(value.multiAsset)));
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -1,17 +1,17 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { CborKinds, type CborSchemaType } from "codecs";
 import {
   DCert,
+  DCertCbor,
   CertKind,
   isDelegationCert,
   isRegistrationCert,
   isPoolCert,
   isGovernanceCert,
-  decodeDCert,
-  encodeDCert,
   CredentialKind,
   DRepKind,
+  UnitInterval,
 } from "..";
 
 const keyHash = new Uint8Array(28).fill(0x01);
@@ -43,19 +43,19 @@ describe("DCert domain predicates", () => {
     _tag: CertKind.RegDRep,
     credential: { _tag: CredentialKind.KeyHash, hash: keyHash },
     deposit: 0n,
+    anchor: null,
   };
   const poolRegistration: DCert = {
     _tag: CertKind.PoolRegistration,
-    poolParams: {
-      operator: poolHash,
-      vrfKeyHash: hash32,
-      pledge: 0n,
-      cost: 0n,
-      margin: { numerator: 0n, denominator: 1n },
-      rewardAccount: new Uint8Array(29),
-      owners: [],
-      relays: [],
-    },
+    operator: poolHash,
+    vrfKeyHash: hash32,
+    pledge: 0n,
+    cost: 0n,
+    margin: Schema.decodeSync(UnitInterval)({ numerator: 0n, denominator: 1n }),
+    rewardAccount: new Uint8Array(29),
+    owners: [],
+    relays: [],
+    metadata: null,
   };
 
   it("isDelegationCert", () => {
@@ -76,9 +76,9 @@ describe("DCert CBOR decode/encode", () => {
         _tag: CborKinds.Array,
         items: [{ _tag: CborKinds.UInt, num: 0n }, cborCred(0, keyHash)],
       };
-      const decoded = yield* decodeDCert(cbor);
+      const decoded = yield* Schema.decodeEffect(DCertCbor)(cbor);
       expect(decoded._tag).toBe(CertKind.StakeRegistration);
-      const reEncoded = encodeDCert(decoded);
+      const reEncoded = yield* Schema.encodeEffect(DCertCbor)(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );
@@ -93,9 +93,9 @@ describe("DCert CBOR decode/encode", () => {
           { _tag: CborKinds.Bytes, bytes: poolHash },
         ],
       };
-      const decoded = yield* decodeDCert(cbor);
+      const decoded = yield* Schema.decodeEffect(DCertCbor)(cbor);
       expect(decoded._tag).toBe(CertKind.StakeDelegation);
-      const reEncoded = encodeDCert(decoded);
+      const reEncoded = yield* Schema.encodeEffect(DCertCbor)(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );
@@ -110,12 +110,12 @@ describe("DCert CBOR decode/encode", () => {
           { _tag: CborKinds.UInt, num: 300n },
         ],
       };
-      const decoded = yield* decodeDCert(cbor);
+      const decoded = yield* Schema.decodeEffect(DCertCbor)(cbor);
       expect(decoded._tag).toBe(CertKind.PoolRetirement);
       if (DCert.guards[CertKind.PoolRetirement](decoded)) {
         expect(decoded.epoch).toBe(300n);
       }
-      const reEncoded = encodeDCert(decoded);
+      const reEncoded = yield* Schema.encodeEffect(DCertCbor)(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );
@@ -130,7 +130,7 @@ describe("DCert CBOR decode/encode", () => {
           { _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 2n }] }, // AlwaysAbstain DRep
         ],
       };
-      const decoded = yield* decodeDCert(cbor);
+      const decoded = yield* Schema.decodeEffect(DCertCbor)(cbor);
       expect(decoded._tag).toBe(CertKind.VoteDeleg);
       if (DCert.guards[CertKind.VoteDeleg](decoded)) {
         expect(decoded.drep._tag).toBe(DRepKind.AlwaysAbstain);
@@ -144,13 +144,13 @@ describe("DCert CBOR decode/encode", () => {
         _tag: CborKinds.Array,
         items: [{ _tag: CborKinds.UInt, num: 14n }, cborCred(0, keyHash), cborCred(1, scriptHash)],
       };
-      const decoded = yield* decodeDCert(cbor);
+      const decoded = yield* Schema.decodeEffect(DCertCbor)(cbor);
       expect(decoded._tag).toBe(CertKind.AuthCommitteeHot);
       if (DCert.guards[CertKind.AuthCommitteeHot](decoded)) {
         expect(decoded.coldCredential._tag).toBe(CredentialKind.KeyHash);
         expect(decoded.hotCredential._tag).toBe(CredentialKind.Script);
       }
-      const reEncoded = encodeDCert(decoded);
+      const reEncoded = yield* Schema.encodeEffect(DCertCbor)(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );
@@ -172,7 +172,7 @@ describe("DCert CBOR decode/encode", () => {
           },
         ],
       };
-      const decoded = yield* decodeDCert(cbor);
+      const decoded = yield* Schema.decodeEffect(DCertCbor)(cbor);
       expect(decoded._tag).toBe(CertKind.RegDRep);
       if (DCert.guards[CertKind.RegDRep](decoded)) {
         expect(decoded.deposit).toBe(500000000n);

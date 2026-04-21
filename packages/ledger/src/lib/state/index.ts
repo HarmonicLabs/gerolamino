@@ -1,4 +1,5 @@
 export * from "./new-epoch-state.ts";
+export * as LedgerOptics from "./optics.ts";
 
 // MemPack decoders moved to `codecs/mempack/cardano`. Ledger consumers
 // should `import { decodeMemPackTxOut, decodeMemPackKey, MemPackDecodeError }

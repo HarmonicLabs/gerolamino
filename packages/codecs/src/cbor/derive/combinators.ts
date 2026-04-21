@@ -9,7 +9,7 @@ import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../Cbor
  * ```
  * CborBytes.pipe(Schema.decodeTo(Target, {
  *   decode: SchemaGetter.transformOrFail(decodeFn),
- *   encode: SchemaGetter.transform(encodeFn),
+ *   encode: SchemaGetter.transformOrFail(encodeFn),
  * }))
  * ```
  *
@@ -19,22 +19,44 @@ import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../Cbor
  * cborCodec(Target, decodeFn, encodeFn)
  * ```
  *
- * `decode` is fallible (returns `Effect<T, SchemaIssue.Issue>`) — useful for
- * domain schemas that carry structural invariants not expressible in Schema
- * checks (tagged-union shapes, multi-era dispatch, set-vs-array polymorphism).
- * `encode` is total — every `T` has a representation.
+ * Both `decode` and `encode` are fallible (return `Effect<_, SchemaIssue.Issue>`)
+ * — useful for domain schemas that carry structural invariants not expressible
+ * in Schema checks (tagged-union shapes, multi-era dispatch, set-vs-array
+ * polymorphism) and for encoders that compose nested `Schema.encodeEffect`
+ * calls. Call sites that compose `Schema.decodeEffect` / `Schema.encodeEffect`
+ * downgrade the outer `SchemaError` to `SchemaIssue.Issue` via
+ * {@link schemaErrorToIssue} before handing off.
  */
-export const cborCodec = <T, RD, RE>(
-  to: Schema.Codec<T, T, RD, RE>,
-  decode: (cbor: CborValue) => Effect.Effect<T, SchemaIssue.Issue>,
-  encode: (value: T) => CborValue,
+export const cborCodec = <T, E, RD, RE>(
+  to: Schema.Codec<T, E, RD, RE>,
+  decode: (cbor: CborValue) => Effect.Effect<E, SchemaIssue.Issue>,
+  encode: (value: E) => Effect.Effect<CborValue, SchemaIssue.Issue>,
 ): Schema.Codec<T, Uint8Array, RD, RE> =>
   CborBytes.pipe(
     Schema.decodeTo(to, {
       decode: SchemaGetter.transformOrFail(decode),
-      encode: SchemaGetter.transform(encode),
+      encode: SchemaGetter.transformOrFail(encode),
     }),
   );
+
+/**
+ * Downgrade a `Schema.SchemaError` to its inner `SchemaIssue.Issue` at a
+ * call-site boundary. `Schema.decodeEffect` and `Schema.encodeEffect` fail
+ * with `SchemaError` (tagged `_tag: "SchemaError"`); the `transformOrFail`
+ * contract inside {@link cborCodec} requires `Issue`. Use as
+ *
+ * ```
+ * Schema.decodeEffect(Codec)(cbor).pipe(schemaErrorToIssue)
+ * ```
+ *
+ * Backed by `Effect.catchTag("SchemaError", ...)` — the tag is the stable
+ * identifier on `SchemaError` instances (see
+ * `effect/src/internal/schema/schema.ts`).
+ */
+export const schemaErrorToIssue = <A, R>(
+  self: Effect.Effect<A, Schema.SchemaError, R>,
+): Effect.Effect<A, SchemaIssue.Issue, R> =>
+  Effect.catchTag(self, "SchemaError", (e) => Effect.fail(e.issue));
 
 /**
  * Sync variant of {@link cborCodec} for legacy decoders whose error path is

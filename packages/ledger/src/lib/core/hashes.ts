@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import type * as FastCheck from "effect/testing/FastCheck";
 import { cborBytesCodec } from "codecs";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -17,109 +18,42 @@ export const isByteMaxLength = (n: number) =>
     { expected: `Uint8Array of at most ${n} bytes` },
   );
 
-// Checked Uint8Array schemas (usable inside TaggedStruct/Union fields)
-export const Bytes28 = Schema.Uint8Array.pipe(Schema.check(isByteLength(28)));
-export const Bytes32 = Schema.Uint8Array.pipe(Schema.check(isByteLength(32)));
-export const Bytes64 = Schema.Uint8Array.pipe(Schema.check(isByteLength(64)));
+// Fixed-length fast-check arbitrary. Default Schema.Uint8Array arbitrary
+// ignores `Schema.check(isByteLength(n))`, so every length-constrained hash
+// base type must override it — downstream stacked brands inherit automatically.
+const arbitraryBytes = (length: number) => () => (fc: typeof FastCheck) =>
+  fc.uint8Array({ minLength: length, maxLength: length });
 
-// ────────────────────────────────────────────────────────────────────────────
-// TaggedClass hash wrappers — rich objects with utility methods
-//
-// Wrap a validated Uint8Array in Schema.TaggedClass for .toHex(), .equals(),
-// and static .fromHex(). Existing Bytes28/Bytes32/Bytes64 schemas remain
-// unchanged so all downstream Schema definitions keep working as-is.
-// ────────────────────────────────────────────────────────────────────────────
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
-}
-
-export class HashObj28 extends Schema.TaggedClass<HashObj28>()("Hash28", {
-  bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(28))),
-}) {
-  toHex(): string {
-    return this.bytes.toHex();
-  }
-  equals(other: HashObj28): boolean {
-    return bytesEqual(this.bytes, other.bytes);
-  }
-  static fromHex(hex: string): HashObj28 {
-    return new HashObj28({ bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex) });
-  }
-}
-
-export class HashObj32 extends Schema.TaggedClass<HashObj32>()("Hash32", {
-  bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(32))),
-}) {
-  toHex(): string {
-    return this.bytes.toHex();
-  }
-  equals(other: HashObj32): boolean {
-    return bytesEqual(this.bytes, other.bytes);
-  }
-  static fromHex(hex: string): HashObj32 {
-    return new HashObj32({ bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex) });
-  }
-}
-
-export class SignatureObj extends Schema.TaggedClass<SignatureObj>()("Signature", {
-  bytes: Schema.Uint8Array.pipe(Schema.check(isByteLength(64))),
-}) {
-  toHex(): string {
-    return this.bytes.toHex();
-  }
-  equals(other: SignatureObj): boolean {
-    return bytesEqual(this.bytes, other.bytes);
-  }
-  static fromHex(hex: string): SignatureObj {
-    return new SignatureObj({
-      bytes: Uint8Array.fromHex(hex.startsWith("0x") ? hex.slice(2) : hex),
-    });
-  }
-}
-
-// Conversion helpers — bridge raw Uint8Array ↔ TaggedClass
-export function wrapHash28(bytes: Uint8Array): HashObj28 {
-  return new HashObj28({ bytes });
-}
-export function unwrapHash28(h: HashObj28): Uint8Array {
-  return h.bytes;
-}
-export function wrapHash32(bytes: Uint8Array): HashObj32 {
-  return new HashObj32({ bytes });
-}
-export function unwrapHash32(h: HashObj32): Uint8Array {
-  return h.bytes;
-}
-export function wrapSignature(bytes: Uint8Array): SignatureObj {
-  return new SignatureObj({ bytes });
-}
-export function unwrapSignature(s: SignatureObj): Uint8Array {
-  return s.bytes;
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Base hash types (branded Uint8Array with length checks)
-// ────────────────────────────────────────────────────────────────────────────
-
-export const Hash28 = Schema.Uint8Array.pipe(
+// Checked Uint8Array schemas (usable inside TaggedStruct/Union fields).
+// `toArbitrary` must be attached here because `Schema.check(isByteLength(n))`
+// does not propagate to fast-check — without the override, derived property
+// tests generate arbitrary-length arrays and loop forever on the length check.
+export const Bytes28 = Schema.Uint8Array.pipe(
   Schema.check(isByteLength(28)),
-  Schema.brand("Hash28"),
+  Schema.annotate({ toArbitrary: arbitraryBytes(28) }),
 );
+export const Bytes32 = Schema.Uint8Array.pipe(
+  Schema.check(isByteLength(32)),
+  Schema.annotate({ toArbitrary: arbitraryBytes(32) }),
+);
+export const Bytes64 = Schema.Uint8Array.pipe(
+  Schema.check(isByteLength(64)),
+  Schema.annotate({ toArbitrary: arbitraryBytes(64) }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
+// Base hash types — brand the corresponding `Bytes*` length-checked base
+// (length filter + `toArbitrary` annotation are inherited from the Bytes
+// schema; stacking `Schema.brand` preserves both).
+// ────────────────────────────────────────────────────────────────────────────
+
+export const Hash28 = Bytes28.pipe(Schema.brand("Hash28"));
 export type Hash28 = typeof Hash28.Type;
 
-export const Hash32 = Schema.Uint8Array.pipe(
-  Schema.check(isByteLength(32)),
-  Schema.brand("Hash32"),
-);
+export const Hash32 = Bytes32.pipe(Schema.brand("Hash32"));
 export type Hash32 = typeof Hash32.Type;
 
-export const Signature = Schema.Uint8Array.pipe(
-  Schema.check(isByteLength(64)),
-  Schema.brand("Signature"),
-);
+export const Signature = Bytes64.pipe(Schema.brand("Signature"));
 export type Signature = typeof Signature.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -157,7 +91,7 @@ export const DocHash = Hash32.pipe(Schema.brand("DocHash"));
 export type DocHash = typeof DocHash.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
-// CBOR Codecs
+// CBOR Codecs — one per branded type, all delegate to `cborBytesCodec`.
 // ────────────────────────────────────────────────────────────────────────────
 
 export const Hash28Bytes = cborBytesCodec(Hash28, "Hash28");
@@ -166,6 +100,10 @@ export const SignatureBytes = cborBytesCodec(Signature, "Signature");
 export const KeyHashBytes = cborBytesCodec(KeyHash, "KeyHash");
 export const ScriptHashBytes = cborBytesCodec(ScriptHash, "ScriptHash");
 export const PolicyIdBytes = cborBytesCodec(PolicyId, "PolicyId");
+export const PoolKeyHashBytes = cborBytesCodec(PoolKeyHash, "PoolKeyHash");
+export const VRFKeyHashBytes = cborBytesCodec(VRFKeyHash, "VRFKeyHash");
 export const TxIdBytes = cborBytesCodec(TxId, "TxId");
 export const DataHashBytes = cborBytesCodec(DataHash, "DataHash");
+export const AuxDataHashBytes = cborBytesCodec(AuxDataHash, "AuxDataHash");
+export const ScriptDataHashBytes = cborBytesCodec(ScriptDataHash, "ScriptDataHash");
 export const DocHashBytes = cborBytesCodec(DocHash, "DocHash");

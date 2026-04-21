@@ -77,7 +77,7 @@ describe("DRep CBOR round-trip", () => {
       };
       const decoded = yield* decodeDRep(cbor);
       expect(decoded._tag).toBe(DRepKind.KeyHash);
-      const reEncoded = encodeDRep(decoded);
+      const reEncoded = yield* encodeDRep(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );
@@ -90,7 +90,7 @@ describe("DRep CBOR round-trip", () => {
       };
       const decoded = yield* decodeDRep(cbor);
       expect(decoded._tag).toBe(DRepKind.AlwaysAbstain);
-      const reEncoded = encodeDRep(decoded);
+      const reEncoded = yield* encodeDRep(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );
@@ -98,21 +98,30 @@ describe("DRep CBOR round-trip", () => {
 
 describe("GovAction domain predicates", () => {
   it("needsHashProtection", () => {
-    expect(needsHashProtection({ _tag: GovActionKind.NoConfidence as const })).toBe(true);
-    expect(needsHashProtection({ _tag: GovActionKind.InfoAction as const })).toBe(false);
     expect(
-      needsHashProtection({ _tag: GovActionKind.TreasuryWithdrawals as const, withdrawals: [] }),
+      needsHashProtection(GovAction.cases[GovActionKind.NoConfidence].make({ prevActionId: null })),
+    ).toBe(true);
+    expect(needsHashProtection(GovAction.cases[GovActionKind.InfoAction].make({}))).toBe(false);
+    expect(
+      needsHashProtection(
+        GovAction.cases[GovActionKind.TreasuryWithdrawals].make({
+          withdrawals: [],
+          policyHash: null,
+        }),
+      ),
     ).toBe(false);
   });
 
   it("isDelayingAction", () => {
     expect(
-      isDelayingAction({
-        _tag: GovActionKind.HardForkInitiation as const,
-        protocolVersion: { major: 9n, minor: 0n },
-      }),
+      isDelayingAction(
+        GovAction.cases[GovActionKind.HardForkInitiation].make({
+          prevActionId: null,
+          protocolVersion: { major: 9n, minor: 0n },
+        }),
+      ),
     ).toBe(true);
-    expect(isDelayingAction({ _tag: GovActionKind.InfoAction as const })).toBe(false);
+    expect(isDelayingAction(GovAction.cases[GovActionKind.InfoAction].make({}))).toBe(false);
   });
 });
 
@@ -128,7 +137,7 @@ describe("Voter CBOR round-trip", () => {
       };
       const decoded = yield* decodeVoter(cbor);
       expect(decoded.kind).toBe(VoterKind.SPOKeyHash);
-      const reEncoded = encodeVoter(decoded);
+      const reEncoded = yield* encodeVoter(decoded);
       expect(reEncoded).toEqual(cbor);
     }),
   );
@@ -167,7 +176,7 @@ describe("VotingProcedure CBOR round-trip", () => {
       };
       const decoded = yield* decodeVotingProcedure(cbor);
       expect(decoded.vote).toBe(Vote.Abstain);
-      expect(decoded.anchor).toBeUndefined();
+      expect(decoded.anchor).toBeNull();
     }),
   );
 });

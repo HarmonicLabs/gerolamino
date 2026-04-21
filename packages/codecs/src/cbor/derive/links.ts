@@ -43,6 +43,21 @@ const failOthers = (expected: string) =>
   }) as const;
 
 // ────────────────────────────────────────────────────────────────────────────
+// Uint8Array <-> CborValue(Bytes)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const bytesLink: AST.Link = new AST.Link(
+  CborValueSchema.ast,
+  SchemaTransformation.transformOrFail<Uint8Array, CborValue>({
+    decode: CborValueSchema.match({
+      ...failOthers("Bytes for Uint8Array"),
+      [CborKinds.Bytes]: (v) => Effect.succeed(v.bytes),
+    }),
+    encode: (bytes) => Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes })),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // String <-> CborValue(Text)
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -281,8 +296,7 @@ const cborEqualsLiteral = (cbor: CborValue, literal: AST.LiteralValue): boolean 
       return CborValueSchema.guards[CborKinds.Simple](cbor) && cbor.value === literal;
     case "bigint":
       return (
-        CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt])(cbor) &&
-        cbor.num === literal
+        CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt])(cbor) && cbor.num === literal
       );
     case "number":
       return Number.isInteger(literal)

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Equal, Schema } from "effect";
+import * as FastCheck from "effect/testing/FastCheck";
 import {
   Hash28,
   Hash32,
@@ -7,22 +8,28 @@ import {
   KeyHash,
   ScriptHash,
   PolicyId,
+  PoolKeyHash,
+  VRFKeyHash,
   TxId,
   DataHash,
+  AuxDataHash,
+  ScriptDataHash,
+  DocHash,
   Hash28Bytes,
   Hash32Bytes,
+  SignatureBytes,
+  KeyHashBytes,
+  ScriptHashBytes,
+  PolicyIdBytes,
+  PoolKeyHashBytes,
+  VRFKeyHashBytes,
   TxIdBytes,
+  DataHashBytes,
+  AuxDataHashBytes,
+  ScriptDataHashBytes,
+  DocHashBytes,
   Bytes28,
   Bytes32,
-  HashObj28,
-  HashObj32,
-  SignatureObj,
-  wrapHash28,
-  unwrapHash28,
-  wrapHash32,
-  unwrapHash32,
-  wrapSignature,
-  unwrapSignature,
 } from "..";
 
 describe("Hash28 schema", () => {
@@ -105,162 +112,96 @@ describe("Bytes28 / Bytes32 (unbranded checked)", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// TaggedClass hash wrappers
+// Byte-wise Equal — `Equal.equals` goes through the `ArrayBuffer.isView` path
+// for branded Uint8Array, so structural comparison works without wrapping.
 // ────────────────────────────────────────────────────────────────────────────
 
-describe("HashObj28 (TaggedClass)", () => {
-  it("constructs from bytes", () => {
-    const bytes = new Uint8Array(28).fill(0xab);
-    const h = new HashObj28({ bytes });
-    expect(h._tag).toBe("Hash28");
-    expect(h.bytes).toEqual(bytes);
+describe("Equal.equals on branded Uint8Array", () => {
+  it("same bytes compare equal across brands", () => {
+    const a = new Uint8Array(28).fill(0x01);
+    const b = new Uint8Array(28).fill(0x01);
+    expect(Equal.equals(a, b)).toBe(true);
   });
 
-  it("rejects wrong length in constructor", () => {
-    expect(() => new HashObj28({ bytes: new Uint8Array(10) })).toThrow();
+  it("different bytes compare not equal", () => {
+    const a = new Uint8Array(28).fill(0x01);
+    const b = new Uint8Array(28).fill(0x02);
+    expect(Equal.equals(a, b)).toBe(false);
   });
 
-  it("toHex returns lowercase hex", () => {
-    const bytes = new Uint8Array(28).fill(0xab);
-    const h = new HashObj28({ bytes });
-    expect(h.toHex()).toBe("ab".repeat(28));
-    expect(h.toHex().length).toBe(56);
-  });
-
-  it("fromHex round-trips", () => {
-    const hex = "ab".repeat(28);
-    const h = HashObj28.fromHex(hex);
-    expect(h.toHex()).toBe(hex);
-    expect(h.bytes.length).toBe(28);
-  });
-
-  it("fromHex strips 0x prefix", () => {
-    const hex = "cd".repeat(28);
-    const h = HashObj28.fromHex("0x" + hex);
-    expect(h.toHex()).toBe(hex);
-  });
-
-  it("equals compares bytes structurally", () => {
-    const a = new HashObj28({ bytes: new Uint8Array(28).fill(0x01) });
-    const b = new HashObj28({ bytes: new Uint8Array(28).fill(0x01) });
-    const c = new HashObj28({ bytes: new Uint8Array(28).fill(0x02) });
-    expect(a.equals(b)).toBe(true);
-    expect(a.equals(c)).toBe(false);
+  it("different lengths compare not equal", () => {
+    expect(Equal.equals(new Uint8Array(28), new Uint8Array(32))).toBe(false);
   });
 });
 
-describe("HashObj32 (TaggedClass)", () => {
-  it("constructs from bytes", () => {
-    const bytes = new Uint8Array(32).fill(0xcd);
-    const h = new HashObj32({ bytes });
-    expect(h._tag).toBe("Hash32");
-    expect(h.bytes).toEqual(bytes);
-  });
+// ────────────────────────────────────────────────────────────────────────────
+// Property-based round-trip — derived Arbitrary via the `toArbitrary`
+// annotation generates fixed-length Uint8Array; the CBOR codec encodes/decodes
+// byte-exact. One property per branded type.
+// ────────────────────────────────────────────────────────────────────────────
 
-  it("rejects wrong length in constructor", () => {
-    expect(() => new HashObj32({ bytes: new Uint8Array(31) })).toThrow();
-  });
+type BrandedCodec = {
+  readonly name: string;
+  readonly schema: Schema.Codec<Uint8Array, Uint8Array, never, never>;
+  readonly codec: Schema.Codec<Uint8Array, Uint8Array, never, never>;
+  readonly length: number;
+};
 
-  it("toHex returns lowercase hex", () => {
-    const bytes = new Uint8Array(32).fill(0xcd);
-    const h = new HashObj32({ bytes });
-    expect(h.toHex()).toBe("cd".repeat(32));
-    expect(h.toHex().length).toBe(64);
-  });
+const brandedCodecs: ReadonlyArray<BrandedCodec> = [
+  { name: "Hash28", schema: Hash28, codec: Hash28Bytes, length: 28 },
+  { name: "Hash32", schema: Hash32, codec: Hash32Bytes, length: 32 },
+  { name: "Signature", schema: Signature, codec: SignatureBytes, length: 64 },
+  { name: "KeyHash", schema: KeyHash, codec: KeyHashBytes, length: 28 },
+  { name: "ScriptHash", schema: ScriptHash, codec: ScriptHashBytes, length: 28 },
+  { name: "PolicyId", schema: PolicyId, codec: PolicyIdBytes, length: 28 },
+  { name: "PoolKeyHash", schema: PoolKeyHash, codec: PoolKeyHashBytes, length: 28 },
+  { name: "VRFKeyHash", schema: VRFKeyHash, codec: VRFKeyHashBytes, length: 32 },
+  { name: "TxId", schema: TxId, codec: TxIdBytes, length: 32 },
+  { name: "DataHash", schema: DataHash, codec: DataHashBytes, length: 32 },
+  { name: "AuxDataHash", schema: AuxDataHash, codec: AuxDataHashBytes, length: 32 },
+  { name: "ScriptDataHash", schema: ScriptDataHash, codec: ScriptDataHashBytes, length: 32 },
+  { name: "DocHash", schema: DocHash, codec: DocHashBytes, length: 32 },
+];
 
-  it("fromHex round-trips", () => {
-    const hex = "cd".repeat(32);
-    const h = HashObj32.fromHex(hex);
-    expect(h.toHex()).toBe(hex);
-    expect(h.bytes.length).toBe(32);
-  });
+describe.each(brandedCodecs)(
+  "$name derived property round-trip",
+  ({ name, schema, codec, length }) => {
+    it(`${name} arbitrary produces ${length}-byte values`, () => {
+      const arb = Schema.toArbitrary(schema);
+      FastCheck.assert(
+        FastCheck.property(arb, (bytes) => bytes.length === length),
+        { numRuns: 200 },
+      );
+    });
 
-  it("equals compares bytes structurally", () => {
-    const a = new HashObj32({ bytes: new Uint8Array(32).fill(0x01) });
-    const b = new HashObj32({ bytes: new Uint8Array(32).fill(0x01) });
-    const c = new HashObj32({ bytes: new Uint8Array(32).fill(0x02) });
-    expect(a.equals(b)).toBe(true);
-    expect(a.equals(c)).toBe(false);
-  });
-});
+    it(`${name} equivalence reports structural equality`, () => {
+      const arb = Schema.toArbitrary(schema);
+      const eq = Schema.toEquivalence(schema);
+      FastCheck.assert(
+        FastCheck.property(arb, (bytes) => eq(bytes, new Uint8Array(bytes))),
+        { numRuns: 200 },
+      );
+    });
 
-describe("SignatureObj (TaggedClass)", () => {
-  it("constructs from bytes", () => {
-    const bytes = new Uint8Array(64).fill(0xef);
-    const s = new SignatureObj({ bytes });
-    expect(s._tag).toBe("Signature");
-    expect(s.bytes).toEqual(bytes);
-  });
+    it(`${name} CBOR round-trip via cborBytesCodec is identity`, () => {
+      const arb = Schema.toArbitrary(schema);
+      FastCheck.assert(
+        FastCheck.property(arb, (bytes) => {
+          const encoded = Schema.encodeUnknownSync(codec)(bytes);
+          const decoded = Schema.decodeUnknownSync(codec)(encoded);
+          return Equal.equals(bytes, decoded);
+        }),
+        { numRuns: 200 },
+      );
+    });
+  },
+);
 
-  it("rejects wrong length in constructor", () => {
-    expect(() => new SignatureObj({ bytes: new Uint8Array(32) })).toThrow();
-  });
+// ────────────────────────────────────────────────────────────────────────────
+// Spot-check fixed-byte round-trips (smoke tests independent of fast-check)
+// ────────────────────────────────────────────────────────────────────────────
 
-  it("toHex returns lowercase hex", () => {
-    const bytes = new Uint8Array(64).fill(0xef);
-    const s = new SignatureObj({ bytes });
-    expect(s.toHex()).toBe("ef".repeat(64));
-    expect(s.toHex().length).toBe(128);
-  });
-
-  it("fromHex round-trips", () => {
-    const hex = "ef".repeat(64);
-    const s = SignatureObj.fromHex(hex);
-    expect(s.toHex()).toBe(hex);
-    expect(s.bytes.length).toBe(64);
-  });
-
-  it("equals compares bytes structurally", () => {
-    const a = new SignatureObj({ bytes: new Uint8Array(64).fill(0x01) });
-    const b = new SignatureObj({ bytes: new Uint8Array(64).fill(0x01) });
-    const c = new SignatureObj({ bytes: new Uint8Array(64).fill(0x02) });
-    expect(a.equals(b)).toBe(true);
-    expect(a.equals(c)).toBe(false);
-  });
-});
-
-describe("wrap / unwrap helpers", () => {
-  it("wrapHash28 / unwrapHash28 round-trip", () => {
-    const raw = new Uint8Array(28).fill(0xaa);
-    const wrapped = wrapHash28(raw);
-    expect(wrapped).toBeInstanceOf(HashObj28);
-    expect(wrapped.toHex()).toBe("aa".repeat(28));
-    const unwrapped = unwrapHash28(wrapped);
-    expect(unwrapped).toEqual(raw);
-  });
-
-  it("wrapHash32 / unwrapHash32 round-trip", () => {
-    const raw = new Uint8Array(32).fill(0xbb);
-    const wrapped = wrapHash32(raw);
-    expect(wrapped).toBeInstanceOf(HashObj32);
-    expect(wrapped.toHex()).toBe("bb".repeat(32));
-    const unwrapped = unwrapHash32(wrapped);
-    expect(unwrapped).toEqual(raw);
-  });
-
-  it("wrapSignature / unwrapSignature round-trip", () => {
-    const raw = new Uint8Array(64).fill(0xcc);
-    const wrapped = wrapSignature(raw);
-    expect(wrapped).toBeInstanceOf(SignatureObj);
-    expect(wrapped.toHex()).toBe("cc".repeat(64));
-    const unwrapped = unwrapSignature(wrapped);
-    expect(unwrapped).toEqual(raw);
-  });
-
-  it("wrapHash28 rejects wrong length", () => {
-    expect(() => wrapHash28(new Uint8Array(10))).toThrow();
-  });
-
-  it("wrapHash32 rejects wrong length", () => {
-    expect(() => wrapHash32(new Uint8Array(10))).toThrow();
-  });
-
-  it("wrapSignature rejects wrong length", () => {
-    expect(() => wrapSignature(new Uint8Array(10))).toThrow();
-  });
-});
-
-describe("Hash CBOR round-trip", () => {
+describe("Hash CBOR round-trip (fixed fixtures)", () => {
   it.effect("Hash28 round-trip", () =>
     Effect.gen(function* () {
       const original = new Uint8Array(28).fill(0xaa);

@@ -98,8 +98,10 @@ describe("taggedUnionLink — Cardano [tag, ...fields] encoding", () => {
         ),
         (value) => {
           const out = decode(codec, encode(codec, value));
-          return JSON.stringify(out, (_, v) => (typeof v === "bigint" ? String(v) : v)) ===
-            JSON.stringify(value, (_, v) => (typeof v === "bigint" ? String(v) : v));
+          return (
+            JSON.stringify(out, (_, v) => (typeof v === "bigint" ? String(v) : v)) ===
+            JSON.stringify(value, (_, v) => (typeof v === "bigint" ? String(v) : v))
+          );
         },
       ),
       { numRuns: 200 },

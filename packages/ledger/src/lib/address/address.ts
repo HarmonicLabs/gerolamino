@@ -1,14 +1,7 @@
 import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { cborCodec, CborKinds, type CborSchemaType } from "codecs";
-import { cborBytes } from "../core/cbor-utils.ts";
+import { cborCodec, CborKinds, type CborSchemaType, CborValue as CborValueSchema } from "codecs";
 import { Network } from "../core/primitives.ts";
-import {
-  Credential,
-  CredentialKind,
-  decodeCredential,
-  encodeCredential,
-} from "../core/credentials.ts";
-import { Bytes28 } from "../core/hashes.ts";
+import { Credential, CredentialKind } from "../core/credentials.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Address types (Conway era)
@@ -74,9 +67,8 @@ const credKindBit = Credential.match({
   [CredentialKind.Script]: () => 1,
 });
 
-function makeCredential(kind: CredentialKind, hash: Uint8Array): Credential {
-  return { _tag: kind, hash };
-}
+const credKindFromBit = (bit: number): CredentialKind =>
+  bit === 0 ? CredentialKind.KeyHash : CredentialKind.Script;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Address CBOR decode/encode helpers (reused by TxOut codec)
@@ -84,7 +76,7 @@ function makeCredential(kind: CredentialKind, hash: Uint8Array): Credential {
 // ────────────────────────────────────────────────────────────────────────────
 
 export function decodeAddr(cbor: CborSchemaType): Effect.Effect<Addr, SchemaIssue.Issue> {
-  if (cbor._tag !== CborKinds.Bytes)
+  if (!CborValueSchema.guards[CborKinds.Bytes](cbor))
     return Effect.fail(
       new SchemaIssue.InvalidValue(Option.some(cbor), { message: "Addr: expected CBOR bytes" }),
     );
@@ -100,74 +92,80 @@ export function decodeAddr(cbor: CborSchemaType): Effect.Effect<Addr, SchemaIssu
   const networkId = header & 0x0f;
   const net = networkId === 1 ? Network.Mainnet : Network.Testnet;
 
-  // Base address types: 0b0000..0b0011 (bits 7-4 = 0-3)
-  // payment cred kind = bit 4, stake cred kind = bit 5
-  if (addrType <= 3) {
-    if (bytes.length < 57)
-      return Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), {
-          message: "Addr: base address too short",
+  switch (addrType) {
+    // Base address types: 0b0000..0b0011 — bit 0 = pay cred kind, bit 1 = stake cred kind.
+    case 0:
+    case 1:
+    case 2:
+    case 3: {
+      if (bytes.length < 57)
+        return Effect.fail(
+          new SchemaIssue.InvalidValue(Option.some(cbor), {
+            message: "Addr: base address too short",
+          }),
+        );
+      const payKind = credKindFromBit(addrType & 1);
+      const stakeKind = credKindFromBit((addrType >> 1) & 1);
+      return Effect.succeed(
+        Addr.cases[AddrKind.Base].make({
+          net,
+          pay: Credential.make({ _tag: payKind, hash: bytes.slice(1, 29) }),
+          stake: Credential.make({ _tag: stakeKind, hash: bytes.slice(29, 57) }),
         }),
       );
-    const payKind = (addrType & 1) === 0 ? CredentialKind.KeyHash : CredentialKind.Script;
-    const stakeKind = (addrType & 2) === 0 ? CredentialKind.KeyHash : CredentialKind.Script;
-    return Effect.succeed({
-      _tag: AddrKind.Base as const,
-      net,
-      pay: makeCredential(payKind, bytes.slice(1, 29)),
-      stake: makeCredential(stakeKind, bytes.slice(29, 57)),
-    });
-  }
+    }
 
-  // Enterprise address types: 0b0110..0b0111 (bits 7-4 = 6-7)
-  if (addrType === 6 || addrType === 7) {
-    if (bytes.length < 29)
-      return Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), {
-          message: "Addr: enterprise address too short",
+    // Enterprise address types: 0b0110..0b0111.
+    case 6:
+    case 7: {
+      if (bytes.length < 29)
+        return Effect.fail(
+          new SchemaIssue.InvalidValue(Option.some(cbor), {
+            message: "Addr: enterprise address too short",
+          }),
+        );
+      const payKind = credKindFromBit(addrType & 1);
+      return Effect.succeed(
+        Addr.cases[AddrKind.Enterprise].make({
+          net,
+          pay: Credential.make({ _tag: payKind, hash: bytes.slice(1, 29) }),
         }),
       );
-    const payKind = (addrType & 1) === 0 ? CredentialKind.KeyHash : CredentialKind.Script;
-    return Effect.succeed({
-      _tag: AddrKind.Enterprise as const,
-      net,
-      pay: makeCredential(payKind, bytes.slice(1, 29)),
-    });
-  }
+    }
 
-  // Reward address types: 0b1110..0b1111 (bits 7-4 = 14-15)
-  if (addrType === 14 || addrType === 15) {
-    if (bytes.length < 29)
-      return Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), {
-          message: "Addr: reward address too short",
+    // Reward address types: 0b1110..0b1111.
+    case 14:
+    case 15: {
+      if (bytes.length < 29)
+        return Effect.fail(
+          new SchemaIssue.InvalidValue(Option.some(cbor), {
+            message: "Addr: reward address too short",
+          }),
+        );
+      const stakeKind = credKindFromBit(addrType & 1);
+      return Effect.succeed(
+        Addr.cases[AddrKind.Reward].make({
+          net,
+          stake: Credential.make({ _tag: stakeKind, hash: bytes.slice(1, 29) }),
         }),
       );
-    const stakeKind = (addrType & 1) === 0 ? CredentialKind.KeyHash : CredentialKind.Script;
-    return Effect.succeed({
-      _tag: AddrKind.Reward as const,
-      net,
-      stake: makeCredential(stakeKind, bytes.slice(1, 29)),
-    });
-  }
+    }
 
-  // Bootstrap (Byron) address: type 8
-  if (addrType === 8) {
-    return Effect.succeed({
-      _tag: AddrKind.Bootstrap as const,
-      bytes,
-    });
-  }
+    // Bootstrap (Byron): type 8.
+    case 8:
+      return Effect.succeed(Addr.cases[AddrKind.Bootstrap].make({ bytes }));
 
-  return Effect.fail(
-    new SchemaIssue.InvalidValue(Option.some(cbor), {
-      message: `Addr: unknown address type ${addrType}`,
-    }),
-  );
+    default:
+      return Effect.fail(
+        new SchemaIssue.InvalidValue(Option.some(cbor), {
+          message: `Addr: unknown address type ${addrType}`,
+        }),
+      );
+  }
 }
 
 export const encodeAddr = Addr.match({
-  [AddrKind.Base]: (a): CborSchemaType => {
+  [AddrKind.Base]: (a) => {
     const payBit = credKindBit(a.pay);
     const stakeBit = credKindBit(a.stake);
     const addrType = (stakeBit << 1) | payBit;
@@ -177,9 +175,9 @@ export const encodeAddr = Addr.match({
     result[0] = header;
     result.set(a.pay.hash, 1);
     result.set(a.stake.hash, 29);
-    return cborBytes(result);
+    return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
   },
-  [AddrKind.Enterprise]: (a): CborSchemaType => {
+  [AddrKind.Enterprise]: (a) => {
     const payBit = credKindBit(a.pay);
     const addrType = 6 | payBit;
     const networkId = a.net === Network.Mainnet ? 1 : 0;
@@ -187,9 +185,9 @@ export const encodeAddr = Addr.match({
     const result = new Uint8Array(29);
     result[0] = header;
     result.set(a.pay.hash, 1);
-    return cborBytes(result);
+    return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
   },
-  [AddrKind.Reward]: (a): CborSchemaType => {
+  [AddrKind.Reward]: (a) => {
     const stakeBit = credKindBit(a.stake);
     const addrType = 14 | stakeBit;
     const networkId = a.net === Network.Mainnet ? 1 : 0;
@@ -197,11 +195,10 @@ export const encodeAddr = Addr.match({
     const result = new Uint8Array(29);
     result[0] = header;
     result.set(a.stake.hash, 1);
-    return cborBytes(result);
+    return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
   },
-  [AddrKind.Bootstrap]: (a): CborSchemaType => {
-    return cborBytes(a.bytes);
-  },
+  [AddrKind.Bootstrap]: (a) =>
+    Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: a.bytes })),
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -209,7 +206,7 @@ export const encodeAddr = Addr.match({
 // ────────────────────────────────────────────────────────────────────────────
 
 export function decodeRwdAddr(cbor: CborSchemaType): Effect.Effect<RwdAddr, SchemaIssue.Issue> {
-  if (cbor._tag !== CborKinds.Bytes)
+  if (!CborValueSchema.guards[CborKinds.Bytes](cbor))
     return Effect.fail(
       new SchemaIssue.InvalidValue(Option.some(cbor), { message: "RwdAddr: expected CBOR bytes" }),
     );
@@ -228,14 +225,16 @@ export function decodeRwdAddr(cbor: CborSchemaType): Effect.Effect<RwdAddr, Sche
     );
   const networkId = header & 0x0f;
   const net = networkId === 1 ? Network.Mainnet : Network.Testnet;
-  const stakeKind = (addrType & 1) === 0 ? CredentialKind.KeyHash : CredentialKind.Script;
-  return Effect.succeed({
-    net,
-    stake: makeCredential(stakeKind, bytes.slice(1, 29)),
-  });
+  const stakeKind = credKindFromBit(addrType & 1);
+  return Effect.succeed(
+    RwdAddr.make({
+      net,
+      stake: Credential.make({ _tag: stakeKind, hash: bytes.slice(1, 29) }),
+    }),
+  );
 }
 
-export function encodeRwdAddr(addr: RwdAddr): CborSchemaType {
+export function encodeRwdAddr(addr: RwdAddr): Effect.Effect<CborSchemaType, SchemaIssue.Issue> {
   const stakeBit = credKindBit(addr.stake);
   const addrType = 14 | stakeBit;
   const networkId = addr.net === Network.Mainnet ? 1 : 0;
@@ -243,7 +242,7 @@ export function encodeRwdAddr(addr: RwdAddr): CborSchemaType {
   const result = new Uint8Array(29);
   result[0] = header;
   result.set(addr.stake.hash, 1);
-  return cborBytes(result);
+  return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
 }
 
 // ────────────────────────────────────────────────────────────────────────────

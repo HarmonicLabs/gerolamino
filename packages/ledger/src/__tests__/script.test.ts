@@ -1,15 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import {
-  Timelock,
-  TimelockKind,
-  TimelockBytes,
-  type TimelockType,
-  Script,
-  ScriptKind,
-  decodeTimelock,
-  encodeTimelock,
-} from "..";
+import { Timelock, TimelockKind, TimelockBytes, type TimelockType, Script, ScriptKind } from "..";
 
 const testKeyHash = new Uint8Array(28).fill(0xaa);
 

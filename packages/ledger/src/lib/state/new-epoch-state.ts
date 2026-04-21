@@ -1,858 +1,684 @@
 /**
  * Mithril snapshot state file decoder.
  *
- * Decodes the full ExtLedgerState CBOR from a Mithril snapshot's "state" file.
- * Structure verified against real preprod snapshot at slot 119,401,006.
+ * Decodes the full ExtLedgerState CBOR from a Mithril snapshot's "state"
+ * file, using Schema-derived codecs for every positional / sparse shape.
+ * Structure verified against preprod snapshot at slot 119,401,006.
  *
- * Key encoding quirk: Credential tags are REVERSED in state CBOR vs block CBOR.
- * State: 0=Script, 1=Key. Block/CDDL: 0=Key, 1=Script.
+ * Credential tag reversal: in state CBOR `0=Script, 1=Key`; in block/CDDL
+ * `0=Key, 1=Script`. Both encodings are modeled as sibling schemas
+ * (`Credential` / `StateCredential` in `core/credentials.ts`) — this module
+ * uses `StateCredential` exclusively.
  */
-import { Effect, Option, Schema } from "effect";
-import { CborKinds, type CborSchemaType, parseSync } from "codecs";
+import {
+  Effect,
+  HashMap,
+  Option,
+  Schema,
+  SchemaAST as AST,
+  SchemaIssue,
+  SchemaParser,
+  SchemaTransformation,
+} from "effect";
+import {
+  type CborLinkFactory,
+  CborDecodeError,
+  CborKinds,
+  type CborValue,
+  CborValue as CborValueSchema,
+  cborTaggedLink,
+  parse,
+  positionalArrayLink,
+  strictMaybe,
+  toCodecCbor,
+  toCodecCborBytes,
+  withCborLink,
+} from "codecs";
+import { StateCredential, StateCredentialCbor } from "../core/credentials.ts";
+import { Bytes28, Bytes32 } from "../core/hashes.ts";
 import { Era } from "../core/era.ts";
+import { Anchor, DRep } from "../governance/governance.ts";
+import { PoolParamsStatePState, PoolParamsStatePStateCbor } from "../pool/pool-state.ts";
+import { DepositPurpose, DepositPurposeCbor, DepositPurposeKind } from "./deposits.ts";
+import { DRepState, DRepStateCbor } from "./drep-state.ts";
+import { compareBytes, hashMapCodec, OpaqueCbor } from "./helpers.ts";
 
-// ---------------------------------------------------------------------------
-// Error type
-// ---------------------------------------------------------------------------
+// ────────────────────────────────────────────────────────────────────────────
+// Schema.Codec<CborValue, CborValue> helpers for primitive map keys/values.
+// All plain BigInt keys/values (Coin, Epoch, pool count, etc.) share one
+// codec. Tuple-keyed / struct-keyed HashMaps attach their own derivation.
+// ────────────────────────────────────────────────────────────────────────────
 
-export class StateDecodeError extends Schema.TaggedErrorClass<StateDecodeError>()(
-  "StateDecodeError",
-  {
-    context: Schema.String,
-    expected: Schema.String,
-    actual: Schema.String,
-  },
-) {
-  override get message() {
-    return `${this.context}: expected ${this.expected}, got ${this.actual}`;
+const BigIntCbor = toCodecCbor(Schema.BigInt);
+const Bytes28Cbor = toCodecCbor(Bytes28);
+const Bytes32Cbor = toCodecCbor(Bytes32);
+const DRepCbor = toCodecCbor(DRep);
+
+// ────────────────────────────────────────────────────────────────────────────
+// StateCredential canonical ordering (canonical CBOR §4.2.1 bytewise).
+// StateCredential encodes as `[UInt(tag), Bytes(hash28)]`; the outer-array
+// length is always 2, so ordering reduces to `(tag, hash)` lexicographic.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const compareStateCredential = (a: StateCredential, b: StateCredential): number => {
+  const tagDiff = a._tag - b._tag;
+  if (tagDiff !== 0) return tagDiff;
+  return compareBytes(a.hash, b.hash);
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// DepositPurpose canonical ordering. All variants encode as
+// `[UInt(tag), ...inner]`; ordering first by tag, then by the CBOR-serialized
+// inner field. We precompute the inner-key bytes once via encodeEffect. For
+// the hot path we fall back to structural comparison which is canonical-
+// equivalent for same-shape variants.
+// ────────────────────────────────────────────────────────────────────────────
+
+const credentialDepositTags = [
+  DepositPurposeKind.KeyDeposit,
+  DepositPurposeKind.DRepDeposit,
+] as const;
+const govActionDepositTags = [
+  DepositPurposeKind.GovActionDeposit,
+  DepositPurposeKind.ProposalDeposit,
+] as const;
+
+export const compareDepositPurpose = (a: DepositPurpose, b: DepositPurpose): number => {
+  const tagDiff = a._tag - b._tag;
+  if (tagDiff !== 0) return tagDiff;
+  if (
+    DepositPurpose.isAnyOf(credentialDepositTags)(a) &&
+    DepositPurpose.isAnyOf(credentialDepositTags)(b)
+  ) {
+    return compareStateCredential(a.credential, b.credential);
   }
-}
-
-const fail = (context: string, expected: string, actual: string) =>
-  Effect.fail(new StateDecodeError({ context, expected, actual }));
-
-// ---------------------------------------------------------------------------
-// CBOR extraction helpers
-// ---------------------------------------------------------------------------
-
-function expectArray(
-  cbor: CborSchemaType,
-  ctx: string,
-  len?: number,
-): Effect.Effect<ReadonlyArray<CborSchemaType>, StateDecodeError> {
-  if (cbor._tag !== CborKinds.Array) return fail(ctx, "array", `tag ${cbor._tag}`);
-  if (len !== undefined && cbor.items.length !== len)
-    return fail(ctx, `${len} items`, `${cbor.items.length}`);
-  return Effect.succeed(cbor.items);
-}
-
-function expectUint(cbor: CborSchemaType, ctx: string): Effect.Effect<bigint, StateDecodeError> {
-  if (cbor._tag === CborKinds.UInt) return Effect.succeed(cbor.num);
-  if (cbor._tag === CborKinds.Tag && cbor.tag === 2n && cbor.data._tag === CborKinds.Bytes) {
-    let n = 0n;
-    for (const b of cbor.data.bytes) n = (n << 8n) | BigInt(b);
-    return Effect.succeed(n);
+  if (
+    DepositPurpose.guards[DepositPurposeKind.PoolDeposit](a) &&
+    DepositPurpose.guards[DepositPurposeKind.PoolDeposit](b)
+  ) {
+    return compareBytes(a.keyHash, b.keyHash);
   }
-  return fail(ctx, "uint", `tag ${cbor._tag}`);
-}
-
-function expectBytes(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<Uint8Array, StateDecodeError> {
-  if (cbor._tag !== CborKinds.Bytes) return fail(ctx, "bytes", `tag ${cbor._tag}`);
-  return Effect.succeed(cbor.bytes);
-}
-
-function expectMap(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<ReadonlyArray<{ k: CborSchemaType; v: CborSchemaType }>, StateDecodeError> {
-  if (cbor._tag !== CborKinds.Map) return fail(ctx, "map", `tag ${cbor._tag}`);
-  return Effect.succeed(cbor.entries);
-}
-
-function expectText(cbor: CborSchemaType, ctx: string): Effect.Effect<string, StateDecodeError> {
-  if (cbor._tag !== CborKinds.Text) return fail(ctx, "text", `tag ${cbor._tag}`);
-  return Effect.succeed(cbor.text);
-}
-
-function isNull(cbor: CborSchemaType): boolean {
-  return cbor._tag === CborKinds.Simple && cbor.value === null;
-}
-
-// Decode a CBOR map into a Map<string, T> using key/value decoders
-function decodeMap<T>(
-  cbor: CborSchemaType,
-  ctx: string,
-  decodeKey: (c: CborSchemaType) => Effect.Effect<string, StateDecodeError>,
-  decodeValue: (c: CborSchemaType) => Effect.Effect<T, StateDecodeError>,
-): Effect.Effect<ReadonlyMap<string, T>, StateDecodeError> {
-  return expectMap(cbor, ctx).pipe(
-    Effect.flatMap((entries) =>
-      Effect.all(entries.map((e) => Effect.all([decodeKey(e.k), decodeValue(e.v)]))),
-    ),
-    Effect.map((pairs) => new Map(pairs)),
-  );
-}
-
-// Hex-encode a credential for use as map key
-function credKey(cred: StateCredential): string {
-  return `${cred.kind}:${cred.hash.toHex()}`;
-}
-
-function hashKey(hash: Uint8Array): string {
-  return hash.toHex();
-}
-
-// Unwrap Tag(258, Array) or bare Array into items
-function getSetItems(cbor: CborSchemaType): ReadonlyArray<CborSchemaType> {
-  if (cbor._tag === CborKinds.Tag && cbor.tag === 258n && cbor.data._tag === CborKinds.Array)
-    return cbor.data.items;
-  if (cbor._tag === CborKinds.Array) return cbor.items;
-  return [];
-}
-
-// ---------------------------------------------------------------------------
-// Rational: Tag(30, [num, den])
-// ---------------------------------------------------------------------------
-
-export interface StateRational {
-  readonly numerator: bigint;
-  readonly denominator: bigint;
-}
-
-function decodeRational(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<StateRational, StateDecodeError> {
-  if (cbor._tag !== CborKinds.Tag || cbor.tag !== 30n)
-    return fail(ctx, "Tag(30)", `tag ${cbor._tag}`);
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor.data, ctx, 2);
-    return {
-      numerator: yield* expectUint(items[0]!, ctx),
-      denominator: yield* expectUint(items[1]!, ctx),
-    };
-  });
-}
-
-// StrictMaybe: Array(0)=Nothing, Array(1,[x])=Just(x), null=Nothing
-function decodeStrictMaybe<T>(
-  cbor: CborSchemaType,
-  ctx: string,
-  decodeInner: (c: CborSchemaType) => Effect.Effect<T, StateDecodeError>,
-): Effect.Effect<T | undefined, StateDecodeError> {
-  if (isNull(cbor)) return Effect.succeed(undefined);
-  if (cbor._tag === CborKinds.Array && cbor.items.length === 0) return Effect.succeed(undefined);
-  if (cbor._tag === CborKinds.Array && cbor.items.length === 1) return decodeInner(cbor.items[0]!);
-  return decodeInner(cbor);
-}
-
-// ---------------------------------------------------------------------------
-// Credential (State CBOR: 0=Script, 1=Key — reversed from block CBOR)
-// ---------------------------------------------------------------------------
-
-export interface StateCredential {
-  readonly kind: "key" | "script";
-  readonly hash: Uint8Array;
-}
-
-function decodeStateCredential(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<StateCredential, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, ctx, 2);
-    const tag = yield* expectUint(items[0]!, ctx);
-    const hash = yield* expectBytes(items[1]!, ctx);
-    // REVERSED mapping in state CBOR: 0=Script, 1=Key
-    return { kind: tag === 0n ? "script" : "key", hash } as const;
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Bound: [RelativeTime, SlotNo, EpochNo]
-// ---------------------------------------------------------------------------
-
-export interface Bound {
-  readonly time: bigint;
-  readonly slot: bigint;
-  readonly epoch: bigint;
-}
-
-function decodeBound(cbor: CborSchemaType, ctx: string): Effect.Effect<Bound, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, ctx);
-    return {
-      time: yield* expectUint(items[0]!, `${ctx}.time`),
-      slot: yield* expectUint(items[1]!, `${ctx}.slot`),
-      epoch: yield* expectUint(items[2]!, `${ctx}.epoch`),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Anchor: [url, hash32]
-// ---------------------------------------------------------------------------
-
-export interface StateAnchor {
-  readonly url: string;
-  readonly hash: Uint8Array;
-}
-
-function decodeAnchor(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<StateAnchor, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, ctx, 2);
-    return {
-      url: yield* expectText(items[0]!, `${ctx}.url`),
-      hash: yield* expectBytes(items[1]!, `${ctx}.hash`),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// ChainAccountState: [treasury, reserves]
-// ---------------------------------------------------------------------------
-
-export interface ChainAccountState {
-  readonly treasury: bigint;
-  readonly reserves: bigint;
-}
-
-function decodeChainAccountState(
-  cbor: CborSchemaType,
-): Effect.Effect<ChainAccountState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "ChainAccountState", 2);
-    return {
-      treasury: yield* expectUint(items[0]!, "treasury"),
-      reserves: yield* expectUint(items[1]!, "reserves"),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// AccountState (DState entry): [balance, deposit, poolDelegation?, drepDelegation?]
-// ---------------------------------------------------------------------------
-
-export interface AccountState {
-  readonly balance: bigint;
-  readonly deposit: bigint;
-  readonly poolDelegation: Uint8Array | undefined;
-  readonly drepDelegation: StateDRep | undefined;
-}
-
-function decodeAccountState(cbor: CborSchemaType): Effect.Effect<AccountState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "AccountState", 4);
-    const balance = yield* expectUint(items[0]!, "balance");
-    const deposit = yield* expectUint(items[1]!, "deposit");
-    const poolDelegation = yield* decodeStrictMaybe(items[2]!, "poolDelegation", (c) =>
-      expectBytes(c, "poolKeyHash"),
-    );
-    const drepDelegation = yield* decodeStrictMaybe(items[3]!, "drepDelegation", decodeDRep);
-    return { balance, deposit, poolDelegation, drepDelegation };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// DRep (Conway governance delegate)
-// ---------------------------------------------------------------------------
-
-export interface StateDRep {
-  readonly kind: "keyHash" | "script" | "alwaysAbstain" | "alwaysNoConfidence";
-  readonly hash?: Uint8Array;
-}
-
-function decodeDRep(cbor: CborSchemaType): Effect.Effect<StateDRep, StateDecodeError> {
-  // DRep can be: [0, keyHash], [1, scriptHash], [2], [3], or just UInt for compact encoding
-  if (cbor._tag === CborKinds.UInt) {
-    switch (Number(cbor.num)) {
-      case 2:
-        return Effect.succeed({ kind: "alwaysAbstain" as const });
-      case 3:
-        return Effect.succeed({ kind: "alwaysNoConfidence" as const });
-      default:
-        return fail("DRep", "tag 0-3", `${cbor.num}`);
-    }
+  if (
+    DepositPurpose.isAnyOf(govActionDepositTags)(a) &&
+    DepositPurpose.isAnyOf(govActionDepositTags)(b)
+  ) {
+    const txDiff = compareBytes(a.govActionId.txId, b.govActionId.txId);
+    if (txDiff !== 0) return txDiff;
+    return Number(a.govActionId.index - b.govActionId.index);
   }
-  if (cbor._tag === CborKinds.Array && cbor.items.length >= 1) {
-    return Effect.gen(function* () {
-      const tag = yield* expectUint(cbor.items[0]!, "drep.tag");
-      switch (Number(tag)) {
-        case 0:
-          return {
-            kind: "keyHash" as const,
-            hash: yield* expectBytes(cbor.items[1]!, "drep.hash"),
-          };
-        case 1:
-          return { kind: "script" as const, hash: yield* expectBytes(cbor.items[1]!, "drep.hash") };
-        case 2:
-          return { kind: "alwaysAbstain" as const };
-        case 3:
-          return { kind: "alwaysNoConfidence" as const };
-        default:
-          return yield* fail("DRep", "tag 0-3", `${tag}`);
-      }
-    });
-  }
-  return fail("DRep", "array or uint", `tag ${cbor._tag}`);
-}
+  return 0;
+};
 
-// ---------------------------------------------------------------------------
-// DRepState: [expiry, anchor?, deposit, delegators]
-// ---------------------------------------------------------------------------
+// ────────────────────────────────────────────────────────────────────────────
+// Bound — `[RelativeTime, SlotNo, EpochNo]` (Cardano hard-fork bound).
+// ────────────────────────────────────────────────────────────────────────────
 
-export interface DRepState {
-  readonly expiry: bigint;
-  readonly anchor: StateAnchor | undefined;
-  readonly deposit: bigint;
-  readonly delegators: ReadonlyArray<StateCredential>;
-}
+export const Bound = Schema.Struct({
+  time: Schema.BigInt,
+  slot: Schema.BigInt,
+  epoch: Schema.BigInt,
+}).pipe(withCborLink((walked) => positionalArrayLink(["time", "slot", "epoch"])(walked)));
+export type Bound = typeof Bound.Type;
 
-function decodeDRepState(cbor: CborSchemaType): Effect.Effect<DRepState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "DRepState", 4);
-    return {
-      expiry: yield* expectUint(items[0]!, "expiry"),
-      anchor: yield* decodeStrictMaybe(items[1]!, "anchor", (c) => decodeAnchor(c, "anchor")),
-      deposit: yield* expectUint(items[2]!, "deposit"),
-      delegators: yield* Effect.all(
-        getSetItems(items[3]!).map((c) => decodeStateCredential(c, "delegator")),
-      ),
-    };
-  });
-}
+// ────────────────────────────────────────────────────────────────────────────
+// ChainAccountState — `[treasury, reserves]`.
+// ────────────────────────────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// RewardAccount: raw bytes (old) or structured [network, credential] (new)
-// ---------------------------------------------------------------------------
+export const ChainAccountState = Schema.Struct({
+  treasury: Schema.BigInt,
+  reserves: Schema.BigInt,
+}).pipe(withCborLink((walked) => positionalArrayLink(["treasury", "reserves"])(walked)));
+export type ChainAccountState = typeof ChainAccountState.Type;
 
-/**
- * Decode a reward account that may be raw serialized bytes OR a structured
- * CBOR array [network, credential] (newer cardano-node state encoding).
- * Reconstructs the canonical 29-byte serialized reward address either way.
- *
- * Haskell ref: AccountAddress EncCBOR in cardano-ledger-core Address.hs
- * Old format: encCBOR (putAccountAddress → 29 raw bytes)
- * New format: derived struct encoding [network, credential]
- *   where credential is [credType, hash] or raw hash bytes
- */
-function decodeRewardAccount(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<Uint8Array, StateDecodeError> {
-  // Old format: already serialized as raw bytes
-  return expectBytes(cbor, ctx).pipe(
-    Effect.catchTag("StateDecodeError", () =>
-      // New format: [network, credential_or_hash]
+// ────────────────────────────────────────────────────────────────────────────
+// AccountState — `[balance, deposit, StrictMaybe(poolDelegation),
+//                 StrictMaybe(drepDelegation)]`.
+// Poolkeyhash is a bare 28-byte hash; drepDelegation is a DRep tagged union.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const AccountState = Schema.Struct({
+  balance: Schema.BigInt,
+  deposit: Schema.BigInt,
+  poolDelegation: strictMaybe(Bytes28Cbor),
+  drepDelegation: strictMaybe(DRepCbor),
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["balance", "deposit", "poolDelegation", "drepDelegation"])(walked),
+  ),
+);
+export type AccountState = typeof AccountState.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// VState — `[dreps, committeeState, numDormantEpochs]`.
+// `committeeState` is left opaque until the Conway committee-ratification
+// rule-set lands (out of scope here).
+// ────────────────────────────────────────────────────────────────────────────
+
+export const VState = Schema.Struct({
+  dreps: hashMapCodec({
+    typeName: "VState.dreps",
+    keyCodec: StateCredentialCbor,
+    valueCodec: DRepStateCbor,
+    compareKey: compareStateCredential,
+  }),
+  committeeState: OpaqueCbor,
+  numDormantEpochs: Schema.BigInt,
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["dreps", "committeeState", "numDormantEpochs"])(walked),
+  ),
+);
+export type VState = typeof VState.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// PState — `[legacySlot, stakePools, futureStakePools, retiring]`.
+// Slot 0 carries a pre-Conway structure that current consumers do not need;
+// preserved as `OpaqueCbor` so re-encode is byte-preserving.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const PState = Schema.Struct({
+  legacy: OpaqueCbor,
+  stakePools: hashMapCodec({
+    typeName: "PState.stakePools",
+    keyCodec: Bytes28Cbor,
+    valueCodec: PoolParamsStatePStateCbor,
+    compareKey: compareBytes,
+  }),
+  futureStakePoolParams: hashMapCodec({
+    typeName: "PState.futureStakePoolParams",
+    keyCodec: Bytes28Cbor,
+    valueCodec: PoolParamsStatePStateCbor,
+    compareKey: compareBytes,
+  }),
+  retiring: hashMapCodec({
+    typeName: "PState.retiring",
+    keyCodec: Bytes28Cbor,
+    valueCodec: BigIntCbor,
+    compareKey: compareBytes,
+  }),
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["legacy", "stakePools", "futureStakePoolParams", "retiring"])(walked),
+  ),
+);
+export type PState = typeof PState.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// DState — `[accounts, pointers, genDelegs, instantaneousRewards]`.
+// `pointers` is always empty in Conway state (pre-Shelley pointer addrs
+// are legacy); kept opaque for byte preservation.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const GenDelegEntry = Schema.Struct({
+  delegateHash: Bytes28,
+  vrfHash: Bytes32,
+}).pipe(withCborLink((walked) => positionalArrayLink(["delegateHash", "vrfHash"])(walked)));
+export type GenDelegEntry = typeof GenDelegEntry.Type;
+
+const GenDelegEntryCbor = toCodecCbor(GenDelegEntry);
+
+export const InstantaneousRewards = Schema.Struct({
+  reserves: hashMapCodec({
+    typeName: "InstantaneousRewards.reserves",
+    keyCodec: StateCredentialCbor,
+    valueCodec: BigIntCbor,
+    compareKey: compareStateCredential,
+  }),
+  treasury: hashMapCodec({
+    typeName: "InstantaneousRewards.treasury",
+    keyCodec: StateCredentialCbor,
+    valueCodec: BigIntCbor,
+    compareKey: compareStateCredential,
+  }),
+  deltaReserves: Schema.BigInt,
+  deltaTreasury: Schema.BigInt,
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["reserves", "treasury", "deltaReserves", "deltaTreasury"])(walked),
+  ),
+);
+export type InstantaneousRewards = typeof InstantaneousRewards.Type;
+
+export const DState = Schema.Struct({
+  accounts: hashMapCodec({
+    typeName: "DState.accounts",
+    keyCodec: StateCredentialCbor,
+    valueCodec: toCodecCbor(AccountState),
+    compareKey: compareStateCredential,
+  }),
+  pointers: OpaqueCbor,
+  genDelegs: hashMapCodec({
+    typeName: "DState.genDelegs",
+    keyCodec: Bytes28Cbor,
+    valueCodec: GenDelegEntryCbor,
+    compareKey: compareBytes,
+  }),
+  instantaneousRewards: InstantaneousRewards,
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["accounts", "pointers", "genDelegs", "instantaneousRewards"])(walked),
+  ),
+);
+export type DState = typeof DState.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// CertState — `[vState, pState, dState]`.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const CertState = Schema.Struct({
+  vState: VState,
+  pState: PState,
+  dState: DState,
+}).pipe(withCborLink((walked) => positionalArrayLink(["vState", "pState", "dState"])(walked)));
+export type CertState = typeof CertState.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Constitution — `[anchor, StrictMaybe(scriptHash)]`.
+// (Mithril's state actually writes `scriptHash` as raw Bytes or Null, not the
+// Haskell StrictMaybe; we accept both via a custom link below.)
+// ────────────────────────────────────────────────────────────────────────────
+
+const constitutionLink = new AST.Link(
+  CborValueSchema.ast,
+  SchemaTransformation.transformOrFail<
+    { readonly anchor: Anchor; readonly scriptHash: Uint8Array | undefined },
+    CborValue
+  >({
+    decode: CborValueSchema.match({
+      [CborKinds.Array]: (cbor) =>
+        Effect.gen(function* () {
+          if (cbor.items.length !== 2) {
+            return yield* Effect.fail(
+              new SchemaIssue.InvalidValue(Option.some(cbor), {
+                message: `Constitution: expected 2 items, got ${cbor.items.length}`,
+              }),
+            );
+          }
+          const anchor = yield* SchemaParser.decodeEffect(toCodecCbor(Anchor))(cbor.items[0]!);
+          const tail = cbor.items[1]!;
+          const scriptHash = CborValueSchema.guards[CborKinds.Bytes](tail) ? tail.bytes : undefined;
+          return { anchor, scriptHash };
+        }),
+      [CborKinds.UInt]: (cbor) => invalid(cbor, "Constitution: expected Array"),
+      [CborKinds.NegInt]: (cbor) => invalid(cbor, "Constitution: expected Array"),
+      [CborKinds.Bytes]: (cbor) => invalid(cbor, "Constitution: expected Array"),
+      [CborKinds.Text]: (cbor) => invalid(cbor, "Constitution: expected Array"),
+      [CborKinds.Map]: (cbor) => invalid(cbor, "Constitution: expected Array"),
+      [CborKinds.Tag]: (cbor) => invalid(cbor, "Constitution: expected Array"),
+      [CborKinds.Simple]: (cbor) => invalid(cbor, "Constitution: expected Array"),
+    }),
+    encode: ({ anchor, scriptHash }) =>
       Effect.gen(function* () {
-        const items = yield* expectArray(cbor, ctx, 2);
-        const network = yield* expectUint(items[0]!, `${ctx}.network`);
-
-        // Credential may be structured [credType, hash] or raw hash bytes
-        // (pool reward accounts are always key-based per Cardano spec)
-        const { kind, hash } = yield* decodeStateCredential(items[1]!, `${ctx}.cred`).pipe(
-          Effect.catchTag("StateDecodeError", () =>
-            expectBytes(items[1]!, `${ctx}.hash`).pipe(
-              Effect.map((h) => ({ kind: "key" as const, hash: h })),
-            ),
-          ),
-        );
-
-        // Reconstruct serialized reward address:
-        // Header: 0xe0 (key) or 0xf0 (script) | network
-        const headerByte = (kind === "key" ? 0xe0 : 0xf0) | Number(network);
-        const result = new Uint8Array(29);
-        result[0] = headerByte;
-        result.set(hash, 1);
-        return result;
+        const anchorCbor = yield* SchemaParser.encodeEffect(toCodecCbor(Anchor))(anchor);
+        const tail: CborValue =
+          scriptHash === undefined
+            ? CborValueSchema.make({ _tag: CborKinds.Simple, value: null })
+            : CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: scriptHash });
+        return CborValueSchema.make({
+          _tag: CborKinds.Array,
+          items: [anchorCbor, tail],
+        });
       }),
-    ),
-  );
-}
+  }),
+);
 
-// ---------------------------------------------------------------------------
-// PoolParams (in PState): [vrf, pledge, cost, margin, rewardAcct, owners, relays, metadata, deposit]
-// ---------------------------------------------------------------------------
+const invalid = <T>(value: T, message: string) =>
+  Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message }));
 
-export interface StatePoolParams {
-  readonly vrfKeyHash: Uint8Array;
-  readonly pledge: bigint;
-  readonly cost: bigint;
-  readonly margin: StateRational;
-  readonly rewardAccount: Uint8Array;
-  readonly owners: ReadonlyArray<Uint8Array>;
-  readonly relays: CborSchemaType;
-  readonly metadata: StateAnchor | undefined;
-  readonly deposit: bigint;
-}
+const isConstitution = (u: unknown): u is Constitution =>
+  typeof u === "object" && u !== null && "anchor" in u && "scriptHash" in u;
 
-function decodeStatePoolParams(
-  cbor: CborSchemaType,
-): Effect.Effect<StatePoolParams, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "PoolParams");
-    return {
-      vrfKeyHash: yield* expectBytes(items[0]!, "vrf"),
-      pledge: yield* expectUint(items[1]!, "pledge"),
-      cost: yield* expectUint(items[2]!, "cost"),
-      margin: yield* decodeRational(items[3]!, "margin"),
-      rewardAccount: yield* decodeRewardAccount(items[4]!, "rewardAcct"),
-      owners: yield* Effect.all(getSetItems(items[5]!).map((c) => expectBytes(c, "owner"))),
-      relays: items[6]!,
-      metadata: yield* decodeStrictMaybe(items[7]!, "metadata", (c) => decodeAnchor(c, "metadata")),
-      deposit: items.length >= 9 ? yield* expectUint(items[8]!, "deposit") : 0n,
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// VState: [dreps, committeeState, dormantEpochs]
-// ---------------------------------------------------------------------------
-
-export interface VState {
-  readonly dreps: ReadonlyMap<string, DRepState>;
-  readonly committeeState: ReadonlyArray<{
-    credential: StateCredential;
-    authorization: CborSchemaType;
-  }>;
-  readonly numDormantEpochs: bigint;
-}
-
-function decodeVState(cbor: CborSchemaType): Effect.Effect<VState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "VState", 3);
-    const dreps = yield* decodeMap(
-      items[0]!,
-      "dreps",
-      (k) => decodeStateCredential(k, "drep.key").pipe(Effect.map(credKey)),
-      decodeDRepState,
-    );
-    const committeeEntries = yield* expectMap(items[1]!, "committeeState");
-    const committeeState = yield* Effect.all(
-      committeeEntries.map((e) =>
-        decodeStateCredential(e.k, "committee.key").pipe(
-          Effect.map((credential) => ({ credential, authorization: e.v })),
-        ),
-      ),
-    );
-    return {
-      dreps,
-      committeeState,
-      numDormantEpochs: yield* expectUint(items[2]!, "dormantEpochs"),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// PState: [vrfKeyHashes, stakePools, futureParams, retiring]
-// ---------------------------------------------------------------------------
-
-export interface PState {
-  readonly stakePools: ReadonlyMap<string, StatePoolParams>;
-  readonly futureStakePoolParams: ReadonlyMap<string, StatePoolParams>;
-  readonly retiring: ReadonlyMap<string, bigint>;
-}
-
-function decodePState(cbor: CborSchemaType): Effect.Effect<PState, StateDecodeError> {
-  const hashKeyDecoder = (ctx: string) => (k: CborSchemaType) =>
-    expectBytes(k, ctx).pipe(Effect.map(hashKey));
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "PState", 4);
-    return {
-      stakePools: yield* decodeMap(
-        items[1]!,
-        "stakePools",
-        hashKeyDecoder("pool.key"),
-        decodeStatePoolParams,
-      ),
-      futureStakePoolParams: yield* decodeMap(
-        items[2]!,
-        "futureParams",
-        hashKeyDecoder("futurePool.key"),
-        decodeStatePoolParams,
-      ),
-      retiring: yield* decodeMap(items[3]!, "retiring", hashKeyDecoder("retire.key"), (v) =>
-        expectUint(v, "retire.epoch"),
-      ),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// DState: [accounts, futureGenDelegs, genDelegs, instantaneousRewards]
-// ---------------------------------------------------------------------------
-
-export interface DState {
-  readonly accounts: ReadonlyMap<string, AccountState>;
-  readonly genDelegs: ReadonlyMap<string, { delegateHash: Uint8Array; vrfHash: Uint8Array }>;
-  readonly instantaneousRewards: {
-    readonly reserves: ReadonlyMap<string, bigint>;
-    readonly treasury: ReadonlyMap<string, bigint>;
-    readonly deltaReserves: bigint;
-    readonly deltaTreasury: bigint;
-  };
-}
-
-function decodeDState(cbor: CborSchemaType): Effect.Effect<DState, StateDecodeError> {
-  const credKeyDecoder = (ctx: string) => (k: CborSchemaType) =>
-    decodeStateCredential(k, ctx).pipe(Effect.map(credKey));
-  const decodeIRMap = (c: CborSchemaType) =>
-    decodeMap(c, "irMap", credKeyDecoder("ir.key"), (v) => expectUint(v, "ir.val"));
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "DState", 4);
-    const accounts = yield* decodeMap(
-      items[0]!,
-      "accounts",
-      credKeyDecoder("account.key"),
-      decodeAccountState,
-    );
-    const genDelegs = yield* decodeMap(
-      items[2]!,
-      "genDelegs",
-      (k) => expectBytes(k, "genDeleg.key").pipe(Effect.map(hashKey)),
-      (v) =>
-        Effect.gen(function* () {
-          const val = yield* expectArray(v, "genDeleg.val", 2);
-          return {
-            delegateHash: yield* expectBytes(val[0]!, "delegate"),
-            vrfHash: yield* expectBytes(val[1]!, "vrf"),
-          };
-        }),
-    );
-    const irItems = yield* expectArray(items[3]!, "instantaneousRewards", 4);
-    return {
-      accounts,
-      genDelegs,
-      instantaneousRewards: {
-        reserves: yield* decodeIRMap(irItems[0]!),
-        treasury: yield* decodeIRMap(irItems[1]!),
-        deltaReserves: yield* expectUint(irItems[2]!, "deltaReserves"),
-        deltaTreasury: yield* expectUint(irItems[3]!, "deltaTreasury"),
-      },
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// CertState (Conway): [vState, pState, dState]
-// ---------------------------------------------------------------------------
-
-export interface CertState {
-  readonly vState: VState;
-  readonly pState: PState;
-  readonly dState: DState;
-}
-
-function decodeCertState(cbor: CborSchemaType): Effect.Effect<CertState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "CertState", 3);
-    return {
-      vState: yield* decodeVState(items[0]!),
-      pState: yield* decodePState(items[1]!),
-      dState: yield* decodeDState(items[2]!),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// ConwayGovState: [proposals, committee, constitution, curPP, prevPP, futurePP, drepPulsingState]
-// ---------------------------------------------------------------------------
-
-export interface Constitution {
-  readonly anchor: StateAnchor;
+export type Constitution = {
+  readonly anchor: Anchor;
   readonly scriptHash: Uint8Array | undefined;
-}
+};
+export const Constitution: Schema.declare<Constitution> = Schema.declare<Constitution>(
+  isConstitution,
+).annotate({
+  toCborLink: (): ReturnType<CborLinkFactory> => constitutionLink,
+});
 
-export interface ConwayGovState {
-  readonly proposals: CborSchemaType;
-  readonly committee: CborSchemaType;
-  readonly constitution: Constitution;
-  readonly currentPParams: CborSchemaType;
-  readonly previousPParams: CborSchemaType;
-  readonly futurePParams: CborSchemaType;
-  readonly drepPulsingState: CborSchemaType;
-}
+// ────────────────────────────────────────────────────────────────────────────
+// ConwayGovState — `[proposals, committee, constitution, currentPP,
+//                   previousPP, futurePP, drepPulsingState]`.
+// Proposals / committee / pparams slots are opaque until Phase 8 models
+// them structurally.
+// ────────────────────────────────────────────────────────────────────────────
 
-function decodeConwayGovState(
-  cbor: CborSchemaType,
-): Effect.Effect<ConwayGovState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "ConwayGovState", 7);
-    const constItems = yield* expectArray(items[2]!, "Constitution", 2);
-    const constitution: Constitution = {
-      anchor: yield* decodeAnchor(constItems[0]!, "constitution.anchor"),
-      scriptHash: constItems[1]!._tag === CborKinds.Bytes ? constItems[1]!.bytes : undefined,
-    };
-    return {
-      proposals: items[0]!,
-      committee: items[1]!,
-      constitution,
-      currentPParams: items[3]!,
-      previousPParams: items[4]!,
-      futurePParams: items[5]!,
-      drepPulsingState: items[6]!,
-    };
-  });
-}
+export const ConwayGovState = Schema.Struct({
+  proposals: OpaqueCbor,
+  committee: OpaqueCbor,
+  constitution: Constitution,
+  currentPParams: OpaqueCbor,
+  previousPParams: OpaqueCbor,
+  futurePParams: OpaqueCbor,
+  drepPulsingState: OpaqueCbor,
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink([
+      "proposals",
+      "committee",
+      "constitution",
+      "currentPParams",
+      "previousPParams",
+      "futurePParams",
+      "drepPulsingState",
+    ])(walked),
+  ),
+);
+export type ConwayGovState = typeof ConwayGovState.Type;
 
-// ---------------------------------------------------------------------------
-// UTxOState: [utxo, deposited, fees, govState, instantStake, donation]
-// ---------------------------------------------------------------------------
+// ────────────────────────────────────────────────────────────────────────────
+// UTxOState — `[utxo, deposited, fees, govState, instantStake, donation]`.
+// `utxo` is empty in the Mithril snapshot (UTxO-HD stores it in LMDB);
+// retained as OpaqueCbor so re-encode is byte-preserving.
+// ────────────────────────────────────────────────────────────────────────────
 
-export interface UTxOState {
-  readonly deposited: bigint;
-  readonly fees: bigint;
-  readonly govState: ConwayGovState;
-  readonly instantStake: ReadonlyMap<string, bigint>;
-  readonly donation: bigint;
-}
+export const UTxOState = Schema.Struct({
+  utxo: OpaqueCbor,
+  deposited: Schema.BigInt,
+  fees: Schema.BigInt,
+  govState: ConwayGovState,
+  instantStake: hashMapCodec({
+    typeName: "UTxOState.instantStake",
+    keyCodec: StateCredentialCbor,
+    valueCodec: BigIntCbor,
+    compareKey: compareStateCredential,
+  }),
+  donation: Schema.BigInt,
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["utxo", "deposited", "fees", "govState", "instantStake", "donation"])(
+      walked,
+    ),
+  ),
+);
+export type UTxOState = typeof UTxOState.Type;
 
-function decodeUTxOState(cbor: CborSchemaType): Effect.Effect<UTxOState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "UTxOState", 6);
-    return {
-      deposited: yield* expectUint(items[1]!, "deposited"),
-      fees: yield* expectUint(items[2]!, "fees"),
-      govState: yield* decodeConwayGovState(items[3]!),
-      instantStake: yield* decodeMap(
-        items[4]!,
-        "instantStake",
-        (k) => decodeStateCredential(k, "stake.key").pipe(Effect.map(credKey)),
-        (v) => expectUint(v, "stake.val"),
-      ),
-      donation: yield* expectUint(items[5]!, "donation"),
-    };
-  });
-}
+// ────────────────────────────────────────────────────────────────────────────
+// LedgerState — `[certState, utxoState]`.
+// ────────────────────────────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// LedgerState: [certState, utxoState]
-// ---------------------------------------------------------------------------
+export const LedgerState = Schema.Struct({
+  certState: CertState,
+  utxoState: UTxOState,
+}).pipe(withCborLink((walked) => positionalArrayLink(["certState", "utxoState"])(walked)));
+export type LedgerState = typeof LedgerState.Type;
 
-export interface LedgerState {
-  readonly certState: CertState;
-  readonly utxoState: UTxOState;
-}
+// ────────────────────────────────────────────────────────────────────────────
+// SnapShot — `[stake, delegations, poolParams]` (Conway 3-slot) or empty
+// `[...]` for vacuous snapshots on older nodes. A custom link tolerates the
+// 2-slot shape by returning empty HashMaps.
+// ────────────────────────────────────────────────────────────────────────────
 
-function decodeLedgerState(cbor: CborSchemaType): Effect.Effect<LedgerState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "LedgerState", 2);
-    return {
-      certState: yield* decodeCertState(items[0]!),
-      utxoState: yield* decodeUTxOState(items[1]!),
-    };
-  });
-}
+export type SnapShot = {
+  readonly stake: HashMap.HashMap<StateCredential, bigint>;
+  readonly delegations: HashMap.HashMap<StateCredential, Uint8Array>;
+  readonly poolParams: HashMap.HashMap<Uint8Array, CborValue>;
+};
 
-// ---------------------------------------------------------------------------
-// SnapShot (old 3-element format): [stake, delegations, poolParams]
-// ---------------------------------------------------------------------------
+const snapShotStakeCodec = toCodecCbor(
+  hashMapCodec({
+    typeName: "SnapShot.stake",
+    keyCodec: StateCredentialCbor,
+    valueCodec: BigIntCbor,
+    compareKey: compareStateCredential,
+  }),
+);
+const snapShotDelegationsCodec = toCodecCbor(
+  hashMapCodec({
+    typeName: "SnapShot.delegations",
+    keyCodec: StateCredentialCbor,
+    valueCodec: Bytes28Cbor,
+    compareKey: compareStateCredential,
+  }),
+);
+const snapShotPoolParamsCodec = toCodecCbor(
+  hashMapCodec({
+    typeName: "SnapShot.poolParams",
+    keyCodec: Bytes28Cbor,
+    valueCodec: OpaqueCbor,
+    compareKey: compareBytes,
+  }),
+);
 
-export interface SnapShot {
-  readonly stake: ReadonlyMap<string, bigint>;
-  readonly delegations: ReadonlyMap<string, Uint8Array>;
-  readonly poolParams: ReadonlyMap<string, CborSchemaType>;
-}
-
-function decodeSnapShot(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<SnapShot, StateDecodeError> {
-  const credKeyDecoder = (sub: string) => (k: CborSchemaType) =>
-    decodeStateCredential(k, `${ctx}.${sub}.key`).pipe(Effect.map(credKey));
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, ctx);
-    if (items.length !== 3 && items.length !== 2)
-      return yield* fail(ctx, "2 or 3 elements", `${items.length}`);
-    if (items.length === 3) {
-      return {
-        stake: yield* decodeMap(items[0]!, `${ctx}.stake`, credKeyDecoder("stake"), (v) =>
-          expectUint(v, `${ctx}.stake.val`),
-        ),
-        delegations: yield* decodeMap(
-          items[1]!,
-          `${ctx}.delegations`,
-          credKeyDecoder("deleg"),
-          (v) => expectBytes(v, `${ctx}.deleg.val`),
-        ),
-        poolParams: yield* decodeMap(
-          items[2]!,
-          `${ctx}.pools`,
-          (k) => expectBytes(k, `${ctx}.pool.key`).pipe(Effect.map(hashKey)),
-          Effect.succeed,
-        ),
-      };
-    }
-    return { stake: new Map(), delegations: new Map(), poolParams: new Map() };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// SnapShots: [mark, set, go, fee]
-// ---------------------------------------------------------------------------
-
-export interface SnapShots {
-  readonly mark: SnapShot;
-  readonly set: SnapShot;
-  readonly go: SnapShot;
-  readonly fee: bigint;
-}
-
-function decodeSnapShots(cbor: CborSchemaType): Effect.Effect<SnapShots, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "SnapShots", 4);
-    return {
-      mark: yield* decodeSnapShot(items[0]!, "mark"),
-      set: yield* decodeSnapShot(items[1]!, "set"),
-      go: yield* decodeSnapShot(items[2]!, "go"),
-      fee: yield* expectUint(items[3]!, "fee"),
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// EpochState: [accountState, ledgerState, snapShots, nonMyopic]
-// ---------------------------------------------------------------------------
-
-export interface EpochState {
-  readonly chainAccountState: ChainAccountState;
-  readonly ledgerState: LedgerState;
-  readonly snapShots: SnapShots;
-  readonly nonMyopic: CborSchemaType;
-}
-
-function decodeEpochState(cbor: CborSchemaType): Effect.Effect<EpochState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "EpochState", 4);
-    return {
-      chainAccountState: yield* decodeChainAccountState(items[0]!),
-      ledgerState: yield* decodeLedgerState(items[1]!),
-      snapShots: yield* decodeSnapShots(items[2]!),
-      nonMyopic: items[3]!,
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// PoolDistr: [Map{keyHash → IndivPoolStake}, totalStake]
-// ---------------------------------------------------------------------------
-
-export interface IndividualPoolStake {
-  readonly stakeRatio: StateRational;
-  readonly totalStake: bigint;
-  readonly vrfKeyHash: Uint8Array;
-}
-
-export interface PoolDistr {
-  readonly pools: ReadonlyMap<string, IndividualPoolStake>;
-  readonly totalActiveStake: bigint;
-}
-
-function decodePoolDistr(cbor: CborSchemaType): Effect.Effect<PoolDistr, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "PoolDistr", 2);
-    const pools = yield* decodeMap(
-      items[0]!,
-      "pools",
-      (k) => expectBytes(k, "pool.key").pipe(Effect.map(hashKey)),
-      (v) =>
+const snapShotLink = new AST.Link(
+  CborValueSchema.ast,
+  SchemaTransformation.transformOrFail<SnapShot, CborValue>({
+    decode: CborValueSchema.match({
+      [CborKinds.Array]: (cbor) =>
         Effect.gen(function* () {
-          const s = yield* expectArray(v, "poolStake", 3);
+          if (cbor.items.length === 0) {
+            return {
+              stake: HashMap.empty<StateCredential, bigint>(),
+              delegations: HashMap.empty<StateCredential, Uint8Array>(),
+              poolParams: HashMap.empty<Uint8Array, CborValue>(),
+            };
+          }
+          if (cbor.items.length !== 3) {
+            return yield* invalid(
+              cbor,
+              `SnapShot: expected 0 or 3 items, got ${cbor.items.length}`,
+            );
+          }
           return {
-            stakeRatio: yield* decodeRational(s[0]!, "stakeRatio"),
-            totalStake: yield* expectUint(s[1]!, "totalStake"),
-            vrfKeyHash: yield* expectBytes(s[2]!, "vrfKey"),
+            stake: yield* SchemaParser.decodeEffect(snapShotStakeCodec)(cbor.items[0]!),
+            delegations: yield* SchemaParser.decodeEffect(snapShotDelegationsCodec)(cbor.items[1]!),
+            poolParams: yield* SchemaParser.decodeEffect(snapShotPoolParamsCodec)(cbor.items[2]!),
           };
         }),
-    );
-    return { pools, totalActiveStake: yield* expectUint(items[1]!, "totalActiveStake") };
-  });
-}
+      [CborKinds.UInt]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
+      [CborKinds.NegInt]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
+      [CborKinds.Bytes]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
+      [CborKinds.Text]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
+      [CborKinds.Map]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
+      [CborKinds.Tag]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
+      [CborKinds.Simple]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
+    }),
+    encode: (snap) =>
+      Effect.gen(function* () {
+        const stakeCbor = yield* SchemaParser.encodeEffect(snapShotStakeCodec)(snap.stake);
+        const delegationsCbor = yield* SchemaParser.encodeEffect(snapShotDelegationsCodec)(
+          snap.delegations,
+        );
+        const poolParamsCbor = yield* SchemaParser.encodeEffect(snapShotPoolParamsCodec)(
+          snap.poolParams,
+        );
+        return CborValueSchema.make({
+          _tag: CborKinds.Array,
+          items: [stakeCbor, delegationsCbor, poolParamsCbor],
+        });
+      }),
+  }),
+);
 
-// ---------------------------------------------------------------------------
-// BlocksMade: Map{keyHash → count}
-// ---------------------------------------------------------------------------
+const isSnapShot = (u: unknown): u is SnapShot =>
+  typeof u === "object" && u !== null && "stake" in u && "delegations" in u && "poolParams" in u;
 
-export type BlocksMade = ReadonlyMap<string, bigint>;
+export const SnapShot: Schema.declare<SnapShot> = Schema.declare<SnapShot>(isSnapShot).annotate({
+  toCborLink: (): ReturnType<CborLinkFactory> => snapShotLink,
+});
 
-function decodeBlocksMade(
-  cbor: CborSchemaType,
-  ctx: string,
-): Effect.Effect<BlocksMade, StateDecodeError> {
-  return decodeMap(
-    cbor,
-    ctx,
-    (k) => expectBytes(k, `${ctx}.key`).pipe(Effect.map(hashKey)),
-    (v) => expectUint(v, `${ctx}.val`),
-  );
-}
+// ────────────────────────────────────────────────────────────────────────────
+// SnapShots — `[mark, set, go, fee]`.
+// ────────────────────────────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// NewEpochState: [epoch, bprev, bcur, epochState, rewardUpdate, poolDistr, stashedAVVM]
-// ---------------------------------------------------------------------------
+export const SnapShots = Schema.Struct({
+  mark: SnapShot,
+  set: SnapShot,
+  go: SnapShot,
+  fee: Schema.BigInt,
+}).pipe(withCborLink((walked) => positionalArrayLink(["mark", "set", "go", "fee"])(walked)));
+export type SnapShots = typeof SnapShots.Type;
 
-export interface NewEpochState {
-  readonly epoch: bigint;
-  readonly blocksMadePrev: BlocksMade;
-  readonly blocksMadeCur: BlocksMade;
-  readonly epochState: EpochState;
-  readonly rewardUpdate: CborSchemaType;
-  readonly poolDistr: PoolDistr;
-  readonly stashedAVVMAddresses: CborSchemaType;
-}
+// ────────────────────────────────────────────────────────────────────────────
+// EpochState — `[chainAccountState, ledgerState, snapShots, nonMyopic]`.
+// ────────────────────────────────────────────────────────────────────────────
 
-function decodeNewEpochState(cbor: CborSchemaType): Effect.Effect<NewEpochState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "NewEpochState", 7);
-    return {
-      epoch: yield* expectUint(items[0]!, "epoch"),
-      blocksMadePrev: yield* decodeBlocksMade(items[1]!, "blocksMadePrev"),
-      blocksMadeCur: yield* decodeBlocksMade(items[2]!, "blocksMadeCur"),
-      epochState: yield* decodeEpochState(items[3]!),
-      rewardUpdate: items[4]!,
-      poolDistr: yield* decodePoolDistr(items[5]!),
-      stashedAVVMAddresses: items[6]!,
-    };
-  });
-}
+export const EpochState = Schema.Struct({
+  chainAccountState: ChainAccountState,
+  ledgerState: LedgerState,
+  snapShots: SnapShots,
+  nonMyopic: OpaqueCbor,
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["chainAccountState", "ledgerState", "snapShots", "nonMyopic"])(walked),
+  ),
+);
+export type EpochState = typeof EpochState.Type;
 
-// ---------------------------------------------------------------------------
-// ShelleyTip: WithOrigin([slot, blockNo, hash32])
-// ---------------------------------------------------------------------------
+// ────────────────────────────────────────────────────────────────────────────
+// IndividualPoolStake — `[stakeRatio (Tag 30), totalStake, vrfKeyHash]`.
+// `stakeRatio` is a Rational (Tag 30) emitted alongside the absolute total
+// and VRF key. Used by consensus leader-schedule computation.
+// ────────────────────────────────────────────────────────────────────────────
 
-export interface ShelleyTip {
+// Rational = Tag(30, [numerator, denominator]). Composed of positional-array
+// then Tag(30) wrapper — standard CBOR rational encoding (RFC 7049 §2.4.5).
+const Rational = Schema.Struct({
+  numerator: Schema.BigInt,
+  denominator: Schema.BigInt,
+}).pipe(
+  withCborLink((walked) => {
+    const positional = positionalArrayLink(["numerator", "denominator"])(walked);
+    return cborTaggedLink(30n)(AST.replaceEncoding(walked, [positional]));
+  }),
+);
+
+export const IndividualPoolStake = Schema.Struct({
+  stakeRatio: Rational,
+  totalStake: Schema.BigInt,
+  vrfKeyHash: Bytes32,
+}).pipe(
+  withCborLink((walked) => positionalArrayLink(["stakeRatio", "totalStake", "vrfKeyHash"])(walked)),
+);
+export type IndividualPoolStake = typeof IndividualPoolStake.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// PoolDistr — `[pools, totalActiveStake]`.
+// ────────────────────────────────────────────────────────────────────────────
+
+const IndividualPoolStakeCbor = toCodecCbor(IndividualPoolStake);
+
+export const PoolDistr = Schema.Struct({
+  pools: hashMapCodec({
+    typeName: "PoolDistr.pools",
+    keyCodec: Bytes28Cbor,
+    valueCodec: IndividualPoolStakeCbor,
+    compareKey: compareBytes,
+  }),
+  totalActiveStake: Schema.BigInt,
+}).pipe(withCborLink((walked) => positionalArrayLink(["pools", "totalActiveStake"])(walked)));
+export type PoolDistr = typeof PoolDistr.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// BlocksMade — `HashMap<PoolKeyHash, UInt>`.
+// Two slots: previous-epoch + current-epoch. Both share this codec.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const BlocksMade = hashMapCodec({
+  typeName: "BlocksMade",
+  keyCodec: Bytes28Cbor,
+  valueCodec: BigIntCbor,
+  compareKey: compareBytes,
+});
+export type BlocksMade = HashMap.HashMap<Uint8Array, bigint>;
+
+// ────────────────────────────────────────────────────────────────────────────
+// NewEpochState — `[epoch, blocksMadePrev, blocksMadeCur, epochState,
+//                  rewardUpdate, poolDistr, stashedAVVMAddresses]`.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const NewEpochState = Schema.Struct({
+  epoch: Schema.BigInt,
+  blocksMadePrev: BlocksMade,
+  blocksMadeCur: BlocksMade,
+  epochState: EpochState,
+  rewardUpdate: OpaqueCbor,
+  poolDistr: PoolDistr,
+  stashedAVVMAddresses: OpaqueCbor,
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink([
+      "epoch",
+      "blocksMadePrev",
+      "blocksMadeCur",
+      "epochState",
+      "rewardUpdate",
+      "poolDistr",
+      "stashedAVVMAddresses",
+    ])(walked),
+  ),
+);
+export type NewEpochState = typeof NewEpochState.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// ShelleyTip — `WithOrigin([slot, blockNo, hash32])`:
+//   `Array(0)` = Origin (no blocks yet)
+//   `Array(1, [slot, blockNo, hash])` = At(tip)
+// ────────────────────────────────────────────────────────────────────────────
+
+export type ShelleyTip = {
   readonly slot: bigint;
   readonly blockNo: bigint;
   readonly hash: Uint8Array;
-}
+};
 
-function decodeShelleyTip(
-  cbor: CborSchemaType,
-): Effect.Effect<Option.Option<ShelleyTip>, StateDecodeError> {
-  if (cbor._tag === CborKinds.Array && cbor.items.length === 0)
-    return Effect.succeed(Option.none());
-  if (cbor._tag === CborKinds.Array && cbor.items.length === 1) {
-    return Effect.gen(function* () {
-      const inner = yield* expectArray(cbor.items[0]!, "ShelleyTip", 3);
-      return Option.some<ShelleyTip>({
-        slot: yield* expectUint(inner[0]!, "tip.slot"),
-        blockNo: yield* expectUint(inner[1]!, "tip.blockNo"),
-        hash: yield* expectBytes(inner[2]!, "tip.hash"),
-      });
-    });
-  }
-  return fail("ShelleyTip", "valid tip format", "unexpected format");
-}
+const tipInnerCodec = Schema.Struct({
+  slot: Schema.BigInt,
+  blockNo: Schema.BigInt,
+  hash: Bytes32,
+}).pipe(withCborLink((walked) => positionalArrayLink(["slot", "blockNo", "hash"])(walked)));
 
-// ---------------------------------------------------------------------------
-// Past era: [Bound, Bound]
-// ---------------------------------------------------------------------------
+const tipLink = new AST.Link(
+  CborValueSchema.ast,
+  SchemaTransformation.transformOrFail<Option.Option<ShelleyTip>, CborValue>({
+    decode: CborValueSchema.match({
+      [CborKinds.Array]: (cbor) => {
+        switch (cbor.items.length) {
+          case 0:
+            return Effect.succeed(Option.none());
+          case 1:
+            return SchemaParser.decodeEffect(toCodecCbor(tipInnerCodec))(cbor.items[0]!).pipe(
+              Effect.map(Option.some),
+            );
+          default:
+            return invalid(
+              cbor,
+              `ShelleyTip: expected Array(0|1), got length ${cbor.items.length}`,
+            );
+        }
+      },
+      [CborKinds.UInt]: (cbor) => invalid(cbor, "ShelleyTip: expected Array"),
+      [CborKinds.NegInt]: (cbor) => invalid(cbor, "ShelleyTip: expected Array"),
+      [CborKinds.Bytes]: (cbor) => invalid(cbor, "ShelleyTip: expected Array"),
+      [CborKinds.Text]: (cbor) => invalid(cbor, "ShelleyTip: expected Array"),
+      [CborKinds.Map]: (cbor) => invalid(cbor, "ShelleyTip: expected Array"),
+      [CborKinds.Tag]: (cbor) => invalid(cbor, "ShelleyTip: expected Array"),
+      [CborKinds.Simple]: (cbor) => invalid(cbor, "ShelleyTip: expected Array"),
+    }),
+    encode: (opt) =>
+      Option.match(opt, {
+        onNone: () => Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Array, items: [] })),
+        onSome: (tip) =>
+          SchemaParser.encodeEffect(toCodecCbor(tipInnerCodec))(tip).pipe(
+            Effect.map((inner) => CborValueSchema.make({ _tag: CborKinds.Array, items: [inner] })),
+          ),
+      }),
+  }),
+);
+
+const isTipOption = (u: unknown): u is Option.Option<ShelleyTip> => Option.isOption(u);
+
+export const ShelleyTipOption: Schema.declare<Option.Option<ShelleyTip>> = Schema.declare<
+  Option.Option<ShelleyTip>
+>(isTipOption).annotate({
+  toCborLink: (): ReturnType<CborLinkFactory> => tipLink,
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// PastEra — `[start: Bound, end: Bound]` plus an era label.
+// ────────────────────────────────────────────────────────────────────────────
 
 export interface PastEra {
   readonly era: Era;
@@ -860,9 +686,12 @@ export interface PastEra {
   readonly end: Bound;
 }
 
-// ---------------------------------------------------------------------------
-// ExtLedgerState — top-level decoder
-// ---------------------------------------------------------------------------
+// ────────────────────────────────────────────────────────────────────────────
+// ExtLedgerState — top-level wrapper decoded in `decodeExtLedgerState`.
+// Structure: `[version, [telescope, chainDepState]]` where `telescope` is a
+// heterogeneous array whose last element is the current era and preceding
+// elements are `[start, end]` records for each past era.
+// ────────────────────────────────────────────────────────────────────────────
 
 export interface ExtLedgerState {
   readonly pastEras: ReadonlyArray<PastEra>;
@@ -871,7 +700,7 @@ export interface ExtLedgerState {
   readonly tip: Option.Option<ShelleyTip>;
   readonly newEpochState: NewEpochState;
   readonly transition: bigint;
-  readonly chainDepState: CborSchemaType;
+  readonly chainDepState: CborValue;
 }
 
 const ERA_NAMES: ReadonlyArray<Era> = [
@@ -884,48 +713,145 @@ const ERA_NAMES: ReadonlyArray<Era> = [
   Era.Conway,
 ];
 
-export function decodeExtLedgerState(
-  stateBytes: Uint8Array,
-): Effect.Effect<ExtLedgerState, StateDecodeError> {
-  return Effect.gen(function* () {
-    const cbor = parseSync(stateBytes);
+const BoundCodec = toCodecCbor(Bound);
+const NewEpochStateCodec = toCodecCbor(NewEpochState);
+const ShelleyTipCodec = toCodecCbor(ShelleyTipOption);
 
-    // Top level: [version, [telescope, chainDepState]]
-    const topItems = yield* expectArray(cbor, "StateFile", 2);
-    const _version = yield* expectUint(topItems[0]!, "version");
-    const extItems = yield* expectArray(topItems[1]!, "ExtLedgerState", 2);
-    const telescopeItems = yield* expectArray(extItems[0]!, "Telescope");
-    const chainDepState = extItems[1]!;
+const decodeBound = SchemaParser.decodeEffect(BoundCodec);
 
-    const eraIndex = telescopeItems.length - 1;
-    const currentEra = ERA_NAMES[eraIndex];
-    if (currentEra === undefined) return yield* fail("Telescope", "valid era index", `${eraIndex}`);
-
-    // Decode past eras
-    const pastEras: PastEra[] = [];
-    for (let i = 0; i < eraIndex; i++) {
-      const pastItems = yield* expectArray(telescopeItems[i]!, `Past[${i}]`, 2);
-      pastEras.push({
-        era: ERA_NAMES[i]!,
-        start: yield* decodeBound(pastItems[0]!, `Past[${i}].start`),
-        end: yield* decodeBound(pastItems[1]!, `Past[${i}].end`),
-      });
-    }
-
-    // Current era: [currentStart, [version, [tip, newEpochState, transition]]]
-    const currentItems = yield* expectArray(telescopeItems[eraIndex]!, "Current", 2);
-    const currentStart = yield* decodeBound(currentItems[0]!, "currentStart");
-
-    const versionedLS = yield* expectArray(currentItems[1]!, "VersionedLedgerState", 2);
-    const _lsVersion = yield* expectUint(versionedLS[0]!, "lsVersion");
-    const lsContent = yield* expectArray(versionedLS[1]!, "ShelleyLedgerState");
-    if (lsContent.length < 3)
-      return yield* fail("ShelleyLedgerState", ">= 3 fields", `${lsContent.length}`);
-
-    const tip = yield* decodeShelleyTip(lsContent[0]!);
-    const newEpochState = yield* decodeNewEpochState(lsContent[1]!);
-    const transition = yield* expectUint(lsContent[2]!, "transition");
-
-    return { pastEras, currentEra, currentStart, tip, newEpochState, transition, chainDepState };
+const decodePastEra = (item: CborValue, index: number): Effect.Effect<PastEra, SchemaIssue.Issue> =>
+  Effect.gen(function* () {
+    const era = ERA_NAMES[index];
+    if (era === undefined) return yield* invalid(item, `Past[${index}]: no era for index`);
+    const pastItems = yield* expectArrayLen(item, `Past[${index}]`, 2);
+    return {
+      era,
+      start: yield* decodeBound(pastItems[0]!),
+      end: yield* decodeBound(pastItems[1]!),
+    };
   });
-}
+
+// Hand-rolled top-level decoder. The Telescope / VersionedLedgerState layers
+// are too bespoke to model as a positional Struct (the telescope is
+// variable-length with a heterogeneous final slot), so this outer shell
+// dispatches Effect-fully and delegates every structural substep to a
+// Schema-derived codec below.
+export const decodeExtLedgerState = (
+  stateBytes: Uint8Array,
+): Effect.Effect<ExtLedgerState, CborDecodeError | SchemaIssue.Issue> =>
+  parse(stateBytes).pipe(
+    Effect.flatMap((cbor) =>
+      Effect.gen(function* () {
+        const topItems = yield* expectArrayLen(cbor, "StateFile", 2);
+        // topItems[0] is a UInt version; we don't use it explicitly.
+        const extItems = yield* expectArrayLen(topItems[1]!, "ExtLedgerState", 2);
+        const telescopeItems = yield* expectArray(extItems[0]!, "Telescope");
+        const chainDepState = extItems[1]!;
+
+        const eraIndex = telescopeItems.length - 1;
+        const currentEra = ERA_NAMES[eraIndex];
+        if (currentEra === undefined) {
+          return yield* invalid(extItems[0]!, `Telescope: invalid era index ${eraIndex}`);
+        }
+
+        const pastEras = yield* Effect.forEach(telescopeItems.slice(0, eraIndex), decodePastEra);
+
+        const currentItems = yield* expectArrayLen(telescopeItems[eraIndex]!, "Current", 2);
+        const currentStart = yield* decodeBound(currentItems[0]!);
+
+        const versioned = yield* expectArrayLen(currentItems[1]!, "VersionedLedgerState", 2);
+        // versioned[0] is the LS format version — not surfaced.
+        const lsContent = yield* expectArray(versioned[1]!, "ShelleyLedgerState");
+        if (lsContent.length < 3) {
+          return yield* invalid(
+            versioned[1]!,
+            `ShelleyLedgerState: expected ≥3 fields, got ${lsContent.length}`,
+          );
+        }
+
+        const tip = yield* SchemaParser.decodeEffect(ShelleyTipCodec)(lsContent[0]!);
+        const newEpochState = yield* SchemaParser.decodeEffect(NewEpochStateCodec)(lsContent[1]!);
+        const transition = yield* expectUint(lsContent[2]!, "transition");
+
+        return {
+          pastEras,
+          currentEra,
+          currentStart,
+          tip,
+          newEpochState,
+          transition,
+          chainDepState,
+        };
+      }),
+    ),
+  );
+
+// ────────────────────────────────────────────────────────────────────────────
+// Thin CBOR-level Effect shims used only by `decodeExtLedgerState`'s outer
+// dispatch (Telescope, VersionedLedgerState, ShelleyLedgerState). Inline
+// rather than re-importing `cbor-utils.ts` — those helpers will be deleted
+// when every callsite has migrated to derivation.
+// ────────────────────────────────────────────────────────────────────────────
+
+const expectArray = (
+  cbor: CborValue,
+  ctx: string,
+): Effect.Effect<ReadonlyArray<CborValue>, SchemaIssue.Issue> =>
+  CborValueSchema.guards[CborKinds.Array](cbor)
+    ? Effect.succeed(cbor.items)
+    : invalid(cbor, `${ctx}: expected Array`);
+
+const expectArrayLen = (
+  cbor: CborValue,
+  ctx: string,
+  len: number,
+): Effect.Effect<ReadonlyArray<CborValue>, SchemaIssue.Issue> =>
+  expectArray(cbor, ctx).pipe(
+    Effect.flatMap((items) =>
+      items.length === len
+        ? Effect.succeed(items)
+        : invalid(cbor, `${ctx}: expected ${len} items, got ${items.length}`),
+    ),
+  );
+
+const expectUint = (cbor: CborValue, ctx: string): Effect.Effect<bigint, SchemaIssue.Issue> =>
+  CborValueSchema.guards[CborKinds.UInt](cbor)
+    ? Effect.succeed(cbor.num)
+    : invalid(cbor, `${ctx}: expected UInt`);
+
+// ────────────────────────────────────────────────────────────────────────────
+// Derived Codec<T, Uint8Array> exports — for consumers that want to decode
+// substructures independently of the top-level `decodeExtLedgerState`.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const NewEpochStateBytes = toCodecCborBytes(NewEpochState);
+export const EpochStateBytes = toCodecCborBytes(EpochState);
+export const LedgerStateBytes = toCodecCborBytes(LedgerState);
+export const CertStateBytes = toCodecCborBytes(CertState);
+export const VStateBytes = toCodecCborBytes(VState);
+export const PStateBytes = toCodecCborBytes(PState);
+export const DStateBytes = toCodecCborBytes(DState);
+export const UTxOStateBytes = toCodecCborBytes(UTxOState);
+export const ConwayGovStateBytes = toCodecCborBytes(ConwayGovState);
+export const PoolDistrBytes = toCodecCborBytes(PoolDistr);
+
+// Re-export related types that downstream consumers still reach for from
+// this module.
+export {
+  DepositPurpose,
+  DepositPurposeCbor,
+  DRepState,
+  DRepStateCbor,
+  PoolParamsStatePState,
+  PoolParamsStatePStateCbor,
+  StateCredential,
+  StateCredentialCbor,
+};
+
+// Re-export era / anchor types for backwards compatibility with consumers
+// that used to import them from this module.
+export { Anchor, DRep, Era };
+
+// DRep / Anchor type aliases used by legacy consumer code.
+export type StateDRep = DRep;
+export type StateAnchor = Anchor;

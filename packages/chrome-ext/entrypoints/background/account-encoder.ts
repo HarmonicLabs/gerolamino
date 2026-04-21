@@ -15,22 +15,24 @@
  * hash format used throughout the Cardano ledger state.
  */
 import type { AccountState, StateDRep } from "ledger";
+import { DRep, DRepKind } from "ledger";
 
 const EMPTY_HASH = new Uint8Array(28);
 
-const drepKindCode = (kind: StateDRep["kind"] | undefined): number => {
-  if (!kind) return 0;
-  switch (kind) {
-    case "keyHash":
-      return 1;
-    case "script":
-      return 2;
-    case "alwaysAbstain":
-      return 3;
-    case "alwaysNoConfidence":
-      return 4;
-  }
-};
+const drepKindCode = (drep: StateDRep | undefined): number =>
+  drep === undefined
+    ? 0
+    : DRep.match(drep, {
+        [DRepKind.KeyHash]: () => 1,
+        [DRepKind.Script]: () => 2,
+        [DRepKind.AlwaysAbstain]: () => 3,
+        [DRepKind.AlwaysNoConfidence]: () => 4,
+      });
+
+const drepHash = (drep: StateDRep | undefined): Uint8Array | undefined =>
+  drep !== undefined && DRep.isAnyOf([DRepKind.KeyHash, DRepKind.Script])(drep)
+    ? drep.hash
+    : undefined;
 
 export const encodeAccountValue = (acct: AccountState): Uint8Array => {
   const buf = new Uint8Array(73);
@@ -38,14 +40,15 @@ export const encodeAccountValue = (acct: AccountState): Uint8Array => {
   dv.setBigUint64(0, acct.balance, false);
   dv.setBigUint64(8, acct.deposit, false);
 
-  const drepKind = drepKindCode(acct.drepDelegation?.kind);
+  const drepKind = drepKindCode(acct.drepDelegation);
   const hasPool = acct.poolDelegation ? 1 : 0;
   buf[16] = (hasPool & 0x01) | ((drepKind & 0x07) << 1);
 
   if (acct.poolDelegation) buf.set(acct.poolDelegation, 17);
   else buf.set(EMPTY_HASH, 17);
 
-  if (acct.drepDelegation?.hash) buf.set(acct.drepDelegation.hash, 45);
+  const hash = drepHash(acct.drepDelegation);
+  if (hash) buf.set(hash, 45);
   else buf.set(EMPTY_HASH, 45);
 
   return buf;

@@ -10,10 +10,17 @@
  * - Babbage/Conway: 10-element array (single VRF cert, nested opCert+protVer arrays)
  */
 import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { CborKinds, type CborSchemaType, encodeSync, parseSync } from "codecs";
+import {
+  CborKinds,
+  type CborSchemaType,
+  CborValue as CborValueSchema,
+  encode as encodeCborBytes,
+  parseSync,
+} from "codecs";
 import { Era, EraSchema } from "../core/era.ts";
 import { Bytes32, Bytes64 } from "../core/hashes.ts";
 import { decodeTxBody, TxBody } from "../tx/tx.ts";
+import { ProtocolVersion } from "../governance/governance.ts";
 import { expectArray, expectUint, expectBytes, isNull } from "../core/cbor-utils.ts";
 
 // ---------------------------------------------------------------------------
@@ -49,16 +56,6 @@ export const OpCert = Schema.Struct({
   sigma: Bytes64,
 });
 export type OpCert = typeof OpCert.Type;
-
-// ---------------------------------------------------------------------------
-// ProtocolVersion
-// ---------------------------------------------------------------------------
-
-export const ProtocolVersion = Schema.Struct({
-  major: Schema.BigInt,
-  minor: Schema.BigInt,
-});
-export type ProtocolVersion = typeof ProtocolVersion.Type;
 
 // ---------------------------------------------------------------------------
 // BlockHeader — fully decoded header with all consensus-critical fields
@@ -213,8 +210,9 @@ function decodeByronEbbHeader(
 
     // difficulty = [uint]
     const diffItems = yield* expectArray(consensusItems[1]!, "ByronEbbHeader.difficulty");
+    const head = diffItems[0];
     const blockNo =
-      diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt ? diffItems[0]!.num : 0n;
+      head !== undefined && CborValueSchema.guards[CborKinds.UInt](head) ? head.num : 0n;
 
     return { protocolMagic, prevHash, epoch, blockNo };
   });
@@ -255,8 +253,9 @@ function decodeByronMainHeader(
 
     // difficulty (index 2) = [uint]
     const diffItems = yield* expectArray(consensusItems[2]!, "ByronMainHeader.difficulty");
+    const head = diffItems[0];
     const blockNo =
-      diffItems.length > 0 && diffItems[0]!._tag === CborKinds.UInt ? diffItems[0]!.num : 0n;
+      head !== undefined && CborValueSchema.guards[CborKinds.UInt](head) ? head.num : 0n;
 
     return { protocolMagic, prevHash, epoch, slotInEpoch, blockNo };
   });
@@ -469,13 +468,31 @@ export function decodeMultiEraBlock(
     // Block body: [header, txBodies[], witnessSets[], auxData, invalidTxs?]
     const header = yield* decodeBlockHeader(blockBody[0]!);
     const multiEraHeader = yield* decodeMultiEraHeader(blockBody[0]!, eraNum);
-    const witnessSetsCbor = blockBody[2] ? encodeSync(blockBody[2]) : new Uint8Array(0);
-    const auxDataCbor = blockBody[3] ? encodeSync(blockBody[3]) : new Uint8Array(0);
+    const witnessSetsCbor = blockBody[2]
+      ? yield* encodeCborBytes(blockBody[2]).pipe(
+          Effect.mapError(
+            (e) =>
+              new SchemaIssue.InvalidValue(Option.some(blockBody[2]!), {
+                message: `MultiEraBlock.witnessSets re-encode: ${e.cause}`,
+              }),
+          ),
+        )
+      : new Uint8Array(0);
+    const auxDataCbor = blockBody[3]
+      ? yield* encodeCborBytes(blockBody[3]).pipe(
+          Effect.mapError(
+            (e) =>
+              new SchemaIssue.InvalidValue(Option.some(blockBody[3]!), {
+                message: `MultiEraBlock.auxData re-encode: ${e.cause}`,
+              }),
+          ),
+        )
+      : new Uint8Array(0);
 
     // Decode each transaction body
     const txBodiesCbor = blockBody[1];
     const txBodies: TxBody[] =
-      txBodiesCbor?._tag === CborKinds.Array
+      txBodiesCbor !== undefined && CborValueSchema.guards[CborKinds.Array](txBodiesCbor)
         ? yield* Effect.all(txBodiesCbor.items.map(decodeTxBody))
         : [];
 

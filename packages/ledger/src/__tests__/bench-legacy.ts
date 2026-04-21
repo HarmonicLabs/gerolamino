@@ -20,7 +20,7 @@ for (let chunkNo = 0; chunkNo < totalChunks; chunkNo++) {
     totalBlocks++;
     try {
       const result = MultiEraBlock.fromCbor(blockCbor);
-      if (result?.body?.txBodies) totalTxs += result.body.txBodies.length;
+      if (result?.block?.transactionBodies) totalTxs += result.block.transactionBodies.length;
     } catch {
       failures++;
     }

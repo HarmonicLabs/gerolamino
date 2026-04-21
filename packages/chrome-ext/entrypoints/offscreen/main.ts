@@ -93,7 +93,7 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
     const extState = yield* decodeExtLedgerState(payload);
     yield* Effect.log(
       `[offscreen] Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
-        `${extState.newEpochState.poolDistr.pools.size} pools`,
+        `${HashMap.size(extState.newEpochState.poolDistr.pools)} pools`,
     );
 
     const lv = yield* extractLedgerView(extState);
@@ -102,7 +102,7 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
 
     // --- Accounts ---
     const accounts = extState.newEpochState.epochState.ledgerState.certState.dState.accounts;
-    const totalAccounts = accounts.size;
+    const totalAccounts = HashMap.size(accounts);
     yield* Effect.log(`[offscreen] Writing ${totalAccounts} accounts (chunks of ${ACCOUNT_CHUNK})`);
     post({
       tag: "decode-progress",
@@ -114,11 +114,9 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
     });
 
     const accountEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> = [];
-    for (const [credKeyStr, acct] of accounts) {
-      const colonIdx = credKeyStr.indexOf(":");
-      const hashHex = credKeyStr.slice(colonIdx + 1);
+    for (const [credential, acct] of HashMap.entries(accounts)) {
       accountEntries.push({
-        key: accountKey(Uint8Array.fromHex(hashHex)),
+        key: accountKey(credential.hash),
         value: encodeAccountValue(acct),
       });
     }

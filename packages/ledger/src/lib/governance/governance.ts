@@ -1,20 +1,37 @@
-import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { CborKinds, type CborSchemaType } from "codecs";
-import { Bytes28, Bytes32 } from "../core/hashes.ts";
 import {
-  expectArray,
-  expectUint,
-  expectBytes,
-  expectText,
-  expectMap,
-  isNull,
-  getCborSet,
-  uint,
-  cborBytes,
-  cborText,
-  arr,
-  nullVal,
-} from "../core/cbor-utils.ts";
+  Effect,
+  Option,
+  Schema,
+  SchemaAST as AST,
+  SchemaIssue,
+  SchemaParser,
+  SchemaTransformation,
+} from "effect";
+import type * as FastCheck from "effect/testing/FastCheck";
+import {
+  cborTaggedLink,
+  CborKinds,
+  type CborValue,
+  CborValue as CborValueSchema,
+  type CborLinkFactory,
+  positionalArrayLink,
+  toCodecCbor,
+  toCodecCborBytes,
+  withCborLink,
+} from "codecs";
+import { Bytes28, Bytes32 } from "../core/hashes.ts";
+import { MAX_WORD64, Rational } from "../core/primitives.ts";
+
+// ────────────────────────────────────────────────────────────────────────────
+// Shared numeric checks
+// ────────────────────────────────────────────────────────────────────────────
+
+const Word64BigInt = Schema.BigInt.pipe(
+  Schema.check(Schema.isBetweenBigInt({ minimum: 0n, maximum: MAX_WORD64 })),
+);
+
+const invalid = <T>(value: T, message: string): Effect.Effect<never, SchemaIssue.Issue> =>
+  Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message }));
 
 // ────────────────────────────────────────────────────────────────────────────
 // GovRole — who can participate in governance
@@ -27,8 +44,7 @@ export enum GovRole {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Vote — yes | no | abstain
-// CBOR: 0 | 1 | 2
+// Vote — yes | no | abstain  (CBOR: 0 | 1 | 2)
 // ────────────────────────────────────────────────────────────────────────────
 
 export enum Vote {
@@ -40,8 +56,10 @@ export enum Vote {
 export const VoteSchema = Schema.Enum(Vote);
 
 // ────────────────────────────────────────────────────────────────────────────
-// DRep — delegate representative
+// DRep — delegate representative (tagged union)
 // CBOR: [0, keyhash] | [1, scripthash] | [2] | [3]
+// Walker auto-detects via `_tag` sentinels and emits the Cardano
+// `[UInt(tag), ...fields]` Array.
 // ────────────────────────────────────────────────────────────────────────────
 
 export enum DRepKind {
@@ -60,43 +78,8 @@ export const DRep = Schema.Union([
 
 export type DRep = typeof DRep.Type;
 
-export function decodeDRep(cbor: CborSchemaType): Effect.Effect<DRep, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "DRep");
-    const tag = Number(yield* expectUint(items[0]!, "DRep.tag"));
-    switch (tag) {
-      case DRepKind.KeyHash:
-        return {
-          _tag: DRepKind.KeyHash as const,
-          hash: yield* expectBytes(items[1]!, "DRep.hash", 28),
-        };
-      case DRepKind.Script:
-        return {
-          _tag: DRepKind.Script as const,
-          hash: yield* expectBytes(items[1]!, "DRep.hash", 28),
-        };
-      case DRepKind.AlwaysAbstain:
-        return { _tag: DRepKind.AlwaysAbstain as const };
-      case DRepKind.AlwaysNoConfidence:
-        return { _tag: DRepKind.AlwaysNoConfidence as const };
-      default:
-        return yield* Effect.fail(
-          new SchemaIssue.InvalidValue(Option.some(cbor), { message: `DRep: unknown tag ${tag}` }),
-        );
-    }
-  });
-}
-
-export const encodeDRep = DRep.match({
-  [DRepKind.KeyHash]: (d): CborSchemaType => arr(uint(0), cborBytes(d.hash)),
-  [DRepKind.Script]: (d): CborSchemaType => arr(uint(1), cborBytes(d.hash)),
-  [DRepKind.AlwaysAbstain]: (): CborSchemaType => arr(uint(2)),
-  [DRepKind.AlwaysNoConfidence]: (): CborSchemaType => arr(uint(3)),
-});
-
 // ────────────────────────────────────────────────────────────────────────────
-// Voter — [voterKind, credential]
-// CBOR: [0..4, hash28]
+// Voter — [voterKind, hash28]
 // Kind 0: CC keyhash, 1: CC script, 2: DRep keyhash, 3: DRep script, 4: SPO keyhash
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -111,59 +94,23 @@ export enum VoterKind {
 export const Voter = Schema.Struct({
   kind: Schema.Enum(VoterKind),
   hash: Bytes28,
-});
+}).pipe(withCborLink((walked) => positionalArrayLink(["kind", "hash"])(walked)));
 export type Voter = typeof Voter.Type;
-
-const voterKindValues = [
-  VoterKind.CCKeyHash,
-  VoterKind.CCScript,
-  VoterKind.DRepKeyHash,
-  VoterKind.DRepScript,
-  VoterKind.SPOKeyHash,
-] as const;
-
-export function decodeVoter(cbor: CborSchemaType): Effect.Effect<Voter, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "Voter", 2);
-    const kindNum = Number(yield* expectUint(items[0]!, "Voter.kind"));
-    const kind = voterKindValues[kindNum];
-    if (kind === undefined)
-      return yield* Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), {
-          message: `Voter: unknown kind ${kindNum}`,
-        }),
-      );
-    const hash = yield* expectBytes(items[1]!, "Voter.hash", 28);
-    return { kind, hash };
-  });
-}
-
-export function encodeVoter(voter: Voter): CborSchemaType {
-  return arr(uint(voter.kind), cborBytes(voter.hash));
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Anchor — [url, dataHash]
 // ────────────────────────────────────────────────────────────────────────────
 
 export const Anchor = Schema.Struct({
-  url: Schema.String.pipe(Schema.check(Schema.isMaxLength(128))),
+  url: Schema.String.pipe(
+    Schema.check(Schema.isMaxLength(128)),
+    Schema.annotate({
+      toArbitrary: () => (fc: typeof FastCheck) => fc.string({ maxLength: 128 }),
+    }),
+  ),
   hash: Bytes32,
-});
+}).pipe(withCborLink((walked) => positionalArrayLink(["url", "hash"])(walked)));
 export type Anchor = typeof Anchor.Type;
-
-export function decodeAnchor(cbor: CborSchemaType): Effect.Effect<Anchor, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "Anchor", 2);
-    const url = yield* expectText(items[0]!, "Anchor.url");
-    const hash = yield* expectBytes(items[1]!, "Anchor.hash", 32);
-    return { url, hash };
-  });
-}
-
-export function encodeAnchor(anchor: Anchor): CborSchemaType {
-  return arr(cborText(anchor.url), cborBytes(anchor.hash));
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // GovActionId — [txId, index]
@@ -171,60 +118,156 @@ export function encodeAnchor(anchor: Anchor): CborSchemaType {
 
 export const GovActionId = Schema.Struct({
   txId: Bytes32,
-  index: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
-});
+  index: Word64BigInt,
+}).pipe(withCborLink((walked) => positionalArrayLink(["txId", "index"])(walked)));
 export type GovActionId = typeof GovActionId.Type;
 
-export function decodeGovActionId(
-  cbor: CborSchemaType,
-): Effect.Effect<GovActionId, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "GovActionId", 2);
-    const txId = yield* expectBytes(items[0]!, "GovActionId.txId", 32);
-    const index = yield* expectUint(items[1]!, "GovActionId.index");
-    return { txId, index };
-  });
-}
-
-export function encodeGovActionId(gid: GovActionId): CborSchemaType {
-  return arr(cborBytes(gid.txId), uint(gid.index));
-}
-
 // ────────────────────────────────────────────────────────────────────────────
-// VotingProcedure — [vote, anchor_or_null]
+// VotingProcedure — [vote, anchor | null]
 // ────────────────────────────────────────────────────────────────────────────
 
 export const VotingProcedure = Schema.Struct({
   vote: Schema.Enum(Vote),
-  anchor: Schema.optional(Anchor),
-});
+  anchor: Schema.NullOr(Anchor),
+}).pipe(withCborLink((walked) => positionalArrayLink(["vote", "anchor"])(walked)));
 export type VotingProcedure = typeof VotingProcedure.Type;
 
-const voteValues = [Vote.No, Vote.Yes, Vote.Abstain] as const;
+// ────────────────────────────────────────────────────────────────────────────
+// ProtocolVersion — [major, minor]
+// ────────────────────────────────────────────────────────────────────────────
 
-export function decodeVotingProcedure(
-  cbor: CborSchemaType,
-): Effect.Effect<VotingProcedure, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "VotingProcedure", 2);
-    const voteNum = Number(yield* expectUint(items[0]!, "VotingProcedure.vote"));
-    const vote = voteValues[voteNum];
-    if (vote === undefined)
-      return yield* Effect.fail(
-        new SchemaIssue.InvalidValue(Option.some(cbor), {
-          message: `VotingProcedure: unknown vote ${voteNum}`,
+export const ProtocolVersion = Schema.Struct({
+  major: Word64BigInt,
+  minor: Word64BigInt,
+}).pipe(withCborLink((walked) => positionalArrayLink(["major", "minor"])(walked)));
+export type ProtocolVersion = typeof ProtocolVersion.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Hash28Set — Tag(258, Array<Bytes28>) (Conway nonempty-set wrapper)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const Hash28Set = Schema.Array(Bytes28).pipe(
+  withCborLink((walked) => cborTaggedLink(258n)(walked)),
+);
+export type Hash28Set = typeof Hash28Set.Type;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Withdrawals — CBOR Map<Bytes(rewardAccount), UInt(coin)>
+// Modeled as an array of {rewardAccount, coin} entries with a custom link.
+// Declared via `Schema.declare` so the walker's Declaration branch falls
+// through to `applyCustom` and attaches the hand-rolled link unchanged —
+// no inner Struct objectsLink fires before it.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const WithdrawalEntry = Schema.Struct({
+  rewardAccount: Schema.Uint8Array,
+  coin: Word64BigInt,
+});
+export type WithdrawalEntry = typeof WithdrawalEntry.Type;
+
+const isWithdrawalEntry = Schema.is(WithdrawalEntry);
+const isWithdrawals = (u: unknown): u is ReadonlyArray<WithdrawalEntry> =>
+  Array.isArray(u) && u.every(isWithdrawalEntry);
+
+const withdrawalsLink = new AST.Link(
+  CborValueSchema.ast,
+  SchemaTransformation.transformOrFail<ReadonlyArray<WithdrawalEntry>, CborValue>({
+    decode: CborValueSchema.match({
+      [CborKinds.Map]: (cbor) =>
+        Effect.all(
+          cbor.entries.map((entry) =>
+            Effect.gen(function* () {
+              if (!CborValueSchema.guards[CborKinds.Bytes](entry.k)) {
+                return yield* invalid(entry.k, "Withdrawals key must be Bytes");
+              }
+              if (!CborValueSchema.guards[CborKinds.UInt](entry.v)) {
+                return yield* invalid(entry.v, "Withdrawals value must be UInt");
+              }
+              return { rewardAccount: entry.k.bytes, coin: entry.v.num };
+            }),
+          ),
+        ),
+      [CborKinds.UInt]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got UInt"),
+      [CborKinds.NegInt]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got NegInt"),
+      [CborKinds.Bytes]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got Bytes"),
+      [CborKinds.Text]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got Text"),
+      [CborKinds.Array]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got Array"),
+      [CborKinds.Tag]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got Tag"),
+      [CborKinds.Simple]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got Simple"),
+    }),
+    encode: (entries) =>
+      Effect.succeed(
+        CborValueSchema.make({
+          _tag: CborKinds.Map,
+          entries: entries.map((e) => ({
+            k: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: e.rewardAccount }),
+            v: CborValueSchema.make({ _tag: CborKinds.UInt, num: e.coin }),
+          })),
         }),
-      );
-    const anchorCbor = items[1]!;
-    if (isNull(anchorCbor)) return { vote };
-    const anchor = yield* decodeAnchor(anchorCbor);
-    return { vote, anchor };
-  });
-}
+      ),
+  }),
+);
 
-export function encodeVotingProcedure(vp: VotingProcedure): CborSchemaType {
-  return arr(uint(vp.vote), vp.anchor !== undefined ? encodeAnchor(vp.anchor) : nullVal);
-}
+export const Withdrawals = Schema.declare<ReadonlyArray<WithdrawalEntry>>(isWithdrawals).annotate({
+  toCborLink: (): ReturnType<CborLinkFactory> => withdrawalsLink,
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// CommitteeAddMap — CBOR Map<Bytes(credentialHash), UInt(epoch)>
+// ────────────────────────────────────────────────────────────────────────────
+
+export const CommitteeMember = Schema.Struct({
+  credential: Schema.Uint8Array,
+  epoch: Word64BigInt,
+});
+export type CommitteeMember = typeof CommitteeMember.Type;
+
+const isCommitteeMember = Schema.is(CommitteeMember);
+const isCommitteeAddMap = (u: unknown): u is ReadonlyArray<CommitteeMember> =>
+  Array.isArray(u) && u.every(isCommitteeMember);
+
+const committeeAddMapLink = new AST.Link(
+  CborValueSchema.ast,
+  SchemaTransformation.transformOrFail<ReadonlyArray<CommitteeMember>, CborValue>({
+    decode: CborValueSchema.match({
+      [CborKinds.Map]: (cbor) =>
+        Effect.all(
+          cbor.entries.map((entry) =>
+            Effect.gen(function* () {
+              if (!CborValueSchema.guards[CborKinds.Bytes](entry.k)) {
+                return yield* invalid(entry.k, "CommitteeAddMap key must be Bytes");
+              }
+              if (!CborValueSchema.guards[CborKinds.UInt](entry.v)) {
+                return yield* invalid(entry.v, "CommitteeAddMap value must be UInt");
+              }
+              return { credential: entry.k.bytes, epoch: entry.v.num };
+            }),
+          ),
+        ),
+      [CborKinds.UInt]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got UInt"),
+      [CborKinds.NegInt]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got NegInt"),
+      [CborKinds.Bytes]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got Bytes"),
+      [CborKinds.Text]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got Text"),
+      [CborKinds.Array]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got Array"),
+      [CborKinds.Tag]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got Tag"),
+      [CborKinds.Simple]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got Simple"),
+    }),
+    encode: (entries) =>
+      Effect.succeed(
+        CborValueSchema.make({
+          _tag: CborKinds.Map,
+          entries: entries.map((e) => ({
+            k: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: e.credential }),
+            v: CborValueSchema.make({ _tag: CborKinds.UInt, num: e.epoch }),
+          })),
+        }),
+      ),
+  }),
+);
+
+export const CommitteeAddMap = Schema.declare<ReadonlyArray<CommitteeMember>>(
+  isCommitteeAddMap,
+).annotate({ toCborLink: (): ReturnType<CborLinkFactory> => committeeAddMapLink });
 
 // ────────────────────────────────────────────────────────────────────────────
 // GovAction — 7 variants per Conway CDDL
@@ -241,50 +284,45 @@ export enum GovActionKind {
 }
 
 export const GovAction = Schema.Union([
+  // PParamsUpdate encoded as opaque CBOR Bytes until protocol-params lands
+  // (Phase 8). The Bytes-typed field round-trips via the default Uint8Array
+  // → bytesLink fallback.
   Schema.TaggedStruct(GovActionKind.ParameterChange, {
-    prevActionId: Schema.optional(GovActionId),
-    // PParamsUpdate encoded as opaque bytes for now (full decode in protocol-params)
+    prevActionId: Schema.NullOr(GovActionId),
     pparamsUpdate: Schema.Uint8Array,
-    policyHash: Schema.optional(Bytes28),
+    policyHash: Schema.NullOr(Bytes28),
   }),
   Schema.TaggedStruct(GovActionKind.HardForkInitiation, {
-    prevActionId: Schema.optional(GovActionId),
-    protocolVersion: Schema.Struct({ major: Schema.BigInt, minor: Schema.BigInt }),
+    prevActionId: Schema.NullOr(GovActionId),
+    protocolVersion: ProtocolVersion,
   }),
   Schema.TaggedStruct(GovActionKind.TreasuryWithdrawals, {
-    withdrawals: Schema.Array(
-      Schema.Struct({
-        rewardAccount: Schema.Uint8Array,
-        coin: Schema.BigInt,
-      }),
-    ),
-    policyHash: Schema.optional(Bytes28),
+    withdrawals: Withdrawals,
+    policyHash: Schema.NullOr(Bytes28),
   }),
   Schema.TaggedStruct(GovActionKind.NoConfidence, {
-    prevActionId: Schema.optional(GovActionId),
+    prevActionId: Schema.NullOr(GovActionId),
   }),
   Schema.TaggedStruct(GovActionKind.UpdateCommittee, {
-    prevActionId: Schema.optional(GovActionId),
-    membersToRemove: Schema.Array(Bytes28),
-    membersToAdd: Schema.Array(
-      Schema.Struct({
-        credential: Bytes28,
-        epoch: Schema.BigInt,
-      }),
-    ),
-    threshold: Schema.Struct({ numerator: Schema.BigInt, denominator: Schema.BigInt }),
+    prevActionId: Schema.NullOr(GovActionId),
+    membersToRemove: Hash28Set,
+    membersToAdd: CommitteeAddMap,
+    threshold: Rational,
   }),
   Schema.TaggedStruct(GovActionKind.NewConstitution, {
-    prevActionId: Schema.optional(GovActionId),
+    prevActionId: Schema.NullOr(GovActionId),
     constitution: Anchor,
-    policyHash: Schema.optional(Bytes28),
+    policyHash: Schema.NullOr(Bytes28),
   }),
   Schema.TaggedStruct(GovActionKind.InfoAction, {}),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
 export type GovAction = typeof GovAction.Type;
 
-// Domain predicates via .isAnyOf()
+// ────────────────────────────────────────────────────────────────────────────
+// Domain predicates via `.isAnyOf()`
+// ────────────────────────────────────────────────────────────────────────────
+
 export const needsHashProtection = GovAction.isAnyOf([
   GovActionKind.ParameterChange,
   GovActionKind.HardForkInitiation,
@@ -308,231 +346,25 @@ export const isBootstrapAction = GovAction.isAnyOf([
 ]);
 
 // ────────────────────────────────────────────────────────────────────────────
-// GovAction CBOR encode — [tag, ...fields]
-// ────────────────────────────────────────────────────────────────────────────
-
-function encodeOptGovActionId(gid: GovActionId | undefined): CborSchemaType {
-  if (gid === undefined) return nullVal;
-  return encodeGovActionId(gid);
-}
-
-function encodeOptHash28(hash: Uint8Array | undefined): CborSchemaType {
-  if (hash === undefined) return nullVal;
-  return cborBytes(hash);
-}
-
-export const encodeGovAction = GovAction.match({
-  [GovActionKind.ParameterChange]: (a): CborSchemaType =>
-    arr(
-      uint(GovActionKind.ParameterChange),
-      encodeOptGovActionId(a.prevActionId),
-      cborBytes(a.pparamsUpdate),
-      encodeOptHash28(a.policyHash),
-    ),
-  [GovActionKind.HardForkInitiation]: (a): CborSchemaType =>
-    arr(
-      uint(GovActionKind.HardForkInitiation),
-      encodeOptGovActionId(a.prevActionId),
-      arr(uint(a.protocolVersion.major), uint(a.protocolVersion.minor)),
-    ),
-  [GovActionKind.TreasuryWithdrawals]: (a): CborSchemaType =>
-    arr(
-      uint(GovActionKind.TreasuryWithdrawals),
-      {
-        _tag: CborKinds.Map,
-        entries: a.withdrawals.map((w) => ({
-          k: cborBytes(w.rewardAccount),
-          v: uint(w.coin),
-        })),
-      },
-      encodeOptHash28(a.policyHash),
-    ),
-  [GovActionKind.NoConfidence]: (a): CborSchemaType =>
-    arr(uint(GovActionKind.NoConfidence), encodeOptGovActionId(a.prevActionId)),
-  [GovActionKind.UpdateCommittee]: (a): CborSchemaType =>
-    arr(
-      uint(GovActionKind.UpdateCommittee),
-      encodeOptGovActionId(a.prevActionId),
-      {
-        _tag: CborKinds.Tag,
-        tag: 258n,
-        data: arr(...a.membersToRemove.map((h): CborSchemaType => cborBytes(h))),
-      },
-      {
-        _tag: CborKinds.Map,
-        entries: a.membersToAdd.map((m) => ({
-          k: cborBytes(m.credential),
-          v: uint(m.epoch),
-        })),
-      },
-      {
-        _tag: CborKinds.Tag,
-        tag: 30n,
-        data: arr(uint(a.threshold.numerator), uint(a.threshold.denominator)),
-      },
-    ),
-  [GovActionKind.NewConstitution]: (a): CborSchemaType =>
-    arr(
-      uint(GovActionKind.NewConstitution),
-      encodeOptGovActionId(a.prevActionId),
-      encodeAnchor(a.constitution),
-      encodeOptHash28(a.policyHash),
-    ),
-  [GovActionKind.InfoAction]: (): CborSchemaType => arr(uint(GovActionKind.InfoAction)),
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// ProposalProcedure — [deposit, returnAddr, govAction, anchor]
+// ProposalProcedure — [deposit, returnAccount, govAction, anchor]
 // ────────────────────────────────────────────────────────────────────────────
 
 export const ProposalProcedure = Schema.Struct({
-  deposit: Schema.BigInt.pipe(Schema.check(Schema.isGreaterThanOrEqualToBigInt(0n))),
+  deposit: Word64BigInt,
   returnAccount: Schema.Uint8Array, // raw reward address bytes
   govAction: GovAction,
   anchor: Anchor,
-});
+}).pipe(
+  withCborLink((walked) =>
+    positionalArrayLink(["deposit", "returnAccount", "govAction", "anchor"])(walked),
+  ),
+);
 export type ProposalProcedure = typeof ProposalProcedure.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
-// GovAction CBOR decode — [tag, ...fields]
-// ────────────────────────────────────────────────────────────────────────────
-
-function decodeOptGovActionId(
-  cbor: CborSchemaType,
-): Effect.Effect<GovActionId | undefined, SchemaIssue.Issue> {
-  if (isNull(cbor)) return Effect.succeed(undefined);
-  return decodeGovActionId(cbor);
-}
-
-function decodeOptHash28(
-  cbor: CborSchemaType,
-): Effect.Effect<Uint8Array | undefined, SchemaIssue.Issue> {
-  if (isNull(cbor)) return Effect.succeed(undefined);
-  return expectBytes(cbor, "policyHash", 28);
-}
-
-export function decodeGovAction(cbor: CborSchemaType): Effect.Effect<GovAction, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "GovAction");
-    const tag = Number(yield* expectUint(items[0]!, "GovAction.tag"));
-    switch (tag) {
-      case GovActionKind.ParameterChange:
-        return {
-          _tag: GovActionKind.ParameterChange as const,
-          prevActionId: yield* decodeOptGovActionId(items[1]!),
-          pparamsUpdate: items[2]!._tag === CborKinds.Bytes ? items[2]!.bytes : new Uint8Array(0),
-          policyHash: yield* decodeOptHash28(items[3]!),
-        };
-      case GovActionKind.HardForkInitiation: {
-        const protVerItems = yield* expectArray(items[2]!, "ProtVer");
-        return {
-          _tag: GovActionKind.HardForkInitiation as const,
-          prevActionId: yield* decodeOptGovActionId(items[1]!),
-          protocolVersion: {
-            major: yield* expectUint(protVerItems[0]!, "ProtVer.major"),
-            minor: yield* expectUint(protVerItems[1]!, "ProtVer.minor"),
-          },
-        };
-      }
-      case GovActionKind.TreasuryWithdrawals: {
-        const wdrlMap = yield* expectMap(items[1]!, "TreasuryWithdrawals");
-        return {
-          _tag: GovActionKind.TreasuryWithdrawals as const,
-          withdrawals: wdrlMap.map((e) => ({
-            rewardAccount: e.k._tag === CborKinds.Bytes ? e.k.bytes : new Uint8Array(0),
-            coin: e.v._tag === CborKinds.UInt ? e.v.num : 0n,
-          })),
-          policyHash: yield* decodeOptHash28(items[2]!),
-        };
-      }
-      case GovActionKind.NoConfidence:
-        return {
-          _tag: GovActionKind.NoConfidence as const,
-          prevActionId: yield* decodeOptGovActionId(items[1]!),
-        };
-      case GovActionKind.UpdateCommittee: {
-        const prevActionId = yield* decodeOptGovActionId(items[1]!);
-        const removeItems = getCborSet(items[2]!) ?? [];
-        const membersToRemove = [...removeItems]
-          .filter(
-            (i): i is Extract<CborSchemaType, { _tag: typeof CborKinds.Bytes }> =>
-              i._tag === CborKinds.Bytes,
-          )
-          .map((i) => i.bytes);
-        const addMap = yield* expectMap(items[3]!, "UpdateCommittee.add");
-        const membersToAdd = addMap.map((e) => ({
-          credential: e.k._tag === CborKinds.Bytes ? e.k.bytes : new Uint8Array(0),
-          epoch: e.v._tag === CborKinds.UInt ? e.v.num : 0n,
-        }));
-        // Threshold is a rational: Tag(30, [num, den]) or bare [num, den]
-        const threshCbor = items[4]!;
-        const threshInner =
-          threshCbor._tag === CborKinds.Tag && threshCbor.tag === 30n
-            ? threshCbor.data
-            : threshCbor;
-        const threshArr = yield* expectArray(threshInner, "UpdateCommittee.threshold", 2);
-        return {
-          _tag: GovActionKind.UpdateCommittee as const,
-          prevActionId,
-          membersToRemove,
-          membersToAdd,
-          threshold: {
-            numerator: yield* expectUint(threshArr[0]!, "threshold.num"),
-            denominator: yield* expectUint(threshArr[1]!, "threshold.den"),
-          },
-        };
-      }
-      case GovActionKind.NewConstitution: {
-        const prevActionId = yield* decodeOptGovActionId(items[1]!);
-        const constitution = yield* decodeAnchor(items[2]!);
-        const policyHash = items[3] ? yield* decodeOptHash28(items[3]) : undefined;
-        return {
-          _tag: GovActionKind.NewConstitution as const,
-          prevActionId,
-          constitution,
-          policyHash,
-        };
-      }
-      case GovActionKind.InfoAction:
-        return { _tag: GovActionKind.InfoAction as const };
-      default:
-        return yield* Effect.fail(
-          new SchemaIssue.InvalidValue(Option.some(cbor), {
-            message: `GovAction: unknown tag ${tag}`,
-          }),
-        );
-    }
-  });
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// ProposalProcedure CBOR decode — [deposit, returnAddr, govAction, anchor]
-// ────────────────────────────────────────────────────────────────────────────
-
-export function decodeProposalProcedure(
-  cbor: CborSchemaType,
-): Effect.Effect<ProposalProcedure, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "ProposalProcedure", 4);
-    const deposit = yield* expectUint(items[0]!, "ProposalProcedure.deposit");
-    const returnAccount = yield* expectBytes(items[1]!, "ProposalProcedure.returnAddr");
-    const govAction = yield* decodeGovAction(items[2]!);
-    const anchor = yield* decodeAnchor(items[3]!);
-    return { deposit, returnAccount, govAction, anchor };
-  });
-}
-
-export function encodeProposalProcedure(pp: ProposalProcedure): CborSchemaType {
-  return arr(
-    uint(pp.deposit),
-    cborBytes(pp.returnAccount),
-    encodeGovAction(pp.govAction),
-    encodeAnchor(pp.anchor),
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// VotingProcedures CBOR decode — Map<Voter, Map<GovActionId, VotingProcedure>>
+// VotingProcedures — Map<Voter, Map<GovActionId, VotingProcedure>>
+// The nested structure is kept as a hand-rolled Effect decoder; consumers
+// (tx.ts TxBody key 19) receive `ReadonlyArray<VotingProceduresEntry>`.
 // ────────────────────────────────────────────────────────────────────────────
 
 export const VoteEntry = Schema.Struct({
@@ -547,28 +379,116 @@ export const VotingProceduresEntry = Schema.Struct({
 });
 export type VotingProceduresEntry = typeof VotingProceduresEntry.Type;
 
-export function decodeVotingProcedures(
-  cbor: CborSchemaType,
-): Effect.Effect<ReadonlyArray<VotingProceduresEntry>, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const outerEntries = yield* expectMap(cbor, "VotingProcedures");
-    return yield* Effect.all(
-      outerEntries.map((outer) =>
-        Effect.gen(function* () {
-          const voter = yield* decodeVoter(outer.k);
-          const innerEntries = yield* expectMap(outer.v, "VotingProcedures.votes");
-          const votes = yield* Effect.all(
-            innerEntries.map((inner) =>
-              Effect.gen(function* () {
-                const actionId = yield* decodeGovActionId(inner.k);
-                const procedure = yield* decodeVotingProcedure(inner.v);
-                return { actionId, procedure };
-              }),
-            ),
-          );
-          return { voter, votes };
-        }),
-      ),
-    );
-  });
-}
+// ────────────────────────────────────────────────────────────────────────────
+// Derived CBOR codecs
+// ────────────────────────────────────────────────────────────────────────────
+
+export const DRepBytes = toCodecCborBytes(DRep);
+export const DRepCbor = toCodecCbor(DRep);
+
+export const VoterBytes = toCodecCborBytes(Voter);
+export const VoterCbor = toCodecCbor(Voter);
+
+export const AnchorBytes = toCodecCborBytes(Anchor);
+export const AnchorCbor = toCodecCbor(Anchor);
+
+export const GovActionIdBytes = toCodecCborBytes(GovActionId);
+export const GovActionIdCbor = toCodecCbor(GovActionId);
+
+export const VotingProcedureBytes = toCodecCborBytes(VotingProcedure);
+export const VotingProcedureCbor = toCodecCbor(VotingProcedure);
+
+export const GovActionBytes = toCodecCborBytes(GovAction);
+export const GovActionCbor = toCodecCbor(GovAction);
+
+export const ProposalProcedureBytes = toCodecCborBytes(ProposalProcedure);
+export const ProposalProcedureCbor = toCodecCbor(ProposalProcedure);
+
+// ────────────────────────────────────────────────────────────────────────────
+// Thin shim functions — preserve the pre-Phase-4 decode/encode names used by
+// tx.ts and the governance tests. Each delegates to the derived codec.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const decodeDRep = (cbor: CborValue): Effect.Effect<DRep, SchemaIssue.Issue> =>
+  SchemaParser.decodeEffect(DRepCbor)(cbor);
+
+export const encodeDRep = (drep: DRep): Effect.Effect<CborValue, SchemaIssue.Issue> =>
+  SchemaParser.encodeEffect(DRepCbor)(drep);
+
+export const decodeVoter = (cbor: CborValue): Effect.Effect<Voter, SchemaIssue.Issue> =>
+  SchemaParser.decodeEffect(VoterCbor)(cbor);
+
+export const encodeVoter = (voter: Voter): Effect.Effect<CborValue, SchemaIssue.Issue> =>
+  SchemaParser.encodeEffect(VoterCbor)(voter);
+
+export const decodeAnchor = (cbor: CborValue): Effect.Effect<Anchor, SchemaIssue.Issue> =>
+  SchemaParser.decodeEffect(AnchorCbor)(cbor);
+
+export const encodeAnchor = (anchor: Anchor): Effect.Effect<CborValue, SchemaIssue.Issue> =>
+  SchemaParser.encodeEffect(AnchorCbor)(anchor);
+
+export const decodeGovActionId = (cbor: CborValue): Effect.Effect<GovActionId, SchemaIssue.Issue> =>
+  SchemaParser.decodeEffect(GovActionIdCbor)(cbor);
+
+export const encodeGovActionId = (gid: GovActionId): Effect.Effect<CborValue, SchemaIssue.Issue> =>
+  SchemaParser.encodeEffect(GovActionIdCbor)(gid);
+
+export const decodeVotingProcedure = (
+  cbor: CborValue,
+): Effect.Effect<VotingProcedure, SchemaIssue.Issue> =>
+  SchemaParser.decodeEffect(VotingProcedureCbor)(cbor);
+
+export const encodeVotingProcedure = (
+  vp: VotingProcedure,
+): Effect.Effect<CborValue, SchemaIssue.Issue> =>
+  SchemaParser.encodeEffect(VotingProcedureCbor)(vp);
+
+export const decodeGovAction = (cbor: CborValue): Effect.Effect<GovAction, SchemaIssue.Issue> =>
+  SchemaParser.decodeEffect(GovActionCbor)(cbor);
+
+export const encodeGovAction = (action: GovAction): Effect.Effect<CborValue, SchemaIssue.Issue> =>
+  SchemaParser.encodeEffect(GovActionCbor)(action);
+
+export const decodeProposalProcedure = (
+  cbor: CborValue,
+): Effect.Effect<ProposalProcedure, SchemaIssue.Issue> =>
+  SchemaParser.decodeEffect(ProposalProcedureCbor)(cbor);
+
+export const encodeProposalProcedure = (
+  pp: ProposalProcedure,
+): Effect.Effect<CborValue, SchemaIssue.Issue> =>
+  SchemaParser.encodeEffect(ProposalProcedureCbor)(pp);
+
+// ────────────────────────────────────────────────────────────────────────────
+// VotingProcedures — hand-rolled Map<Voter, Map<GovActionId, VotingProcedure>>
+// decoder. The nested outer-Map-of-inner-Maps shape does not map cleanly to
+// a single derived Schema codec, so this stays as an Effect function.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const decodeVotingProcedures = (
+  cbor: CborValue,
+): Effect.Effect<ReadonlyArray<VotingProceduresEntry>, SchemaIssue.Issue> => {
+  if (!CborValueSchema.guards[CborKinds.Map](cbor)) {
+    return invalid(cbor, "VotingProcedures: expected Map");
+  }
+  return Effect.all(
+    cbor.entries.map((outer) =>
+      Effect.gen(function* () {
+        const voter = yield* decodeVoter(outer.k);
+        if (!CborValueSchema.guards[CborKinds.Map](outer.v)) {
+          return yield* invalid(outer.v, "VotingProcedures.votes: expected Map");
+        }
+        const votes = yield* Effect.all(
+          outer.v.entries.map((inner) =>
+            Effect.gen(function* () {
+              const actionId = yield* decodeGovActionId(inner.k);
+              const procedure = yield* decodeVotingProcedure(inner.v);
+              return { actionId, procedure };
+            }),
+          ),
+        );
+        return { voter, votes };
+      }),
+    ),
+  );
+};

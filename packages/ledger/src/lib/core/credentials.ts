@@ -1,12 +1,18 @@
-import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { cborCodec, type CborSchemaType } from "codecs";
+import { Schema } from "effect";
+import { toCodecCbor, toCodecCborBytes } from "codecs";
 import { Bytes28 } from "./hashes.ts";
-import { uint, cborBytes, arr, expectArray, expectUint, expectBytes } from "./cbor-utils.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
-// Credential — KeyHash | Script discriminated union
-// CBOR: [0, keyhash] | [1, scripthash]
-// Both variants carry a 28-byte hash (checked via Bytes28 schema).
+// Credential — KeyHash | Script discriminated union.
+//
+// There are TWO wire encodings depending on context (per
+// reference_mithril_state_cbor.md):
+//
+//   Block / CDDL CBOR: [0, keyhash] | [1, scripthash]  — tag 0 = KeyHash
+//   Ledger state CBOR: [0, scripthash] | [1, keyhash]  — tag 0 = Script
+//
+// Two sibling schemas with independent enum-to-int mappings. No runtime
+// branching — every call site picks the correct codec for its context.
 // ────────────────────────────────────────────────────────────────────────────
 
 export enum CredentialKind {
@@ -21,39 +27,26 @@ export const Credential = Schema.Union([
 
 export type Credential = typeof Credential.Type;
 
-// ────────────────────────────────────────────────────────────────────────────
-// CBOR decode/encode helpers (used by address codec and certificate codecs)
-// ────────────────────────────────────────────────────────────────────────────
-
-export function decodeCredential(
-  cbor: CborSchemaType,
-): Effect.Effect<Credential, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const items = yield* expectArray(cbor, "Credential", 2);
-    const kind = Number(yield* expectUint(items[0]!, "Credential.kind"));
-    const hash = yield* expectBytes(items[1]!, "Credential.hash", 28);
-    switch (kind) {
-      case CredentialKind.KeyHash:
-        return { _tag: CredentialKind.KeyHash as const, hash };
-      case CredentialKind.Script:
-        return { _tag: CredentialKind.Script as const, hash };
-      default:
-        return yield* Effect.fail(
-          new SchemaIssue.InvalidValue(Option.some(cbor), {
-            message: `Credential: unknown kind ${kind}`,
-          }),
-        );
-    }
-  });
+export enum StateCredentialKind {
+  Script = 0,
+  KeyHash = 1,
 }
 
-export const encodeCredential = Credential.match({
-  [CredentialKind.KeyHash]: (c): CborSchemaType => arr(uint(0), cborBytes(c.hash)),
-  [CredentialKind.Script]: (c): CborSchemaType => arr(uint(1), cborBytes(c.hash)),
-});
+export const StateCredential = Schema.Union([
+  Schema.TaggedStruct(StateCredentialKind.Script, { hash: Bytes28 }),
+  Schema.TaggedStruct(StateCredentialKind.KeyHash, { hash: Bytes28 }),
+]).pipe(Schema.toTaggedUnion("_tag"));
+
+export type StateCredential = typeof StateCredential.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
-// Full CBOR codec: Uint8Array ↔ Credential
+// CBOR codecs — `*Bytes` for whole-byte round-trips (block/CDDL level);
+// `*Cbor` for `CborValue`-level composition inside larger derived links
+// (consumed by certs.ts's MIRTarget for map-key encoding).
 // ────────────────────────────────────────────────────────────────────────────
 
-export const CredentialBytes = cborCodec(Credential, decodeCredential, encodeCredential);
+export const CredentialBytes = toCodecCborBytes(Credential);
+export const StateCredentialBytes = toCodecCborBytes(StateCredential);
+
+export const CredentialCbor = toCodecCbor(Credential);
+export const StateCredentialCbor = toCodecCbor(StateCredential);

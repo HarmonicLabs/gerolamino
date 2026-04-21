@@ -10,14 +10,11 @@ import {
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
 import { CborBytes } from "../codec/CborBytes";
 import "./annotations";
-import {
-  collectUnionSentinels,
-  isCborLinkFactory,
-  taggedUnionLink,
-} from "./compositeLinks";
+import { collectUnionSentinels, isCborLinkFactory, taggedUnionLink } from "./compositeLinks";
 import {
   bigintLink,
   booleanLink,
+  bytesLink,
   literalLink,
   nullLink,
   numberLink,
@@ -208,6 +205,32 @@ const stripTagMemberEncodings = (union: AST.Union, tagField: string): AST.Union 
     union.context,
   );
 
+/**
+ * Recursively strip every encoding on a Union's members — top-level Objects
+ * encoding AND every descendant encoding (inside nested Arrays, Structs,
+ * inner Unions, etc.). Used when a custom `toCborLink` takes full
+ * responsibility for the Union's wire format (e.g. MIRTarget's shape-
+ * discriminated UInt | Map). The custom link receives raw domain values for
+ * every field at any depth — no inner transformation fires before the
+ * Union-level Link.
+ *
+ * Deep-stripping via `AST.toType` is essential: a shallow strip leaves
+ * encodings on nested nodes (e.g. `entries: Schema.Array(Schema.Struct({ ... }))`
+ * retains the inner Struct's `objectsLink`). During encode, Effect flips the
+ * AST and walks each member's fields for validation — flipping a node with
+ * encoding invokes its transformation, silently rewriting raw domain values
+ * into CborValue before they reach the custom link's `encode` callback.
+ */
+const stripAllMemberEncodings = (union: AST.Union): AST.Union =>
+  new AST.Union(
+    union.types.map(AST.toType),
+    union.mode,
+    union.annotations,
+    union.checks,
+    union.encoding,
+    union.context,
+  );
+
 export const deriveCborWalker = AST.toCodec((ast) => {
   const out = deriveCborBase(ast);
   if (out !== ast && AST.isOptional(ast)) {
@@ -241,6 +264,18 @@ function deriveCborBase(ast: AST.AST): AST.AST {
           ast,
           to === link.to ? [link] : [new AST.Link(to, link.transformation)],
         );
+      }
+      // Built-in fallback for Schema.Uint8Array: emit CBOR Bytes so that
+      // Uint8Array-typed struct fields (hashes, signatures, raw bytes) can
+      // participate in tagged-union / sparse-map / positional-array encoding
+      // without every caller having to attach `toCborLink: bytesLink` by hand.
+      // Base `Annotations` is an index-signature bag, so narrow structurally
+      // rather than via the `Annotations.Declaration` typing (which isn't
+      // plumbed through to `ast.annotations`). Mirrors Effect's own check in
+      // `SchemaRepresentation.toSchemaDefaultReviver`.
+      const tc = annotations?.typeConstructor;
+      if (Predicate.isObject(tc) && "_tag" in tc && tc._tag === "Uint8Array") {
+        return applyCustom(AST.replaceEncoding(ast, [bytesLink]));
       }
       return applyCustom(ast);
     }
@@ -282,12 +317,18 @@ function deriveCborBase(ast: AST.AST): AST.AST {
     case "Union": {
       const recurred = ast.recur(deriveCborWalker);
       if (!AST.isUnion(recurred)) return recurred;
-      // Explicit `toCborLink` wins over auto-detection. Custom links on
-      // non-tagged unions don't need tag stripping — assume the author knows
-      // what they want and pass the walked Union through as-is.
+      // Explicit `toCborLink` wins over auto-detection. A custom link on a
+      // tagged Union handles the full domain ↔ CborValue transformation
+      // itself — shape-discriminated wire formats (MIRTarget: UInt | Map)
+      // are the canonical example — so we strip member Objects encodings
+      // and the `_tag` literal's propertySignature encoding, mirroring the
+      // auto-detect path. Otherwise Effect's Union encoder would fire the
+      // members' `objectsLink` BEFORE the custom link, handing it a
+      // CborValue Map instead of the raw domain value.
       const custom = readCborLinkAnnotation(recurred);
       if (custom) {
-        return AST.replaceEncoding(recurred, [custom(recurred)]);
+        const stripped = stripAllMemberEncodings(recurred);
+        return AST.replaceEncoding(stripped, [custom(stripped)]);
       }
       // Auto-detect Cardano-style tagged unions via the `_tag` sentinel that
       // `Schema.toTaggedUnion("_tag")` attaches. When every member exposes a

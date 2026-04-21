@@ -46,9 +46,9 @@ export type Metadatum =
       readonly entries: ReadonlyArray<readonly [Metadatum, Metadatum]>;
     };
 
-const MetadatumRef = Schema.suspend((): Schema.Schema<Metadatum> => Metadatum);
+const MetadatumRef = Schema.suspend((): Schema.Codec<Metadatum> => _Metadatum);
 
-export const Metadatum: Schema.Schema<Metadatum> = Schema.Union([
+const _Metadatum = Schema.Union([
   Schema.TaggedStruct(MetadatumKind.Int, { value: Schema.BigInt }),
   Schema.TaggedStruct(MetadatumKind.Bytes, { value: Schema.Uint8Array }),
   Schema.TaggedStruct(MetadatumKind.Text, { value: Schema.String }),
@@ -57,6 +57,9 @@ export const Metadatum: Schema.Schema<Metadatum> = Schema.Union([
     entries: Schema.Array(Schema.Tuple([MetadatumRef, MetadatumRef])),
   }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
+
+// Re-export without type annotation so .match()/.guards/.isAnyOf() stay accessible
+export const Metadatum = _Metadatum;
 
 // ---------------------------------------------------------------------------
 // TxMetadata Schema — Array of {label, value} entries

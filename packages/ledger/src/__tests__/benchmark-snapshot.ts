@@ -76,8 +76,8 @@ async function benchLegacy(totalChunks: number) {
       totalBlocks++;
       try {
         const result = MultiEraBlock.fromCbor(blockCbor);
-        if (result && result.body) {
-          totalTxs += result.body.txBodies?.length ?? 0;
+        if (result && result.block) {
+          totalTxs += result.block.transactionBodies?.length ?? 0;
         }
       } catch {
         failures++;

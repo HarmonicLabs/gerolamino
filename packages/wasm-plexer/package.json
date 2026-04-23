@@ -2,12 +2,18 @@
   "name": "wasm-plexer",
   "version": "0.0.1",
   "type": "module",
-  "module": "./result/wasm_plexer_bun.js",
-  "types": "./result/wasm_plexer.d.ts",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./result/wasm_plexer.d.ts",
-      "default": "./result/wasm_plexer_bun.js"
-    }
+      "@org/source": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./result/*": "./result/*",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "type-check": "tsgo --noEmit -p tsconfig.json"
   }
 }

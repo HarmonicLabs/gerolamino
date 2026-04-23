@@ -1,10 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { encodeSync, CborKinds } from "codecs";
 import type { CborSchemaType } from "codecs";
-import { applyBlock } from "../block-apply";
-import { CryptoServiceBunNative } from "../crypto";
-
-const blake2b256 = CryptoServiceBunNative.blake2b256;
+import { applyBlock } from "../validate/apply";
 
 // ---------------------------------------------------------------------------
 // Test helpers — build minimal block CBOR with real structure
@@ -58,6 +55,14 @@ const makeTxBody = (fields: Record<number, CborSchemaType>): CborSchemaType =>
     ),
   );
 
+/** Stub pre-computed txIds — applyBlock now takes them as an argument (pure, no hasher). */
+const makeTxIds = (n: number): readonly Uint8Array[] =>
+  Array.from({ length: n }, (_, i) => {
+    const id = new Uint8Array(32);
+    id[0] = 0xf0 + i;
+    return id;
+  });
+
 /** Known txId for test — hash of a specific tx body */
 const knownTxId = new Uint8Array(32).fill(0xaa);
 const addr1 = new Uint8Array(57).fill(0x01);
@@ -70,14 +75,14 @@ const addr2 = new Uint8Array(57).fill(0x02);
 describe("applyBlock", () => {
   it("returns empty diff for Byron blocks", () => {
     const block = makeBlock(1, arr()); // era 1 = Byron
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(0));
     expect(diff.utxoInserts).toHaveLength(0);
     expect(diff.utxoDeletes).toHaveLength(0);
   });
 
   it("returns empty diff for blocks with no transactions", () => {
     const block = makeBlock(6, arr()); // era 6 = Conway, no txs
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(0));
     expect(diff.utxoInserts).toHaveLength(0);
     expect(diff.utxoDeletes).toHaveLength(0);
   });
@@ -89,7 +94,7 @@ describe("applyBlock", () => {
       2: uint(200000), // fee
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.utxoDeletes).toHaveLength(2);
     // Keys should start with "utxo" prefix (0x75747866)
@@ -107,11 +112,11 @@ describe("applyBlock", () => {
       2: uint(200000), // fee
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.utxoInserts).toHaveLength(2);
     // Each insert key should be utxoKey(txId, index)
-    // txId = blake2b256(txBody CBOR), index = 0 and 1
+    // txId = stub txIds[0], index = 0 and 1
     for (const entry of diff.utxoInserts) {
       expect(entry.key[0]).toBe(0x75); // 'u' prefix
       expect(entry.value.byteLength).toBeGreaterThan(0);
@@ -128,7 +133,7 @@ describe("applyBlock", () => {
       13: arr(collateralInput), // collateral inputs
     });
     const block = makeBlock(6, arr(txBody), arr(uint(0))); // tx index 0 is invalid
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     // Regular inputs NOT consumed, collateral IS consumed
     expect(diff.utxoDeletes).toHaveLength(1);
@@ -147,7 +152,7 @@ describe("applyBlock", () => {
       16: collateralReturn, // collateral return
     });
     const block = makeBlock(6, arr(txBody), arr(uint(0)));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.utxoDeletes).toHaveLength(1); // collateral consumed
     expect(diff.utxoInserts).toHaveLength(1); // collateral return at index = len(outputs) = 2
@@ -164,7 +169,7 @@ describe("applyBlock", () => {
       4: arr(cert),
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.accountUpdates).toHaveLength(1);
     // Key should start with "acct" prefix (0x61636374)
@@ -185,7 +190,7 @@ describe("applyBlock", () => {
       4: arr(cert),
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.accountDeletes).toHaveLength(1);
     expect(diff.accountDeletes[0]![0]).toBe(0x61); // 'a' prefix
@@ -203,7 +208,7 @@ describe("applyBlock", () => {
       4: arr(cert),
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.accountUpdates).toHaveLength(1);
     const val = diff.accountUpdates[0]!.value;
@@ -233,7 +238,7 @@ describe("applyBlock", () => {
       4: arr(cert),
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.stakeUpdates).toHaveLength(1);
     // Key should start with "stak" prefix (0x7374616b)
@@ -250,7 +255,7 @@ describe("applyBlock", () => {
       2: uint(200000),
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.utxoDeletes).toHaveLength(1);
     expect(diff.utxoInserts).toHaveLength(1);
@@ -270,7 +275,7 @@ describe("applyBlock", () => {
       4: arr(cert),
     });
     const block = makeBlock(6, arr(txBody));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(1));
 
     expect(diff.accountUpdates).toHaveLength(1);
     const val = diff.accountUpdates[0]!.value;
@@ -295,7 +300,7 @@ describe("applyBlock", () => {
       2: uint(200000),
     });
     const block = makeBlock(6, arr(tx1, tx2));
-    const diff = applyBlock(block, blake2b256);
+    const diff = applyBlock(block, makeTxIds(2));
 
     expect(diff.utxoDeletes).toHaveLength(2); // 1 input per tx
     expect(diff.utxoInserts).toHaveLength(3); // 1 + 2 outputs

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { Equal } from "effect";
+import { describe, expect, it } from "@effect/vitest";
 import {
   bool,
   bytes,
@@ -32,9 +33,6 @@ const roundTrip = <T>(
   expect(eq(decoded, value)).toBe(true);
   return bytes;
 };
-
-const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
-  a.byteLength === b.byteLength && a.every((byte, i) => byte === b[i]);
 
 describe("mempack/primitives/words", () => {
   it("word8 round-trip", () => {
@@ -129,7 +127,7 @@ describe("mempack/primitives/varlen", () => {
 
   it.each(vectors)("varLen(%s) canonical encoding", (n, expected) => {
     const bytes = packToUint8Array(varLen, n);
-    expect(bytesEqual(bytes, expected)).toBe(true);
+    expect(Equal.equals(bytes, expected)).toBe(true);
     expect(unpackFromUint8Array(varLen, bytes)).toBe(n);
   });
 
@@ -164,13 +162,13 @@ describe("mempack/primitives/length", () => {
 
 describe("mempack/primitives/bytes", () => {
   it("empty bytes: length-0 prefix + no payload", () => {
-    const bytes_ = roundTrip(bytes, new Uint8Array(0), bytesEqual);
+    const bytes_ = roundTrip(bytes, new Uint8Array(0), Equal.equals);
     expect(bytes_).toStrictEqual(Uint8Array.of(0x00));
   });
 
   it("small bytes: inline length + payload", () => {
     const payload = Uint8Array.of(0xaa, 0xbb, 0xcc);
-    const packed = roundTrip(bytes, payload, bytesEqual);
+    const packed = roundTrip(bytes, payload, Equal.equals);
     expect(packed).toStrictEqual(Uint8Array.of(0x03, 0xaa, 0xbb, 0xcc));
   });
 
@@ -182,7 +180,7 @@ describe("mempack/primitives/bytes", () => {
     expect(packed[0]).toBe(0x81);
     expect(packed[1]).toBe(0x00);
     const decoded = unpackFromUint8Array(bytes, packed);
-    expect(bytesEqual(decoded, payload)).toBe(true);
+    expect(Equal.equals(decoded, payload)).toBe(true);
   });
 });
 

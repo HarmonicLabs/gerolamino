@@ -88,7 +88,7 @@ export const cborSyncCodec = <T, RD, RE>(
 // codec. Downstream packages that define domain `Uint8Array`-typed schemas
 // (hashes, signatures, fixed-size payloads) compose them through these
 // factories rather than hand-writing
-//   `CborSchemaFromBytes.pipe(Schema.decodeTo(Target, { decode: expectBytes, … }))`
+//   `CborBytes.pipe(Schema.decodeTo(Target, { decode: expectBytes, … }))`
 // per type. The migration target is a one-liner per domain codec.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ export const cborSyncCodec = <T, RD, RE>(
  *
  * ```
  * const Hash28Bytes = cborBytesCodec(Hash28, "Hash28")
- * // ≡ CborSchemaFromBytes.pipe(Schema.decodeTo(Hash28, {
+ * // ≡ CborBytes.pipe(Schema.decodeTo(Hash28, {
  * //     decode: expectBytes("Hash28"), encode: cborBytes,
  * //   }))
  * ```

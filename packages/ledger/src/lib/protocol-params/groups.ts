@@ -14,7 +14,7 @@
  *   THKD ('PPGroups drep stakepool) annotations on each ConwayPParams field.
  */
 
-import { HashSet } from "effect";
+import { HashSet, Schema } from "effect";
 import type { PParamsUpdate } from "./protocol-params.ts";
 
 export enum DRepGroup {
@@ -29,10 +29,11 @@ export enum StakePoolGroup {
   NoStakePool = "noStakePool",
 }
 
-export interface PPGroups {
-  readonly drep: DRepGroup;
-  readonly spo: StakePoolGroup;
-}
+export const PPGroups = Schema.Struct({
+  drep: Schema.Enum(DRepGroup),
+  spo: Schema.Enum(StakePoolGroup),
+});
+export type PPGroups = typeof PPGroups.Type;
 
 const G = (drep: DRepGroup, spo: StakePoolGroup): PPGroups => ({ drep, spo });
 

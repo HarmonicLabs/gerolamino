@@ -15,7 +15,7 @@
  *
  * Note: this page has no UI — it just runs JS logic.
  */
-import { Effect, HashMap, Layer } from "effect";
+import { Effect, HashMap, Layer, Schema } from "effect";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import {
   extractLedgerView,
@@ -26,7 +26,7 @@ import {
   SlotClockLive,
 } from "consensus";
 import { decodeExtLedgerState } from "ledger";
-import { BlobStore, accountKey, stakeKey } from "storage";
+import { type BlobEntry, BlobStore, accountKey, stakeKey } from "storage";
 import { encodeAccountValue } from "../background/account-encoder.ts";
 import { BrowserStorageLayers } from "../background/storage-browser.ts";
 import type {
@@ -34,10 +34,11 @@ import type {
   OffscreenError,
   OffscreenProgress,
   OffscreenReady,
-  OffscreenRequest,
   SerializedLedgerView,
 } from "../background/offscreen-protocol.ts";
-import { OFFSCREEN_CHANNEL } from "../background/offscreen-protocol.ts";
+import { OFFSCREEN_CHANNEL, OffscreenRequest } from "../background/offscreen-protocol.ts";
+
+const isOffscreenRequest = Schema.is(OffscreenRequest);
 
 const channel = new BroadcastChannel(OFFSCREEN_CHANNEL);
 
@@ -113,7 +114,7 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
       stakeEntriesWritten: 0,
     });
 
-    const accountEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> = [];
+    const accountEntries: Array<BlobEntry> = [];
     for (const [credential, acct] of HashMap.entries(accounts)) {
       accountEntries.push({
         key: accountKey(credential.hash),
@@ -136,7 +137,7 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
     yield* Effect.log(`[offscreen] Accounts written (${accountEntries.length})`);
 
     // --- Stake distribution ---
-    const stakeEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> = [];
+    const stakeEntries: Array<BlobEntry> = [];
     for (const [poolHashHex, stake] of HashMap.entries(lv.poolStake)) {
       const val = new Uint8Array(8);
       new DataView(val.buffer).setBigUint64(0, stake);
@@ -208,8 +209,8 @@ const runtimeLayer = Layer.mergeAll(
 // ---------------------------------------------------------------------------
 
 channel.addEventListener("message", (event) => {
-  const msg = event.data as OffscreenRequest | undefined;
-  if (!msg || typeof msg !== "object" || msg.tag !== "decode-ledger-state") return;
+  const msg: unknown = event.data;
+  if (!isOffscreenRequest(msg)) return;
 
   handleDecode(msg.requestId, msg.payload).pipe(
     Effect.provide(runtimeLayer),

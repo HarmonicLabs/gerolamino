@@ -48,7 +48,7 @@ export const INITIAL_NODE_STATE: NodeState = {
   gsmState: "PreSyncing",
   syncPercent: 0,
   blocksProcessed: 0,
-  lastUpdated: Date.now(),
+  lastUpdated: 0,
 };
 
 /** Writable atom for the node's sync/consensus state. */

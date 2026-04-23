@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Clock, Effect, Layer, Option } from "effect";
-import { PeerManager, PeerManagerLive } from "../peer-manager";
-import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
-import { ChainTip } from "../chain-selection";
+import { PeerManager, PeerManagerLive } from "../peer/manager";
+import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
+import { ChainTip } from "../chain/selection";
 
 const testConfig = new SlotConfig({
   systemStartMs: 0,
@@ -30,56 +30,56 @@ const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
   Layer.provide(slotClockLayer),
 );
 
-const run = <A>(effect: Effect.Effect<A, unknown, PeerManager>) =>
-  effect.pipe(Effect.provide(peerManagerLayer), Effect.runPromise);
+const provide = <A>(effect: Effect.Effect<A, unknown, PeerManager>) =>
+  effect.pipe(Effect.provide(peerManagerLayer));
 
 const makeTip = (slot: bigint, blockNo: bigint): ChainTip =>
   new ChainTip({ slot, blockNo, hash: new Uint8Array(32) });
 
 describe("PeerManager", () => {
-  it("adds and retrieves peers", async () => {
-    const result = await run(
+  it.effect("adds and retrieves peers", () =>
+    provide(
       Effect.gen(function* () {
         const pm = yield* PeerManager;
         yield* pm.addPeer("peer1", "tcp://relay1:3001");
         yield* pm.addPeer("peer2", "tcp://relay2:3001");
-        return yield* pm.getPeers;
+        const result = yield* pm.getPeers;
+        expect(result.length).toBe(2);
+        expect(result[0]?.status).toBe("connecting");
       }),
-    );
-    expect(result.length).toBe(2);
-    expect(result[0]?.status).toBe("connecting");
-  });
+    ),
+  );
 
-  it("updates peer tip and status", async () => {
-    const result = await run(
+  it.effect("updates peer tip and status", () =>
+    provide(
       Effect.gen(function* () {
         const pm = yield* PeerManager;
         yield* pm.addPeer("peer1", "tcp://relay1:3001");
         yield* pm.updatePeerTip("peer1", makeTip(100n, 50n));
-        return yield* pm.getPeers;
+        const result = yield* pm.getPeers;
+        expect(result[0]?.status).toBe("syncing");
+        expect(result[0]?.tip?.slot).toBe(100n);
+        expect(result[0]?.headersReceived).toBe(1);
       }),
-    );
-    expect(result[0]?.status).toBe("syncing");
-    expect(result[0]?.tip?.slot).toBe(100n);
-    expect(result[0]?.headersReceived).toBe(1);
-  });
+    ),
+  );
 
-  it("selects best peer by Praos rules", async () => {
-    const result = await run(
+  it.effect("selects best peer by Praos rules", () =>
+    provide(
       Effect.gen(function* () {
         const pm = yield* PeerManager;
         yield* pm.addPeer("slow", "tcp://slow:3001");
         yield* pm.updatePeerTip("slow", makeTip(100n, 50n));
         yield* pm.addPeer("fast", "tcp://fast:3001");
         yield* pm.updatePeerTip("fast", makeTip(200n, 100n));
-        return yield* pm.getBestPeer;
+        const result = yield* pm.getBestPeer;
+        expect(Option.isSome(result) && result.value.peerId).toBe("fast");
       }),
-    );
-    expect(Option.isSome(result) && result.value.peerId).toBe("fast");
-  });
+    ),
+  );
 
-  it("ignores disconnected peers for best selection", async () => {
-    const result = await run(
+  it.effect("ignores disconnected peers for best selection", () =>
+    provide(
       Effect.gen(function* () {
         const pm = yield* PeerManager;
         yield* pm.addPeer("good", "tcp://good:3001");
@@ -87,14 +87,14 @@ describe("PeerManager", () => {
         yield* pm.addPeer("bad", "tcp://bad:3001");
         yield* pm.updatePeerTip("bad", makeTip(200n, 100n));
         yield* pm.removePeer("bad");
-        return yield* pm.getBestPeer;
+        const result = yield* pm.getBestPeer;
+        expect(Option.isSome(result) && result.value.peerId).toBe("good");
       }),
-    );
-    expect(Option.isSome(result) && result.value.peerId).toBe("good");
-  });
+    ),
+  );
 
-  it("counts peers by status", async () => {
-    const result = await run(
+  it.effect("counts peers by status", () =>
+    provide(
       Effect.gen(function* () {
         const pm = yield* PeerManager;
         yield* pm.addPeer("a", "tcp://a:3001");
@@ -102,22 +102,22 @@ describe("PeerManager", () => {
         yield* pm.updatePeerTip("b", makeTip(100n, 50n));
         yield* pm.addPeer("c", "tcp://c:3001");
         yield* pm.removePeer("c");
-        return yield* pm.getStatusCounts;
+        const result = yield* pm.getStatusCounts;
+        expect(result.connecting).toBe(1); // a
+        expect(result.syncing).toBe(1); // b
+        expect(result.disconnected).toBe(1); // c
       }),
-    );
-    expect(result.connecting).toBe(1); // a
-    expect(result.syncing).toBe(1); // b
-    expect(result.disconnected).toBe(1); // c
-  });
+    ),
+  );
 
-  it("returns none when no peers have tips", async () => {
-    const result = await run(
+  it.effect("returns none when no peers have tips", () =>
+    provide(
       Effect.gen(function* () {
         const pm = yield* PeerManager;
         yield* pm.addPeer("new", "tcp://new:3001");
-        return yield* pm.getBestPeer;
+        const result = yield* pm.getBestPeer;
+        expect(Option.isNone(result)).toBe(true);
       }),
-    );
-    expect(Option.isNone(result)).toBe(true);
-  });
+    ),
+  );
 });

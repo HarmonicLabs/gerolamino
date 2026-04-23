@@ -20,7 +20,8 @@
  *     trivially disambiguated (we only issue one at a time today, but this
  *     keeps the protocol future-proof).
  */
-import type { BootstrapPhase } from "./rpc.ts";
+import { Schema } from "effect";
+import { BootstrapPhase } from "./rpc.ts";
 
 export const OFFSCREEN_CHANNEL = "gerolamino/offscreen";
 
@@ -28,11 +29,12 @@ export const OFFSCREEN_CHANNEL = "gerolamino/offscreen";
 // SW → Offscreen
 // ---------------------------------------------------------------------------
 
-export type OffscreenRequest = {
-  readonly tag: "decode-ledger-state";
-  readonly requestId: string;
-  readonly payload: Uint8Array;
-};
+export const OffscreenRequest = Schema.Struct({
+  tag: Schema.Literal("decode-ledger-state"),
+  requestId: Schema.String,
+  payload: Schema.Uint8Array,
+});
+export type OffscreenRequest = typeof OffscreenRequest.Type;
 
 // ---------------------------------------------------------------------------
 // Offscreen → SW
@@ -40,60 +42,75 @@ export type OffscreenRequest = {
 
 /** Flat projection of consensus `LedgerView` — HashMap values expanded to
  * arrays of entries so the payload is structured-clone compatible. */
-export type SerializedLedgerView = {
-  readonly epochNonce: Uint8Array;
-  readonly poolVrfKeys: ReadonlyArray<readonly [string, Uint8Array]>;
-  readonly poolStake: ReadonlyArray<readonly [string, bigint]>;
-  readonly totalStake: bigint;
-  readonly activeSlotsCoeff: number;
-  readonly maxKesEvolutions: number;
-  readonly maxHeaderSize: number;
-  readonly maxBlockBodySize: number;
-  readonly ocertCounters: ReadonlyArray<readonly [string, number]>;
-};
+export const SerializedLedgerView = Schema.Struct({
+  epochNonce: Schema.Uint8Array,
+  poolVrfKeys: Schema.Array(Schema.Tuple([Schema.String, Schema.Uint8Array])),
+  poolStake: Schema.Array(Schema.Tuple([Schema.String, Schema.BigInt])),
+  totalStake: Schema.BigInt,
+  activeSlotsCoeff: Schema.Number,
+  maxKesEvolutions: Schema.Number,
+  maxHeaderSize: Schema.Number,
+  maxBlockBodySize: Schema.Number,
+  ocertCounters: Schema.Array(Schema.Tuple([Schema.String, Schema.Number])),
+});
+export type SerializedLedgerView = typeof SerializedLedgerView.Type;
 
 /** Plain record mirror of the `Nonces` TaggedClass. */
-export type SerializedNonces = {
-  readonly active: Uint8Array;
-  readonly evolving: Uint8Array;
-  readonly candidate: Uint8Array;
-  readonly epoch: bigint;
-};
+export const SerializedNonces = Schema.Struct({
+  active: Schema.Uint8Array,
+  evolving: Schema.Uint8Array,
+  candidate: Schema.Uint8Array,
+  epoch: Schema.BigInt,
+});
+export type SerializedNonces = typeof SerializedNonces.Type;
 
-export type SerializedTip =
-  | { readonly slot: bigint; readonly blockNo: bigint; readonly hash: Uint8Array }
-  | undefined;
+export const SerializedTip = Schema.UndefinedOr(
+  Schema.Struct({
+    slot: Schema.BigInt,
+    blockNo: Schema.BigInt,
+    hash: Schema.Uint8Array,
+  }),
+);
+export type SerializedTip = typeof SerializedTip.Type;
 
-export type OffscreenProgress = {
-  readonly tag: "decode-progress";
-  readonly requestId: string;
-  readonly phase: BootstrapPhase;
-  readonly accountsWritten: number;
-  readonly totalAccounts?: number;
-  readonly stakeEntriesWritten: number;
-  readonly totalStakeEntries?: number;
-};
+export const OffscreenProgress = Schema.Struct({
+  tag: Schema.Literal("decode-progress"),
+  requestId: Schema.String,
+  phase: BootstrapPhase,
+  accountsWritten: Schema.Number,
+  totalAccounts: Schema.optional(Schema.Number),
+  stakeEntriesWritten: Schema.Number,
+  totalStakeEntries: Schema.optional(Schema.Number),
+});
+export type OffscreenProgress = typeof OffscreenProgress.Type;
 
-export type OffscreenComplete = {
-  readonly tag: "decode-complete";
-  readonly requestId: string;
-  readonly ledgerView: SerializedLedgerView;
-  readonly nonces: SerializedNonces;
-  readonly tip: SerializedTip;
-  readonly accountsWritten: number;
-  readonly stakeEntriesWritten: number;
-};
+export const OffscreenComplete = Schema.Struct({
+  tag: Schema.Literal("decode-complete"),
+  requestId: Schema.String,
+  ledgerView: SerializedLedgerView,
+  nonces: SerializedNonces,
+  tip: SerializedTip,
+  accountsWritten: Schema.Number,
+  stakeEntriesWritten: Schema.Number,
+});
+export type OffscreenComplete = typeof OffscreenComplete.Type;
 
-export type OffscreenError = {
-  readonly tag: "decode-error";
-  readonly requestId: string;
-  readonly message: string;
-};
+export const OffscreenError = Schema.Struct({
+  tag: Schema.Literal("decode-error"),
+  requestId: Schema.String,
+  message: Schema.String,
+});
+export type OffscreenError = typeof OffscreenError.Type;
 
-export type OffscreenReady = { readonly tag: "ready" };
+export const OffscreenReady = Schema.Struct({
+  tag: Schema.Literal("ready"),
+});
+export type OffscreenReady = typeof OffscreenReady.Type;
 
-export type OffscreenResponse =
-  | OffscreenReady
-  | OffscreenProgress
-  | OffscreenComplete
-  | OffscreenError;
+export const OffscreenResponse = Schema.Union([
+  OffscreenReady,
+  OffscreenProgress,
+  OffscreenComplete,
+  OffscreenError,
+]);
+export type OffscreenResponse = typeof OffscreenResponse.Type;

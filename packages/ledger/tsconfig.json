@@ -1,20 +1,19 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "esnext",
-    "lib": ["esnext", "dom"],
-    "module": "esnext",
+    "module": "preserve",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "noUncheckedIndexedAccess": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "paths": {
-      "codecs": ["../codecs/src/index.ts"],
-      "codecs/*": ["../codecs/src/*"],
-      "wasm-utils": ["../wasm-utils/pkg/wasm_utils.js"]
-    }
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": ["./src/**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": [
+    "dist",
+    "node_modules",
+    "./src/__tests__/bench-legacy.ts",
+    "./src/__tests__/benchmark-snapshot.ts"
+  ]
 }

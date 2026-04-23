@@ -2,7 +2,7 @@
  * Tests for the Chrome extension background worker bootstrap pipeline.
  * Uses @webext-core/fake-browser to mock Chrome extension APIs.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "@effect/vitest";
 import { fakeBrowser } from "@webext-core/fake-browser";
 import { WireTag, encodeFrame, encodeBlock, encodeBlobBatch } from "bootstrap";
 

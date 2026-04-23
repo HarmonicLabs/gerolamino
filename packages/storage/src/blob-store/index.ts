@@ -1,4 +1,4 @@
-export { BlobStore, BlobStoreError } from "./service";
+export { BlobStore, BlobStoreError, BlobEntry } from "./service";
 export { layerInMemory as BlobStoreInMemory } from "./in-memory";
 export {
   utxoKey,
@@ -17,5 +17,4 @@ export {
   PREFIX_SNAP,
   PREFIX_COFF,
 } from "./keys";
-export { analyzeBlockCbor } from "./block-analysis";
-export type { BlockAnalysis } from "./block-analysis";
+export { analyzeBlockCbor, BlockAnalysis, TxOffset } from "./block-analysis";

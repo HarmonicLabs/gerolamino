@@ -8,6 +8,9 @@ export * from "./multiplexer";
 // Shared types
 export * from "./protocols/types";
 
+// Peer Cluster Entity + Rpc surface
+export * from "./peer";
+
 // Protocols
 export * from "./protocols/handshake";
 export * from "./protocols/keep-alive";

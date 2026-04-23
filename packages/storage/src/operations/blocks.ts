@@ -43,27 +43,46 @@ const PointRow = Schema.Struct({
 // Immutable block operations
 // ---------------------------------------------------------------------------
 
-export const writeImmutableBlock = (block: StoredBlock) =>
+export const writeImmutableBlock = (block: StoredBlock) => writeImmutableBlocks([block]);
+
+export const writeImmutableBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
   Effect.gen(function* () {
+    if (blocks.length === 0) return;
     const sql = yield* SqlClient;
     const store = yield* BlobStore;
     const now = yield* Clock.currentTimeMillis;
     const time = Math.floor(Number(now) / 1000);
+    const rows = blocks.map((b) => ({
+      slot: Number(b.slot),
+      hash: b.hash,
+      prev_hash: b.prevHash ?? null,
+      block_no: Number(b.blockNo),
+      epoch_no: 0,
+      size: b.blockSizeBytes,
+      time,
+      slot_leader_id: 0,
+      proto_major: 0,
+      proto_minor: 0,
+    }));
 
     yield* sql.withTransaction(
       Effect.all(
         [
-          store.put(blockKey(block.slot, block.hash), block.blockCbor),
-          sql`
-            INSERT INTO immutable_blocks (slot, hash, prev_hash, block_no, epoch_no, size, time, slot_leader_id, proto_major, proto_minor)
-            VALUES (${Number(block.slot)}, ${block.hash}, ${block.prevHash ?? null}, ${Number(block.blockNo)}, ${0}, ${block.blockSizeBytes}, ${time}, ${0}, ${0}, ${0})
-            ON CONFLICT (slot) DO UPDATE SET hash = ${block.hash}
-          `.unprepared,
+          // Blob puts fan out; they're independent keys.
+          Effect.forEach(
+            blocks,
+            (b) => store.put(blockKey(b.slot, b.hash), b.blockCbor),
+            { concurrency: "unbounded", discard: true },
+          ),
+          // Single multi-row INSERT via `sql.insert` (Effect Statement.ts:368)
+          // collapses N round-trips into 1. UPSERT on slot conflict.
+          sql`INSERT INTO immutable_blocks ${sql.insert(rows)}
+              ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`,
         ],
         { concurrency: "unbounded" },
       ),
     );
-  }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "writeBlock", cause })));
+  }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "writeBlocks", cause })));
 
 export const readImmutableBlock = (point: RealPoint) =>
   Effect.gen(function* () {
@@ -118,25 +137,36 @@ export const getImmutableTip = Effect.gen(function* () {
 // Volatile block operations
 // ---------------------------------------------------------------------------
 
-export const writeVolatileBlock = (block: StoredBlock) =>
+export const writeVolatileBlock = (block: StoredBlock) => writeVolatileBlocks([block]);
+
+export const writeVolatileBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
   Effect.gen(function* () {
+    if (blocks.length === 0) return;
     const sql = yield* SqlClient;
     const store = yield* BlobStore;
+    const rows = blocks.map((b) => ({
+      hash: b.hash,
+      slot: Number(b.slot),
+      prev_hash: b.prevHash ?? null,
+      block_no: Number(b.blockNo),
+      block_size_bytes: b.blockSizeBytes,
+    }));
 
     yield* sql.withTransaction(
       Effect.all(
         [
-          store.put(blockKey(block.slot, block.hash), block.blockCbor),
-          sql`
-            INSERT INTO volatile_blocks (hash, slot, prev_hash, block_no, block_size_bytes)
-            VALUES (${block.hash}, ${Number(block.slot)}, ${block.prevHash ?? null}, ${Number(block.blockNo)}, ${block.blockSizeBytes})
-            ON CONFLICT (hash) DO NOTHING
-          `.unprepared,
+          Effect.forEach(
+            blocks,
+            (b) => store.put(blockKey(b.slot, b.hash), b.blockCbor),
+            { concurrency: "unbounded", discard: true },
+          ),
+          sql`INSERT INTO volatile_blocks ${sql.insert(rows)}
+              ON CONFLICT(hash) DO NOTHING`,
         ],
         { concurrency: "unbounded" },
       ),
     );
-  }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "writeBlock", cause })));
+  }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "writeBlocks", cause })));
 
 export const readVolatileBlock = (hash: Uint8Array) =>
   Effect.gen(function* () {

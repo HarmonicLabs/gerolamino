@@ -9,15 +9,11 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "type-check": "tsgo --noEmit"
+    "type-check": "tsgo --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@harmoniclabs/crypto": "^0.3.0",
     "codecs": "workspace:*",
     "wasm-utils": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.11",
-    "vitest": "^4.1.4"
   }
 }

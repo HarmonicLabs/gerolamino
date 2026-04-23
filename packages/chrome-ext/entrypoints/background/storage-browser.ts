@@ -20,7 +20,7 @@ import * as IndexedDbTable from "@effect/platform-browser/IndexedDbTable";
 import * as IndexedDbVersion from "@effect/platform-browser/IndexedDbVersion";
 import * as IndexedDbDatabase from "@effect/platform-browser/IndexedDbDatabase";
 import { layerMemory as sqliteWasmMemoryLayer } from "@effect/sql-sqlite-wasm/SqliteClient";
-import { BlobStore, BlobStoreError, prefixEnd, ChainDBLive } from "storage";
+import { type BlobEntry, BlobStore, BlobStoreError, prefixEnd, ChainDBLive } from "storage";
 
 // ---------------------------------------------------------------------------
 // IndexedDB table definitions — one per LSM key prefix
@@ -188,9 +188,7 @@ export const BlobStoreIndexedDB: Layer.Layer<
         );
       },
 
-      putBatch: (
-        entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
-      ) =>
+      putBatch: (entries: ReadonlyArray<BlobEntry>) =>
         Effect.gen(function* () {
           // Group entries by target table, then bulk-upsert per table.
           // During bootstrap, batches are typically single-prefix (all UTxO or all blocks).

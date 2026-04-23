@@ -11,14 +11,14 @@
  * No XState needed — Effect's structured concurrency handles lifecycle.
  */
 import { Effect, Option, Ref, Schedule, Schema } from "effect";
-import { SlotClock } from "./clock";
-import { ConsensusEngine } from "./consensus-engine";
-import { PeerManager } from "./peer-manager";
-import { ConsensusEvents, ConsensusEventKind } from "./events";
-import { getSyncState } from "./sync";
+import { SlotClock } from "./praos/clock";
+import { ConsensusEngine } from "./praos/engine";
+import { PeerManager } from "./peer/manager";
+import { ConsensusEvents, ConsensusEventKind } from "./peer/events";
+import { getSyncState } from "./sync/bootstrap";
 import { ChainDB } from "storage";
-import { GsmState } from "./chain-selection";
-import type { VolatileState } from "./chain-sync-driver";
+import { GsmState } from "./chain/selection";
+import type { VolatileState } from "./sync/driver";
 
 export const NodeStatus = Schema.Struct({
   tipSlot: Schema.BigInt,

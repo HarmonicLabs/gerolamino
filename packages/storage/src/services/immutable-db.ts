@@ -8,12 +8,21 @@ import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 import { ImmutableDBError } from "../errors.ts";
 import { BlobStore, PREFIX_BLK } from "../blob-store";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
-import { writeImmutableBlock, readImmutableBlock, getImmutableTip } from "../operations/blocks.ts";
+import {
+  writeImmutableBlock,
+  writeImmutableBlocks,
+  readImmutableBlock,
+  getImmutableTip,
+} from "../operations/blocks.ts";
 
 export class ImmutableDB extends Context.Service<
   ImmutableDB,
   {
     readonly appendBlock: (block: StoredBlock) => Effect.Effect<void, ImmutableDBError>;
+    /** Batch-append — 1 multi-VALUES INSERT round-trip instead of N. */
+    readonly appendBlocks: (
+      blocks: ReadonlyArray<StoredBlock>,
+    ) => Effect.Effect<void, ImmutableDBError>;
     readonly readBlock: (
       point: RealPoint,
     ) => Effect.Effect<Option.Option<StoredBlock>, ImmutableDBError>;
@@ -34,6 +43,7 @@ export const ImmutableDBLive: Layer.Layer<ImmutableDB, never, BlobStore | SqlCli
       effect.pipe(Effect.provideService(BlobStore, store), Effect.provideService(SqlClient, sql));
     return {
       appendBlock: (block: StoredBlock) => provide(writeImmutableBlock(block)),
+      appendBlocks: (blocks: ReadonlyArray<StoredBlock>) => provide(writeImmutableBlocks(blocks)),
       readBlock: (point: RealPoint) => provide(readImmutableBlock(point)),
       getTip: provide(getImmutableTip),
       streamBlocks: (fromSlot: bigint, toSlot: bigint) =>

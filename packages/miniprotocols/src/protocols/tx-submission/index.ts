@@ -8,3 +8,4 @@ export {
   TxSubmissionMessageType,
   TxSubmissionMessageTypeSchema,
 } from "./Schemas";
+export { MAX_UNACKED_TX_IDS, isValidRequestWindow } from "./limits";

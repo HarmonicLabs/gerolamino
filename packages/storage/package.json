@@ -7,9 +7,10 @@
     ".": "./src/index.ts",
     "./*": "./src/*"
   },
-  "dependencies": {},
-  "devDependencies": {
-    "@types/bun": "^1.3.11",
-    "vitest": "^4.1.4"
+  "scripts": {
+    "type-check": "tsgo --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "ffi": "workspace:*"
   }
 }

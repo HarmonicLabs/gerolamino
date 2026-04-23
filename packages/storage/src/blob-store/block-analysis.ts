@@ -13,11 +13,19 @@
  *
  * Byron blocks (era_tag 0 or 1) and malformed CBOR return { blockNo: 0n, txOffsets: [] }.
  */
+import { Schema } from "effect";
 
-export interface BlockAnalysis {
-  readonly blockNo: bigint;
-  readonly txOffsets: ReadonlyArray<{ readonly offset: number; readonly size: number }>;
-}
+export const TxOffset = Schema.Struct({
+  offset: Schema.Number,
+  size: Schema.Number,
+});
+export type TxOffset = typeof TxOffset.Type;
+
+export const BlockAnalysis = Schema.Struct({
+  blockNo: Schema.BigInt,
+  txOffsets: Schema.Array(TxOffset),
+});
+export type BlockAnalysis = typeof BlockAnalysis.Type;
 
 const EMPTY: BlockAnalysis = { blockNo: 0n, txOffsets: [] };
 
@@ -174,12 +182,11 @@ export const analyzeBlockCbor = (blockCbor: Uint8Array): BlockAnalysis => {
     const txBodies = readArrayHeader(blockCbor, pos);
     pos += txBodies.bytesRead;
 
-    const txOffsets: Array<{ offset: number; size: number }> = new Array(txBodies.count);
-    for (let i = 0; i < txBodies.count; i++) {
+    const txOffsets = Array.from({ length: txBodies.count }, (): TxOffset => {
       const start = pos;
       pos = skipItem(blockCbor, pos);
-      txOffsets[i] = { offset: start, size: pos - start };
-    }
+      return { offset: start, size: pos - start };
+    });
     return { blockNo: extractedBlockNo, txOffsets };
   } catch {
     return EMPTY;

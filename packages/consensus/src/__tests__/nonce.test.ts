@@ -1,98 +1,118 @@
-import { describe, it, expect } from "vitest";
-import { evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "../nonce";
+import { describe, it, expect } from "@effect/vitest";
+import { Effect } from "effect";
+import { CryptoDirect } from "wasm-utils";
+import { evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "../praos/nonce";
 import { hex, concat } from "../util";
 
 const blake2b256 = (data: Uint8Array): Uint8Array =>
   new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
 
 describe("evolveNonce", () => {
-  it("produces a 32-byte hash", async () => {
-    const nonce = new Uint8Array(32);
-    nonce[0] = 0x42;
-    const vrfOutput = new Uint8Array(32);
-    vrfOutput[0] = 0x01;
-    const result = await evolveNonce(nonce, vrfOutput, blake2b256);
-    expect(result).toBeInstanceOf(Uint8Array);
-    expect(result.length).toBe(32);
-  });
+  it.effect("produces a 32-byte hash", () =>
+    Effect.gen(function* () {
+      const nonce = new Uint8Array(32);
+      nonce[0] = 0x42;
+      const vrfOutput = new Uint8Array(32);
+      vrfOutput[0] = 0x01;
+      const result = yield* evolveNonce(nonce, vrfOutput);
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(result.length).toBe(32);
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 
-  it("different inputs produce different outputs", async () => {
-    const nonce = new Uint8Array(32);
-    const vrf1 = new Uint8Array(32);
-    vrf1[0] = 1;
-    const vrf2 = new Uint8Array(32);
-    vrf2[0] = 2;
-    const r1 = await evolveNonce(nonce, vrf1, blake2b256);
-    const r2 = await evolveNonce(nonce, vrf2, blake2b256);
-    expect(r1).not.toEqual(r2);
-  });
+  it.effect("different inputs produce different outputs", () =>
+    Effect.gen(function* () {
+      const nonce = new Uint8Array(32);
+      const vrf1 = new Uint8Array(32);
+      vrf1[0] = 1;
+      const vrf2 = new Uint8Array(32);
+      vrf2[0] = 2;
+      const r1 = yield* evolveNonce(nonce, vrf1);
+      const r2 = yield* evolveNonce(nonce, vrf2);
+      expect(r1).not.toEqual(r2);
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 
-  it("is deterministic", async () => {
-    const nonce = new Uint8Array(32).fill(0xaa);
-    const vrfOutput = new Uint8Array(32).fill(0xbb);
-    const r1 = await evolveNonce(nonce, vrfOutput, blake2b256);
-    const r2 = await evolveNonce(nonce, vrfOutput, blake2b256);
-    expect(r1).toEqual(r2);
-  });
+  it.effect("is deterministic", () =>
+    Effect.gen(function* () {
+      const nonce = new Uint8Array(32).fill(0xaa);
+      const vrfOutput = new Uint8Array(32).fill(0xbb);
+      const r1 = yield* evolveNonce(nonce, vrfOutput);
+      const r2 = yield* evolveNonce(nonce, vrfOutput);
+      expect(r1).toEqual(r2);
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 
   // Ported from Amaru praos/nonce.rs — formula: blake2b(current ∥ blake2b(vrfOutput))
-  it("follows Praos evolve formula: blake2b(current ∥ blake2b(vrfOutput))", async () => {
-    const current = new Uint8Array(32).fill(0x42);
-    const vrfOutput = new Uint8Array(32).fill(0x07);
+  it.effect("follows Praos evolve formula: blake2b(current ∥ blake2b(vrfOutput))", () =>
+    Effect.gen(function* () {
+      const current = new Uint8Array(32).fill(0x42);
+      const vrfOutput = new Uint8Array(32).fill(0x07);
 
-    const result = await evolveNonce(current, vrfOutput, blake2b256);
-    // Manual computation: blake2b(current ∥ blake2b(vrfOutput))
-    const eta = blake2b256(vrfOutput);
-    const expected = blake2b256(concat(current, eta));
-    expect(hex(result)).toBe(hex(expected));
-  });
+      const result = yield* evolveNonce(current, vrfOutput);
+      // Manual computation: blake2b(current ∥ blake2b(vrfOutput))
+      const eta = blake2b256(vrfOutput);
+      const expected = blake2b256(concat(current, eta));
+      expect(hex(result)).toBe(hex(expected));
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 });
 
 describe("deriveEpochNonce", () => {
-  it("produces a 32-byte hash", async () => {
-    const candidate = new Uint8Array(32).fill(0x11);
-    const parentHash = new Uint8Array(32).fill(0x22);
-    const result = await deriveEpochNonce(candidate, parentHash, blake2b256);
-    expect(result).toBeInstanceOf(Uint8Array);
-    expect(result.length).toBe(32);
-  });
+  it.effect("produces a 32-byte hash", () =>
+    Effect.gen(function* () {
+      const candidate = new Uint8Array(32).fill(0x11);
+      const parentHash = new Uint8Array(32).fill(0x22);
+      const result = yield* deriveEpochNonce(candidate, parentHash);
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(result.length).toBe(32);
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 
-  it("is deterministic", async () => {
-    const candidate = new Uint8Array(32).fill(0xcc);
-    const parentHash = new Uint8Array(32).fill(0xdd);
-    const r1 = await deriveEpochNonce(candidate, parentHash, blake2b256);
-    const r2 = await deriveEpochNonce(candidate, parentHash, blake2b256);
-    expect(r1).toEqual(r2);
-  });
+  it.effect("is deterministic", () =>
+    Effect.gen(function* () {
+      const candidate = new Uint8Array(32).fill(0xcc);
+      const parentHash = new Uint8Array(32).fill(0xdd);
+      const r1 = yield* deriveEpochNonce(candidate, parentHash);
+      const r2 = yield* deriveEpochNonce(candidate, parentHash);
+      expect(r1).toEqual(r2);
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 
   // Ported from Dingo epoch_nonce_test.go — TestEpochNonceFormula
-  it("follows Praos formula: blake2b(candidate ∥ parentHash)", async () => {
-    const candidate = new Uint8Array(32).fill(0xaa);
-    const parentHash = new Uint8Array(32).fill(0xbb);
+  it.effect("follows Praos formula: blake2b(candidate ∥ parentHash)", () =>
+    Effect.gen(function* () {
+      const candidate = new Uint8Array(32).fill(0xaa);
+      const parentHash = new Uint8Array(32).fill(0xbb);
 
-    const result = await deriveEpochNonce(candidate, parentHash, blake2b256);
-    const expected = blake2b256(concat(candidate, parentHash));
-    expect(hex(result)).toBe(hex(expected));
-  });
+      const result = yield* deriveEpochNonce(candidate, parentHash);
+      const expected = blake2b256(concat(candidate, parentHash));
+      expect(hex(result)).toBe(hex(expected));
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 
   // Ported from Dingo epoch_nonce_test.go — TestEpochNonceNonCommutative
-  it("is non-commutative (order of concatenation matters)", async () => {
-    const a = new Uint8Array(32).fill(0x11);
-    const b = new Uint8Array(32).fill(0x22);
+  it.effect("is non-commutative (order of concatenation matters)", () =>
+    Effect.gen(function* () {
+      const a = new Uint8Array(32).fill(0x11);
+      const b = new Uint8Array(32).fill(0x22);
 
-    const ab = await deriveEpochNonce(a, b, blake2b256);
-    const ba = await deriveEpochNonce(b, a, blake2b256);
-    expect(hex(ab)).not.toBe(hex(ba));
-  });
+      const ab = yield* deriveEpochNonce(a, b);
+      const ba = yield* deriveEpochNonce(b, a);
+      expect(hex(ab)).not.toBe(hex(ba));
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 
   // Ported from Dingo epoch_nonce_test.go — TestEpochNonceNeutralIdentity
-  it("identity: deriving with zero-hash parent is different from just the candidate", async () => {
-    const candidate = new Uint8Array(32).fill(0xcc);
-    const zeroHash = new Uint8Array(32);
-    const result = await deriveEpochNonce(candidate, zeroHash, blake2b256);
-    // blake2b(cc...cc ∥ 00...00) ≠ cc...cc
-    expect(hex(result)).not.toBe(hex(candidate));
-  });
+  it.effect("identity: deriving with zero-hash parent is different from just the candidate", () =>
+    Effect.gen(function* () {
+      const candidate = new Uint8Array(32).fill(0xcc);
+      const zeroHash = new Uint8Array(32);
+      const result = yield* deriveEpochNonce(candidate, zeroHash);
+      // blake2b(cc...cc ∥ 00...00) ≠ cc...cc
+      expect(hex(result)).not.toBe(hex(candidate));
+    }).pipe(Effect.provide(CryptoDirect)),
+  );
 });
 
 describe("isPastStabilizationWindow", () => {

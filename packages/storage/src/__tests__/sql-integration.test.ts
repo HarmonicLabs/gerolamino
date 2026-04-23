@@ -4,11 +4,11 @@
  * Proves that migrations, block operations, snapshot operations, and BlobStore
  * integration work against a real in-memory SQLite database (not stubs).
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient";
-import { BlobStore } from "../blob-store/service.ts";
+import { type BlobEntry, BlobStore } from "../blob-store/service.ts";
 import { blockKey, snapshotKey } from "../blob-store/keys.ts";
 import { runMigrations } from "../operations/migrations.ts";
 import {
@@ -48,7 +48,7 @@ const makeInMemoryBlobStore = () => {
     scan: () => {
       throw new Error("scan not needed in sql-integration tests");
     },
-    putBatch: (entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>) =>
+    putBatch: (entries: ReadonlyArray<BlobEntry>) =>
       Effect.sync(() => {
         for (const e of entries) store.set(keyStr(e.key), e.value);
       }),
@@ -62,9 +62,9 @@ const makeInMemoryBlobStore = () => {
 const blobLayer = Layer.succeed(BlobStore, makeInMemoryBlobStore());
 const testLayer = Layer.merge(sqlLayer, blobLayer);
 
-/** Run an effect that needs SqlClient + BlobStore, with fresh migrations. */
-const run = <A>(effect: Effect.Effect<A, unknown, SqlClient | BlobStore>) =>
-  runMigrations.pipe(Effect.andThen(effect), Effect.provide(testLayer), Effect.runPromise);
+/** Provide an effect that needs SqlClient + BlobStore, with fresh migrations. */
+const provide = <A>(effect: Effect.Effect<A, unknown, SqlClient | BlobStore>) =>
+  runMigrations.pipe(Effect.andThen(effect), Effect.provide(testLayer));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,8 +89,8 @@ const pointOf = (block: StoredBlock): RealPoint => ({
 // ---------------------------------------------------------------------------
 
 describe("migrations", () => {
-  it("creates all expected tables", () =>
-    run(
+  it.effect("creates all expected tables", () =>
+    provide(
       Effect.gen(function* () {
         const sql = yield* SqlClient;
         const tables = yield* sql`
@@ -103,16 +103,18 @@ describe("migrations", () => {
         expect(names).toContain("tx");
         expect(names).toContain("tx_out");
       }),
-    ));
+    ),
+  );
 
-  it("is idempotent", () =>
+  it.effect("is idempotent", () =>
     Effect.gen(function* () {
       yield* runMigrations;
       yield* runMigrations;
-    }).pipe(Effect.provide(testLayer), Effect.runPromise));
+    }).pipe(Effect.provide(testLayer)),
+  );
 
-  it("sets WAL mode (falls back to 'memory' for in-memory DBs)", () =>
-    run(
+  it.effect("sets WAL mode (falls back to 'memory' for in-memory DBs)", () =>
+    provide(
       Effect.gen(function* () {
         const sql = yield* SqlClient;
         const rows = yield* sql`PRAGMA journal_mode`.unprepared;
@@ -121,17 +123,19 @@ describe("migrations", () => {
         // On-disk databases (TUI, production) will use WAL.
         expect(["wal", "memory"]).toContain(mode);
       }),
-    ));
+    ),
+  );
 
-  it("enables foreign keys", () =>
-    run(
+  it.effect("enables foreign keys", () =>
+    provide(
       Effect.gen(function* () {
         const sql = yield* SqlClient;
         const rows = yield* sql`PRAGMA foreign_keys`.unprepared;
         const fk = (rows as ReadonlyArray<{ foreign_keys: number }>)[0]!.foreign_keys;
         expect(fk).toBe(1);
       }),
-    ));
+    ),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -139,8 +143,8 @@ describe("migrations", () => {
 // ---------------------------------------------------------------------------
 
 describe("immutable blocks", () => {
-  it("write + read round-trip", () =>
-    run(
+  it.effect("write + read round-trip", () =>
+    provide(
       Effect.gen(function* () {
         const block = makeBlock(100n, 50n);
         yield* writeImmutableBlock(block);
@@ -154,10 +158,11 @@ describe("immutable blocks", () => {
           expect(result.value.blockCbor).toEqual(block.blockCbor);
         }
       }),
-    ));
+    ),
+  );
 
-  it("ON CONFLICT updates hash", () =>
-    run(
+  it.effect("ON CONFLICT updates hash", () =>
+    provide(
       Effect.gen(function* () {
         const block1 = makeBlock(100n, 50n);
         yield* writeImmutableBlock(block1);
@@ -169,10 +174,11 @@ describe("immutable blocks", () => {
         const result = yield* readImmutableBlock({ slot: 100n, hash: block2.hash });
         expect(Option.isSome(result)).toBe(true);
       }),
-    ));
+    ),
+  );
 
-  it("getTip returns highest slot", () =>
-    run(
+  it.effect("getTip returns highest slot", () =>
+    provide(
       Effect.gen(function* () {
         yield* writeImmutableBlock(makeBlock(100n, 50n));
         yield* writeImmutableBlock(makeBlock(300n, 150n));
@@ -184,15 +190,17 @@ describe("immutable blocks", () => {
           expect(tip.value.slot).toBe(300n);
         }
       }),
-    ));
+    ),
+  );
 
-  it("getTip returns None on empty DB", () =>
-    run(
+  it.effect("getTip returns None on empty DB", () =>
+    provide(
       Effect.gen(function* () {
         const tip = yield* getImmutableTip;
         expect(Option.isNone(tip)).toBe(true);
       }),
-    ));
+    ),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -200,8 +208,8 @@ describe("immutable blocks", () => {
 // ---------------------------------------------------------------------------
 
 describe("volatile blocks", () => {
-  it("write + read round-trip", () =>
-    run(
+  it.effect("write + read round-trip", () =>
+    provide(
       Effect.gen(function* () {
         const block = makeBlock(100n, 50n);
         yield* writeVolatileBlock(block);
@@ -214,10 +222,11 @@ describe("volatile blocks", () => {
           expect(result.value.blockCbor).toEqual(block.blockCbor);
         }
       }),
-    ));
+    ),
+  );
 
-  it("ON CONFLICT DO NOTHING", () =>
-    run(
+  it.effect("ON CONFLICT DO NOTHING", () =>
+    provide(
       Effect.gen(function* () {
         const block = makeBlock(100n, 50n);
         yield* writeVolatileBlock(block);
@@ -225,10 +234,11 @@ describe("volatile blocks", () => {
         const result = yield* readVolatileBlock(block.hash);
         expect(Option.isSome(result)).toBe(true);
       }),
-    ));
+    ),
+  );
 
-  it("getSuccessors finds child blocks", () =>
-    run(
+  it.effect("getSuccessors finds child blocks", () =>
+    provide(
       Effect.gen(function* () {
         const parent = makeBlock(100n, 50n);
         const child1: StoredBlock = {
@@ -249,10 +259,11 @@ describe("volatile blocks", () => {
         const succs = yield* getVolatileSuccessors(parent.hash);
         expect(succs.length).toBe(2);
       }),
-    ));
+    ),
+  );
 
-  it("garbageCollect removes old blocks", () =>
-    run(
+  it.effect("garbageCollect removes old blocks", () =>
+    provide(
       Effect.gen(function* () {
         yield* writeVolatileBlock(makeBlock(100n, 50n));
         yield* writeVolatileBlock(makeBlock(200n, 100n));
@@ -268,7 +279,8 @@ describe("volatile blocks", () => {
         expect(Option.isNone(r200)).toBe(true);
         expect(Option.isSome(r300)).toBe(true);
       }),
-    ));
+    ),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -276,8 +288,8 @@ describe("volatile blocks", () => {
 // ---------------------------------------------------------------------------
 
 describe("ledger snapshots", () => {
-  it("write + read round-trip", () =>
-    run(
+  it.effect("write + read round-trip", () =>
+    provide(
       Effect.gen(function* () {
         const snapshot = {
           point: { slot: 100n, hash: new Uint8Array(32).fill(0xaa) },
@@ -295,10 +307,11 @@ describe("ledger snapshots", () => {
           expect(result.value.stateBytes).toEqual(new Uint8Array([1, 2, 3, 4, 5]));
         }
       }),
-    ));
+    ),
+  );
 
-  it("returns latest by slot", () =>
-    run(
+  it.effect("returns latest by slot", () =>
+    provide(
       Effect.gen(function* () {
         yield* writeSnapshot({
           point: { slot: 100n, hash: new Uint8Array(32).fill(0x01) },
@@ -320,15 +333,17 @@ describe("ledger snapshots", () => {
           expect(result.value.epoch).toBe(6n);
         }
       }),
-    ));
+    ),
+  );
 
-  it("returns None on empty DB", () =>
-    run(
+  it.effect("returns None on empty DB", () =>
+    provide(
       Effect.gen(function* () {
         const result = yield* readLatestSnapshot;
         expect(Option.isNone(result)).toBe(true);
       }),
-    ));
+    ),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -336,8 +351,8 @@ describe("ledger snapshots", () => {
 // ---------------------------------------------------------------------------
 
 describe("BlobStore integration", () => {
-  it("block CBOR in BlobStore, metadata in SQL", () =>
-    run(
+  it.effect("block CBOR in BlobStore, metadata in SQL", () =>
+    provide(
       Effect.gen(function* () {
         const sql = yield* SqlClient;
         const store = yield* BlobStore;
@@ -358,10 +373,11 @@ describe("BlobStore integration", () => {
         `;
         expect((rows as ReadonlyArray<unknown>).length).toBe(1);
       }),
-    ));
+    ),
+  );
 
-  it("snapshot stateBytes in BlobStore", () =>
-    run(
+  it.effect("snapshot stateBytes in BlobStore", () =>
+    provide(
       Effect.gen(function* () {
         const store = yield* BlobStore;
 
@@ -379,5 +395,6 @@ describe("BlobStore integration", () => {
           expect(blob.value).toEqual(new Uint8Array([10, 20, 30]));
         }
       }),
-    ));
+    ),
+  );
 });

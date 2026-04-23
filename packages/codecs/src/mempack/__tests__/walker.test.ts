@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
+import { Equal, Schema } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
 import {
   MemPackDecodeError,
@@ -139,7 +139,7 @@ describe("toCodecMemPack — Arrays dispatch", () => {
         never
       >,
       FastCheck.array(FastCheck.string(), { maxLength: 20 }),
-      (a, b) => a.length === b.length && a.every((s, i) => s === b[i]),
+      (a, b) => Equal.equals(a, b),
     );
   });
 
@@ -382,16 +382,7 @@ describe("toCodecMemPack — packedByteCount === pack().byteLength invariant", (
           const packed = packToUint8Array(codec, v);
           if (packed.byteLength !== codec.packedByteCount(v)) return false;
           const back = unpackFromUint8Array(codec, packed);
-          return (
-            back.name === v.name &&
-            back.flag === v.flag &&
-            back.count === v.count &&
-            back.kind === v.kind &&
-            back.tuple[0] === v.tuple[0] &&
-            back.tuple[1] === v.tuple[1] &&
-            back.list.length === v.list.length &&
-            back.list.every((n, i) => n === v.list[i])
-          );
+          return Equal.equals(back, v);
         },
       ),
       { numRuns: 100 },

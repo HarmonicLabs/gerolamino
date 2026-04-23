@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Optic, Result, Schema } from "effect";
+import { Equal, Optic, Result, Schema } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
 import { CborKinds, type CborValue } from "../CborValue";
 import { CborValueOptics, CborValueTraversals, toCborIso } from "../derive/toIso";
@@ -159,12 +159,10 @@ describe("CborValueTraversals", () => {
           const before = Optic.getAll(CborValueTraversals.arrayItems)(input);
           const noop = CborValueTraversals.arrayItems.modifyAll((x: CborValue) => x)(input);
           const after = Optic.getAll(CborValueTraversals.arrayItems)(noop);
-          return JSON.stringify(before, bigintReplacer) === JSON.stringify(after, bigintReplacer);
+          return Equal.equals(before, after);
         },
       ),
       { numRuns: 100 },
     );
   });
 });
-
-const bigintReplacer = (_: string, v: unknown): unknown => (typeof v === "bigint" ? `${v}n` : v);

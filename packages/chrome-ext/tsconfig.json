@@ -17,6 +17,8 @@
       "~~/*": ["./../*"],
       "consensus": ["./../consensus/src/index.ts"],
       "consensus/*": ["./../consensus/src/*"],
+      "ffi": ["./../ffi/src/index.ts"],
+      "ffi/*": ["./../ffi/src/*"],
       "storage": ["./../storage/src/index.ts"],
       "storage/*": ["./../storage/src/*"],
       "ledger": ["./../ledger/src/index.ts"],
@@ -29,8 +31,8 @@
       "dashboard/*": ["./../dashboard/src/*"],
       "codecs": ["./../codecs/src/index.ts"],
       "codecs/*": ["./../codecs/src/*"],
-      "wasm-utils": ["./../wasm-utils/pkg/wasm_utils.js"],
-      "wasm-plexer": ["./../wasm-plexer/result/wasm_plexer_bun.js"]
+      "wasm-utils": ["./../wasm-utils/pkg/wasm_utils.d.ts"],
+      "wasm-plexer": ["./../wasm-plexer/result/wasm_plexer.d.ts"]
     }
   },
   "references": [

@@ -7,7 +7,7 @@
 import { Effect, Layer, Option, Ref, Stream } from "effect";
 import { KeyValueStore } from "effect/unstable/persistence/KeyValueStore";
 import * as KV from "effect/unstable/persistence/KeyValueStore";
-import { BlobStore, BlobStoreError } from "./service.ts";
+import { type BlobEntry, BlobStore, BlobStoreError } from "./service.ts";
 import { prefixEnd } from "./keys.ts";
 
 const mapErr =
@@ -56,7 +56,9 @@ const layerKeyValueStore: Layer.Layer<BlobStore, never, KeyValueStore> = Layer.e
         const hi = prefixEnd(prefix).toHex();
         return Stream.fromEffect(Ref.get(keyIndex)).pipe(
           Stream.flatMap((ks) =>
-            Stream.fromIterable([...ks].filter((k) => k >= lo && (hi === "" || k < hi)).sort()),
+            Stream.fromIterable(
+              [...ks].filter((k) => k >= lo && (hi === "" || k < hi)).toSorted(),
+            ),
           ),
           Stream.mapEffect((h) =>
             kv.getUint8Array(h).pipe(
@@ -67,18 +69,12 @@ const layerKeyValueStore: Layer.Layer<BlobStore, never, KeyValueStore> = Layer.e
         );
       },
 
-      putBatch: (
-        entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
-      ) => {
+      putBatch: (entries: ReadonlyArray<BlobEntry>) => {
         const hexEntries = entries.map((e) => ({ h: e.key.toHex(), value: e.value }));
         return Effect.all(
           [
             Effect.forEach(hexEntries, ({ h, value }) => kv.set(h, value), { discard: true }),
-            Ref.update(keyIndex, (s) => {
-              const next = new Set(s);
-              for (const { h } of hexEntries) next.add(h);
-              return next;
-            }),
+            Ref.update(keyIndex, (s) => new Set([...s, ...hexEntries.map((e) => e.h)])),
           ],
           { discard: true },
         ).pipe(mapErr("putBatch"));
@@ -86,14 +82,11 @@ const layerKeyValueStore: Layer.Layer<BlobStore, never, KeyValueStore> = Layer.e
 
       deleteBatch: (keys: ReadonlyArray<Uint8Array>) => {
         const hexKeys = keys.map((k) => k.toHex());
+        const drop = new Set(hexKeys);
         return Effect.all(
           [
             Effect.forEach(hexKeys, (h) => kv.remove(h), { discard: true }),
-            Ref.update(keyIndex, (s) => {
-              const next = new Set(s);
-              for (const h of hexKeys) next.delete(h);
-              return next;
-            }),
+            Ref.update(keyIndex, (s) => s.difference(drop)),
           ],
           { discard: true },
         ).pipe(mapErr("deleteBatch"));

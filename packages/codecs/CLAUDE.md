@@ -14,7 +14,10 @@ No internal workspace dependencies.
 
 ```
 src/
-  index.ts                    <- package-level barrel (re-exports cbor/ + mempack/)
+  index.ts                    <- package-level barrel (re-exports cbor/ + mempack/ + util/)
+  util/
+    index.ts                  <- barrel
+    bytes.ts                  <- concat, compareBytes, be32/be64 byte primitives
   cbor/
     index.ts                  <- barrel
     CborValue.ts              <- tagged-union IR, _tag = RFC 8949 major type

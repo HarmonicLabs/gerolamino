@@ -15,12 +15,13 @@
  * Lookups follow spec 12.1.1: try volatile first, then immutable.
  * Rollback removes volatile blocks after the rollback point.
  */
-import { Clock, Config, Effect, Layer, Option, Schema, Scope, Stream } from "effect";
+import { Clock, Config, Effect, Layer, Option, Queue, Schema, Scope, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { createActor, fromPromise } from "xstate";
+import { createActor } from "xstate";
 import { ChainDB, ChainDBError } from "./chain-db.ts";
 import {
+  type BlobEntry,
   BlobStore,
   blockKey,
   blockIndexKey,
@@ -31,7 +32,11 @@ import {
 import { chainDBMachine } from "../machines/chaindb.ts";
 import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
-const fail = (operation: string, cause: unknown) => new ChainDBError({ operation, cause });
+/** Tag an effect's failures as a `ChainDBError` with the given operation name. */
+const withOp =
+  (operation: string) =>
+  <A, R>(effect: Effect.Effect<A, unknown, R>): Effect.Effect<A, ChainDBError, R> =>
+    Effect.mapError(effect, (cause) => new ChainDBError({ operation, cause }));
 
 // ---------------------------------------------------------------------------
 // Row schemas — type-safe SQL result decoding
@@ -72,7 +77,7 @@ const NoncesRow = Schema.Struct({
 });
 
 /** Default security param (k) — overridable via SECURITY_PARAM env. */
-const securityParamConfig = Config.int("SECURITY_PARAM").pipe(Config.withDefault(2160));
+const securityParamConfig = Config.number("SECURITY_PARAM").pipe(Config.withDefault(2160));
 
 export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | SqlClient> =
   Layer.effect(
@@ -212,91 +217,143 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         `,
       });
 
-      // --- XState machine with Effect-backed invoke actors ---
-      // fromPromise actors bridge XState <-> Effect at the actor boundary.
-      // Effect.runPromise is unavoidable here: XState actors must return Promises.
-      const providedMachine = chainDBMachine.provide({
-        actors: {
-          promoteBlocks: fromPromise<number, { tip: RealPoint }>(({ input }) => {
-            const upTo = input.tip;
-            return Effect.gen(function* () {
-              const now = yield* Clock.currentTimeMillis;
-              const time = Math.floor(Number(now) / 1000);
+      // --- Effect-side lifecycle work (pure Effect, no runPromise) ---
 
-              return yield* sql.withTransaction(
-                Effect.gen(function* () {
-                  const findToPromote = SqlSchema.findAll({
-                    Request: Schema.Struct({ slot: Schema.Number }),
-                    Result: VolatileBlockRow,
-                    execute: (req) => sql`
-                      SELECT hash, slot, prev_hash, block_no, block_size_bytes
-                      FROM volatile_blocks WHERE slot <= ${req.slot} ORDER BY slot ASC
-                    `,
-                  });
-
-                  const rows = yield* findToPromote({ slot: Number(upTo.slot) });
-                  for (const r of rows) {
-                    yield* sql`
-                      INSERT INTO immutable_blocks (slot, hash, prev_hash, block_no, epoch_no, size, time, slot_leader_id, proto_major, proto_minor)
-                      VALUES (${r.slot}, ${r.hash}, ${r.prev_hash}, ${r.block_no}, ${0}, ${r.block_size_bytes}, ${time}, ${0}, ${0}, ${0})
-                      ON CONFLICT (slot) DO UPDATE SET hash = ${r.hash}
-                    `.unprepared;
-                  }
-                  yield* sql`
-                    DELETE FROM volatile_blocks WHERE slot <= ${Number(upTo.slot)}
-                  `.unprepared;
-                  return rows.length;
-                }),
-              );
-            }).pipe(Effect.runPromise);
-          }),
-          collectGarbage: fromPromise<void, { belowSlot: bigint }>(({ input }) =>
-            sql
-              .withTransaction(
-                Effect.gen(function* () {
-                  const findToDelete = SqlSchema.findAll({
-                    Request: Schema.Struct({ belowSlot: Schema.Number }),
-                    Result: PointRow,
-                    execute: (req) => sql`
-                    SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
-                  `,
-                  });
-
-                  const rows = yield* findToDelete({ belowSlot: Number(input.belowSlot) });
-                  if (rows.length > 0) {
-                    yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
-                  }
-                  yield* sql`
-                  DELETE FROM volatile_blocks WHERE slot < ${Number(input.belowSlot)}
-                `.unprepared;
-                }),
-              )
-              .pipe(Effect.runPromise),
-          ),
-        },
+      const findToPromote = SqlSchema.findAll({
+        Request: Schema.Struct({ slot: Schema.Number }),
+        Result: VolatileBlockRow,
+        execute: (req) => sql`
+          SELECT hash, slot, prev_hash, block_no, block_size_bytes
+          FROM volatile_blocks WHERE slot <= ${req.slot} ORDER BY slot ASC
+        `,
       });
 
-      const actor = createActor(providedMachine, { input: { securityParam } });
+      const findToGc = SqlSchema.findAll({
+        Request: Schema.Struct({ belowSlot: Schema.Number }),
+        Result: PointRow,
+        execute: (req) => sql`
+          SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
+        `,
+      });
+
+      const promoteBlocksEffect = (tip: RealPoint) =>
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const time = Math.floor(Number(now) / 1000);
+          return yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const rows = yield* findToPromote({ slot: Number(tip.slot) });
+              if (rows.length > 0) {
+                const payload = rows.map((r) => ({
+                  slot: r.slot,
+                  hash: r.hash,
+                  prev_hash: r.prev_hash,
+                  block_no: r.block_no,
+                  epoch_no: 0,
+                  size: r.block_size_bytes,
+                  time,
+                  slot_leader_id: 0,
+                  proto_major: 0,
+                  proto_minor: 0,
+                }));
+                // Single multi-VALUES insert using `sql.insert` (Effect
+                // `Statement.ts:368`) + SQLite ON CONFLICT DO UPDATE with
+                // `excluded.hash` to reuse the row being inserted.
+                yield* sql`INSERT INTO immutable_blocks ${sql.insert(payload)}
+                  ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`;
+              }
+              yield* sql`DELETE FROM volatile_blocks WHERE slot <= ${Number(tip.slot)}`;
+              return rows.length;
+            }),
+          );
+        });
+
+      const collectGarbageEffect = (belowSlot: bigint) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* findToGc({ belowSlot: Number(belowSlot) });
+            if (rows.length > 0) {
+              yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
+            }
+            yield* sql`
+              DELETE FROM volatile_blocks WHERE slot < ${Number(belowSlot)}
+            `.unprepared;
+          }),
+        );
+
+      // --- XState actor (pure state) + Queue-based lifecycle bridge ---
+
+      const actor = createActor(chainDBMachine, { input: { securityParam } });
       actor.start();
 
-      // Stop actor on scope finalization
+      type LifecycleRequest =
+        | { readonly _tag: "PROMOTE"; readonly tip: RealPoint }
+        | { readonly _tag: "GC"; readonly belowSlot: bigint };
+
+      const lifecycleQueue = yield* Queue.bounded<LifecycleRequest>(32);
+
+      // Observe state transitions; enqueue work when entering copying/gc.
+      let prevCopying = false;
+      let prevGc = false;
+      const subscription = actor.subscribe((snapshot) => {
+        const inCopying = snapshot.matches({ immutability: "copying" });
+        const inGc = snapshot.matches({ immutability: "gc" });
+        if (inCopying && !prevCopying && snapshot.context.tip) {
+          Queue.offerUnsafe(lifecycleQueue, { _tag: "PROMOTE", tip: snapshot.context.tip });
+        }
+        if (inGc && !prevGc) {
+          const belowSlot = snapshot.context.immutableTip?.slot ?? 0n;
+          Queue.offerUnsafe(lifecycleQueue, { _tag: "GC", belowSlot });
+        }
+        prevCopying = inCopying;
+        prevGc = inGc;
+      });
+
+      // Drain fiber: runs Effects, sends completion events back to the actor.
+      yield* Effect.forkScoped(
+        Stream.fromQueue(lifecycleQueue).pipe(
+          Stream.runForEach((req) =>
+            req._tag === "PROMOTE"
+              ? promoteBlocksEffect(req.tip).pipe(
+                  Effect.matchCauseEffect({
+                    onSuccess: (promoted) =>
+                      Effect.sync(() => actor.send({ type: "PROMOTE_DONE", promoted })),
+                    onFailure: (cause) =>
+                      Effect.sync(() => actor.send({ type: "PROMOTE_FAILED", error: cause })),
+                  }),
+                )
+              : collectGarbageEffect(req.belowSlot).pipe(
+                  Effect.matchCauseEffect({
+                    onSuccess: () => Effect.sync(() => actor.send({ type: "GC_DONE" })),
+                    onFailure: (cause) =>
+                      Effect.sync(() => actor.send({ type: "GC_FAILED", error: cause })),
+                  }),
+                ),
+          ),
+        ),
+      );
+
+      // Stop actor + unsubscribe on scope finalization.
       yield* Scope.addFinalizer(
         scope,
-        Effect.sync(() => actor.stop()),
+        Effect.sync(() => {
+          subscription.unsubscribe();
+          actor.stop();
+        }),
       );
 
       return {
         // --- Lookups (volatile first, spec 12.1.1) ---
         getBlock: (hash: Uint8Array) =>
           lookupBlock(findVolatileByHash({ hash }), findImmutableByHash({ hash })).pipe(
-            Effect.mapError((c) => fail("getBlock", c)),
+            withOp("getBlock"),
           ),
 
         getBlockAt: (point: RealPoint) =>
           lookupBlock(
             findVolatileByPoint({ hash: point.hash, slot: Number(point.slot) }),
             findImmutableByPoint({ hash: point.hash, slot: Number(point.slot) }),
-          ).pipe(Effect.mapError((c) => fail("getBlockAt", c))),
+          ).pipe(withOp("getBlockAt")),
 
         // --- Tip (max of volatile and immutable) ---
         getTip: Effect.gen(function* () {
@@ -314,7 +371,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
           if (Option.isSome(vTip)) return Option.some(toPoint(vTip.value));
           if (Option.isSome(iTip)) return Option.some(toPoint(iTip.value));
           return Option.none<RealPoint>();
-        }).pipe(Effect.mapError((c) => fail("getTip", c))),
+        }).pipe(withOp("getTip")),
 
         getImmutableTip: Effect.gen(function* () {
           const row = yield* findImmutableTipPoint(undefined);
@@ -322,7 +379,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             row,
             (r) => ({ slot: BigInt(r.slot), hash: r.hash }) satisfies RealPoint,
           );
-        }).pipe(Effect.mapError((c) => fail("getImmutableTip", c))),
+        }).pipe(withOp("getImmutableTip")),
 
         // --- Writing ---
         addBlock: (block: StoredBlock) =>
@@ -335,7 +392,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
             // Analyze block CBOR for tx offsets (works on full blocks; no-ops on headers)
             const analysis = analyzeBlockCbor(block.blockCbor);
-            const offsetEntries: Array<{ key: Uint8Array; value: Uint8Array }> = [];
+            const offsetEntries: Array<BlobEntry> = [];
             for (let i = 0; i < analysis.txOffsets.length; i++) {
               const o = analysis.txOffsets[i]!;
               const val = new Uint8Array(8);
@@ -351,11 +408,13 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                   store.put(blockKey(block.slot, block.hash), block.blockCbor),
                   store.put(blockIndexKey(block.blockNo), idxVal),
                   offsetEntries.length > 0 ? store.putBatch(offsetEntries) : Effect.void,
-                  sql`
-                    INSERT INTO volatile_blocks (hash, slot, prev_hash, block_no, block_size_bytes)
-                    VALUES (${block.hash}, ${Number(block.slot)}, ${block.prevHash ?? null}, ${Number(block.blockNo)}, ${block.blockSizeBytes})
-                    ON CONFLICT (hash) DO NOTHING
-                  `.unprepared,
+                  sql`INSERT INTO volatile_blocks ${sql.insert({
+                    hash: block.hash,
+                    slot: Number(block.slot),
+                    prev_hash: block.prevHash ?? null,
+                    block_no: Number(block.blockNo),
+                    block_size_bytes: block.blockSizeBytes,
+                  })} ON CONFLICT(hash) DO NOTHING`,
                 ],
                 { concurrency: "unbounded" },
               ),
@@ -367,21 +426,15 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
               type: "BLOCK_ADDED",
               tip: { slot: block.slot, hash: block.hash },
             });
-          }).pipe(Effect.mapError((c) => fail("addBlock", c))),
+          }).pipe(withOp("addBlock")),
 
         // --- Batch blob writes (for derived entries: utxo diffs, stake, accounts) ---
-        writeBlobEntries: (
-          entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
-        ) =>
-          entries.length > 0
-            ? store.putBatch(entries).pipe(Effect.mapError((c) => fail("writeBlobEntries", c)))
-            : Effect.void,
+        writeBlobEntries: (entries: ReadonlyArray<BlobEntry>) =>
+          entries.length > 0 ? store.putBatch(entries).pipe(withOp("writeBlobEntries")) : Effect.void,
 
         // --- Batch blob deletes (consumed UTxO inputs, deregistered accounts) ---
         deleteBlobEntries: (keys: ReadonlyArray<Uint8Array>) =>
-          keys.length > 0
-            ? store.deleteBatch(keys).pipe(Effect.mapError((c) => fail("deleteBlobEntries", c)))
-            : Effect.void,
+          keys.length > 0 ? store.deleteBatch(keys).pipe(withOp("deleteBlobEntries")) : Effect.void,
 
         // --- Fork handling ---
         rollback: (point: RealPoint) =>
@@ -407,13 +460,13 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             );
 
             actor.send({ type: "ROLLBACK", point });
-          }).pipe(Effect.mapError((c) => fail("rollback", c))),
+          }).pipe(withOp("rollback")),
 
         getSuccessors: (hash: Uint8Array) =>
           Effect.gen(function* () {
             const rows = yield* findVolatileSuccessors({ hash });
             return rows.map((r) => r.hash);
-          }).pipe(Effect.mapError((c) => fail("getSuccessors", c))),
+          }).pipe(withOp("getSuccessors")),
 
         // --- Iterators ---
         streamFrom: (from: RealPoint) =>
@@ -440,7 +493,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
               const iRows = yield* findImmutableFrom({ slot });
               const vRows = yield* findVolatileFrom({ slot });
 
-              // Merge in slot order
+              // Merge in slot order (ES2025 `toSorted` — immutable).
               const allRows = [
                 ...iRows.map((r) => ({
                   slot: r.slot,
@@ -456,24 +509,24 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                   block_no: r.block_no,
                   blockSizeBytes: r.block_size_bytes,
                 })),
-              ].sort((a, b) => a.slot - b.slot);
+              ].toSorted((a, b) => a.slot - b.slot);
 
-              const blocks: StoredBlock[] = [];
-              for (const r of allRows) {
-                const blockCbor = yield* store.get(blockKey(BigInt(r.slot), r.hash));
-                if (Option.isSome(blockCbor)) {
-                  blocks.push({
-                    slot: BigInt(r.slot),
-                    hash: r.hash,
-                    ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-                    blockNo: BigInt(r.block_no),
-                    blockSizeBytes: r.blockSizeBytes,
-                    blockCbor: blockCbor.value,
-                  });
-                }
-              }
-              return blocks;
-            }).pipe(Effect.mapError((c) => fail("streamFrom", c))),
+              const fetches = yield* Effect.forEach(allRows, (r) =>
+                store.get(blockKey(BigInt(r.slot), r.hash)).pipe(
+                  Effect.map(
+                    Option.map((blockCbor): StoredBlock => ({
+                      slot: BigInt(r.slot),
+                      hash: r.hash,
+                      ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
+                      blockNo: BigInt(r.block_no),
+                      blockSizeBytes: r.blockSizeBytes,
+                      blockCbor,
+                    })),
+                  ),
+                ),
+              );
+              return fetches.flatMap(Option.match({ onNone: () => [], onSome: (b) => [b] }));
+            }).pipe(withOp("streamFrom")),
           ).pipe(Stream.flatMap((blocks) => Stream.fromIterable(blocks))),
 
         // --- Immutable promotion ---
@@ -494,19 +547,26 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                 });
 
                 const rows = yield* findToPromote({ slot: Number(upTo.slot) });
-                for (const r of rows) {
-                  yield* sql`
-                    INSERT INTO immutable_blocks (slot, hash, prev_hash, block_no, epoch_no, size, time, slot_leader_id, proto_major, proto_minor)
-                    VALUES (${r.slot}, ${r.hash}, ${r.prev_hash}, ${r.block_no}, ${0}, ${r.block_size_bytes}, ${time}, ${0}, ${0}, ${0})
-                    ON CONFLICT (slot) DO UPDATE SET hash = ${r.hash}
-                  `.unprepared;
+                if (rows.length > 0) {
+                  const payload = rows.map((r) => ({
+                    slot: r.slot,
+                    hash: r.hash,
+                    prev_hash: r.prev_hash,
+                    block_no: r.block_no,
+                    epoch_no: 0,
+                    size: r.block_size_bytes,
+                    time,
+                    slot_leader_id: 0,
+                    proto_major: 0,
+                    proto_minor: 0,
+                  }));
+                  yield* sql`INSERT INTO immutable_blocks ${sql.insert(payload)}
+                    ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`;
                 }
-                yield* sql`
-                  DELETE FROM volatile_blocks WHERE slot <= ${Number(upTo.slot)}
-                `.unprepared;
+                yield* sql`DELETE FROM volatile_blocks WHERE slot <= ${Number(upTo.slot)}`;
               }),
             );
-          }).pipe(Effect.mapError((c) => fail("promoteToImmutable", c))),
+          }).pipe(withOp("promoteToImmutable")),
 
         // --- Garbage collection ---
         garbageCollect: (belowSlot: bigint) =>
@@ -530,7 +590,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
               `.unprepared;
               }),
             )
-            .pipe(Effect.mapError((c) => fail("garbageCollect", c))),
+            .pipe(withOp("garbageCollect")),
 
         // --- Ledger state ---
         writeLedgerSnapshot: (
@@ -544,16 +604,16 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
               Effect.all(
                 [
                   store.put(snapshotKey(slot), stateBytes),
-                  sql`
-                  INSERT INTO ledger_snapshots (slot, hash, epoch)
-                  VALUES (${Number(slot)}, ${hash}, ${Number(epoch)})
-                  ON CONFLICT (slot) DO UPDATE SET hash = ${hash}
-                `.unprepared,
+                  sql`INSERT INTO ledger_snapshots ${sql.insert({
+                    slot: Number(slot),
+                    hash,
+                    epoch: Number(epoch),
+                  })} ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`,
                 ],
                 { concurrency: "unbounded" },
               ),
             )
-            .pipe(Effect.mapError((c) => fail("writeLedgerSnapshot", c))),
+            .pipe(withOp("writeLedgerSnapshot")),
 
         readLatestLedgerSnapshot: Effect.gen(function* () {
           const row = yield* findLatestSnapshot(undefined);
@@ -566,7 +626,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             stateBytes: stateBytes.value,
             epoch: BigInt(r.epoch),
           });
-        }).pipe(Effect.mapError((c) => fail("readLatestLedgerSnapshot", c))),
+        }).pipe(withOp("readLatestLedgerSnapshot")),
 
         // --- Nonce persistence ---
         writeNonces: (
@@ -575,12 +635,15 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
           evolving: Uint8Array,
           candidate: Uint8Array,
         ) =>
-          sql`
-            INSERT INTO nonces (epoch, active, evolving, candidate)
-            VALUES (${Number(epoch)}, ${active}, ${evolving}, ${candidate})
-            ON CONFLICT (epoch) DO UPDATE SET
-              active = ${active}, evolving = ${evolving}, candidate = ${candidate}
-          `.unprepared.pipe(Effect.mapError((c) => fail("writeNonces", c))),
+          sql`INSERT INTO nonces ${sql.insert({
+            epoch: Number(epoch),
+            active,
+            evolving,
+            candidate,
+          })} ON CONFLICT(epoch) DO UPDATE SET
+              active = excluded.active,
+              evolving = excluded.evolving,
+              candidate = excluded.candidate`.pipe(withOp("writeNonces")),
 
         readNonces: Effect.gen(function* () {
           const row = yield* findLatestNonces(undefined);
@@ -592,7 +655,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             evolving: r.evolving,
             candidate: r.candidate,
           });
-        }).pipe(Effect.mapError((c) => fail("readNonces", c))),
+        }).pipe(withOp("readNonces")),
       };
     }),
   );

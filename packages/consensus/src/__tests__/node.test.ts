@@ -1,11 +1,10 @@
-import { describe, expect } from "vitest";
-import { it, layer } from "@effect/vitest";
+import { describe, expect, it, layer } from "@effect/vitest";
 import { Clock, Effect, Layer, Option, Stream } from "effect";
 import { getNodeStatus } from "../node";
-import { PeerManager, PeerManagerLive } from "../peer-manager";
-import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
+import { PeerManager, PeerManagerLive } from "../peer/manager";
+import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
 import { ChainDB } from "storage";
-import { ChainTip } from "../chain-selection";
+import { ChainTip } from "../chain/selection";
 
 const testConfig = new SlotConfig({
   systemStartMs: 0,

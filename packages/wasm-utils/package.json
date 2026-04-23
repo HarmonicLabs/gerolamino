@@ -4,11 +4,18 @@
   "private": true,
   "description": "WASM utility bindings for Cardano primitives (Pallas crypto, addresses)",
   "type": "module",
-  "main": "./pkg/wasm_utils.js",
-  "module": "./pkg/wasm_utils.js",
-  "types": "./pkg/wasm_utils.d.ts",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
-    ".": "./pkg/wasm_utils.js",
-    "./*": "./pkg/*"
+    ".": {
+      "@org/source": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./pkg/*": "./pkg/*",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "type-check": "tsgo --noEmit -p tsconfig.json"
   }
 }

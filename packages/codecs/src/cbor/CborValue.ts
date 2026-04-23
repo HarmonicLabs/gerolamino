@@ -154,6 +154,3 @@ export const CborValue = Schema.Union([
   }),
   CborLeavesSchema.cases[CborKinds.Simple],
 ]).pipe(Schema.toTaggedUnion("_tag"));
-
-/** Back-compat alias for the former schema name. */
-export const CborSchema = CborValue;

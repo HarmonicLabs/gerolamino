@@ -9,10 +9,10 @@ const TEXT_ENCODER = new TextEncoder();
 // Growable ArrayBuffer (ES2025): the buffer resizes in place; the associated
 // length-tracking DataView and Uint8Array see the new byteLength automatically.
 // 16 MiB default upper bound mirrors the decoder's default `maxBytes` limit.
-export const INITIAL_CAPACITY = Config.int("CODECS_CBOR_INITIAL_CAPACITY").pipe(
+export const INITIAL_CAPACITY = Config.number("CODECS_CBOR_INITIAL_CAPACITY").pipe(
   Config.withDefault(256),
 );
-export const MAX_CAPACITY = Config.int("CODECS_CBOR_MAX_CAPACITY").pipe(
+export const MAX_CAPACITY = Config.number("CODECS_CBOR_MAX_CAPACITY").pipe(
   Config.withDefault(1 << 24),
 );
 

@@ -21,7 +21,7 @@ pallas-math = { path = "./pallas-math" }
 # VRF proof verification (ECVRF-ED25519-SHA512-Elligator2, from Amaru)
 vrf_dalek = { package = "amaru-vrf-dalek", path = "./amaru-vrf-dalek" }
 
-wasm-bindgen = "0.2"
+wasm-bindgen = "=0.2.115"
 js-sys = "0.3"
 hex = "0.4"
 # WASM-compatible RNG — need both v0.2 (for our code) and v0.3 (for rand/ed25519-dalek via KES)

@@ -20,6 +20,7 @@ import {
   withCborLink,
 } from "codecs";
 import { Bytes28, Bytes32 } from "../core/hashes.ts";
+import { cborBytes, cborMap, uint } from "../core/cbor-utils.ts";
 import { MAX_WORD64, Rational } from "../core/primitives.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -169,24 +170,18 @@ const isWithdrawalEntry = Schema.is(WithdrawalEntry);
 const isWithdrawals = (u: unknown): u is ReadonlyArray<WithdrawalEntry> =>
   Array.isArray(u) && u.every(isWithdrawalEntry);
 
+const decodeWithdrawalEntry = (entry: { k: CborValue; v: CborValue }) =>
+  CborValueSchema.guards[CborKinds.Bytes](entry.k)
+    ? CborValueSchema.guards[CborKinds.UInt](entry.v)
+      ? Effect.succeed({ rewardAccount: entry.k.bytes, coin: entry.v.num })
+      : invalid(entry.v, "Withdrawals value must be UInt")
+    : invalid(entry.k, "Withdrawals key must be Bytes");
+
 const withdrawalsLink = new AST.Link(
   CborValueSchema.ast,
   SchemaTransformation.transformOrFail<ReadonlyArray<WithdrawalEntry>, CborValue>({
     decode: CborValueSchema.match({
-      [CborKinds.Map]: (cbor) =>
-        Effect.all(
-          cbor.entries.map((entry) =>
-            Effect.gen(function* () {
-              if (!CborValueSchema.guards[CborKinds.Bytes](entry.k)) {
-                return yield* invalid(entry.k, "Withdrawals key must be Bytes");
-              }
-              if (!CborValueSchema.guards[CborKinds.UInt](entry.v)) {
-                return yield* invalid(entry.v, "Withdrawals value must be UInt");
-              }
-              return { rewardAccount: entry.k.bytes, coin: entry.v.num };
-            }),
-          ),
-        ),
+      [CborKinds.Map]: (cbor) => Effect.all(cbor.entries.map(decodeWithdrawalEntry)),
       [CborKinds.UInt]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got UInt"),
       [CborKinds.NegInt]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got NegInt"),
       [CborKinds.Bytes]: (cbor) => invalid(cbor, "Withdrawals: expected Map, got Bytes"),
@@ -197,13 +192,12 @@ const withdrawalsLink = new AST.Link(
     }),
     encode: (entries) =>
       Effect.succeed(
-        CborValueSchema.make({
-          _tag: CborKinds.Map,
-          entries: entries.map((e) => ({
-            k: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: e.rewardAccount }),
-            v: CborValueSchema.make({ _tag: CborKinds.UInt, num: e.coin }),
+        cborMap(
+          entries.map((e) => ({
+            k: cborBytes(e.rewardAccount),
+            v: uint(e.coin),
           })),
-        }),
+        ),
       ),
   }),
 );
@@ -226,24 +220,18 @@ const isCommitteeMember = Schema.is(CommitteeMember);
 const isCommitteeAddMap = (u: unknown): u is ReadonlyArray<CommitteeMember> =>
   Array.isArray(u) && u.every(isCommitteeMember);
 
+const decodeCommitteeMemberEntry = (entry: { k: CborValue; v: CborValue }) =>
+  CborValueSchema.guards[CborKinds.Bytes](entry.k)
+    ? CborValueSchema.guards[CborKinds.UInt](entry.v)
+      ? Effect.succeed({ credential: entry.k.bytes, epoch: entry.v.num })
+      : invalid(entry.v, "CommitteeAddMap value must be UInt")
+    : invalid(entry.k, "CommitteeAddMap key must be Bytes");
+
 const committeeAddMapLink = new AST.Link(
   CborValueSchema.ast,
   SchemaTransformation.transformOrFail<ReadonlyArray<CommitteeMember>, CborValue>({
     decode: CborValueSchema.match({
-      [CborKinds.Map]: (cbor) =>
-        Effect.all(
-          cbor.entries.map((entry) =>
-            Effect.gen(function* () {
-              if (!CborValueSchema.guards[CborKinds.Bytes](entry.k)) {
-                return yield* invalid(entry.k, "CommitteeAddMap key must be Bytes");
-              }
-              if (!CborValueSchema.guards[CborKinds.UInt](entry.v)) {
-                return yield* invalid(entry.v, "CommitteeAddMap value must be UInt");
-              }
-              return { credential: entry.k.bytes, epoch: entry.v.num };
-            }),
-          ),
-        ),
+      [CborKinds.Map]: (cbor) => Effect.all(cbor.entries.map(decodeCommitteeMemberEntry)),
       [CborKinds.UInt]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got UInt"),
       [CborKinds.NegInt]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got NegInt"),
       [CborKinds.Bytes]: (cbor) => invalid(cbor, "CommitteeAddMap: expected Map, got Bytes"),
@@ -254,13 +242,12 @@ const committeeAddMapLink = new AST.Link(
     }),
     encode: (entries) =>
       Effect.succeed(
-        CborValueSchema.make({
-          _tag: CborKinds.Map,
-          entries: entries.map((e) => ({
-            k: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: e.credential }),
-            v: CborValueSchema.make({ _tag: CborKinds.UInt, num: e.epoch }),
+        cborMap(
+          entries.map((e) => ({
+            k: cborBytes(e.credential),
+            v: uint(e.epoch),
           })),
-        }),
+        ),
       ),
   }),
 );
@@ -465,30 +452,28 @@ export const encodeProposalProcedure = (
 // a single derived Schema codec, so this stays as an Effect function.
 // ────────────────────────────────────────────────────────────────────────────
 
+const decodeVoteEntry = (inner: {
+  k: CborValue;
+  v: CborValue;
+}): Effect.Effect<VoteEntry, SchemaIssue.Issue> =>
+  Effect.all([decodeGovActionId(inner.k), decodeVotingProcedure(inner.v)] as const).pipe(
+    Effect.map(([actionId, procedure]) => ({ actionId, procedure })),
+  );
+
+const decodeVotingProceduresMapEntry = (outer: {
+  k: CborValue;
+  v: CborValue;
+}): Effect.Effect<VotingProceduresEntry, SchemaIssue.Issue> =>
+  CborValueSchema.guards[CborKinds.Map](outer.v)
+    ? Effect.all([
+        decodeVoter(outer.k),
+        Effect.all(outer.v.entries.map(decodeVoteEntry)),
+      ] as const).pipe(Effect.map(([voter, votes]) => ({ voter, votes })))
+    : invalid(outer.v, "VotingProcedures.votes: expected Map");
+
 export const decodeVotingProcedures = (
   cbor: CborValue,
-): Effect.Effect<ReadonlyArray<VotingProceduresEntry>, SchemaIssue.Issue> => {
-  if (!CborValueSchema.guards[CborKinds.Map](cbor)) {
-    return invalid(cbor, "VotingProcedures: expected Map");
-  }
-  return Effect.all(
-    cbor.entries.map((outer) =>
-      Effect.gen(function* () {
-        const voter = yield* decodeVoter(outer.k);
-        if (!CborValueSchema.guards[CborKinds.Map](outer.v)) {
-          return yield* invalid(outer.v, "VotingProcedures.votes: expected Map");
-        }
-        const votes = yield* Effect.all(
-          outer.v.entries.map((inner) =>
-            Effect.gen(function* () {
-              const actionId = yield* decodeGovActionId(inner.k);
-              const procedure = yield* decodeVotingProcedure(inner.v);
-              return { actionId, procedure };
-            }),
-          ),
-        );
-        return { voter, votes };
-      }),
-    ),
-  );
-};
+): Effect.Effect<ReadonlyArray<VotingProceduresEntry>, SchemaIssue.Issue> =>
+  CborValueSchema.guards[CborKinds.Map](cbor)
+    ? Effect.all(cbor.entries.map(decodeVotingProceduresMapEntry))
+    : invalid(cbor, "VotingProcedures: expected Map");

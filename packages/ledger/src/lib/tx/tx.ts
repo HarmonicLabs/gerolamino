@@ -14,6 +14,8 @@ import {
 import {
   uint,
   cborBytes,
+  cborMap,
+  cborTagged,
   negInt,
   arr,
   mapEntry,
@@ -127,7 +129,7 @@ function decodeDatumOption(cbor: CborSchemaType): Effect.Effect<DatumOption, Sch
 const encodeDatumOption = DatumOption.match({
   [DatumOptionKind.DatumHash]: (d): CborSchemaType => arr(uint(0n), cborBytes(d.hash)),
   [DatumOptionKind.InlineDatum]: (d): CborSchemaType =>
-    arr(uint(1n), { _tag: CborKinds.Tag, tag: 24n, data: cborBytes(d.datum) }),
+    arr(uint(1n), cborTagged(24n, cborBytes(d.datum))),
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -352,11 +354,9 @@ export function decodeTxOut(cbor: CborSchemaType): Effect.Effect<TxOut, SchemaIs
 }
 
 export function encodeTxOut(txOut: TxOut): Effect.Effect<CborSchemaType, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    const valueCbor = yield* encodeValue(txOut.value);
-    return {
-      _tag: CborKinds.Map,
-      entries: [
+  return encodeValue(txOut.value).pipe(
+    Effect.map((valueCbor) =>
+      cborMap([
         ...mapEntry(0, cborBytes(txOut.address)),
         ...mapEntry(1, valueCbor),
         ...mapEntry(
@@ -365,13 +365,11 @@ export function encodeTxOut(txOut: TxOut): Effect.Effect<CborSchemaType, SchemaI
         ),
         ...mapEntry(
           3,
-          txOut.scriptRef !== undefined
-            ? { _tag: CborKinds.Tag, tag: 24n, data: cborBytes(txOut.scriptRef) }
-            : undefined,
+          txOut.scriptRef !== undefined ? cborTagged(24n, cborBytes(txOut.scriptRef)) : undefined,
         ),
-      ],
-    };
-  });
+      ]),
+    ),
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -495,28 +493,26 @@ export type Tx = typeof Tx.Type;
 // TxBody CBOR codec helpers
 // ────────────────────────────────────────────────────────────────────────────
 
+const decodeMintAsset = (a: { k: CborSchemaType; v: CborSchemaType }) =>
+  Effect.all({
+    name: expectBytes(a.k, "mint.assetName"),
+    quantity: expectInt(a.v, "mint.quantity"),
+  });
+
+const decodeMintPolicy = (e: { k: CborSchemaType; v: CborSchemaType }) =>
+  Effect.all({
+    policy: expectBytes(e.k, "mint.policy"),
+    assets: expectMap(e.v, "mint.assets").pipe(
+      Effect.flatMap((assetMap) => Effect.all(assetMap.map(decodeMintAsset))),
+    ),
+  });
+
 function decodeMultiAssetEntries(
   cbor: CborSchemaType,
 ): Effect.Effect<TxBody["mint"], SchemaIssue.Issue> {
-  if (!CborValueSchema.guards[CborKinds.Map](cbor)) return Effect.succeed(undefined);
-  return Effect.all(
-    cbor.entries.map((e) =>
-      Effect.gen(function* () {
-        const policy = yield* expectBytes(e.k, "mint.policy");
-        const assetMap = yield* expectMap(e.v, "mint.assets");
-        const assets = yield* Effect.all(
-          assetMap.map((a) =>
-            Effect.gen(function* () {
-              const name = yield* expectBytes(a.k, "mint.assetName");
-              const quantity = yield* expectInt(a.v, "mint.quantity");
-              return { name, quantity };
-            }),
-          ),
-        );
-        return { policy, assets };
-      }),
-    ),
-  );
+  return CborValueSchema.guards[CborKinds.Map](cbor)
+    ? Effect.all(cbor.entries.map(decodeMintPolicy))
+    : Effect.succeed(undefined);
 }
 
 export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, SchemaIssue.Issue> {
@@ -669,19 +665,17 @@ export function decodeTxBody(cbor: CborSchemaType): Effect.Effect<TxBody, Schema
 
 function encodeMint(mint: TxBody["mint"]): CborSchemaType | undefined {
   if (!mint || mint.length === 0) return undefined;
-  return {
-    _tag: CborKinds.Map,
-    entries: mint.map((m): { k: CborSchemaType; v: CborSchemaType } => ({
+  return cborMap(
+    mint.map((m) => ({
       k: cborBytes(m.policy),
-      v: {
-        _tag: CborKinds.Map,
-        entries: m.assets.map((a): { k: CborSchemaType; v: CborSchemaType } => ({
+      v: cborMap(
+        m.assets.map((a) => ({
           k: cborBytes(a.name),
           v: a.quantity >= 0n ? uint(a.quantity) : negInt(a.quantity),
         })),
-      },
+      ),
     })),
-  };
+  );
 }
 
 export function encodeTxBody(body: TxBody): Effect.Effect<CborSchemaType, SchemaIssue.Issue> {
@@ -705,42 +699,39 @@ export function encodeTxBody(body: TxBody): Effect.Effect<CborSchemaType, Schema
         ? yield* Effect.all(body.referenceInputs.map(encodeTxIn))
         : undefined;
 
-    return {
-      _tag: CborKinds.Map,
-      entries: [
-        ...mapEntry(0, arr(...inputs)),
-        ...mapEntry(1, arr(...outputs)),
-        ...mapEntry(2, uint(body.fee)),
-        ...mapEntry(3, body.ttl !== undefined ? uint(body.ttl) : undefined),
-        ...mapEntry(4, certs ? arr(...certs) : undefined),
-        ...mapEntry(7, body.auxDataHash !== undefined ? cborBytes(body.auxDataHash) : undefined),
-        ...mapEntry(8, body.validityStart !== undefined ? uint(body.validityStart) : undefined),
-        ...mapEntry(9, encodeMint(body.mint)),
-        ...mapEntry(
-          11,
-          body.scriptDataHash !== undefined ? cborBytes(body.scriptDataHash) : undefined,
-        ),
-        ...mapEntry(13, collateral ? arr(...collateral) : undefined),
-        ...mapEntry(
-          14,
-          body.requiredSigners && body.requiredSigners.length > 0
-            ? arr(...body.requiredSigners.map(cborBytes))
-            : undefined,
-        ),
-        ...mapEntry(15, body.networkId !== undefined ? uint(body.networkId) : undefined),
-        ...mapEntry(16, collateralReturn),
-        ...mapEntry(
-          17,
-          body.totalCollateral !== undefined ? uint(body.totalCollateral) : undefined,
-        ),
-        ...mapEntry(18, referenceInputs ? arr(...referenceInputs) : undefined),
-        ...mapEntry(
-          21,
-          body.currentTreasury !== undefined ? uint(body.currentTreasury) : undefined,
-        ),
-        ...mapEntry(22, body.donation !== undefined ? uint(body.donation) : undefined),
-      ],
-    };
+    return cborMap([
+      ...mapEntry(0, arr(...inputs)),
+      ...mapEntry(1, arr(...outputs)),
+      ...mapEntry(2, uint(body.fee)),
+      ...mapEntry(3, body.ttl !== undefined ? uint(body.ttl) : undefined),
+      ...mapEntry(4, certs ? arr(...certs) : undefined),
+      ...mapEntry(7, body.auxDataHash !== undefined ? cborBytes(body.auxDataHash) : undefined),
+      ...mapEntry(8, body.validityStart !== undefined ? uint(body.validityStart) : undefined),
+      ...mapEntry(9, encodeMint(body.mint)),
+      ...mapEntry(
+        11,
+        body.scriptDataHash !== undefined ? cborBytes(body.scriptDataHash) : undefined,
+      ),
+      ...mapEntry(13, collateral ? arr(...collateral) : undefined),
+      ...mapEntry(
+        14,
+        body.requiredSigners && body.requiredSigners.length > 0
+          ? arr(...body.requiredSigners.map(cborBytes))
+          : undefined,
+      ),
+      ...mapEntry(15, body.networkId !== undefined ? uint(body.networkId) : undefined),
+      ...mapEntry(16, collateralReturn),
+      ...mapEntry(
+        17,
+        body.totalCollateral !== undefined ? uint(body.totalCollateral) : undefined,
+      ),
+      ...mapEntry(18, referenceInputs ? arr(...referenceInputs) : undefined),
+      ...mapEntry(
+        21,
+        body.currentTreasury !== undefined ? uint(body.currentTreasury) : undefined,
+      ),
+      ...mapEntry(22, body.donation !== undefined ? uint(body.donation) : undefined),
+    ]);
   });
 }
 

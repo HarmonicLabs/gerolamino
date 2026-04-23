@@ -15,23 +15,38 @@ import { CborKinds, CborValue as CborValueSchema, type CborSchemaType } from "co
 
 // ---------------------------------------------------------------------------
 // CBOR value constructors
+//
+// Each delegates to `CborValueSchema.cases[CborKinds.X].make(…)` so the
+// underlying `Schema.TaggedStruct` validates the payload (e.g. `NonNegBigInt`
+// for `UInt.num`, `NegBigInt` for `NegInt.num`) at construction rather than
+// only on encode — bugs that would otherwise surface as mis-encoded CBOR
+// bytes now fail fast with a schema error.
 // ---------------------------------------------------------------------------
 
-export const uint = (n: bigint | number): CborSchemaType => ({
-  _tag: CborKinds.UInt,
-  num: BigInt(n),
-});
+export const uint = (n: bigint | number): CborSchemaType =>
+  CborValueSchema.cases[CborKinds.UInt].make({ num: BigInt(n) });
 
-export const negInt = (num: bigint): CborSchemaType => ({ _tag: CborKinds.NegInt, num });
+export const negInt = (num: bigint): CborSchemaType =>
+  CborValueSchema.cases[CborKinds.NegInt].make({ num });
 
-export const cborBytes = (bytes: Uint8Array): CborSchemaType => ({ _tag: CborKinds.Bytes, bytes });
+export const cborBytes = (bytes: Uint8Array): CborSchemaType =>
+  CborValueSchema.cases[CborKinds.Bytes].make({ bytes });
 
-export const cborText = (text: string): CborSchemaType => ({ _tag: CborKinds.Text, text });
+export const cborText = (text: string): CborSchemaType =>
+  CborValueSchema.cases[CborKinds.Text].make({ text });
 
-export const arr = (...items: ReadonlyArray<CborSchemaType>): CborSchemaType => ({
-  _tag: CborKinds.Array,
-  items: [...items],
-});
+export const arr = (...items: ReadonlyArray<CborSchemaType>): CborSchemaType =>
+  CborValueSchema.cases[CborKinds.Array].make({ items: [...items] });
+
+export const cborMap = (
+  entries: ReadonlyArray<{ k: CborSchemaType; v: CborSchemaType }>,
+): CborSchemaType => CborValueSchema.cases[CborKinds.Map].make({ entries });
+
+export const cborTagged = (tag: bigint | number, data: CborSchemaType): CborSchemaType =>
+  CborValueSchema.cases[CborKinds.Tag].make({ tag: BigInt(tag), data });
+
+export const cborNull = (): CborSchemaType =>
+  CborValueSchema.cases[CborKinds.Simple].make({ value: null });
 
 export function mapEntry(
   key: number,

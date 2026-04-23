@@ -5,7 +5,7 @@ Rust (nightly).
 
 ## Exported Functions
 
-**Hashing**: `blake2b_256()`, `blake2b_224()`, `blake2b_256_tagged()` (domain separation)
+**Hashing**: `blake2b_256()` (browser-only consumer; Bun-side uses `Bun.CryptoHasher`)
 **Ed25519**: `ed25519_secret_key_from_seed()`, `ed25519_public_key()`, `ed25519_sign()`, `ed25519_verify()`
 **HD Wallets**: `ed25519_extended_public_key()`, `ed25519_extended_sign()`
 **Addresses**: `address_to_bech32()`, `address_from_bech32()`, `address_to_hex()`, `address_from_hex()`, `address_network()`, `address_has_script()`, `address_type_id()`

@@ -19,5 +19,8 @@
   "devDependencies": {
     "tsc-alias": "^1.8.16",
     "vitest": "^4.1.4"
+  },
+  "scripts": {
+    "type-check": "tsgo --noEmit -p tsconfig.json"
   }
 }

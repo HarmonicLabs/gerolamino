@@ -6,4 +6,3 @@ export {
   ChainSyncMessageType,
   ChainSyncMessageTypeSchema,
 } from "./Schemas";
-export { chainSyncMachine, ChainSyncMachineEvent, ChainSyncState } from "./Machine";

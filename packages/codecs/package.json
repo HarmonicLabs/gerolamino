@@ -6,7 +6,7 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "devDependencies": {
-    "vitest": "^4.1.4"
+  "scripts": {
+    "type-check": "tsgo --noEmit -p tsconfig.json"
   }
 }

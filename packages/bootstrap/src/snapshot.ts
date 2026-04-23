@@ -42,15 +42,7 @@ export const readSnapshotMeta = (snapshotPath: string) =>
     const p = yield* Path.Path;
 
     const ledgerBase = p.join(snapshotPath, "ledger");
-    const ledgerEntries = yield* fs.readDirectory(ledgerBase).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: `Failed to read ledger directory: ${ledgerBase}`,
-            cause,
-          }),
-      ),
-    );
+    const ledgerEntries = yield* fs.readDirectory(ledgerBase);
 
     // Find the primary snapshot slot directory (skip *_lsm suffixed dirs)
     const snapshotSlotStr = ledgerEntries.find((e) => !e.includes("_"));
@@ -70,27 +62,11 @@ export const readSnapshotMeta = (snapshotPath: string) =>
 
     const protocolMagic = parseInt(
       new TextDecoder().decode(
-        yield* fs.readFile(p.join(snapshotPath, "protocolMagicId")).pipe(
-          Effect.mapError(
-            (cause) =>
-              new SnapshotReadError({
-                message: "Failed to read protocolMagicId",
-                cause,
-              }),
-          ),
-        ),
+        yield* fs.readFile(p.join(snapshotPath, "protocolMagicId")),
       ),
     );
 
-    const chunkFiles = yield* fs.readDirectory(immutableDir).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: `Failed to read immutable directory: ${immutableDir}`,
-            cause,
-          }),
-      ),
-    );
+    const chunkFiles = yield* fs.readDirectory(immutableDir);
     const totalChunks = chunkFiles.filter((f) => f.endsWith(".chunk")).length;
 
     return new SnapshotMeta({
@@ -112,15 +88,7 @@ export const readLedgerStateBytes = (meta: SnapshotMeta) =>
     const fs = yield* FileSystem.FileSystem;
     const p = yield* Path.Path;
     const statePath = p.join(meta.ledgerDir, "state");
-    return yield* fs.readFile(statePath).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: `Failed to read ledger state: ${statePath}`,
-            cause,
-          }),
-      ),
-    );
+    return yield* fs.readFile(statePath);
   });
 
 // ---------- Cardano-node V2LSM database support ----------
@@ -142,15 +110,7 @@ export const findLatestLsmSnapshot = (lsmDir: string) =>
     const fs = yield* FileSystem.FileSystem;
     const p = yield* Path.Path;
     const snapshotsDir = p.join(lsmDir, "snapshots");
-    const entries = yield* fs.readDirectory(snapshotsDir).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: `Failed to read LSM snapshots directory: ${snapshotsDir}`,
-            cause,
-          }),
-      ),
-    );
+    const entries = yield* fs.readDirectory(snapshotsDir);
     const numericEntries = entries
       .filter((e) => /^\d+$/.test(e))
       .sort((a, b) => Number(BigInt(b) - BigInt(a)));
@@ -178,89 +138,32 @@ export const prepareLsmSession = (sourceLsmDir: string, snapshotName: string) =>
     const fs = yield* FileSystem.FileSystem;
     const p = yield* Path.Path;
 
-    const tempDir = yield* fs.makeTempDirectory({ prefix: "lsm-session-" }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: "Failed to create temp LSM session directory",
-            cause,
-          }),
-      ),
-    );
+    const tempDir = yield* fs.makeTempDirectory({ prefix: "lsm-session-" });
 
     const sourceSnapshotDir = p.join(sourceLsmDir, "snapshots", snapshotName);
     const targetSnapshotDir = p.join(tempDir, "snapshots", snapshotName);
 
-    yield* fs.makeDirectory(p.join(tempDir, "snapshots"), { recursive: true }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: "Failed to create snapshots/ in temp session dir",
-            cause,
-          }),
-      ),
-    );
+    yield* fs.makeDirectory(p.join(tempDir, "snapshots"), { recursive: true });
+    yield* fs.makeDirectory(targetSnapshotDir, { recursive: true });
 
-    yield* fs.makeDirectory(targetSnapshotDir, { recursive: true }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: `Failed to create snapshot dir: ${targetSnapshotDir}`,
-            cause,
-          }),
-      ),
-    );
-
-    const files = yield* fs.readDirectory(sourceSnapshotDir).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: `Failed to read source snapshot dir: ${sourceSnapshotDir}`,
-            cause,
-          }),
-      ),
-    );
+    const files = yield* fs.readDirectory(sourceSnapshotDir);
 
     for (const file of files) {
       const src = p.join(sourceSnapshotDir, file);
       const dst = p.join(targetSnapshotDir, file);
       // Try hard-link first (fast, no copy), fall back to copyFile (cross-device)
-      yield* fs.link(src, dst).pipe(
-        Effect.catchCause(() => fs.copyFile(src, dst)),
-        Effect.mapError(
-          (cause) =>
-            new SnapshotReadError({
-              message: `Failed to link/copy snapshot file: ${file}`,
-              cause,
-            }),
-        ),
-      );
+      yield* fs.link(src, dst).pipe(Effect.catchCause(() => fs.copyFile(src, dst)));
     }
 
     // Copy root metadata file — required by lsm_session_open
     const rootMetaSrc = p.join(sourceLsmDir, "metadata");
     const rootMetaDst = p.join(tempDir, "metadata");
-    yield* fs.link(rootMetaSrc, rootMetaDst).pipe(
-      Effect.catchCause(() => fs.copyFile(rootMetaSrc, rootMetaDst)),
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: "Failed to link/copy root LSM metadata file",
-            cause,
-          }),
-      ),
-    );
+    yield* fs
+      .link(rootMetaSrc, rootMetaDst)
+      .pipe(Effect.catchCause(() => fs.copyFile(rootMetaSrc, rootMetaDst)));
 
     // Create empty active/ directory — required by lsm_session_open
-    yield* fs.makeDirectory(p.join(tempDir, "active"), { recursive: true }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: "Failed to create active/ in temp session dir",
-            cause,
-          }),
-      ),
-    );
+    yield* fs.makeDirectory(p.join(tempDir, "active"), { recursive: true });
 
     return tempDir;
   });
@@ -309,15 +212,7 @@ export const readNodeDbMeta = (dbPath: string, network: string) =>
     // The slot name matches the LSM snapshot name.
     const ledgerDir = p.join(dbPath, "ledger", snapshotName);
 
-    const chunkFiles = yield* fs.readDirectory(immutableDir).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SnapshotReadError({
-            message: `Failed to read immutable directory: ${immutableDir}`,
-            cause,
-          }),
-      ),
-    );
+    const chunkFiles = yield* fs.readDirectory(immutableDir);
     const totalChunks = chunkFiles.filter((f) => f.endsWith(".chunk")).length;
 
     const meta = new SnapshotMeta({

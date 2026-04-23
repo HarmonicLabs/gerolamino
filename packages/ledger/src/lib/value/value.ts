@@ -1,8 +1,15 @@
 import { Effect, Option, Schema, SchemaIssue } from "effect";
-import { cborCodec, CborKinds, type CborSchemaType } from "codecs";
+import {
+  cborCodec,
+  CborKinds,
+  type CborSchemaType,
+  type CborValue,
+  CborValue as CborValueSchema,
+} from "codecs";
 import {
   uint,
   cborBytes,
+  cborMap,
   negInt,
   arr,
   expectUint,
@@ -65,33 +72,51 @@ export type Value = typeof Value.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // CBOR decode/encode helpers
+//
+// All dispatch on the CBOR tagged union goes through `CborValueSchema.match`
+// or the `expect*` helpers from `cbor-utils.ts` — never through raw
+// `_tag ===` comparisons. Decoders are hoisted to module-level functions so
+// there is a single level of `Effect.gen`-free composition per variant.
 // ────────────────────────────────────────────────────────────────────────────
+
+const invalid = <T>(value: T, message: string): Effect.Effect<never, SchemaIssue.Issue> =>
+  Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message }));
+
+// Exhaustive dispatch-failure handlers for `CborValueSchema.match`. Every
+// non-expected variant maps to an `InvalidValue` issue carrying the original
+// CBOR value for diagnostics. The handler for the expected tag is spread on
+// top of the returned object, replacing the fail-case for that tag.
+const failOthers = (expected: string) =>
+  ({
+    [CborKinds.UInt]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got UInt`),
+    [CborKinds.NegInt]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got NegInt`),
+    [CborKinds.Bytes]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got Bytes`),
+    [CborKinds.Text]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got Text`),
+    [CborKinds.Array]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got Array`),
+    [CborKinds.Map]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got Map`),
+    [CborKinds.Tag]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got Tag`),
+    [CborKinds.Simple]: (v: CborValue) => invalid(v, `Value: expected ${expected}, got Simple`),
+  }) as const;
+
+const decodeAssetAmount = (entry: { k: CborSchemaType; v: CborSchemaType }) =>
+  Effect.all({
+    name: expectBytes(entry.k, "MultiAsset.assetName"),
+    quantity: expectInt(entry.v, "MultiAsset.quantity"),
+  });
+
+const decodeMultiAssetEntry = (entry: { k: CborSchemaType; v: CborSchemaType }) =>
+  Effect.all({
+    policy: expectBytes(entry.k, "MultiAsset.policy"),
+    assets: expectMap(entry.v, "MultiAsset.assets").pipe(
+      Effect.flatMap((assets) => Effect.all(assets.map(decodeAssetAmount))),
+    ),
+  });
 
 function decodeMultiAsset(
   cbor: CborSchemaType,
 ): Effect.Effect<readonly MultiAssetEntry[], SchemaIssue.Issue> {
-  if (cbor._tag !== CborKinds.Map)
-    return Effect.fail(
-      new SchemaIssue.InvalidValue(Option.some(cbor), { message: "MultiAsset: expected CBOR map" }),
-    );
-
-  return Effect.all(
-    cbor.entries.map((entry) =>
-      Effect.gen(function* () {
-        const policy = yield* expectBytes(entry.k, "MultiAsset.policy");
-        const assetMap = yield* expectMap(entry.v, "MultiAsset.assets");
-        const assets = yield* Effect.all(
-          assetMap.map((a) =>
-            Effect.gen(function* () {
-              const name = yield* expectBytes(a.k, "MultiAsset.assetName");
-              const quantity = yield* expectInt(a.v, "MultiAsset.quantity");
-              return { name, quantity };
-            }),
-          ),
-        );
-        return { policy, assets };
-      }),
-    ),
+  return expectMap(cbor, "MultiAsset").pipe(
+    Effect.flatMap((entries) => Effect.all(entries.map(decodeMultiAssetEntry))),
   );
 }
 
@@ -120,38 +145,32 @@ export function multiAssetToSortedEntries(
 }
 
 function encodeMultiAsset(ma: readonly MultiAssetEntry[]): CborSchemaType {
-  const sorted = multiAssetToSortedEntries(ma);
-  return {
-    _tag: CborKinds.Map,
-    entries: sorted.map((entry): { k: CborSchemaType; v: CborSchemaType } => ({
+  return cborMap(
+    multiAssetToSortedEntries(ma).map((entry) => ({
       k: cborBytes(entry.policy),
-      v: {
-        _tag: CborKinds.Map,
-        entries: entry.assets.map((asset): { k: CborSchemaType; v: CborSchemaType } => ({
+      v: cborMap(
+        entry.assets.map((asset) => ({
           k: cborBytes(asset.name),
           v: asset.quantity >= 0n ? uint(asset.quantity) : negInt(asset.quantity),
         })),
-      },
+      ),
     })),
-  };
+  );
 }
 
 export function decodeValue(cbor: CborSchemaType): Effect.Effect<Value, SchemaIssue.Issue> {
-  return Effect.gen(function* () {
-    // Coin-only: just a uint
-    if (cbor._tag === CborKinds.UInt) return { coin: cbor.num };
-    // Multi-asset: [coin, multiasset_map]
-    if (cbor._tag === CborKinds.Array && cbor.items.length === 2) {
-      const coin = yield* expectUint(cbor.items[0]!, "Value.coin");
-      const multiAsset = yield* decodeMultiAsset(cbor.items[1]!);
-      return { coin, multiAsset };
-    }
-    return yield* Effect.fail(
-      new SchemaIssue.InvalidValue(Option.some(cbor), {
-        message: "Value: expected uint or 2-element array",
-      }),
-    );
-  });
+  return CborValueSchema.match({
+    ...failOthers("uint or 2-element array"),
+    [CborKinds.UInt]: ({ num }): Effect.Effect<Value, SchemaIssue.Issue> =>
+      Effect.succeed({ coin: num }),
+    [CborKinds.Array]: ({ items }): Effect.Effect<Value, SchemaIssue.Issue> =>
+      items.length === 2
+        ? Effect.all({
+            coin: expectUint(items[0]!, "Value.coin"),
+            multiAsset: decodeMultiAsset(items[1]!),
+          })
+        : invalid(cbor, "Value: expected 2-element array"),
+  })(cbor);
 }
 
 export function encodeValue(value: Value): Effect.Effect<CborSchemaType, SchemaIssue.Issue> {

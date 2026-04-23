@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Effect, HashMap, Layer } from "effect";
-import { ConsensusEngine, ConsensusEngineWithBunCrypto } from "../consensus-engine";
-import { ChainTip } from "../chain-selection";
+import { ConsensusEngine, ConsensusEngineLive } from "../praos/engine";
+import { CryptoStub } from "./crypto-stub";
+import { ChainTip } from "../chain/selection";
 import { hex } from "../util";
-import type { BlockHeader, LedgerView } from "../validate-header";
+import type { BlockHeader, LedgerView } from "../validate/header";
 
 const makeVk = (seed: number): Uint8Array => {
   const vk = new Uint8Array(32);
@@ -55,57 +56,59 @@ const makeView = (header: BlockHeader): LedgerView => {
   };
 };
 
-const run = <A>(effect: Effect.Effect<A, unknown, ConsensusEngine>) =>
-  effect.pipe(Effect.provide(ConsensusEngineWithBunCrypto), Effect.runPromise);
+const TestLayer = ConsensusEngineLive.pipe(Layer.provideMerge(CryptoStub));
+
+const provide = <A>(effect: Effect.Effect<A, unknown, ConsensusEngine>) =>
+  effect.pipe(Effect.provide(TestLayer));
 
 describe("ConsensusEngine service", () => {
-  it("validateHeader passes for valid header", async () => {
-    await run(
+  it.effect("validateHeader passes for valid header", () =>
+    provide(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
         const header = makeHeader();
         yield* engine.validateHeader(header, makeView(header));
       }),
-    );
-  });
+    ),
+  );
 
-  it("selectChain prefers longer chain", async () => {
-    await run(
+  it.effect("selectChain prefers longer chain", () =>
+    provide(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
         const ours = new ChainTip({ slot: 100n, blockNo: 50n, hash: new Uint8Array(32) });
         const candidate = new ChainTip({ slot: 101n, blockNo: 51n, hash: new Uint8Array(32) });
         expect(engine.selectChain(ours, candidate, 1, 2160)).toBe(true);
       }),
-    );
-  });
+    ),
+  );
 
-  it("selectChain rejects fork beyond k", async () => {
-    await run(
+  it.effect("selectChain rejects fork beyond k", () =>
+    provide(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
         const ours = new ChainTip({ slot: 100n, blockNo: 50n, hash: new Uint8Array(32) });
         const candidate = new ChainTip({ slot: 5000n, blockNo: 100n, hash: new Uint8Array(32) });
         expect(engine.selectChain(ours, candidate, 2161, 2160)).toBe(false);
       }),
-    );
-  });
+    ),
+  );
 
-  it("getGsmState returns CaughtUp when near tip", async () => {
-    await run(
+  it.effect("getGsmState returns CaughtUp when near tip", () =>
+    provide(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
         expect(engine.getGsmState(100000n, 100010n, 129600n)).toBe("CaughtUp");
       }),
-    );
-  });
+    ),
+  );
 
-  it("getGsmState returns Syncing when far from tip", async () => {
-    await run(
+  it.effect("getGsmState returns Syncing when far from tip", () =>
+    provide(
       Effect.gen(function* () {
         const engine = yield* ConsensusEngine;
         expect(engine.getGsmState(100000n, 300000n, 129600n)).toBe("Syncing");
       }),
-    );
-  });
+    ),
+  );
 });

@@ -13,22 +13,12 @@ import {
   CborKinds,
   type CborValue,
   CborValue as CborValueSchema,
+  compareBytes,
 } from "codecs";
+import { cborMap } from "../core/cbor-utils.ts";
 
-// ────────────────────────────────────────────────────────────────────────────
-// Bytewise comparator for canonical CBOR key ordering (RFC 8949 §4.2.1).
-// Lexicographic over the byte sequence — shorter is less only if equal up to
-// the shorter's length, otherwise by byte value.
-// ────────────────────────────────────────────────────────────────────────────
-
-export const compareBytes = (a: Uint8Array, b: Uint8Array): number => {
-  const min = Math.min(a.length, b.length);
-  for (let i = 0; i < min; i++) {
-    const d = a[i]! - b[i]!;
-    if (d !== 0) return d;
-  }
-  return a.length - b.length;
-};
+// Re-export for existing consumers (new-epoch-state.ts imports from here).
+export { compareBytes };
 
 // ────────────────────────────────────────────────────────────────────────────
 // HashMap iteration is HAMT-order, not insertion-order. Re-encoding a HashMap
@@ -83,44 +73,37 @@ export const hashMapCodec = <K, V>(
 ): Schema.declare<HashMap.HashMap<K, V>> => {
   const isHashMap = (u: unknown): u is HashMap.HashMap<K, V> => HashMap.isHashMap(u);
 
+  const decodeEntry = (entry: { k: CborValue; v: CborValue }) =>
+    Effect.all([
+      SchemaParser.decodeEffect(opts.keyCodec)(entry.k),
+      SchemaParser.decodeEffect(opts.valueCodec)(entry.v),
+    ] as const);
+
+  const encodeEntry = ([k, v]: readonly [K, V]) =>
+    Effect.all([
+      SchemaParser.encodeEffect(opts.keyCodec)(k),
+      SchemaParser.encodeEffect(opts.valueCodec)(v),
+    ] as const);
+
   const link = new AST.Link(
     CborValueSchema.ast,
     SchemaTransformation.transformOrFail<HashMap.HashMap<K, V>, CborValue>({
       decode: CborValueSchema.match({
         ...failOthers(`Map for ${opts.typeName}`),
         [CborKinds.Map]: (cbor) =>
-          Effect.gen(function* () {
-            const decoded = yield* Effect.all(
-              cbor.entries.map((entry) =>
-                Effect.all([
-                  SchemaParser.decodeEffect(opts.keyCodec)(entry.k),
-                  SchemaParser.decodeEffect(opts.valueCodec)(entry.v),
-                ]),
+          Effect.all(cbor.entries.map(decodeEntry)).pipe(
+            Effect.map((decoded) =>
+              decoded.reduce<HashMap.HashMap<K, V>>(
+                (m, [k, v]) => HashMap.set(m, k, v),
+                HashMap.empty<K, V>(),
               ),
-            );
-            return HashMap.empty<K, V>().pipe(
-              HashMap.mutate((mutable) => {
-                for (const [k, v] of decoded) HashMap.set(mutable, k, v);
-              }),
-            );
-          }),
+            ),
+          ),
       }),
       encode: (map) =>
-        Effect.gen(function* () {
-          const entries = hashMapToSortedEntries(map, opts.compareKey);
-          const encoded = yield* Effect.all(
-            entries.map(([k, v]) =>
-              Effect.all([
-                SchemaParser.encodeEffect(opts.keyCodec)(k),
-                SchemaParser.encodeEffect(opts.valueCodec)(v),
-              ]),
-            ),
-          );
-          return CborValueSchema.make({
-            _tag: CborKinds.Map,
-            entries: encoded.map(([k, v]) => ({ k, v })),
-          });
-        }),
+        Effect.all(hashMapToSortedEntries(map, opts.compareKey).map(encodeEntry)).pipe(
+          Effect.map((encoded) => cborMap(encoded.map(([k, v]) => ({ k, v })))),
+        ),
     }),
   );
 

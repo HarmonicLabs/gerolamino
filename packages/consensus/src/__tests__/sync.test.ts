@@ -1,15 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
-import { processBlock, getSyncState, syncFromStream } from "../sync";
-import { Nonces } from "../nonce";
-import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
-import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
+import { processBlock, getSyncState, syncFromStream } from "../sync/bootstrap";
+import { Nonces } from "../praos/nonce";
+import { ConsensusEngineLive } from "../praos/engine";
+import { CryptoStub } from "./crypto-stub";
+import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
 import { ChainDB } from "storage";
 import type { StoredBlock } from "storage";
 import { hex, concat } from "../util";
 import { encodeSync, CborKinds } from "codecs";
 import type { CborSchemaType } from "codecs";
-import type { BlockHeader, LedgerView } from "../validate-header";
+import type { BlockHeader, LedgerView } from "../validate/header";
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
@@ -148,119 +149,135 @@ const stubSlotClock = Layer.effect(
   SlotClockLive(testConfig).pipe(Effect.provideService(Clock.Clock, fixedClock)),
 );
 
-const testLayers = Layer.mergeAll(ConsensusEngineWithBunCrypto, stubChainDb, stubSlotClock);
+const testLayers = Layer.mergeAll(
+  ConsensusEngineLive.pipe(Layer.provideMerge(CryptoStub)),
+  stubChainDb,
+  stubSlotClock,
+);
 
 describe("Sync pipeline", () => {
-  it("getSyncState returns initial state", async () => {
-    const state = await getSyncState.pipe(Effect.provide(testLayers), Effect.runPromise);
-    expect(state.tip).toBeUndefined();
-    expect(state.blocksProcessed).toBe(0);
-    expect(state.gsmState).toBe("Syncing");
-  });
+  it.effect("getSyncState returns initial state", () =>
+    Effect.gen(function* () {
+      const state = yield* getSyncState;
+      expect(state.tip).toBeUndefined();
+      expect(state.blocksProcessed).toBe(0);
+      expect(state.gsmState).toBe("Syncing");
+    }).pipe(Effect.provide(testLayers)),
+  );
 
-  it("processBlock validates and stores a block", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch: 0n,
-    });
+  it.effect("processBlock validates and stores a block", () =>
+    Effect.gen(function* () {
+      const nonces = new Nonces({
+        active: new Uint8Array(32),
+        evolving: new Uint8Array(32),
+        candidate: new Uint8Array(32),
+        epoch: 0n,
+      });
 
-    // Slot 50 stays within epoch 0 (epochLength=100)
-    const result = await processBlock(
-      makeBlock(50n, 25n),
-      makeHeader(50n, 25n),
-      makeLedgerView(),
-      nonces,
-    ).pipe(Effect.provide(testLayers), Effect.runPromise);
+      // Slot 50 stays within epoch 0 (epochLength=100)
+      const result = yield* processBlock(
+        makeBlock(50n, 25n),
+        makeHeader(50n, 25n),
+        makeLedgerView(),
+        nonces,
+      );
 
-    // Nonces should have been evolved
-    expect(result.evolving).not.toEqual(nonces.evolving);
-    expect(result.epoch).toBe(0n);
-  });
+      // Nonces should have been evolved
+      expect(result.evolving).not.toEqual(nonces.evolving);
+      expect(result.epoch).toBe(0n);
+    }).pipe(Effect.provide(testLayers)),
+  );
 
-  it("syncFromStream processes multiple blocks", async () => {
-    const blocks = Stream.fromIterable(
-      Array.from({ length: 10 }, (_, i) => ({
-        block: makeBlock(BigInt(100 + i), BigInt(50 + i)),
-        header: makeHeader(BigInt(100 + i), BigInt(50 + i)),
-        ledgerView: makeLedgerView(),
-      })),
-    );
+  it.effect("syncFromStream processes multiple blocks", () =>
+    Effect.gen(function* () {
+      const blocks = Stream.fromIterable(
+        Array.from({ length: 10 }, (_, i) => ({
+          block: makeBlock(BigInt(100 + i), BigInt(50 + i)),
+          header: makeHeader(BigInt(100 + i), BigInt(50 + i)),
+          ledgerView: makeLedgerView(),
+        })),
+      );
 
-    const state = await syncFromStream(blocks).pipe(Effect.provide(testLayers), Effect.runPromise);
+      const state = yield* syncFromStream(blocks);
 
-    expect(state.blocksProcessed).toBe(10);
-    expect(state.tip?.slot).toBe(109n);
-  });
+      expect(state.blocksProcessed).toBe(10);
+      expect(state.tip?.slot).toBe(109n);
+    }).pipe(Effect.provide(testLayers)),
+  );
 
-  it("epoch transition derives new nonce at epoch boundary", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32).fill(0xaa),
-      evolving: new Uint8Array(32).fill(0xbb),
-      candidate: new Uint8Array(32).fill(0xcc),
-      epoch: 0n,
-    });
+  it.effect("epoch transition derives new nonce at epoch boundary", () =>
+    Effect.gen(function* () {
+      const nonces = new Nonces({
+        active: new Uint8Array(32).fill(0xaa),
+        evolving: new Uint8Array(32).fill(0xbb),
+        candidate: new Uint8Array(32).fill(0xcc),
+        epoch: 0n,
+      });
 
-    // Slot 100 is in epoch 1 (epochLength=100), so epoch transition triggers
-    const result = await processBlock(
-      makeBlock(100n, 50n),
-      makeHeader(100n, 50n),
-      makeLedgerView(),
-      nonces,
-    ).pipe(Effect.provide(testLayers), Effect.runPromise);
+      // Slot 100 is in epoch 1 (epochLength=100), so epoch transition triggers
+      const result = yield* processBlock(
+        makeBlock(100n, 50n),
+        makeHeader(100n, 50n),
+        makeLedgerView(),
+        nonces,
+      );
 
-    // Epoch should advance
-    expect(result.epoch).toBe(1n);
-    // Active nonce should change (derived from candidate + prevHash)
-    expect(hex(result.active)).not.toBe(hex(nonces.active));
-    // Active should not be the old candidate verbatim — it's blake2b(candidate ∥ prevHash)
-    expect(hex(result.active)).not.toBe(hex(nonces.candidate));
-  });
+      // Epoch should advance
+      expect(result.epoch).toBe(1n);
+      // Active nonce should change (derived from candidate + prevHash)
+      expect(hex(result.active)).not.toBe(hex(nonces.active));
+      // Active should not be the old candidate verbatim — it's blake2b(candidate ∥ prevHash)
+      expect(hex(result.active)).not.toBe(hex(nonces.candidate));
+    }).pipe(Effect.provide(testLayers)),
+  );
 
-  it("epoch transition does not fire within same epoch", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32).fill(0xaa),
-      evolving: new Uint8Array(32).fill(0xbb),
-      candidate: new Uint8Array(32).fill(0xcc),
-      epoch: 0n,
-    });
+  it.effect("epoch transition does not fire within same epoch", () =>
+    Effect.gen(function* () {
+      const nonces = new Nonces({
+        active: new Uint8Array(32).fill(0xaa),
+        evolving: new Uint8Array(32).fill(0xbb),
+        candidate: new Uint8Array(32).fill(0xcc),
+        epoch: 0n,
+      });
 
-    // Slot 50 is still epoch 0 (epochLength=100)
-    const result = await processBlock(
-      makeBlock(50n, 25n),
-      makeHeader(50n, 25n),
-      makeLedgerView(),
-      nonces,
-    ).pipe(Effect.provide(testLayers), Effect.runPromise);
+      // Slot 50 is still epoch 0 (epochLength=100)
+      const result = yield* processBlock(
+        makeBlock(50n, 25n),
+        makeHeader(50n, 25n),
+        makeLedgerView(),
+        nonces,
+      );
 
-    // Active nonce unchanged — no epoch transition
-    expect(hex(result.active)).toBe(hex(nonces.active));
-    expect(result.epoch).toBe(0n);
-  });
+      // Active nonce unchanged — no epoch transition
+      expect(hex(result.active)).toBe(hex(nonces.active));
+      expect(result.epoch).toBe(0n);
+    }).pipe(Effect.provide(testLayers)),
+  );
 
-  it("nonces evolve differently for each block", async () => {
-    const nonces = new Nonces({
-      active: new Uint8Array(32),
-      evolving: new Uint8Array(32),
-      candidate: new Uint8Array(32),
-      epoch: 0n,
-    });
+  it.effect("nonces evolve differently for each block", () =>
+    Effect.gen(function* () {
+      const nonces = new Nonces({
+        active: new Uint8Array(32),
+        evolving: new Uint8Array(32),
+        candidate: new Uint8Array(32),
+        epoch: 0n,
+      });
 
-    const nonces1 = await processBlock(
-      makeBlock(1n, 1n),
-      makeHeader(1n, 1n),
-      makeLedgerView(),
-      nonces,
-    ).pipe(Effect.provide(testLayers), Effect.runPromise);
-    const nonces2 = await processBlock(
-      makeBlock(2n, 2n),
-      makeHeader(2n, 2n),
-      makeLedgerView(),
-      nonces1,
-    ).pipe(Effect.provide(testLayers), Effect.runPromise);
+      const nonces1 = yield* processBlock(
+        makeBlock(1n, 1n),
+        makeHeader(1n, 1n),
+        makeLedgerView(),
+        nonces,
+      );
+      const nonces2 = yield* processBlock(
+        makeBlock(2n, 2n),
+        makeHeader(2n, 2n),
+        makeLedgerView(),
+        nonces1,
+      );
 
-    expect(nonces1.evolving).not.toEqual(nonces.evolving);
-    expect(nonces2.evolving).not.toEqual(nonces1.evolving);
-  });
+      expect(nonces1.evolving).not.toEqual(nonces.evolving);
+      expect(nonces2.evolving).not.toEqual(nonces1.evolving);
+    }).pipe(Effect.provide(testLayers)),
+  );
 });

@@ -1,11 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { Effect, Exit, HashMap, Layer } from "effect";
-import { validateHeader, HeaderValidationError } from "../validate-header";
-import type { BlockHeader, LedgerView } from "../validate-header";
-import { CryptoService, CryptoServiceBunNative } from "../crypto";
+import { describe, it, expect } from "@effect/vitest";
+import { Effect, Exit, HashMap } from "effect";
+import { Crypto } from "wasm-utils";
+import { validateHeader, HeaderValidationError } from "../validate/header";
+import type { BlockHeader, LedgerView } from "../validate/header";
 import { hex } from "../util";
+import { CryptoStub } from "./crypto-stub";
 
-const cryptoLayer = Layer.succeed(CryptoService, CryptoServiceBunNative);
+const cryptoLayer = CryptoStub;
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
@@ -59,115 +60,152 @@ const makeView = (header: BlockHeader, overrides?: Partial<LedgerView>): LedgerV
   };
 };
 
-const run = (effect: Effect.Effect<void, HeaderValidationError, CryptoService>) =>
-  Effect.runPromiseExit(Effect.provide(effect, cryptoLayer));
+const provide = (effect: Effect.Effect<void, HeaderValidationError, Crypto>) =>
+  Effect.provide(effect, cryptoLayer);
 
 describe("validateHeader", () => {
-  it("passes with valid header and matching ledger view", async () => {
-    const header = makeHeader();
-    const result = await run(validateHeader(header, makeView(header)));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+  it.effect("passes with valid header and matching ledger view", () =>
+    Effect.gen(function* () {
+      const header = makeHeader();
+      const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
+      expect(Exit.isSuccess(result)).toBe(true);
+    }),
+  );
 
-  it("fails when pool VRF key is not registered", async () => {
-    const header = makeHeader();
-    // Use a non-empty map with a different pool to avoid triggering the genesis-skip guard
-    const result = await run(
-      validateHeader(
-        header,
-        makeView(header, { poolVrfKeys: HashMap.make(["other_pool", makeVk(99)]) }),
-      ),
-    );
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when pool VRF key is not registered", () =>
+    Effect.gen(function* () {
+      const header = makeHeader();
+      // Use a non-empty map with a different pool to avoid triggering the genesis-skip guard
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(
+            header,
+            makeView(header, { poolVrfKeys: HashMap.make(["other_pool", makeVk(99)]) }),
+          ),
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
-  it("fails when VRF key doesn't match", async () => {
-    const header = makeHeader();
-    const poolId = poolIdFromVk(header.issuerVk);
-    const result = await run(
-      validateHeader(header, makeView(header, { poolVrfKeys: HashMap.make([poolId, makeVk(99)]) })),
-    );
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when VRF key doesn't match", () =>
+    Effect.gen(function* () {
+      const header = makeHeader();
+      const poolId = poolIdFromVk(header.issuerVk);
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(
+            header,
+            makeView(header, { poolVrfKeys: HashMap.make([poolId, makeVk(99)]) }),
+          ),
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
-  it("fails when KES period is before opcert start", async () => {
-    const header = makeHeader({ kesPeriod: 3, opcertKesPeriod: 10 });
-    const result = await run(validateHeader(header, makeView(header)));
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when KES period is before opcert start", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ kesPeriod: 3, opcertKesPeriod: 10 });
+      const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
-  it("fails when KES period exceeds max evolutions", async () => {
-    const header = makeHeader({ kesPeriod: 100, opcertKesPeriod: 0 });
-    const result = await run(validateHeader(header, makeView(header)));
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when KES period exceeds max evolutions", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ kesPeriod: 100, opcertKesPeriod: 0 });
+      const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
-  it("fails when opcert sequence number is negative", async () => {
-    const header = makeHeader({ opcertSeqNo: -1 });
-    const result = await run(validateHeader(header, makeView(header)));
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when opcert sequence number is negative", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ opcertSeqNo: -1 });
+      const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
   // --- Tamper tests (ported from Dingo verify_header_test.go) ---
 
-  it("fails when KES signature is tampered (XOR first 2 bytes)", async () => {
-    const kesSig = new Uint8Array(448);
-    const kesView = new DataView(kesSig.buffer);
-    kesView.setUint8(0, kesView.getUint8(0) ^ 0xff);
-    kesView.setUint8(1, kesView.getUint8(1) ^ 0xff);
-    const header = makeHeader({ kesSig });
-    const result = await run(validateHeader(header, makeView(header)));
-    // CryptoServiceBunNative always passes KES verification, so this tests
-    // the assertion structure rather than real crypto. With CryptoServiceLive,
-    // tampered sigs would fail.
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+  it.effect("fails when KES signature is tampered (XOR first 2 bytes)", () =>
+    Effect.gen(function* () {
+      const kesSig = new Uint8Array(448);
+      const kesView = new DataView(kesSig.buffer);
+      kesView.setUint8(0, kesView.getUint8(0) ^ 0xff);
+      kesView.setUint8(1, kesView.getUint8(1) ^ 0xff);
+      const header = makeHeader({ kesSig });
+      const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
+      // CryptoStub always passes KES verification, so this tests
+      // the assertion structure rather than real crypto. With CryptoDirect,
+      // tampered sigs would fail.
+      expect(Exit.isSuccess(result)).toBe(true);
+    }),
+  );
 
-  it("fails when pool has no registered stake", async () => {
-    const header = makeHeader();
-    const result = await run(
-      validateHeader(header, makeView(header, { poolStake: HashMap.empty() })),
-    );
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when pool has no registered stake", () =>
+    Effect.gen(function* () {
+      const header = makeHeader();
+      const result = yield* Effect.exit(
+        provide(validateHeader(header, makeView(header, { poolStake: HashMap.empty() }))),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
-  it("fails when pool has no registered stake", async () => {
-    const header = makeHeader();
-    // Non-zero totalStake but empty poolStake — avoids genesis-skip guard
-    const result = await run(
-      validateHeader(header, makeView(header, { poolStake: HashMap.empty() })),
-    );
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when pool has no registered stake (duplicate)", () =>
+    Effect.gen(function* () {
+      const header = makeHeader();
+      // Non-zero totalStake but empty poolStake — avoids genesis-skip guard
+      const result = yield* Effect.exit(
+        provide(validateHeader(header, makeView(header, { poolStake: HashMap.empty() }))),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
   // --- KES period boundary tests (from Amaru + Dingo) ---
 
-  it("passes when KES period is exactly at opcert start", async () => {
-    const header = makeHeader({ kesPeriod: 5, opcertKesPeriod: 5 });
-    const result = await run(validateHeader(header, makeView(header)));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+  it.effect("passes when KES period is exactly at opcert start", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ kesPeriod: 5, opcertKesPeriod: 5 });
+      const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
+      expect(Exit.isSuccess(result)).toBe(true);
+    }),
+  );
 
-  it("fails when KES period is at max evolutions", async () => {
-    // maxKesEvolutions=62, opcertKesPeriod=0, kesPeriod=62 → delta=62 ≥ max
-    const header = makeHeader({ kesPeriod: 62, opcertKesPeriod: 0 });
-    const result = await run(validateHeader(header, makeView(header, { maxKesEvolutions: 62 })));
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+  it.effect("fails when KES period is at max evolutions", () =>
+    Effect.gen(function* () {
+      // maxKesEvolutions=62, opcertKesPeriod=0, kesPeriod=62 → delta=62 ≥ max
+      const header = makeHeader({ kesPeriod: 62, opcertKesPeriod: 0 });
+      const result = yield* Effect.exit(
+        provide(validateHeader(header, makeView(header, { maxKesEvolutions: 62 }))),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
 
-  it("passes when KES period is one below max evolutions", async () => {
-    const header = makeHeader({ kesPeriod: 61, opcertKesPeriod: 0 });
-    const result = await run(validateHeader(header, makeView(header, { maxKesEvolutions: 62 })));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+  it.effect("passes when KES period is one below max evolutions", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ kesPeriod: 61, opcertKesPeriod: 0 });
+      const result = yield* Effect.exit(
+        provide(validateHeader(header, makeView(header, { maxKesEvolutions: 62 }))),
+      );
+      expect(Exit.isSuccess(result)).toBe(true);
+    }),
+  );
 
   // --- VRF output mismatch detection ---
 
-  it("passes assertVrfProof with CryptoServiceBunNative (stub returns zeros)", async () => {
-    // CryptoServiceBunNative's vrfVerifyProof returns 64 zero bytes.
-    // assertVrfProof detects the all-zero sentinel and skips output comparison.
-    const header = makeHeader();
-    const result = await run(validateHeader(header, makeView(header)));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+  it.effect("passes assertVrfProof with CryptoStub (stub returns zeros)", () =>
+    Effect.gen(function* () {
+      // CryptoStub's vrfVerifyProof returns 64 zero bytes.
+      // assertVrfProof detects the all-zero sentinel and skips output comparison.
+      const header = makeHeader();
+      const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
+      expect(Exit.isSuccess(result)).toBe(true);
+    }),
+  );
 });

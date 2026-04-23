@@ -16,18 +16,19 @@
  *      the popup dashboard animates during the 2-3s decode / account-write
  *      window instead of blocking on a single transition.
  */
-import { Deferred, Effect, HashMap } from "effect";
+import { Deferred, Effect, HashMap, Schema } from "effect";
 import type { LedgerView } from "consensus";
 import { Nonces } from "consensus";
 import { SyncStateRef } from "./sync-state.ts";
 import type {
   OffscreenComplete,
   OffscreenRequest,
-  OffscreenResponse,
   SerializedLedgerView,
   SerializedNonces,
 } from "./offscreen-protocol.ts";
-import { OFFSCREEN_CHANNEL } from "./offscreen-protocol.ts";
+import { OFFSCREEN_CHANNEL, OffscreenResponse } from "./offscreen-protocol.ts";
+
+const isOffscreenResponse = Schema.is(OffscreenResponse);
 
 /** WXT builds `entrypoints/offscreen/index.html` as `/offscreen.html`. */
 const OFFSCREEN_URL = "offscreen.html";
@@ -117,10 +118,10 @@ export const decodeLedgerStateOffscreen = (
     const done = yield* Deferred.make<OffscreenComplete, string>();
 
     const onMessage = (event: MessageEvent) => {
-      const msg = event.data as OffscreenResponse | undefined;
-      if (!msg || typeof msg !== "object") return;
+      const msg: unknown = event.data;
+      if (!isOffscreenResponse(msg)) return;
       if (msg.tag === "ready") return;
-      if (!("requestId" in msg) || msg.requestId !== requestId) return;
+      if (msg.requestId !== requestId) return;
       if (msg.tag === "decode-progress") {
         Effect.runFork(
           syncState.update({

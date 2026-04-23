@@ -7,6 +7,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "type-check": "tsgo --noEmit -p tsconfig.json"
+  },
   "dependencies": {
     "solid-js": "^1.9.12"
   }

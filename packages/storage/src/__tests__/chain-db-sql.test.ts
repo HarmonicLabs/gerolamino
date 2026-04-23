@@ -5,10 +5,10 @@
  * (not stubs). Tests the same operations as chain-db.test.ts but
  * backed by ChainDBLive instead of an in-memory mock.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer, Option, Stream } from "effect";
 import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient";
-import { BlobStore } from "../blob-store/service.ts";
+import { type BlobEntry, BlobStore } from "../blob-store/service.ts";
 import { ChainDB } from "../services/chain-db.ts";
 import { ChainDBLive } from "../services/chain-db-live.ts";
 import { runMigrations } from "../operations/migrations.ts";
@@ -45,7 +45,7 @@ const makeInMemoryBlobStore = () => {
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([k, v]) => ({ key: Uint8Array.fromHex(k), value: v })),
       ),
-    putBatch: (entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>) =>
+    putBatch: (entries: ReadonlyArray<BlobEntry>) =>
       Effect.sync(() => {
         for (const e of entries) store.set(keyStr(e.key), e.value);
       }),
@@ -60,9 +60,9 @@ const blobLayer = Layer.succeed(BlobStore, makeInMemoryBlobStore());
 const storageLayer = Layer.merge(sqlLayer, blobLayer);
 const fullLayer = Layer.provideMerge(ChainDBLive, storageLayer);
 
-/** Run a ChainDB effect with fresh migrations + real SQLite. */
-const run = <A>(effect: Effect.Effect<A, unknown, ChainDB>) =>
-  runMigrations.pipe(Effect.andThen(effect), Effect.provide(fullLayer), Effect.runPromise);
+/** Provide a ChainDB effect with fresh migrations + real SQLite. */
+const provide = <A>(effect: Effect.Effect<A, unknown, ChainDB>) =>
+  runMigrations.pipe(Effect.andThen(effect), Effect.provide(fullLayer));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,8 +82,8 @@ const makeBlock = (slot: bigint, blockNo: bigint, prevHash?: Uint8Array): Stored
 // ---------------------------------------------------------------------------
 
 describe("ChainDBLive with real SQLite", () => {
-  it("addBlock + getBlock round-trip", () =>
-    run(
+  it.effect("addBlock + getBlock round-trip", () =>
+    provide(
       Effect.gen(function* () {
         const db = yield* ChainDB;
         const block = makeBlock(100n, 50n);
@@ -97,10 +97,11 @@ describe("ChainDBLive with real SQLite", () => {
           expect(result.value.blockCbor).toEqual(block.blockCbor);
         }
       }),
-    ));
+    ),
+  );
 
-  it("getTip returns highest slot", () =>
-    run(
+  it.effect("getTip returns highest slot", () =>
+    provide(
       Effect.gen(function* () {
         const db = yield* ChainDB;
         yield* db.addBlock(makeBlock(100n, 50n));
@@ -113,10 +114,11 @@ describe("ChainDBLive with real SQLite", () => {
           expect(tip.value.slot).toBe(300n);
         }
       }),
-    ));
+    ),
+  );
 
-  it("rollback removes volatile blocks after point", () =>
-    run(
+  it.effect("rollback removes volatile blocks after point", () =>
+    provide(
       Effect.gen(function* () {
         const db = yield* ChainDB;
         const b1 = makeBlock(100n, 50n);
@@ -134,10 +136,11 @@ describe("ChainDBLive with real SQLite", () => {
           expect(tip.value.slot).toBe(100n);
         }
       }),
-    ));
+    ),
+  );
 
-  it("getSuccessors finds child blocks", () =>
-    run(
+  it.effect("getSuccessors finds child blocks", () =>
+    provide(
       Effect.gen(function* () {
         const db = yield* ChainDB;
         const parent = makeBlock(100n, 50n);
@@ -159,10 +162,11 @@ describe("ChainDBLive with real SQLite", () => {
         const succs = yield* db.getSuccessors(parent.hash);
         expect(succs.length).toBe(2);
       }),
-    ));
+    ),
+  );
 
-  it("garbageCollect removes old volatile blocks", () =>
-    run(
+  it.effect("garbageCollect removes old volatile blocks", () =>
+    provide(
       Effect.gen(function* () {
         const db = yield* ChainDB;
         yield* db.addBlock(makeBlock(100n, 50n));
@@ -171,7 +175,6 @@ describe("ChainDBLive with real SQLite", () => {
 
         yield* db.garbageCollect(250n);
 
-        // Blocks at 100 and 200 should be gone
         const r100 = yield* db.getBlock(makeBlock(100n, 50n).hash);
         const r200 = yield* db.getBlock(makeBlock(200n, 100n).hash);
         const r300 = yield* db.getBlock(makeBlock(300n, 150n).hash);
@@ -179,10 +182,11 @@ describe("ChainDBLive with real SQLite", () => {
         expect(Option.isNone(r200)).toBe(true);
         expect(Option.isSome(r300)).toBe(true);
       }),
-    ));
+    ),
+  );
 
-  it("ledger snapshot write + read round-trip", () =>
-    run(
+  it.effect("ledger snapshot write + read round-trip", () =>
+    provide(
       Effect.gen(function* () {
         const db = yield* ChainDB;
         yield* db.writeLedgerSnapshot(
@@ -200,5 +204,6 @@ describe("ChainDBLive with real SQLite", () => {
           expect(result.value.stateBytes).toEqual(new Uint8Array([1, 2, 3]));
         }
       }),
-    ));
+    ),
+  );
 });

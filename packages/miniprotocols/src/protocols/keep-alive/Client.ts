@@ -1,9 +1,11 @@
 import {
   Cause,
+  Clock,
   Config,
   Duration,
   Effect,
   Layer,
+  Metric,
   Option,
   Ref,
   Schedule,
@@ -14,6 +16,7 @@ import {
 } from "effect";
 import { Socket } from "effect/unstable/socket";
 
+import { keepAliveRtt } from "../../Metrics";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
@@ -78,34 +81,40 @@ export class KeepAliveClient extends Context.Service<
         Stream.mapEffect((bytes) => decodeMessage(bytes)),
       );
 
-      /** Send a KeepAlive and validate that the response cookie matches. */
+      /**
+       * Send a KeepAlive and validate that the response cookie matches.
+       * Records round-trip latency in `ouroboros.keepalive.rtt_ms`.
+       */
       const sendAndValidate = (cookie: number) =>
-        sendMessage({ _tag: Schemas.KeepAliveMessageType.KeepAlive, cookie }).pipe(
-          Effect.andThen(
-            messages.pipe(
-              Stream.runHead,
-              Effect.timeout(Duration.seconds(97)),
-              Effect.flatMap(
-                Option.match({
-                  onNone: () => Effect.fail(new KeepAliveError({ cause: "No response received" })),
-                  onSome: (v) =>
-                    Schemas.KeepAliveMessage.match(v, {
-                      KeepAliveResponse: (m) =>
-                        m.cookie === cookie
-                          ? Effect.succeed(m.cookie)
-                          : Effect.fail(
-                              new KeepAliveError({
-                                cause: `Cookie mismatch: sent ${cookie}, got ${m.cookie}`,
-                              }),
-                            ),
-                      KeepAlive: (m) => unexpected(m._tag),
-                      Done: (m) => unexpected(m._tag),
-                    }),
-                }),
-              ),
+        Effect.gen(function* () {
+          const startMs = yield* Clock.currentTimeMillis;
+          yield* sendMessage({ _tag: Schemas.KeepAliveMessageType.KeepAlive, cookie });
+          const result = yield* messages.pipe(
+            Stream.runHead,
+            Effect.timeout(Duration.seconds(97)),
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.fail(new KeepAliveError({ cause: "No response received" })),
+                onSome: (v) =>
+                  Schemas.KeepAliveMessage.match(v, {
+                    KeepAliveResponse: (m) =>
+                      m.cookie === cookie
+                        ? Effect.succeed(m.cookie)
+                        : Effect.fail(
+                            new KeepAliveError({
+                              cause: `Cookie mismatch: sent ${cookie}, got ${m.cookie}`,
+                            }),
+                          ),
+                    KeepAlive: (m) => unexpected(m._tag),
+                    Done: (m) => unexpected(m._tag),
+                  }),
+              }),
             ),
-          ),
-        );
+          );
+          const endMs = yield* Clock.currentTimeMillis;
+          yield* Metric.update(keepAliveRtt, endMs - startMs);
+          return result;
+        });
 
       return KeepAliveClient.of({
         keepAlive: (cookie) =>

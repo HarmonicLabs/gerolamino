@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { ChainTip, preferCandidate, gsmState } from "../chain-selection";
+import { describe, it, expect } from "@effect/vitest";
+import { ChainTip, preferCandidate, gsmState } from "../chain/selection";
 
 const makeTip = (slot: bigint, blockNo: bigint, vrfOutput?: Uint8Array): ChainTip =>
   new ChainTip({ slot, blockNo, hash: new Uint8Array(32), vrfOutput });

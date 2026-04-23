@@ -9,3 +9,4 @@
 
 export * from "./cbor";
 export * from "./mempack";
+export * from "./util";

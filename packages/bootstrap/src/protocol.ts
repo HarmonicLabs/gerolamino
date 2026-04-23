@@ -21,6 +21,16 @@ export enum BootstrapMessageKind {
 export const BootstrapMessageKindSchema = Schema.Enum(BootstrapMessageKind);
 
 // ---------------------------------------------------------------------------
+// Blob entry — shared shape for BlobEntries wire payload
+// ---------------------------------------------------------------------------
+
+export const BlobEntry = Schema.Struct({
+  key: Schema.Uint8Array,
+  value: Schema.Uint8Array,
+});
+export type BlobEntry = typeof BlobEntry.Type;
+
+// ---------------------------------------------------------------------------
 // Schema.TaggedUnion — gives .match(), .guards, .isAnyOf() for free
 // ---------------------------------------------------------------------------
 
@@ -47,7 +57,7 @@ export const BootstrapMessage = Schema.Union([
   Schema.TaggedStruct(BootstrapMessageKind.BlobEntries, {
     dbName: Schema.String,
     count: Schema.Number,
-    entries: Schema.Array(Schema.Struct({ key: Schema.Uint8Array, value: Schema.Uint8Array })),
+    entries: Schema.Array(BlobEntry),
   }),
   Schema.TaggedStruct(BootstrapMessageKind.Progress, {
     phase: Schema.String,
@@ -182,7 +192,7 @@ const textDecoder = new TextDecoder();
 
 export function encodeBlobBatch(
   dbName: string,
-  entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
+  entries: ReadonlyArray<BlobEntry>,
 ): Uint8Array {
   const nameBytes = textEncoder.encode(dbName);
   let totalSize = 2 + nameBytes.length + 4;
@@ -220,7 +230,7 @@ export function decodeBlobBatch(payload: Uint8Array) {
   off += nameLen;
   const count = dv.getUint32(off, false);
   off += 4;
-  const entries: { key: Uint8Array; value: Uint8Array }[] = [];
+  const entries: Array<BlobEntry> = [];
   for (let i = 0; i < count; i++) {
     const keyLen = dv.getUint16(off, false);
     off += 2;
@@ -337,13 +347,5 @@ export function decodeFrame(frame: Uint8Array): BootstrapMessageType {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Utility: concatenate two Uint8Arrays
-// ---------------------------------------------------------------------------
-
-export function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const result = new Uint8Array(a.length + b.length);
-  result.set(a, 0);
-  result.set(b, a.length);
-  return result;
-}
+// Re-export the shared variadic primitive from codecs under the legacy name.
+export { concat as concatBytes } from "codecs";

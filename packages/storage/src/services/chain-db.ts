@@ -16,6 +16,7 @@
  * subsets (e.g., read-only for bootstrap, full for sync).
  */
 import { Context, Effect, Option, Schema, Stream } from "effect";
+import type { BlobEntry } from "../blob-store/service.ts";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
 export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()("ChainDBError", {
@@ -58,7 +59,7 @@ export class ChainDB extends Context.Service<
 
     /** Write arbitrary prefixed blob entries (block_index, offsets, utxo, etc.) in batch. */
     readonly writeBlobEntries: (
-      entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
+      entries: ReadonlyArray<BlobEntry>,
     ) => Effect.Effect<void, ChainDBError>;
 
     /** Delete arbitrary prefixed blob entries (consumed UTxO inputs, deregistered accounts). */

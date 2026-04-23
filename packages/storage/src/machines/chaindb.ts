@@ -4,12 +4,13 @@
  * Uses parallel state regions so block processing and immutability transitions
  * operate independently.
  *
- * Lifecycle states (`copying`, `gc`) use XState `invoke` with `fromPromise`
- * actors. The machine definition uses placeholder actors — real implementations
- * are provided at runtime via `machine.provide({ actors: { ... } })` in
- * ChainDBLive, bridging to Effect via ManagedRuntime.
+ * Effect-free: the `copying` and `gc` states do not `invoke` anything. They
+ * wait for externally-fired completion events (PROMOTE_DONE/FAILED,
+ * GC_DONE/FAILED). ChainDBLive observes state via `actor.subscribe` and drives
+ * the actual work on an Effect fiber, keeping the XState↔Effect bridge purely
+ * event-based (no `Effect.runPromise` inside library code).
  */
-import { setup, assign, raise, fromPromise } from "xstate";
+import { setup, assign, raise } from "xstate";
 import type { RealPoint } from "../types/StoredBlock.ts";
 import type { ChainDBEvent } from "./events.ts";
 
@@ -30,10 +31,6 @@ export const chainDBMachine = setup({
   guards: {
     shouldCopyToImmutable: ({ context }) =>
       context.tip !== undefined && context.volatileLength > context.securityParam,
-  },
-  actors: {
-    promoteBlocks: fromPromise<number, { tip: RealPoint }>(async () => 0),
-    collectGarbage: fromPromise<void, { belowSlot: bigint }>(async () => {}),
   },
 }).createMachine({
   id: "chainDB",
@@ -77,40 +74,32 @@ export const chainDBMachine = setup({
           },
         },
         copying: {
-          invoke: {
-            src: "promoteBlocks",
-            input: ({ context }) => ({ tip: context.tip! }),
-            onDone: {
+          on: {
+            PROMOTE_DONE: {
               target: "gc",
               actions: assign(({ context, event }) => ({
                 ...context,
                 immutableTip: context.tip,
-                volatileLength: Math.max(0, context.volatileLength - (event.output ?? 0)),
+                volatileLength: Math.max(0, context.volatileLength - event.promoted),
               })),
             },
-            onError: {
+            PROMOTE_FAILED: {
               target: "idle",
               actions: assign(({ context, event }) => ({
                 ...context,
-                lastError: "error" in event ? event.error : event,
+                lastError: event.error,
               })),
             },
           },
         },
         gc: {
-          invoke: {
-            src: "collectGarbage",
-            input: ({ context }) => ({
-              belowSlot: context.immutableTip?.slot ?? 0n,
-            }),
-            onDone: {
-              target: "idle",
-            },
-            onError: {
+          on: {
+            GC_DONE: { target: "idle" },
+            GC_FAILED: {
               target: "idle",
               actions: assign(({ context, event }) => ({
                 ...context,
-                lastError: "error" in event ? event.error : event,
+                lastError: event.error,
               })),
             },
           },

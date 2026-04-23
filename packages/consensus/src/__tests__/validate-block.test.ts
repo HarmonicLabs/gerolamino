@@ -1,14 +1,15 @@
-import { describe, it, expect } from "vitest";
-import { Effect, Exit, Layer } from "effect";
-import { verifyBodyHash, validateBlock, BlockValidationError } from "../validate-block";
-import { CryptoService, CryptoServiceBunNative } from "../crypto";
+import { describe, it, expect } from "@effect/vitest";
+import { Effect, Exit } from "effect";
+import { Crypto } from "wasm-utils";
+import { verifyBodyHash, validateBlock, BlockValidationError } from "../validate/block";
 import { encodeSync, CborKinds } from "codecs";
 import type { CborSchemaType } from "codecs";
+import { CryptoStub } from "./crypto-stub";
 
-const cryptoLayer = Layer.succeed(CryptoService, CryptoServiceBunNative);
+const cryptoLayer = CryptoStub;
 
-const run = <A>(effect: Effect.Effect<A, BlockValidationError, CryptoService>) =>
-  Effect.runPromiseExit(effect.pipe(Effect.provide(cryptoLayer)));
+const provide = <A>(effect: Effect.Effect<A, BlockValidationError, Crypto>) =>
+  effect.pipe(Effect.provide(cryptoLayer));
 
 /** Build a minimal Shelley+ block CBOR with known body components. */
 const makeBlockCbor = (
@@ -71,148 +72,188 @@ const emptyArray: CborSchemaType = { _tag: CborKinds.Array, items: [] };
 const emptyMap: CborSchemaType = { _tag: CborKinds.Map, entries: [] };
 
 describe("verifyBodyHash", () => {
-  it("passes with correct body hash (Shelley — 3 components)", async () => {
-    const txBodies = emptyArray;
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
+  it.effect("passes with correct body hash (Shelley — 3 components)", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBodies = emptyArray;
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
 
-    const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
-    const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
+        const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
+        const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
 
-    const result = await run(verifyBodyHash(blockCbor, bodyHash));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(verifyBodyHash(blockCbor, bodyHash));
+        expect(Exit.isSuccess(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("passes with correct body hash (Alonzo+ — 4 components)", async () => {
-    const txBodies = emptyArray;
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
-    const invalidTxs = emptyArray;
+  it.effect("passes with correct body hash (Alonzo+ — 4 components)", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBodies = emptyArray;
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
+        const invalidTxs = emptyArray;
 
-    const bodyHash = computeBodyHash(txBodies, witnesses, auxData, invalidTxs);
-    const blockCbor = makeBlockCbor(4, txBodies, witnesses, auxData, invalidTxs);
+        const bodyHash = computeBodyHash(txBodies, witnesses, auxData, invalidTxs);
+        const blockCbor = makeBlockCbor(4, txBodies, witnesses, auxData, invalidTxs);
 
-    const result = await run(verifyBodyHash(blockCbor, bodyHash));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(verifyBodyHash(blockCbor, bodyHash));
+        expect(Exit.isSuccess(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("fails with wrong body hash", async () => {
-    const txBodies = emptyArray;
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
+  it.effect("fails with wrong body hash", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBodies = emptyArray;
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
 
-    const wrongHash = new Uint8Array(32).fill(0xff);
-    const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
+        const wrongHash = new Uint8Array(32).fill(0xff);
+        const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
 
-    const result = await run(verifyBodyHash(blockCbor, wrongHash));
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(verifyBodyHash(blockCbor, wrongHash));
+        expect(Exit.isFailure(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("fails with tampered txBodies", async () => {
-    const txBodies = emptyArray;
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
+  it.effect("fails with tampered txBodies", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBodies = emptyArray;
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
 
-    const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
+        const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
 
-    const tamperedTxBodies: CborSchemaType = {
-      _tag: CborKinds.Array,
-      items: [{ _tag: CborKinds.UInt, num: 42n }],
-    };
-    const blockCbor = makeBlockCbor(2, tamperedTxBodies, witnesses, auxData);
+        const tamperedTxBodies: CborSchemaType = {
+          _tag: CborKinds.Array,
+          items: [{ _tag: CborKinds.UInt, num: 42n }],
+        };
+        const blockCbor = makeBlockCbor(2, tamperedTxBodies, witnesses, auxData);
 
-    const result = await run(verifyBodyHash(blockCbor, bodyHash));
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(verifyBodyHash(blockCbor, bodyHash));
+        expect(Exit.isFailure(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("skips Byron blocks (era 0)", async () => {
-    const byronBlock: CborSchemaType = {
-      _tag: CborKinds.Array,
-      items: [
-        { _tag: CborKinds.UInt, num: 0n },
-        { _tag: CborKinds.Bytes, bytes: new Uint8Array(10) },
-      ],
-    };
-    const blockCbor = encodeSync(byronBlock);
-    const anyHash = new Uint8Array(32);
+  it.effect("skips Byron blocks (era 0)", () =>
+    provide(
+      Effect.gen(function* () {
+        const byronBlock: CborSchemaType = {
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 0n },
+            { _tag: CborKinds.Bytes, bytes: new Uint8Array(10) },
+          ],
+        };
+        const blockCbor = encodeSync(byronBlock);
+        const anyHash = new Uint8Array(32);
 
-    const result = await run(verifyBodyHash(blockCbor, anyHash));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(verifyBodyHash(blockCbor, anyHash));
+        expect(Exit.isSuccess(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("skips EBB blocks (era 1)", async () => {
-    const ebbBlock: CborSchemaType = {
-      _tag: CborKinds.Array,
-      items: [
-        { _tag: CborKinds.UInt, num: 1n },
-        { _tag: CborKinds.Bytes, bytes: new Uint8Array(10) },
-      ],
-    };
-    const blockCbor = encodeSync(ebbBlock);
-    const anyHash = new Uint8Array(32);
+  it.effect("skips EBB blocks (era 1)", () =>
+    provide(
+      Effect.gen(function* () {
+        const ebbBlock: CborSchemaType = {
+          _tag: CborKinds.Array,
+          items: [
+            { _tag: CborKinds.UInt, num: 1n },
+            { _tag: CborKinds.Bytes, bytes: new Uint8Array(10) },
+          ],
+        };
+        const blockCbor = encodeSync(ebbBlock);
+        const anyHash = new Uint8Array(32);
 
-    const result = await run(verifyBodyHash(blockCbor, anyHash));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(verifyBodyHash(blockCbor, anyHash));
+        expect(Exit.isSuccess(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("passes with non-empty transaction bodies", async () => {
-    const txBody: CborSchemaType = {
-      _tag: CborKinds.Map,
-      entries: [
-        {
-          k: { _tag: CborKinds.UInt, num: 0n },
-          v: { _tag: CborKinds.Array, items: [] },
-        },
-        {
-          k: { _tag: CborKinds.UInt, num: 1n },
-          v: { _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 1000000n }] },
-        },
-      ],
-    };
-    const txBodies: CborSchemaType = { _tag: CborKinds.Array, items: [txBody] };
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
-    const invalidTxs = emptyArray;
+  it.effect("passes with non-empty transaction bodies", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBody: CborSchemaType = {
+          _tag: CborKinds.Map,
+          entries: [
+            {
+              k: { _tag: CborKinds.UInt, num: 0n },
+              v: { _tag: CborKinds.Array, items: [] },
+            },
+            {
+              k: { _tag: CborKinds.UInt, num: 1n },
+              v: { _tag: CborKinds.Array, items: [{ _tag: CborKinds.UInt, num: 1000000n }] },
+            },
+          ],
+        };
+        const txBodies: CborSchemaType = { _tag: CborKinds.Array, items: [txBody] };
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
+        const invalidTxs = emptyArray;
 
-    const bodyHash = computeBodyHash(txBodies, witnesses, auxData, invalidTxs);
-    const blockCbor = makeBlockCbor(6, txBodies, witnesses, auxData, invalidTxs);
+        const bodyHash = computeBodyHash(txBodies, witnesses, auxData, invalidTxs);
+        const blockCbor = makeBlockCbor(6, txBodies, witnesses, auxData, invalidTxs);
 
-    const result = await run(verifyBodyHash(blockCbor, bodyHash));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(verifyBodyHash(blockCbor, bodyHash));
+        expect(Exit.isSuccess(result)).toBe(true);
+      }),
+    ),
+  );
 });
 
 describe("validateBlock", () => {
-  it("passes within size limit", async () => {
-    const txBodies = emptyArray;
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
-    const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
-    const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
+  it.effect("passes within size limit", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBodies = emptyArray;
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
+        const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
+        const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
 
-    const result = await run(validateBlock(blockCbor, bodyHash, 1_000_000));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(validateBlock(blockCbor, bodyHash, 1_000_000));
+        expect(Exit.isSuccess(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("fails when exceeding size limit", async () => {
-    const txBodies = emptyArray;
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
-    const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
-    const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
+  it.effect("fails when exceeding size limit", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBodies = emptyArray;
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
+        const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
+        const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
 
-    const result = await run(validateBlock(blockCbor, bodyHash, 1));
-    expect(Exit.isFailure(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(validateBlock(blockCbor, bodyHash, 1));
+        expect(Exit.isFailure(result)).toBe(true);
+      }),
+    ),
+  );
 
-  it("skips size check when maxBlockBodySize is 0", async () => {
-    const txBodies = emptyArray;
-    const witnesses = emptyArray;
-    const auxData = emptyMap;
-    const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
-    const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
+  it.effect("skips size check when maxBlockBodySize is 0", () =>
+    provide(
+      Effect.gen(function* () {
+        const txBodies = emptyArray;
+        const witnesses = emptyArray;
+        const auxData = emptyMap;
+        const bodyHash = computeBodyHash(txBodies, witnesses, auxData);
+        const blockCbor = makeBlockCbor(2, txBodies, witnesses, auxData);
 
-    const result = await run(validateBlock(blockCbor, bodyHash));
-    expect(Exit.isSuccess(result)).toBe(true);
-  });
+        const result = yield* Effect.exit(validateBlock(blockCbor, bodyHash));
+        expect(Exit.isSuccess(result)).toBe(true);
+      }),
+    ),
+  );
 });

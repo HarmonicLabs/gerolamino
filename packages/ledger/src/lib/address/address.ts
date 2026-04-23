@@ -1,5 +1,6 @@
 import { Effect, Option, Schema, SchemaIssue } from "effect";
 import { cborCodec, CborKinds, type CborSchemaType, CborValue as CborValueSchema } from "codecs";
+import { cborBytes } from "../core/cbor-utils.ts";
 import { Network } from "../core/primitives.ts";
 import { Credential, CredentialKind } from "../core/credentials.ts";
 
@@ -175,7 +176,7 @@ export const encodeAddr = Addr.match({
     result[0] = header;
     result.set(a.pay.hash, 1);
     result.set(a.stake.hash, 29);
-    return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
+    return Effect.succeed(cborBytes(result));
   },
   [AddrKind.Enterprise]: (a) => {
     const payBit = credKindBit(a.pay);
@@ -185,7 +186,7 @@ export const encodeAddr = Addr.match({
     const result = new Uint8Array(29);
     result[0] = header;
     result.set(a.pay.hash, 1);
-    return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
+    return Effect.succeed(cborBytes(result));
   },
   [AddrKind.Reward]: (a) => {
     const stakeBit = credKindBit(a.stake);
@@ -195,10 +196,10 @@ export const encodeAddr = Addr.match({
     const result = new Uint8Array(29);
     result[0] = header;
     result.set(a.stake.hash, 1);
-    return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
+    return Effect.succeed(cborBytes(result));
   },
   [AddrKind.Bootstrap]: (a) =>
-    Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: a.bytes })),
+    Effect.succeed(cborBytes(a.bytes)),
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -242,7 +243,7 @@ export function encodeRwdAddr(addr: RwdAddr): Effect.Effect<CborSchemaType, Sche
   const result = new Uint8Array(29);
   result[0] = header;
   result.set(addr.stake.hash, 1);
-  return Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: result }));
+  return Effect.succeed(cborBytes(result));
 }
 
 // ────────────────────────────────────────────────────────────────────────────

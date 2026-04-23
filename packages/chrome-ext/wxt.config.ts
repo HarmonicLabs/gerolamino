@@ -27,8 +27,8 @@ const workspaceAliases = [
   { find: /^consensus\/(.*)/, replacement: path.join(pkg("consensus"), "$1") },
   { find: /^dashboard$/, replacement: path.join(pkg("dashboard"), "index.ts") },
   { find: /^dashboard\/(.*)/, replacement: path.join(pkg("dashboard"), "$1") },
-  { find: /^lsm-tree$/, replacement: path.join(pkg("lsm-tree"), "index.ts") },
-  { find: /^lsm-tree\/(.*)/, replacement: path.join(pkg("lsm-tree"), "$1") },
+  { find: /^ffi$/, replacement: path.join(pkg("ffi"), "index.ts") },
+  { find: /^ffi\/(.*)/, replacement: path.join(pkg("ffi"), "$1") },
   { find: /^wasm-utils$/, replacement: path.join(root, "packages/wasm-utils/pkg/wasm_utils.js") },
   {
     find: /^wasm-plexer$/,

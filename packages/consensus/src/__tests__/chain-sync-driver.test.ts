@@ -1,15 +1,15 @@
-import { describe, expect } from "vitest";
-import { it, layer } from "@effect/vitest";
+import { describe, expect, it, layer } from "@effect/vitest";
 import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
 import { encodeSync, CborKinds, type CborSchemaType } from "codecs";
-import { handleRollForward, handleRollBackward, initialVolatileState } from "../chain-sync-driver";
-import { ConsensusEngineWithBunCrypto } from "../consensus-engine";
-import { PeerManager, PeerManagerLive } from "../peer-manager";
-import { SlotClock, SlotClockLive, SlotConfig } from "../clock";
+import { handleRollForward, handleRollBackward, initialVolatileState } from "../sync/driver";
+import { ConsensusEngineLive } from "../praos/engine";
+import { CryptoStub } from "./crypto-stub";
+import { PeerManager, PeerManagerLive } from "../peer/manager";
+import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
 import { ChainDB } from "storage";
-import { Nonces } from "../nonce";
+import { Nonces } from "../praos/nonce";
 import { hex } from "../util";
-import type { LedgerView } from "../validate-header";
+import type { LedgerView } from "../validate/header";
 
 const testConfig = new SlotConfig({
   systemStartMs: 0,
@@ -57,7 +57,7 @@ const stubChainDb = Layer.succeed(ChainDB, {
 });
 
 const testLayers = Layer.mergeAll(
-  ConsensusEngineWithBunCrypto,
+  ConsensusEngineLive.pipe(Layer.provideMerge(CryptoStub)),
   slotClockLayer,
   peerManagerLayer,
   stubChainDb,

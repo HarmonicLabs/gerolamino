@@ -1,4 +1,5 @@
 import { describe, it } from "@effect/vitest";
+import { Equal } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
 import { CborKinds, type CborValue, encodeSync, parseSync } from "../index";
 
@@ -97,9 +98,6 @@ const makeCborArb = (): FastCheck.Arbitrary<CborValue> => {
 
 const cborValueArb = makeCborArb();
 
-const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean =>
-  a.byteLength === b.byteLength && a.every((byte, i) => byte === b[i]);
-
 // ────────────────────────────────────────────────────────────────────────────
 // Property P2 — value round-trip: parseSync(encodeSync(v)) structurally
 // equals v (after stripping wire-format hints).
@@ -111,10 +109,7 @@ describe("CBOR round-trip properties", () => {
       FastCheck.property(cborValueArb, (v) => {
         const bytes = encodeSync(v);
         const parsed = parseSync(bytes);
-        return (
-          JSON.stringify(stripAddInfos(parsed), bigintReplacer) ===
-          JSON.stringify(stripAddInfos(v), bigintReplacer)
-        );
+        return Equal.equals(stripAddInfos(parsed), stripAddInfos(v));
       }),
       { numRuns: 300 },
     );
@@ -128,7 +123,7 @@ describe("CBOR round-trip properties", () => {
 
   it("P1: encodeSync(v) is deterministic across calls", () => {
     FastCheck.assert(
-      FastCheck.property(cborValueArb, (v) => bytesEqual(encodeSync(v), encodeSync(v))),
+      FastCheck.property(cborValueArb, (v) => Equal.equals(encodeSync(v), encodeSync(v))),
       { numRuns: 200 },
     );
   });
@@ -149,7 +144,7 @@ describe("CBOR round-trip properties", () => {
         const first = encodeSync(v);
         const parsed = parseSync(first);
         const second = encodeSync(parsed);
-        return bytesEqual(first, second);
+        return Equal.equals(first, second);
       }),
       { numRuns: 200 },
     );
@@ -221,11 +216,7 @@ describe("CBOR length-prefix boundary properties", () => {
         (bytes) => {
           const v: CborValue = { _tag: CborKinds.Bytes, bytes };
           const back = parseSync(encodeSync(v));
-          return (
-            back._tag === CborKinds.Bytes &&
-            back.bytes.byteLength === bytes.byteLength &&
-            back.bytes.every((b, i) => b === bytes[i])
-          );
+          return back._tag === CborKinds.Bytes && Equal.equals(back.bytes, bytes);
         },
       ),
       { numRuns: 200 },
@@ -243,5 +234,3 @@ describe("CBOR length-prefix boundary properties", () => {
     );
   });
 });
-
-const bigintReplacer = (_: string, v: unknown): unknown => (typeof v === "bigint" ? `${v}n` : v);

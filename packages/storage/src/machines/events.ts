@@ -8,30 +8,16 @@
  */
 import { Schema } from "effect";
 import { RealPoint } from "../types/StoredBlock.ts";
-import { LedgerStateSnapshot } from "../types/LedgerState.ts";
-import { MempoolTx } from "../types/Mempool.ts";
-
-// ---------------------------------------------------------------------------
-// ChainDB events
-// ---------------------------------------------------------------------------
 
 export const ChainDBEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("BLOCK_ADDED"), tip: RealPoint }),
   Schema.Struct({ type: Schema.Literal("IMMUTABILITY_CHECK") }),
   Schema.Struct({ type: Schema.Literal("ROLLBACK"), point: RealPoint }),
   Schema.Struct({ type: Schema.Literal("ERROR"), error: Schema.Defect }),
+  Schema.Struct({ type: Schema.Literal("PROMOTE_DONE"), promoted: Schema.Number }),
+  Schema.Struct({ type: Schema.Literal("PROMOTE_FAILED"), error: Schema.Defect }),
+  Schema.Struct({ type: Schema.Literal("GC_DONE") }),
+  Schema.Struct({ type: Schema.Literal("GC_FAILED"), error: Schema.Defect }),
 ]).pipe(Schema.toTaggedUnion("type"));
 
 export type ChainDBEvent = typeof ChainDBEvent.Type;
-
-// ---------------------------------------------------------------------------
-// Mempool events
-// ---------------------------------------------------------------------------
-
-export const MempoolEvent = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("TX_SUBMITTED"), tx: MempoolTx }),
-  Schema.Struct({ type: Schema.Literal("BLOCK_APPLIED"), txIds: Schema.Array(Schema.Uint8Array) }),
-  Schema.Struct({ type: Schema.Literal("REVALIDATE"), ledgerState: LedgerStateSnapshot }),
-]).pipe(Schema.toTaggedUnion("type"));
-
-export type MempoolEvent = typeof MempoolEvent.Type;

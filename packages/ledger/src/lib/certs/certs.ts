@@ -17,6 +17,7 @@ import {
   withCborLink,
 } from "codecs";
 import { Bytes28, Bytes32 } from "../core/hashes.ts";
+import { cborMap, negInt, uint } from "../core/cbor-utils.ts";
 import { Credential, CredentialCbor } from "../core/credentials.ts";
 import { Anchor, DRep } from "../governance/governance.ts";
 import { MAX_WORD64, UnitInterval } from "../core/primitives.ts";
@@ -71,12 +72,28 @@ const DeltaCoin = Schema.BigInt.pipe(
   Schema.check(Schema.isBetweenBigInt({ minimum: MIN_INT64, maximum: MAX_INT64 })),
 );
 
-const signedBigIntToCbor = (n: bigint): CborValue =>
-  CborValueSchema.make(
-    n >= 0n ? { _tag: CborKinds.UInt, num: n } : { _tag: CborKinds.NegInt, num: n },
-  );
+const signedBigIntToCbor = (n: bigint): CborValue => (n >= 0n ? uint(n) : negInt(n));
 
 const isSignedCborInt = CborValueSchema.isAnyOf([CborKinds.UInt, CborKinds.NegInt]);
+
+const invalid = <T>(value: T, message: string): Effect.Effect<never, SchemaIssue.Issue> =>
+  Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message }));
+
+const decodeMIRMapEntry = (entry: { k: CborValue; v: CborValue }) =>
+  Schema.decodeEffect(CredentialCbor)(entry.k).pipe(
+    Effect.mapError((e) => e.issue),
+    Effect.flatMap((credential) =>
+      isSignedCborInt(entry.v)
+        ? Effect.succeed({ credential, coin: entry.v.num })
+        : invalid(entry.v, "MIRTarget.map: delta_coin entry must be UInt or NegInt"),
+    ),
+  );
+
+const encodeMIRMapEntry = (e: { credential: typeof Credential.Type; coin: bigint }) =>
+  Schema.encodeEffect(CredentialCbor)(e.credential).pipe(
+    Effect.mapError((err) => err.issue),
+    Effect.map((k) => ({ k, v: signedBigIntToCbor(e.coin) })),
+  );
 
 // Internal binding: tagged-union-augmented base (exposes `.cases`/`.match`/
 // `.guards`/`.isAnyOf`). Referenced inside the `withCborLink` callback where
@@ -100,73 +117,22 @@ export const MIRTarget = MIRTargetBase.pipe(
             [CborKinds.UInt]: (cbor) =>
               Effect.succeed(MIRTargetBase.cases.coin.make({ value: cbor.num })),
             [CborKinds.Map]: (cbor) =>
-              Effect.all(
-                cbor.entries.map((entry) =>
-                  Effect.gen(function* () {
-                    const credential = yield* Schema.decodeEffect(CredentialCbor)(entry.k).pipe(
-                      Effect.mapError((e) => e.issue),
-                    );
-                    if (!isSignedCborInt(entry.v)) {
-                      return yield* Effect.fail(
-                        new SchemaIssue.InvalidValue(Option.some(entry.v), {
-                          message: "MIRTarget.map: delta_coin entry must be UInt or NegInt",
-                        }),
-                      );
-                    }
-                    return { credential, coin: entry.v.num };
-                  }),
-                ),
-              ).pipe(Effect.map((entries) => MIRTargetBase.cases.map.make({ entries }))),
+              Effect.all(cbor.entries.map(decodeMIRMapEntry)).pipe(
+                Effect.map((entries) => MIRTargetBase.cases.map.make({ entries })),
+              ),
             [CborKinds.NegInt]: (cbor) =>
-              Effect.fail(
-                new SchemaIssue.InvalidValue(Option.some(cbor), {
-                  message: "MIRTarget.coin: bare coin must be UInt (non-negative)",
-                }),
-              ),
-            [CborKinds.Bytes]: (cbor) =>
-              Effect.fail(
-                new SchemaIssue.InvalidValue(Option.some(cbor), {
-                  message: "MIRTarget: Bytes not allowed",
-                }),
-              ),
-            [CborKinds.Text]: (cbor) =>
-              Effect.fail(
-                new SchemaIssue.InvalidValue(Option.some(cbor), {
-                  message: "MIRTarget: Text not allowed",
-                }),
-              ),
-            [CborKinds.Array]: (cbor) =>
-              Effect.fail(
-                new SchemaIssue.InvalidValue(Option.some(cbor), {
-                  message: "MIRTarget: Array not allowed",
-                }),
-              ),
-            [CborKinds.Tag]: (cbor) =>
-              Effect.fail(
-                new SchemaIssue.InvalidValue(Option.some(cbor), {
-                  message: "MIRTarget: Tag not allowed",
-                }),
-              ),
-            [CborKinds.Simple]: (cbor) =>
-              Effect.fail(
-                new SchemaIssue.InvalidValue(Option.some(cbor), {
-                  message: "MIRTarget: Simple not allowed",
-                }),
-              ),
+              invalid(cbor, "MIRTarget.coin: bare coin must be UInt (non-negative)"),
+            [CborKinds.Bytes]: (cbor) => invalid(cbor, "MIRTarget: Bytes not allowed"),
+            [CborKinds.Text]: (cbor) => invalid(cbor, "MIRTarget: Text not allowed"),
+            [CborKinds.Array]: (cbor) => invalid(cbor, "MIRTarget: Array not allowed"),
+            [CborKinds.Tag]: (cbor) => invalid(cbor, "MIRTarget: Tag not allowed"),
+            [CborKinds.Simple]: (cbor) => invalid(cbor, "MIRTarget: Simple not allowed"),
           }),
           encode: MIRTargetBase.match({
-            coin: (value) =>
-              Effect.succeed(CborValueSchema.make({ _tag: CborKinds.UInt, num: value.value })),
+            coin: (value) => Effect.succeed(uint(value.value)),
             map: (value) =>
-              Effect.all(
-                value.entries.map((e) =>
-                  Schema.encodeEffect(CredentialCbor)(e.credential).pipe(
-                    Effect.mapError((err) => err.issue),
-                    Effect.map((k) => ({ k, v: signedBigIntToCbor(e.coin) })),
-                  ),
-                ),
-              ).pipe(
-                Effect.map((entries) => CborValueSchema.make({ _tag: CborKinds.Map, entries })),
+              Effect.all(value.entries.map(encodeMIRMapEntry)).pipe(
+                Effect.map((entries) => cborMap(entries)),
               ),
           }),
         }),

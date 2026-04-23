@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Clock, Effect, Layer } from "effect";
-import { SlotClock, SlotClockLive, PREPROD_CONFIG, SlotConfig } from "../clock";
+import { SlotClock, SlotClockLive, PREPROD_CONFIG, SlotConfig } from "../praos/clock";
 
 /** Test config: system start at epoch 0, 1s slots, 100 slots per epoch. */
 const TEST_CONFIG = new SlotConfig({
@@ -27,110 +27,107 @@ const withClockAt = (ms: number) => {
   );
 };
 
-const run = <A>(ms: number, effect: Effect.Effect<A, unknown, SlotClock>) =>
-  effect.pipe(Effect.provide(withClockAt(ms)), Effect.runPromise);
+const provide = <A>(ms: number, effect: Effect.Effect<A, unknown, SlotClock>) =>
+  effect.pipe(Effect.provide(withClockAt(ms)));
 
 describe("SlotClock", () => {
-  it("slot 0 at system start", async () => {
-    const slot = await run(
+  it.effect("slot 0 at system start", () =>
+    provide(
       0,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
-        return yield* clock.currentSlot;
+        const slot = yield* clock.currentSlot;
+        expect(slot).toBe(0n);
       }),
-    );
-    expect(slot).toBe(0n);
-  });
+    ),
+  );
 
-  it("slot 1 after 1 second", async () => {
-    const slot = await run(
+  it.effect("slot 1 after 1 second", () =>
+    provide(
       1000,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
-        return yield* clock.currentSlot;
+        const slot = yield* clock.currentSlot;
+        expect(slot).toBe(1n);
       }),
-    );
-    expect(slot).toBe(1n);
-  });
+    ),
+  );
 
-  it("slot 99 at end of first epoch", async () => {
-    const slot = await run(
+  it.effect("slot 99 at end of first epoch", () =>
+    provide(
       99_000,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
-        return yield* clock.currentSlot;
+        const slot = yield* clock.currentSlot;
+        expect(slot).toBe(99n);
       }),
-    );
-    expect(slot).toBe(99n);
-  });
+    ),
+  );
 
-  it("epoch 1 starts at slot 100", async () => {
-    const result = await run(
+  it.effect("epoch 1 starts at slot 100", () =>
+    provide(
       100_000,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
-        return {
-          slot: yield* clock.currentSlot,
-          epoch: yield* clock.currentEpoch,
-          slotInEpoch: yield* clock.slotInEpoch,
-        };
+        const slot = yield* clock.currentSlot;
+        const epoch = yield* clock.currentEpoch;
+        const slotInEpoch = yield* clock.slotInEpoch;
+        expect(slot).toBe(100n);
+        expect(epoch).toBe(1n);
+        expect(slotInEpoch).toBe(0n);
       }),
-    );
-    expect(result.slot).toBe(100n);
-    expect(result.epoch).toBe(1n);
-    expect(result.slotInEpoch).toBe(0n);
-  });
+    ),
+  );
 
-  it("returns 0 for time before system start", async () => {
-    const slot = await run(
+  it.effect("returns 0 for time before system start", () =>
+    provide(
       -5000,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
-        return yield* clock.currentSlot;
+        const slot = yield* clock.currentSlot;
+        expect(slot).toBe(0n);
       }),
-    );
-    expect(slot).toBe(0n);
-  });
+    ),
+  );
 
-  it("slotToMs is inverse of msToSlot", async () => {
-    const result = await run(
+  it.effect("slotToMs is inverse of msToSlot", () =>
+    provide(
       42_500,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
         const slot = clock.msToSlot(42_500);
         const ms = clock.slotToMs(slot);
-        return { slot, ms };
+        expect(slot).toBe(42n);
+        expect(ms).toBe(42_000); // floor of 42.5s
       }),
-    );
-    expect(result.slot).toBe(42n);
-    expect(result.ms).toBe(42_000); // floor of 42.5s
-  });
+    ),
+  );
 
-  it("stability window is 3k/f", async () => {
-    const sw = await run(
+  it.effect("stability window is 3k/f", () =>
+    provide(
       0,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
-        return clock.stabilityWindow;
+        const sw = clock.stabilityWindow;
+        // k=10, f=0.5 → ceil(3*10/0.5) = 60
+        expect(sw).toBe(60n);
       }),
-    );
-    // k=10, f=0.5 → ceil(3*10/0.5) = 60
-    expect(sw).toBe(60n);
-  });
+    ),
+  );
 
-  it("randomness stabilization window is 4k/f", async () => {
-    const rsw = await run(
+  it.effect("randomness stabilization window is 4k/f", () =>
+    provide(
       0,
       Effect.gen(function* () {
         const clock = yield* SlotClock;
-        return clock.randomnessStabilizationWindow;
+        const rsw = clock.randomnessStabilizationWindow;
+        // k=10, f=0.5 → ceil(4*10/0.5) = 80
+        expect(rsw).toBe(80n);
       }),
-    );
-    // k=10, f=0.5 → ceil(4*10/0.5) = 80
-    expect(rsw).toBe(80n);
-  });
+    ),
+  );
 
-  it("works with preprod config", async () => {
+  it.effect("works with preprod config", () => {
     // Preprod system start: 2022-06-01T00:00:00Z = 1654041600000
     const now = 1654041600000 + 432_000_000; // exactly 1 epoch later
     const layer = Layer.effect(
@@ -145,14 +142,12 @@ describe("SlotClock", () => {
         }),
       ),
     );
-    const result = await Effect.gen(function* () {
+    return Effect.gen(function* () {
       const clock = yield* SlotClock;
-      return {
-        slot: yield* clock.currentSlot,
-        epoch: yield* clock.currentEpoch,
-      };
-    }).pipe(Effect.provide(layer), Effect.runPromise);
-    expect(result.slot).toBe(432_000n);
-    expect(result.epoch).toBe(1n);
+      const slot = yield* clock.currentSlot;
+      const epoch = yield* clock.currentEpoch;
+      expect(slot).toBe(432_000n);
+      expect(epoch).toBe(1n);
+    }).pipe(Effect.provide(layer));
   });
 });

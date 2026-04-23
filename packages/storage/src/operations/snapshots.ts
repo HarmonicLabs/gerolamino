@@ -34,11 +34,11 @@ export const writeSnapshot = (snapshot: LedgerStateSnapshot) =>
       Effect.all(
         [
           store.put(snapshotKey(snapshot.slot), snapshot.stateBytes),
-          sql`
-            INSERT INTO ledger_snapshots (slot, hash, epoch)
-            VALUES (${Number(snapshot.slot)}, ${snapshot.point.hash}, ${Number(snapshot.epoch)})
-            ON CONFLICT (slot) DO UPDATE SET hash = ${snapshot.point.hash}
-          `.unprepared,
+          sql`INSERT INTO ledger_snapshots ${sql.insert({
+            slot: Number(snapshot.slot),
+            hash: snapshot.point.hash,
+            epoch: Number(snapshot.epoch),
+          })} ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`,
         ],
         { concurrency: "unbounded" },
       ),

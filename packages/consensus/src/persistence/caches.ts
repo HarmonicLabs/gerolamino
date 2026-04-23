@@ -1,0 +1,190 @@
+/**
+ * Persistence-backed caches — `PersistedCache` wrappers for expensive
+ * header-decode + VRF-verify operations.
+ *
+ * Header cache keyed by block-header hash (32 bytes); VRF-output cache
+ * keyed by `(publicKey, proof, message)` — the exact same inputs that
+ * make VRF verification deterministic. Cache hits skip the WASM VRF
+ * verify (~0.4ms/call) + the header CBOR decode (~0.5ms/call), which
+ * translates directly to sync-loop throughput at the per-header level.
+ *
+ * Both caches are fronted by an in-memory LRU (`inMemoryCapacity`) and
+ * backed by the `Persistence` service. Consumers compose:
+ *
+ *     const layer = PersistenceCachesLive.pipe(
+ *       Layer.provide(Persistence.layerMemory)        // tests
+ *       // Layer.provide(Persistence.layerBackingSql) // apps/bootstrap
+ *     )
+ *
+ * On restart, hits on a persistent backend survive; the in-memory LRU
+ * cold-starts empty but refills on demand.
+ */
+import { Context, Duration, Effect, Equal, Hash, Layer, PrimaryKey, Schema } from "effect";
+import { Persistable, PersistedCache, Persistence } from "effect/unstable/persistence";
+
+import { BlockHeader } from "../validate/header";
+
+// ---------------------------------------------------------------------------
+// Header-hash key
+// ---------------------------------------------------------------------------
+
+const hexOfBytes = (b: Uint8Array): string => {
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += b[i]!.toString(16).padStart(2, "0");
+  return s;
+};
+
+export class HeaderDecodeError extends Schema.TaggedErrorClass<HeaderDecodeError>()(
+  "consensus/HeaderDecodeError",
+  { reason: Schema.String },
+) {}
+
+/**
+ * Cache key for the header-hash→decoded-header cache. The `primaryKey`
+ * is the hex-encoded 32-byte block header hash so byte-identity blocks
+ * hit the cache regardless of reference-equality.
+ */
+class HeaderCacheKeyBase extends Persistable.Class<{
+  payload: { readonly headerHash: Uint8Array };
+}>()("consensus/HeaderCacheKey", {
+  primaryKey: (payload) => hexOfBytes(payload.headerHash),
+  success: BlockHeader,
+  error: HeaderDecodeError,
+}) {}
+
+/**
+ * Override `Equal` + `Hash` on top of `Persistable.Class`'s default
+ * `StructuralProto` — the default keys on field-names, which collapses
+ * all instances with `Uint8Array` payloads into a single LRU bucket
+ * regardless of byte contents. We key on the `PrimaryKey` string
+ * (already derived from the bytes) so byte-distinct keys are treated
+ * as distinct, and byte-identical keys hit the cache.
+ */
+export class HeaderCacheKey extends HeaderCacheKeyBase {
+  [Equal.symbol](that: unknown): boolean {
+    return (
+      that instanceof HeaderCacheKey &&
+      PrimaryKey.value(this) === PrimaryKey.value(that)
+    );
+  }
+  [Hash.symbol](): number {
+    return Hash.string(PrimaryKey.value(this));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// VRF verify cache key — inputs are (pubkey || proof || message), all
+// deterministic, so the VRF output is a pure function of them.
+// ---------------------------------------------------------------------------
+
+export class VrfVerifyError extends Schema.TaggedErrorClass<VrfVerifyError>()(
+  "consensus/VrfVerifyError",
+  { reason: Schema.String },
+) {}
+
+class VrfCacheKeyBase extends Persistable.Class<{
+  payload: {
+    readonly publicKey: Uint8Array;
+    readonly proof: Uint8Array;
+    readonly message: Uint8Array;
+  };
+}>()("consensus/VrfCacheKey", {
+  primaryKey: (p) => `${hexOfBytes(p.publicKey)}:${hexOfBytes(p.proof)}:${hexOfBytes(p.message)}`,
+  success: Schema.Uint8Array,
+  error: VrfVerifyError,
+}) {}
+
+/** See `HeaderCacheKey` note — structural-equality override for byte payloads. */
+export class VrfCacheKey extends VrfCacheKeyBase {
+  [Equal.symbol](that: unknown): boolean {
+    return (
+      that instanceof VrfCacheKey &&
+      PrimaryKey.value(this) === PrimaryKey.value(that)
+    );
+  }
+  [Hash.symbol](): number {
+    return Hash.string(PrimaryKey.value(this));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Services — the cache surfaces consumers yield for
+// `.get(key): Effect<Value, Error, ...>`.
+// ---------------------------------------------------------------------------
+
+export class HeaderCache extends Context.Service<
+  HeaderCache,
+  PersistedCache.PersistedCache<HeaderCacheKey>
+>()("consensus/HeaderCache") {}
+
+export class VrfCache extends Context.Service<
+  VrfCache,
+  PersistedCache.PersistedCache<VrfCacheKey>
+>()("consensus/VrfCache") {}
+
+// ---------------------------------------------------------------------------
+// Factory — lookup functions are injected at layer build time by the
+// integration point (consensus/validate/header.ts wires the real CBOR
+// decoder; consensus/praos/engine.ts wires the WASM VRF verifier).
+// For the default scaffold, both lookups fail loudly so a missing wire
+// shows up as a runtime error instead of a silent no-op.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `HeaderCache` layer that calls `decode(hash)` on miss. Caller
+ * supplies the decode function; production wiring comes from
+ * `validate/header.ts` + `codecs` / `ledger` decoders.
+ */
+export const headerCacheLayer = (
+  decode: (hash: Uint8Array) => Effect.Effect<BlockHeader["Type"], HeaderDecodeError>,
+) =>
+  Layer.effect(
+    HeaderCache,
+    PersistedCache.make(
+      (key: HeaderCacheKey) => decode(key.headerHash),
+      {
+        storeId: "consensus-header-cache",
+        // Plan §3b: recent 1000 headers; k=2160 is the security window.
+        // TTL = 1h covers a full k-depth rollback without prematurely
+        // evicting hot headers the sync loop is about to revisit.
+        timeToLive: () => Duration.hours(1),
+        inMemoryCapacity: 1024,
+        inMemoryTTL: () => Duration.minutes(5),
+      },
+    ),
+  );
+
+/**
+ * Build a `VrfCache` layer. Consumer supplies the VRF verify routine
+ * (typically bound to `wasm-utils`'s `Crypto.vrfVerify` — the WASM
+ * module owns the curve math).
+ */
+export const vrfCacheLayer = (
+  verify: (
+    publicKey: Uint8Array,
+    proof: Uint8Array,
+    message: Uint8Array,
+  ) => Effect.Effect<Uint8Array, VrfVerifyError>,
+) =>
+  Layer.effect(
+    VrfCache,
+    PersistedCache.make(
+      (key: VrfCacheKey) => verify(key.publicKey, key.proof, key.message),
+      {
+        storeId: "consensus-vrf-cache",
+        // VRF outputs are pure per-epoch; TTL = 24h means an epoch's
+        // leader checks + nonce contributions reuse the same cached
+        // outputs. Post-epoch the cache entries stop being hit by the
+        // fresh epoch's schedule so eviction is benign.
+        timeToLive: () => Duration.hours(24),
+        inMemoryCapacity: 4096,
+        inMemoryTTL: () => Duration.minutes(15),
+      },
+    ),
+  );
+
+/**
+ * `Persistence` service provider — the tests wire memory; apps wire a
+ * SQL or Redis backend. Re-exported for call-site convenience.
+ */
+export const PersistenceLayerMemory = Persistence.layerMemory;

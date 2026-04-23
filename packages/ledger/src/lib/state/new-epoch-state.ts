@@ -35,8 +35,9 @@ import {
   withCborLink,
 } from "codecs";
 import { StateCredential, StateCredentialCbor } from "../core/credentials.ts";
+import { arr, cborBytes, cborNull } from "../core/cbor-utils.ts";
 import { Bytes28, Bytes32 } from "../core/hashes.ts";
-import { Era } from "../core/era.ts";
+import { Era, EraSchema } from "../core/era.ts";
 import { Anchor, DRep } from "../governance/governance.ts";
 import { PoolParamsStatePState, PoolParamsStatePStateCbor } from "../pool/pool-state.ts";
 import { DepositPurpose, DepositPurposeCbor, DepositPurposeKind } from "./deposits.ts";
@@ -308,17 +309,11 @@ const constitutionLink = new AST.Link(
       [CborKinds.Simple]: (cbor) => invalid(cbor, "Constitution: expected Array"),
     }),
     encode: ({ anchor, scriptHash }) =>
-      Effect.gen(function* () {
-        const anchorCbor = yield* SchemaParser.encodeEffect(toCodecCbor(Anchor))(anchor);
-        const tail: CborValue =
-          scriptHash === undefined
-            ? CborValueSchema.make({ _tag: CborKinds.Simple, value: null })
-            : CborValueSchema.make({ _tag: CborKinds.Bytes, bytes: scriptHash });
-        return CborValueSchema.make({
-          _tag: CborKinds.Array,
-          items: [anchorCbor, tail],
-        });
-      }),
+      SchemaParser.encodeEffect(toCodecCbor(Anchor))(anchor).pipe(
+        Effect.map((anchorCbor) =>
+          arr(anchorCbor, scriptHash === undefined ? cborNull() : cborBytes(scriptHash)),
+        ),
+      ),
   }),
 );
 
@@ -476,19 +471,13 @@ const snapShotLink = new AST.Link(
       [CborKinds.Simple]: (cbor) => invalid(cbor, "SnapShot: expected Array"),
     }),
     encode: (snap) =>
-      Effect.gen(function* () {
-        const stakeCbor = yield* SchemaParser.encodeEffect(snapShotStakeCodec)(snap.stake);
-        const delegationsCbor = yield* SchemaParser.encodeEffect(snapShotDelegationsCodec)(
-          snap.delegations,
-        );
-        const poolParamsCbor = yield* SchemaParser.encodeEffect(snapShotPoolParamsCodec)(
-          snap.poolParams,
-        );
-        return CborValueSchema.make({
-          _tag: CborKinds.Array,
-          items: [stakeCbor, delegationsCbor, poolParamsCbor],
-        });
-      }),
+      Effect.all({
+        stake: SchemaParser.encodeEffect(snapShotStakeCodec)(snap.stake),
+        delegations: SchemaParser.encodeEffect(snapShotDelegationsCodec)(snap.delegations),
+        poolParams: SchemaParser.encodeEffect(snapShotPoolParamsCodec)(snap.poolParams),
+      }).pipe(
+        Effect.map(({ stake, delegations, poolParams }) => arr(stake, delegations, poolParams)),
+      ),
   }),
 );
 
@@ -618,17 +607,16 @@ export type NewEpochState = typeof NewEpochState.Type;
 //   `Array(1, [slot, blockNo, hash])` = At(tip)
 // ────────────────────────────────────────────────────────────────────────────
 
-export type ShelleyTip = {
-  readonly slot: bigint;
-  readonly blockNo: bigint;
-  readonly hash: Uint8Array;
-};
-
-const tipInnerCodec = Schema.Struct({
+export const ShelleyTip = Schema.Struct({
   slot: Schema.BigInt,
   blockNo: Schema.BigInt,
   hash: Bytes32,
-}).pipe(withCborLink((walked) => positionalArrayLink(["slot", "blockNo", "hash"])(walked)));
+});
+export type ShelleyTip = typeof ShelleyTip.Type;
+
+const tipInnerCodec = ShelleyTip.pipe(
+  withCborLink((walked) => positionalArrayLink(["slot", "blockNo", "hash"])(walked)),
+);
 
 const tipLink = new AST.Link(
   CborValueSchema.ast,
@@ -659,10 +647,10 @@ const tipLink = new AST.Link(
     }),
     encode: (opt) =>
       Option.match(opt, {
-        onNone: () => Effect.succeed(CborValueSchema.make({ _tag: CborKinds.Array, items: [] })),
+        onNone: () => Effect.succeed(arr()),
         onSome: (tip) =>
           SchemaParser.encodeEffect(toCodecCbor(tipInnerCodec))(tip).pipe(
-            Effect.map((inner) => CborValueSchema.make({ _tag: CborKinds.Array, items: [inner] })),
+            Effect.map((inner) => arr(inner)),
           ),
       }),
   }),
@@ -680,11 +668,12 @@ export const ShelleyTipOption: Schema.declare<Option.Option<ShelleyTip>> = Schem
 // PastEra — `[start: Bound, end: Bound]` plus an era label.
 // ────────────────────────────────────────────────────────────────────────────
 
-export interface PastEra {
-  readonly era: Era;
-  readonly start: Bound;
-  readonly end: Bound;
-}
+export const PastEra = Schema.Struct({
+  era: EraSchema,
+  start: Bound,
+  end: Bound,
+});
+export type PastEra = typeof PastEra.Type;
 
 // ────────────────────────────────────────────────────────────────────────────
 // ExtLedgerState — top-level wrapper decoded in `decodeExtLedgerState`.
@@ -693,15 +682,16 @@ export interface PastEra {
 // elements are `[start, end]` records for each past era.
 // ────────────────────────────────────────────────────────────────────────────
 
-export interface ExtLedgerState {
-  readonly pastEras: ReadonlyArray<PastEra>;
-  readonly currentEra: Era;
-  readonly currentStart: Bound;
-  readonly tip: Option.Option<ShelleyTip>;
-  readonly newEpochState: NewEpochState;
-  readonly transition: bigint;
-  readonly chainDepState: CborValue;
-}
+export const ExtLedgerState = Schema.Struct({
+  pastEras: Schema.Array(PastEra),
+  currentEra: EraSchema,
+  currentStart: Bound,
+  tip: Schema.Option(ShelleyTip),
+  newEpochState: NewEpochState,
+  transition: Schema.BigInt,
+  chainDepState: CborValueSchema,
+});
+export type ExtLedgerState = typeof ExtLedgerState.Type;
 
 const ERA_NAMES: ReadonlyArray<Era> = [
   Era.Byron,

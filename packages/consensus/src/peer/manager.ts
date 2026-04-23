@@ -1,0 +1,165 @@
+/**
+ * Peer manager — tracks upstream Cardano relay peers and their chain tips.
+ *
+ * Follows Dingo's multi-tier peer governance pattern:
+ *   - Per-peer state: connection status, current tip, last activity
+ *   - Stall detection: mark peers inactive after timeout
+ *   - Best peer selection: Praos chain comparison across all peers
+ *
+ * For a data node, we only need N2N ChainSync clients (no block production).
+ *
+ * Uses Effect abstractions throughout:
+ *   - Clock.currentTimeMillis for testable timestamps
+ *   - Ref<Map> for atomic peer state
+ *   - Config for tunable timeouts
+ */
+import { Clock, Config, Context, Effect, Option, Ref, Schema } from "effect";
+import { SlotClock } from "../praos/clock";
+import { ChainTip, preferCandidate } from "../chain/selection";
+
+/** Connection status for a tracked peer. */
+export const PeerStatus = Schema.Literals([
+  "connecting",
+  "syncing",
+  "synced",
+  "stalled",
+  "disconnected",
+]);
+export type PeerStatus = typeof PeerStatus.Type;
+
+/** Per-peer tracked state. */
+export const PeerState = Schema.Struct({
+  peerId: Schema.String,
+  address: Schema.String,
+  status: PeerStatus,
+  tip: Schema.optional(ChainTip),
+  lastActivityMs: Schema.Number,
+  headersReceived: Schema.Number,
+});
+export type PeerState = typeof PeerState.Type;
+
+/** Stall timeout — configurable via PEER_STALL_TIMEOUT_MS, defaults to 120000 (2 min). */
+const StallTimeoutMs = Config.number("PEER_STALL_TIMEOUT_MS").pipe(
+  Config.withDefault(2 * 60 * 1000),
+);
+
+export class PeerManager extends Context.Service<
+  PeerManager,
+  {
+    /** Register a new peer connection. */
+    readonly addPeer: (peerId: string, address?: string) => Effect.Effect<void>;
+    /** Update a peer's tip after receiving a header. */
+    readonly updatePeerTip: (peerId: string, tip: ChainTip) => Effect.Effect<void>;
+    /** Mark a peer as disconnected. */
+    readonly removePeer: (peerId: string) => Effect.Effect<void>;
+    /** Get the current best peer (highest tip by Praos rules). */
+    readonly getBestPeer: Effect.Effect<Option.Option<PeerState>>;
+    /** Get all tracked peers. */
+    readonly getPeers: Effect.Effect<ReadonlyArray<PeerState>>;
+    /** Check for stalled peers and mark them. */
+    readonly detectStalls: Effect.Effect<ReadonlyArray<string>>;
+    /** Get peer count by status. */
+    readonly getStatusCounts: Effect.Effect<Record<PeerStatus, number>>;
+  }
+>()("consensus/PeerManager") {}
+
+/** In-memory peer manager implementation. */
+export const PeerManagerLive = Effect.gen(function* () {
+  const slotClock = yield* SlotClock;
+  const stallTimeoutMs = yield* StallTimeoutMs;
+  const peers = yield* Ref.make(new Map<string, PeerState>());
+
+  return {
+    addPeer: (peerId: string, address?: string) =>
+      Clock.currentTimeMillis.pipe(
+        Effect.flatMap((now) =>
+          Ref.update(peers, (m) => {
+            const next = new Map(m);
+            next.set(peerId, {
+              peerId,
+              address: address ?? peerId,
+              status: "connecting",
+              tip: undefined,
+              lastActivityMs: Number(now),
+              headersReceived: 0,
+            });
+            return next;
+          }),
+        ),
+      ),
+
+    updatePeerTip: (peerId: string, tip: ChainTip) =>
+      Clock.currentTimeMillis.pipe(
+        Effect.flatMap((now) =>
+          Ref.update(peers, (m) => {
+            const peer = m.get(peerId);
+            if (!peer) return m;
+            const next = new Map(m);
+            next.set(peerId, {
+              ...peer,
+              tip,
+              status: "syncing",
+              lastActivityMs: Number(now),
+              headersReceived: peer.headersReceived + 1,
+            });
+            return next;
+          }),
+        ),
+      ),
+
+    removePeer: (peerId: string) =>
+      Ref.update(peers, (m) => {
+        const peer = m.get(peerId);
+        if (!peer) return m;
+        const next = new Map(m);
+        next.set(peerId, { ...peer, status: "disconnected" });
+        return next;
+      }),
+
+    getBestPeer: Ref.get(peers).pipe(
+      Effect.map((m) => {
+        const active = [...m.values()].filter(
+          (p) => p.tip !== undefined && p.status !== "disconnected" && p.status !== "stalled",
+        );
+        const best = active.reduce<PeerState | undefined>(
+          (acc, peer) =>
+            acc === undefined || acc.tip === undefined
+              ? peer
+              : preferCandidate(acc.tip, peer.tip!, 0, slotClock.config.securityParam)
+                ? peer
+                : acc,
+          undefined,
+        );
+        return Option.fromNullishOr(best);
+      }),
+    ),
+
+    getPeers: Ref.get(peers).pipe(Effect.map((m) => [...m.values()])),
+
+    detectStalls: Clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) =>
+        Ref.modify(peers, (m) => {
+          const stalled: string[] = [];
+          const next = new Map(m);
+          for (const [id, peer] of next) {
+            if (peer.status === "disconnected" || peer.status === "stalled") continue;
+            if (Number(now) - peer.lastActivityMs > stallTimeoutMs) {
+              next.set(id, { ...peer, status: "stalled" });
+              stalled.push(id);
+            }
+          }
+          return [stalled, next];
+        }),
+      ),
+    ),
+
+    getStatusCounts: Ref.get(peers).pipe(
+      Effect.map((m) =>
+        [...m.values()].reduce<Record<PeerStatus, number>>(
+          (counts, peer) => ({ ...counts, [peer.status]: counts[peer.status] + 1 }),
+          { connecting: 0, syncing: 0, synced: 0, stalled: 0, disconnected: 0 },
+        ),
+      ),
+    ),
+  };
+});

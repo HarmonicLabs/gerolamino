@@ -10,6 +10,7 @@ import { BlobStore } from "../blob-store";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import {
   writeVolatileBlock,
+  writeVolatileBlocks,
   readVolatileBlock,
   getVolatileSuccessors,
   garbageCollectVolatile,
@@ -19,6 +20,10 @@ export class VolatileDB extends Context.Service<
   VolatileDB,
   {
     readonly addBlock: (block: StoredBlock) => Effect.Effect<void, VolatileDBError>;
+    /** Batch-add — 1 multi-VALUES INSERT round-trip instead of N. */
+    readonly addBlocks: (
+      blocks: ReadonlyArray<StoredBlock>,
+    ) => Effect.Effect<void, VolatileDBError>;
     readonly getBlock: (
       hash: Uint8Array,
     ) => Effect.Effect<Option.Option<StoredBlock>, VolatileDBError>;
@@ -38,6 +43,7 @@ export const VolatileDBLive: Layer.Layer<VolatileDB, never, BlobStore | SqlClien
       effect.pipe(Effect.provideService(BlobStore, store), Effect.provideService(SqlClient, sql));
     return {
       addBlock: (block: StoredBlock) => provide(writeVolatileBlock(block)),
+      addBlocks: (blocks: ReadonlyArray<StoredBlock>) => provide(writeVolatileBlocks(blocks)),
       getBlock: (hash: Uint8Array) => provide(readVolatileBlock(hash)),
       getSuccessors: (hash: Uint8Array) => provide(getVolatileSuccessors(hash)),
       garbageCollect: (belowSlot: number) => provide(garbageCollectVolatile(belowSlot)),

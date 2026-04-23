@@ -32,6 +32,7 @@ import {
 import type { LedgerView } from "consensus";
 import { BootstrapMessage, decodeStream } from "bootstrap";
 import {
+  type BlobEntry,
   BlobStore,
   PREFIX_UTXO,
   blockKey,
@@ -39,8 +40,8 @@ import {
   cborOffsetKey,
   runMigrations,
 } from "storage";
+import { CryptoDirect, initWasm } from "wasm-utils";
 import { SyncStateRef } from "./sync-state.ts";
-import { CryptoServiceBrowser, initWasm } from "./crypto-browser.ts";
 import { BrowserStorageLayers } from "./storage-browser.ts";
 import { analyzeBlockCbor } from "./block-walker.ts";
 import { decodeLedgerStateOffscreen } from "./offscreen-client.ts";
@@ -146,8 +147,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
       const blockCountRef = yield* Ref.make(0);
       const snapshotStateRef = yield* Ref.make<SnapshotState | undefined>(undefined);
       const ledgerViewRef = yield* Ref.make<LedgerView | undefined>(undefined);
-      const pendingBlockEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> =
-        [];
+      const pendingBlockEntries: Array<BlobEntry> = [];
       const BLOCK_BATCH = 50;
       const ledgerDecodeFiberRef = yield* Ref.make<Fiber.Fiber<void, unknown> | undefined>(
         undefined,
@@ -475,7 +475,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
  *
  * Provides:
  * - WebSocket constructor (browser global)
- * - ConsensusEngine + CryptoService (WASM-based)
+ * - ConsensusEngine + Crypto (WASM-based via CryptoDirect)
  * - ConsensusEvents (PubSub for tip changes, epoch transitions)
  * - ChainDB (IndexedDB BlobStore + SQLite WASM)
  * - SlotClock (preprod config)
@@ -485,7 +485,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
 function browserLayers() {
   const wsConstructorLayer = Socket.layerWebSocketConstructorGlobal;
 
-  const consensusLayer = ConsensusEngineLive.pipe(Layer.provideMerge(CryptoServiceBrowser));
+  const consensusLayer = ConsensusEngineLive.pipe(Layer.provideMerge(CryptoDirect));
 
   const slotClockLayer = Layer.effect(SlotClock, SlotClockLive(PREPROD_CONFIG));
 
@@ -507,7 +507,7 @@ function browserLayers() {
   return Layer.mergeAll(
     wsConstructorLayer,
     consensusLayer,
-    CryptoServiceBrowser,
+    CryptoDirect,
     ConsensusEvents.Live,
     slotClockLayer,
     peerManagerLayer,

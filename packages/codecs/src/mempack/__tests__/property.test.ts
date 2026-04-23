@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest";
-import { Schema } from "effect";
+import { Equal, Schema } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
 import {
   length,
@@ -199,10 +199,7 @@ describe("MemPack derivation round-trip properties (P5)", () => {
           const bytes = packToUint8Array(codec, arr);
           if (bytes.byteLength !== codec.packedByteCount(arr)) return false;
           const back = unpackFromUint8Array(codec, bytes);
-          return (
-            back.length === arr.length &&
-            back.every((item, i) => item.n === arr[i]!.n && item.b === arr[i]!.b)
-          );
+          return Equal.equals(back, arr);
         },
       ),
       { numRuns: 150 },

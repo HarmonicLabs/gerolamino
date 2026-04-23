@@ -5,7 +5,7 @@
  * Uses Effect FileSystem abstraction with BunFileSystem layer.
  */
 import { describe, it, assert } from "@effect/vitest";
-import { Effect, FileSystem, HashMap } from "effect";
+import { Cause, Effect, Exit, FileSystem, HashMap } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
 import { CborKinds } from "codecs";
 import { decodeMultiEraBlock, isByronBlock, type BlockHeader, decodeExtLedgerState } from "..";
@@ -101,31 +101,32 @@ describe("Full Mithril snapshot coverage", () => {
 
           for (const { slotNo, blockCbor } of blocks) {
             totalBlocks++;
-            try {
-              const blockResult = Effect.runSync(decodeMultiEraBlock(blockCbor));
-
-              if (isByronBlock(blockResult)) {
-                byronBlocks++;
-              } else {
-                postByronBlocks++;
-                totalTxBodies += blockResult.txBodies.length;
-
-                const hdr = blockResult.header;
-                headersDecoded++;
-                if (
-                  hdr.issuerVKey.length !== 32 ||
-                  hdr.vrfVKey.length !== 32 ||
-                  hdr.bodyHash.length !== 32 ||
-                  hdr.opCert.hotVKey.length !== 32 ||
-                  hdr.opCert.sigma.length !== 64
-                ) {
-                  if (failures.length < MAX_FAILURES)
-                    failures.push(`chunk ${chunkNo}, slot ${slotNo}: invalid header field lengths`);
-                }
-              }
-            } catch (e) {
+            const exit = yield* Effect.exit(decodeMultiEraBlock(blockCbor));
+            if (Exit.isFailure(exit)) {
               if (failures.length < MAX_FAILURES)
-                failures.push(`chunk ${chunkNo}, slot ${slotNo}: ${e}`);
+                failures.push(`chunk ${chunkNo}, slot ${slotNo}: ${Cause.pretty(exit.cause)}`);
+              continue;
+            }
+            const blockResult = exit.value;
+
+            if (isByronBlock(blockResult)) {
+              byronBlocks++;
+            } else {
+              postByronBlocks++;
+              totalTxBodies += blockResult.txBodies.length;
+
+              const hdr = blockResult.header;
+              headersDecoded++;
+              if (
+                hdr.issuerVKey.length !== 32 ||
+                hdr.vrfVKey.length !== 32 ||
+                hdr.bodyHash.length !== 32 ||
+                hdr.opCert.hotVKey.length !== 32 ||
+                hdr.opCert.sigma.length !== 64
+              ) {
+                if (failures.length < MAX_FAILURES)
+                  failures.push(`chunk ${chunkNo}, slot ${slotNo}: invalid header field lengths`);
+              }
             }
           }
 

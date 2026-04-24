@@ -66,14 +66,8 @@ import {
   HandshakeMessageType,
   NodeToNodeVersionDataSchema,
 } from "../protocols/handshake/Schemas";
-import type {
-  NodeToNodeVersionData,
-  VersionTable,
-} from "../protocols/handshake/Schemas";
-import {
-  TxSubmissionClient,
-  type TxSubmissionHandlers,
-} from "../protocols/tx-submission/Client";
+import type { NodeToNodeVersionData, VersionTable } from "../protocols/handshake/Schemas";
+import { TxSubmissionClient, type TxSubmissionHandlers } from "../protocols/tx-submission/Client";
 import type { TxIdAndSize } from "../protocols/tx-submission/Schemas";
 import { ChainPointSchema, type ChainPoint } from "../protocols/types/ChainPoint";
 
@@ -275,9 +269,7 @@ export const PeerConnectionFactoryLive: Layer.Layer<
           [HandshakeMessageType.MsgAcceptVersion]: (m) =>
             isN2NData(m.versionData)
               ? Effect.succeed({ version: m.version, data: m.versionData })
-              : Effect.fail(
-                  peerErr("handshake returned N2C version data for an N2N proposal"),
-                ),
+              : Effect.fail(peerErr("handshake returned N2C version data for an N2N proposal")),
           [HandshakeMessageType.MsgRefuse]: (m) =>
             Effect.fail(peerErr(`handshake refused by peer: ${JSON.stringify(m.reason)}`)),
           [HandshakeMessageType.MsgProposeVersions]: () =>
@@ -315,9 +307,7 @@ export const PeerConnectionFactoryLive: Layer.Layer<
         const onRequestTxs = (
           txIds: ReadonlyArray<Uint8Array>,
         ): Effect.Effect<ReadonlyArray<Uint8Array>> =>
-          Ref.get(outboundById).pipe(
-            Effect.map((byId) => collectTxs(byId, txIds)),
-          );
+          Ref.get(outboundById).pipe(Effect.map((byId) => collectTxs(byId, txIds)));
 
         const txHandlers: TxSubmissionHandlers = { onRequestTxIds, onRequestTxs };
 
@@ -332,7 +322,11 @@ export const PeerConnectionFactoryLive: Layer.Layer<
             // is the authoritative "stop me" signal.
             Effect.catchCause((cause: Cause.Cause<unknown>) =>
               Effect.logWarning("TxSubmissionClient.run exited").pipe(
-                Effect.annotateLogs({ host: endpoint.host, port: endpoint.port, cause: String(cause) }),
+                Effect.annotateLogs({
+                  host: endpoint.host,
+                  port: endpoint.port,
+                  cause: String(cause),
+                }),
               ),
             ),
           ),
@@ -363,11 +357,14 @@ export const PeerConnectionFactoryLive: Layer.Layer<
             Effect.flatMap((done) =>
               done
                 ? Effect.void // tx-submission closed — accept silently; caller treats as Rejected at the RPC layer
-                : Effect.all([
-                    Ref.update(outboundById, HashMap.set(txId.toHex(), txCbor)),
-                    Queue.offer(outboundQueue, { txId, size: txCbor.byteLength }),
-                    Metric.update(peerMessagesOut, 1),
-                  ], { discard: true }),
+                : Effect.all(
+                    [
+                      Ref.update(outboundById, HashMap.set(txId.toHex(), txCbor)),
+                      Queue.offer(outboundQueue, { txId, size: txCbor.byteLength }),
+                      Metric.update(peerMessagesOut, 1),
+                    ],
+                    { discard: true },
+                  ),
             ),
           );
 
@@ -399,10 +396,7 @@ export const PeerConnectionFactoryLive: Layer.Layer<
  * `Queue.takeAll` returns a Chunk of everything currently queued; we
  * trim to `n`. If the queue is empty, returns `[]`.
  */
-const drainUpTo = <A>(
-  queue: Queue.Queue<A>,
-  n: number,
-): Effect.Effect<ReadonlyArray<A>> =>
+const drainUpTo = <A>(queue: Queue.Queue<A>, n: number): Effect.Effect<ReadonlyArray<A>> =>
   n <= 0 ? Effect.succeed([]) : Queue.takeBetween(queue, 0, n);
 
 /**
@@ -433,88 +427,88 @@ interface ConnectionEntry {
 export class PeerConnections extends Context.Service<
   PeerConnections,
   {
-    readonly open: (id: PeerId, endpoint: PeerEndpoint) => Effect.Effect<PeerConnectionHandle, PeerError>;
+    readonly open: (
+      id: PeerId,
+      endpoint: PeerEndpoint,
+    ) => Effect.Effect<PeerConnectionHandle, PeerError>;
     readonly get: (id: PeerId) => Effect.Effect<Option.Option<PeerConnectionHandle>>;
     readonly close: (id: PeerId) => Effect.Effect<void>;
   }
 >()("peer/PeerConnections") {}
 
-export const PeerConnectionsLive: Layer.Layer<
-  PeerConnections,
-  never,
-  PeerConnectionFactory
-> = Layer.effect(
-  PeerConnections,
-  Effect.gen(function* () {
-    const factory = yield* PeerConnectionFactory;
-    const entries = yield* Ref.make(HashMap.empty<string, ConnectionEntry>());
-    const parentScope = yield* Effect.scope;
+export const PeerConnectionsLive: Layer.Layer<PeerConnections, never, PeerConnectionFactory> =
+  Layer.effect(
+    PeerConnections,
+    Effect.gen(function* () {
+      const factory = yield* PeerConnectionFactory;
+      const entries = yield* Ref.make(HashMap.empty<string, ConnectionEntry>());
+      const parentScope = yield* Effect.scope;
 
-    const closeEntry = (entry: ConnectionEntry): Effect.Effect<void> =>
-      Scope.close(entry.scope, Exit.void);
+      const closeEntry = (entry: ConnectionEntry): Effect.Effect<void> =>
+        Scope.close(entry.scope, Exit.void);
 
-    // Outer-scope finalizer: tear down every live entry on runtime exit.
-    // Without this a crash leaks bearer sockets + TxSubmission fibers.
-    yield* Scope.addFinalizer(
-      parentScope,
-      Ref.get(entries).pipe(
-        Effect.flatMap((map) =>
-          Effect.forEach(HashMap.values(map), closeEntry, {
-            discard: true,
-            concurrency: "unbounded",
-          }),
+      // Outer-scope finalizer: tear down every live entry on runtime exit.
+      // Without this a crash leaks bearer sockets + TxSubmission fibers.
+      yield* Scope.addFinalizer(
+        parentScope,
+        Ref.get(entries).pipe(
+          Effect.flatMap((map) =>
+            Effect.forEach(HashMap.values(map), closeEntry, {
+              discard: true,
+              concurrency: "unbounded",
+            }),
+          ),
         ),
-      ),
-    );
+      );
 
-    const open = (
-      id: PeerId,
-      endpoint: PeerEndpoint,
-    ): Effect.Effect<PeerConnectionHandle, PeerError> =>
-      Effect.gen(function* () {
-        // If already open, return the existing handle — `ConnectToPeer`
-        // is idempotent by design (Cluster entity message dedup + user
-        // re-issuing a connect during a reconnect storm).
-        const existing = yield* Ref.get(entries).pipe(Effect.map(HashMap.get(id.value)));
-        if (Option.isSome(existing)) return existing.value.handle;
+      const open = (
+        id: PeerId,
+        endpoint: PeerEndpoint,
+      ): Effect.Effect<PeerConnectionHandle, PeerError> =>
+        Effect.gen(function* () {
+          // If already open, return the existing handle — `ConnectToPeer`
+          // is idempotent by design (Cluster entity message dedup + user
+          // re-issuing a connect during a reconnect storm).
+          const existing = yield* Ref.get(entries).pipe(Effect.map(HashMap.get(id.value)));
+          if (Option.isSome(existing)) return existing.value.handle;
 
-        // Fresh child scope of the service's outer scope so runtime
-        // shutdown still cascades, but we can close this one peer
-        // independently.
-        const scope = yield* Scope.fork(parentScope);
-        const handle = yield* factory.open(endpoint).pipe(
-          Scope.provide(scope),
-          // If the factory fails, close the half-built scope before
-          // propagating so we don't leak the socket finalizer.
-          Effect.tapCause(() => Scope.close(scope, Exit.void)),
+          // Fresh child scope of the service's outer scope so runtime
+          // shutdown still cascades, but we can close this one peer
+          // independently.
+          const scope = yield* Scope.fork(parentScope);
+          const handle = yield* factory.open(endpoint).pipe(
+            Scope.provide(scope),
+            // If the factory fails, close the half-built scope before
+            // propagating so we don't leak the socket finalizer.
+            Effect.tapCause(() => Scope.close(scope, Exit.void)),
+          );
+          yield* Ref.update(entries, HashMap.set(id.value, { handle, scope }));
+          return handle;
+        });
+
+      const get = (id: PeerId): Effect.Effect<Option.Option<PeerConnectionHandle>> =>
+        Ref.get(entries).pipe(
+          Effect.map((map) => HashMap.get(map, id.value).pipe(Option.map((e) => e.handle))),
         );
-        yield* Ref.update(entries, HashMap.set(id.value, { handle, scope }));
-        return handle;
-      });
 
-    const get = (id: PeerId): Effect.Effect<Option.Option<PeerConnectionHandle>> =>
-      Ref.get(entries).pipe(
-        Effect.map((map) => HashMap.get(map, id.value).pipe(Option.map((e) => e.handle))),
-      );
+      const close = (id: PeerId): Effect.Effect<void> =>
+        Ref.modify(entries, (map) => {
+          const entry = HashMap.get(map, id.value);
+          return Option.isSome(entry)
+            ? [Option.some(entry.value), HashMap.remove(map, id.value)]
+            : [Option.none<ConnectionEntry>(), map];
+        }).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.void,
+              onSome: closeEntry,
+            }),
+          ),
+        );
 
-    const close = (id: PeerId): Effect.Effect<void> =>
-      Ref.modify(entries, (map) => {
-        const entry = HashMap.get(map, id.value);
-        return Option.isSome(entry)
-          ? [Option.some(entry.value), HashMap.remove(map, id.value)]
-          : [Option.none<ConnectionEntry>(), map];
-      }).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.void,
-            onSome: closeEntry,
-          }),
-        ),
-      );
-
-    return PeerConnections.of({ open, get, close });
-  }),
-);
+      return PeerConnections.of({ open, get, close });
+    }),
+  );
 
 // ═══════════════════════════════════════════════════════════════════════
 // KV helpers for the persisted ChainSync cursor.
@@ -625,9 +619,9 @@ export const PeerHandlersLive = Peer.toLayer(
                 reason: `no open connection for peer ${id.value}`,
               }),
             onSome: (h) =>
-              h.queueTx(env.payload.txId, env.payload.txCbor).pipe(
-                Effect.as<SubmitOutcome>({ _tag: "Accepted", txId: env.payload.txId }),
-              ),
+              h
+                .queueTx(env.payload.txId, env.payload.txCbor)
+                .pipe(Effect.as<SubmitOutcome>({ _tag: "Accepted", txId: env.payload.txId })),
           });
         }).pipe(Effect.withSpan("peer.handler.submit_tx")),
 

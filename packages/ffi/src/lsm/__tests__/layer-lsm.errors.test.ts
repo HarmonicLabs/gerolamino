@@ -52,21 +52,19 @@ describe.skipIf(skip)("LSM layer error paths", () => {
     }),
   );
 
-  it.effect(
-    "layerLsmFromSnapshot fails with LsmBridgeError when session dir is missing",
-    () =>
-      Effect.gen(function* () {
-        const exit = yield* Effect.gen(function* () {
-          yield* BlobStore;
-        }).pipe(
-          Effect.provide(layerLsmFromSnapshot(NONEXISTENT_PARENT, "no-such-snap", "UTxO table")),
-          Effect.exit,
-        );
+  it.effect("layerLsmFromSnapshot fails with LsmBridgeError when session dir is missing", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.gen(function* () {
+        yield* BlobStore;
+      }).pipe(
+        Effect.provide(layerLsmFromSnapshot(NONEXISTENT_PARENT, "no-such-snap", "UTxO table")),
+        Effect.exit,
+      );
 
-        const err = firstError(exit);
-        expect(err).toBeInstanceOf(LsmBridgeError);
-        expect((err as LsmBridgeError).operation).toBe("init_from_snapshot");
-      }),
+      const err = firstError(exit);
+      expect(err).toBeInstanceOf(LsmBridgeError);
+      expect((err as LsmBridgeError).operation).toBe("init_from_snapshot");
+    }),
   );
 
   it.effect(
@@ -88,19 +86,17 @@ describe.skipIf(skip)("LSM layer error paths", () => {
       }),
   );
 
-  it.effect(
-    "admin.openSnapshot fails with LsmAdminError when snapshot name does not exist",
-    () =>
-      Effect.gen(function* () {
-        const exit = yield* Effect.gen(function* () {
-          const admin = yield* LsmAdmin;
-          yield* admin.openSnapshot("snapshot-that-never-existed", "UTxO table");
-        }).pipe(Effect.provide(layerLsm(sessionDir)), Effect.exit);
+  it.effect("admin.openSnapshot fails with LsmAdminError when snapshot name does not exist", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.gen(function* () {
+        const admin = yield* LsmAdmin;
+        yield* admin.openSnapshot("snapshot-that-never-existed", "UTxO table");
+      }).pipe(Effect.provide(layerLsm(sessionDir)), Effect.exit);
 
-        const err = firstError(exit);
-        expect(err).toBeInstanceOf(LsmAdminError);
-        expect((err as LsmAdminError).operation).toBe("openSnapshot");
-      }),
+      const err = firstError(exit);
+      expect(err).toBeInstanceOf(LsmAdminError);
+      expect((err as LsmAdminError).operation).toBe("openSnapshot");
+    }),
   );
 
   it.effect(

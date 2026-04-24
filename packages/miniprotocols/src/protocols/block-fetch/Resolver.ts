@@ -60,25 +60,21 @@ export const makeResolver = (options?: { readonly maxInFlight?: number }) =>
     /** Collapse every underlying failure (stream errors, schema errors,
      * timeouts) to the `BlockFetchError` the request class declares. */
     const toBlockFetchError = (cause: unknown): BlockFetchError =>
-      cause instanceof BlockFetchError
-        ? cause
-        : new BlockFetchError({ cause });
+      cause instanceof BlockFetchError ? cause : new BlockFetchError({ cause });
 
     const base = RequestResolver.fromEffect(
-      (entry: Request.Entry<FetchBlockRange>): Effect.Effect<FetchBlockRangeResult, BlockFetchError> =>
+      (
+        entry: Request.Entry<FetchBlockRange>,
+      ): Effect.Effect<FetchBlockRangeResult, BlockFetchError> =>
         Effect.gen(function* () {
           const startMs = yield* Clock.currentTimeMillis;
-          const maybeStream = yield* client.requestRange(
-            entry.request.from,
-            entry.request.to,
-          );
+          const maybeStream = yield* client.requestRange(entry.request.from, entry.request.to);
           const endMs = yield* Clock.currentTimeMillis;
           yield* Metric.update(blockFetchLatency, endMs - startMs);
           return yield* Option.match(maybeStream, {
             onNone: (): Effect.Effect<FetchBlockRangeResult, BlockFetchError> =>
               Effect.succeed<FetchBlockRangeResult>([]),
-            onSome: (stream) =>
-              Stream.runCollect(stream).pipe(Effect.mapError(toBlockFetchError)),
+            onSome: (stream) => Stream.runCollect(stream).pipe(Effect.mapError(toBlockFetchError)),
           });
         }).pipe(Effect.scoped, Effect.mapError(toBlockFetchError)),
     );

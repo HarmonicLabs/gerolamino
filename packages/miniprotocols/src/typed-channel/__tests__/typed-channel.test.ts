@@ -33,7 +33,9 @@ const msgCodec = <const Msg extends string>(tag: number, name: Msg) =>
       decode: SchemaGetter.transformOrFail<Uint8Array, Msg>((bytes) =>
         bytes.byteLength === 1 && bytes[0] === tag
           ? Effect.succeed(name)
-          : Effect.fail(new SchemaIssue.InvalidValue(Option.some(bytes), { message: `not ${name}` })),
+          : Effect.fail(
+              new SchemaIssue.InvalidValue(Option.some(bytes), { message: `not ${name}` }),
+            ),
       ),
       encode: SchemaGetter.transform<Msg, Uint8Array>(() => new Uint8Array([tag])),
     }),

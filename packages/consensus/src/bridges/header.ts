@@ -536,7 +536,10 @@ export const decodeWrappedHeader = (
     // Shelley+ (N2N variant 1-6) — headerBytes = [headerBody, kesSig],
     // optionally wrapped in Tag(24)(bytes). unwrapTag24 yields both the
     // inner structured node and the raw bytes for hash computation.
-    const { node: headerNode, raw: rawHeaderBytes } = unwrapTag24(parseSync(headerBytes), headerBytes);
+    const { node: headerNode, raw: rawHeaderBytes } = unwrapTag24(
+      parseSync(headerBytes),
+      headerBytes,
+    );
 
     if (!CborValue.guards[CborKinds.Array](headerNode) || headerNode.items.length < 2)
       return yield* new HeaderBridgeError({

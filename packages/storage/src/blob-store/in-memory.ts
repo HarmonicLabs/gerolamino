@@ -30,19 +30,17 @@ const layerKeyValueStore: Layer.Layer<BlobStore, never, KeyValueStore> = Layer.e
       put: (key: Uint8Array, value: Uint8Array) => {
         const h = key.toHex();
         const singleton = new Set([h]);
-        return Effect.all(
-          [kv.set(h, value), Ref.update(keyIndex, (s) => s.union(singleton))],
-          { discard: true },
-        ).pipe(mapErr("put"));
+        return Effect.all([kv.set(h, value), Ref.update(keyIndex, (s) => s.union(singleton))], {
+          discard: true,
+        }).pipe(mapErr("put"));
       },
 
       delete: (key: Uint8Array) => {
         const h = key.toHex();
         const singleton = new Set([h]);
-        return Effect.all(
-          [kv.remove(h), Ref.update(keyIndex, (s) => s.difference(singleton))],
-          { discard: true },
-        ).pipe(mapErr("delete"));
+        return Effect.all([kv.remove(h), Ref.update(keyIndex, (s) => s.difference(singleton))], {
+          discard: true,
+        }).pipe(mapErr("delete"));
       },
 
       has: (key: Uint8Array) => kv.has(key.toHex()).pipe(mapErr("has")),
@@ -52,9 +50,7 @@ const layerKeyValueStore: Layer.Layer<BlobStore, never, KeyValueStore> = Layer.e
         const hi = prefixEnd(prefix).toHex();
         return Stream.fromEffect(Ref.get(keyIndex)).pipe(
           Stream.flatMap((ks) =>
-            Stream.fromIterable(
-              [...ks].filter((k) => k >= lo && (hi === "" || k < hi)).toSorted(),
-            ),
+            Stream.fromIterable([...ks].filter((k) => k >= lo && (hi === "" || k < hi)).toSorted()),
           ),
           Stream.mapEffect((h) =>
             kv.getUint8Array(h).pipe(

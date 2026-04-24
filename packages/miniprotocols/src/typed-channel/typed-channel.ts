@@ -181,12 +181,9 @@ export const make = <Transitions extends ReadonlyArray<Transition<any, any, any>
         const chunk = yield* readNextChunk;
         const hit = yield* firstDecodingMatch(candidatesFor(current), chunk);
         return yield* Option.match(hit, {
-          onNone: () =>
-            fail("recv", `no transition from '${current.name}' matches inbound bytes`),
+          onNone: () => fail("recv", `no transition from '${current.name}' matches inbound bytes`),
           onSome: ({ t, value }) =>
-            Ref.set(cursor, t.to).pipe(
-              Effect.as({ message: value, nextState: t.to }),
-            ),
+            Ref.set(cursor, t.to).pipe(Effect.as({ message: value, nextState: t.to })),
         });
       });
 

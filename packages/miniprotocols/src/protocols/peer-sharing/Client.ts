@@ -1,14 +1,4 @@
-import {
-  Cause,
-  Context,
-  Duration,
-  Effect,
-  Layer,
-  Metric,
-  Schema,
-  Scope,
-  Stream,
-} from "effect";
+import { Cause, Context, Duration, Effect, Layer, Metric, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
@@ -81,9 +71,7 @@ export class PeerSharingClient extends Context.Service<
       return PeerSharingClient.of({
         shareRequest: (amount) =>
           sendMessage(Schemas.PeerSharingMessage.cases.ShareRequest.make({ amount })).pipe(
-            Effect.andThen(
-              requireReply(messages, makeError, "shareRequest", Duration.seconds(60)),
-            ),
+            Effect.andThen(requireReply(messages, makeError, "shareRequest", Duration.seconds(60))),
             Effect.flatMap((v) =>
               Effect.gen(function* () {
                 if (!Schemas.PeerSharingMessage.guards.SharePeers(v)) {

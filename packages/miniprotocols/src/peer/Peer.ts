@@ -136,8 +136,7 @@ export class SubmitTx extends Rpc.make("SubmitTx", {
   payload: { txId: Schema.Uint8Array, txCbor: Schema.Uint8Array },
   success: SubmitOutcome,
   error: PeerError,
-})
-  .annotate(ClusterSchema.Persisted, true) {}
+}).annotate(ClusterSchema.Persisted, true) {}
 
 /** Clean disconnect — ends the bearer + emits a final `ClientDone` on
  * every protocol. */

@@ -53,7 +53,11 @@ export const FrameBufferLive: Layer.Layer<FrameBuffer> = Layer.effect(
         Effect.try({
           try: () => wasmBuffer.process_frames(),
           catch: (err) => fromWasmError("FrameBuffer.drain", err),
-        }).pipe(Effect.flatMap((raw) => decodeFrames(raw).pipe(Effect.mapError(toFramingError("FrameBuffer.drain"))))),
+        }).pipe(
+          Effect.flatMap((raw) =>
+            decodeFrames(raw).pipe(Effect.mapError(toFramingError("FrameBuffer.drain"))),
+          ),
+        ),
       size: () =>
         Effect.try({
           try: () => wasmBuffer.buffer_len(),
@@ -77,9 +81,7 @@ export class MuxFraming extends Context.Service<
       protocolId: number,
       hasAgency: boolean,
     ) => Effect.Effect<Uint8Array, FramingOpError>;
-    readonly unwrapFrame: (
-      message: Uint8Array,
-    ) => Effect.Effect<WrappedFrame, FramingOpError>;
+    readonly unwrapFrame: (message: Uint8Array) => Effect.Effect<WrappedFrame, FramingOpError>;
   }
 >()("wasm-plexer/MuxFraming") {}
 
@@ -94,6 +96,8 @@ export const MuxFramingLive: Layer.Layer<MuxFraming> = Layer.succeed(MuxFraming,
       try: () => unwrap_multiplexer_message(message),
       catch: (err) => fromWasmError("MuxFraming.unwrapFrame", err),
     }).pipe(
-      Effect.flatMap((raw) => decodeFrame(raw).pipe(Effect.mapError(toFramingError("MuxFraming.unwrapFrame")))),
+      Effect.flatMap((raw) =>
+        decodeFrame(raw).pipe(Effect.mapError(toFramingError("MuxFraming.unwrapFrame"))),
+      ),
     ),
 });

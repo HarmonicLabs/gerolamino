@@ -56,11 +56,11 @@ Co-locate in the same file. Export only when a sibling module needs it.
   body OR inside `.pipe(Effect.flatMap(...))`. Never `yield* Effect.gen(...)`
   or `Effect.all(xs.map(x => Effect.gen(...)))`. Hoist inner gens to named
   helpers; or compose applicatively via `Effect.all([a, b] as const).pipe(
-  Effect.map(([a, b]) => ...))`.
+Effect.map(([a, b]) => ...))`.
 - **Mutable accumulators** (`let x = ...`, `.push(...)`, `new Map(...)`,
   `new Set(...)`, `new Array(...)`) in decoder / ledger-arithmetic code.
   Replace with `Array.from(iter, mapper)`, `.reduce(...)`, `HashMap`,
-  `HashSet`. *Exception*: procedural byte-assembly (building a `Uint8Array`
+  `HashSet`. _Exception_: procedural byte-assembly (building a `Uint8Array`
   byte-by-byte, bignum-from-bytes shifts). Comment each surviving site.
 - **`_tag === / !==` dispatch on Schema tagged unions**. Use the union's
   `.match({...})`, `.guards[Kind]`, or `.isAnyOf(Kind)`.
@@ -73,7 +73,7 @@ Co-locate in the same file. Export only when a sibling module needs it.
   round-trip). Use `Data.Class<{ bytes: Uint8Array }>` + `HashMap` —
   structural identity, zero string overhead.
 - **`for...of` over typed iterables** when `.map` / `.filter` / `.reduce` /
-  `Array.from` composes cleanly. *Exception*: byte math (same as above).
+  `Array.from` composes cleanly. _Exception_: byte math (same as above).
 - **Deeply-nested ternaries** (>2 levels). Use `.match`, `Match.value(...)`,
   or split into named intermediates.
 - **Internal `Option` round-trips** (wrap/unwrap immediately). Keep

@@ -129,13 +129,7 @@ describe("CryptoDirect (WASM)", () => {
         const crypto = yield* Crypto;
         // Use a low VRF output (hex "00...01") to ensure it's below threshold
         const lowVrfHex = "0".repeat(63) + "1";
-        const result = yield* crypto.checkVrfLeader(
-          lowVrfHex,
-          "9000000",
-          "10000000",
-          "5",
-          "100",
-        );
+        const result = yield* crypto.checkVrfLeader(lowVrfHex, "9000000", "10000000", "5", "100");
         expect(result).toBe(true);
       }),
     ),

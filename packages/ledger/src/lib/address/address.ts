@@ -198,8 +198,7 @@ export const encodeAddr = Addr.match({
     result.set(a.stake.hash, 1);
     return Effect.succeed(cborBytes(result));
   },
-  [AddrKind.Bootstrap]: (a) =>
-    Effect.succeed(cborBytes(a.bytes)),
+  [AddrKind.Bootstrap]: (a) => Effect.succeed(cborBytes(a.bytes)),
 });
 
 // ────────────────────────────────────────────────────────────────────────────

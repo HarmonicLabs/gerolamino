@@ -20,7 +20,8 @@ import { ValidationError, type ValidationOperation } from "./validation-rpc-grou
  * the message field carrying the underlying Cause's `.message` so upstream
  * diagnostics preserve the wasm-level error text.
  */
-export const mapCryptoToValidation = (operation: ValidationOperation) =>
+export const mapCryptoToValidation =
+  (operation: ValidationOperation) =>
   (cause: CryptoOpError): ValidationError =>
     new ValidationError({ operation, message: cause.message, cause });
 
@@ -35,7 +36,8 @@ export const mapCryptoToValidation = (operation: ValidationOperation) =>
  * every consensus caller, even callers using `ValidationDirectLayer` where
  * the transport error can't arise.
  */
-export const mapTransportToCrypto = (operation: CryptoOperation) =>
+export const mapTransportToCrypto =
+  (operation: CryptoOperation) =>
   (cause: { readonly message: string }): CryptoOpError =>
     new CryptoOpError({
       operation,
@@ -103,9 +105,7 @@ export class ValidationClient extends Context.Service<
       vrfProof: Uint8Array,
       vrfInput: Uint8Array,
     ) => Effect.Effect<Uint8Array, CryptoOpError>;
-    readonly vrfProofToHash: (
-      vrfProof: Uint8Array,
-    ) => Effect.Effect<Uint8Array, CryptoOpError>;
+    readonly vrfProofToHash: (vrfProof: Uint8Array) => Effect.Effect<Uint8Array, CryptoOpError>;
     readonly blake2b256Tagged: (
       tag: number,
       data: Uint8Array,

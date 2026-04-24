@@ -123,7 +123,13 @@ layer(CryptoDirect)("Praos leader-check invariants", (it) => {
           const vrfs = vrf.toString();
           const fn = fNum.toString();
           const low = yield* crypto.checkVrfLeader(vrfs, sigmaLow.toString(), SIGMA_DEN, fn, F_DEN);
-          const high = yield* crypto.checkVrfLeader(vrfs, sigmaHigh.toString(), SIGMA_DEN, fn, F_DEN);
+          const high = yield* crypto.checkVrfLeader(
+            vrfs,
+            sigmaHigh.toString(),
+            SIGMA_DEN,
+            fn,
+            F_DEN,
+          );
           if (low) expect(high).toBe(true);
         }),
       { fastCheck: { numRuns: 40 } },
@@ -166,8 +172,20 @@ layer(CryptoDirect)("Praos leader-check invariants", (it) => {
           const crypto = yield* Crypto;
           const sn = sigmaNum.toString();
           const fn = fNum.toString();
-          const lowLeader = yield* crypto.checkVrfLeader(vrfLow.toString(), sn, SIGMA_DEN, fn, F_DEN);
-          const highLeader = yield* crypto.checkVrfLeader(vrfHigh.toString(), sn, SIGMA_DEN, fn, F_DEN);
+          const lowLeader = yield* crypto.checkVrfLeader(
+            vrfLow.toString(),
+            sn,
+            SIGMA_DEN,
+            fn,
+            F_DEN,
+          );
+          const highLeader = yield* crypto.checkVrfLeader(
+            vrfHigh.toString(),
+            sn,
+            SIGMA_DEN,
+            fn,
+            F_DEN,
+          );
           if (highLeader) expect(lowLeader).toBe(true);
         }),
       { fastCheck: { numRuns: 40 } },

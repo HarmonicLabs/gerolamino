@@ -15,10 +15,7 @@ import type { Transition } from "../../typed-channel";
 import { LocalTxSubmitMessageBytes, LocalTxSubmitMessageType } from "./Schemas";
 import type { LocalTxSubmitMessageT } from "./Schemas";
 
-type Narrow<Tag extends LocalTxSubmitMessageType> = Extract<
-  LocalTxSubmitMessageT,
-  { _tag: Tag }
->;
+type Narrow<Tag extends LocalTxSubmitMessageType> = Extract<LocalTxSubmitMessageT, { _tag: Tag }>;
 
 export const state_Idle = ProtocolState.make("Idle", "Client");
 export const state_Busy = ProtocolState.make("Busy", "Server");

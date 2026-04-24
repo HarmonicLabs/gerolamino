@@ -83,10 +83,7 @@ describe("NodeRpcHandlersLive contract", () => {
     Effect.gen(function* () {
       // Provide NodeRpcHandlersLive — success = no construction error.
       yield* Effect.void;
-    }).pipe(
-      Effect.provide(NodeRpcHandlersLive),
-      Effect.provide(TestLayers),
-    ),
+    }).pipe(Effect.provide(NodeRpcHandlersLive), Effect.provide(TestLayers)),
   );
 
   it("NodeRpcHandlersLive is a well-formed Layer", () => {

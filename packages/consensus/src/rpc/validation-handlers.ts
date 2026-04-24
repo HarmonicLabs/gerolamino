@@ -75,12 +75,14 @@ export const ValidationHandlersLive = ValidationRpcGroup.toLayer(
           ),
         ),
       ComputeTxId: ({ txBodyCbor }) =>
-        crypto.blake2b256(txBodyCbor).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ValidationError({ operation: "ComputeTxId", message: cause.message, cause }),
+        crypto
+          .blake2b256(txBodyCbor)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ValidationError({ operation: "ComputeTxId", message: cause.message, cause }),
+            ),
           ),
-        ),
 
       // ───────────── CBOR decode ops ─────────────
 
@@ -108,12 +110,13 @@ export const ValidationHandlersLive = ValidationRpcGroup.toLayer(
               }),
             }),
           ),
-          Effect.mapError((issue) =>
-            new ValidationError({
-              operation: "DecodeBlockCbor",
-              message: issue._tag ?? "Decode failed",
-              cause: issue,
-            }),
+          Effect.mapError(
+            (issue) =>
+              new ValidationError({
+                operation: "DecodeBlockCbor",
+                message: issue._tag ?? "Decode failed",
+                cause: issue,
+              }),
           ),
         ),
 

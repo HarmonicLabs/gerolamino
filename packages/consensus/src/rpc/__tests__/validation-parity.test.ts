@@ -16,7 +16,12 @@
 import { describe, expect, layer } from "@effect/vitest";
 import { Context, Effect, Equal, Layer } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
-import { CryptoDirect, ed25519_public_key, ed25519_secret_key_from_seed, ed25519_sign } from "wasm-utils";
+import {
+  CryptoDirect,
+  ed25519_public_key,
+  ed25519_secret_key_from_seed,
+  ed25519_sign,
+} from "wasm-utils";
 
 import { ValidationClient } from "../validation-client.ts";
 import { ValidationDirectLayer } from "../validation-direct-layer.ts";
@@ -29,16 +34,15 @@ class WorkerTag extends Context.Service<WorkerTag, ValidationClient["Service"]>(
   "consensus/test/ValidationWorkerTag",
 ) {}
 
-const DirectTagLive: Layer.Layer<DirectTag> = Layer.effect(DirectTag, Effect.service(ValidationClient)).pipe(
-  Layer.provide(ValidationDirectLayer),
-  Layer.provide(CryptoDirect),
-);
+const DirectTagLive: Layer.Layer<DirectTag> = Layer.effect(
+  DirectTag,
+  Effect.service(ValidationClient),
+).pipe(Layer.provide(ValidationDirectLayer), Layer.provide(CryptoDirect));
 
-const WorkerTagLive: Layer.Layer<WorkerTag> = Layer.effect(WorkerTag, Effect.service(ValidationClient)).pipe(
-  Layer.provide(ValidationWorkerBun),
-  Layer.provide(CryptoDirect),
-  Layer.orDie,
-);
+const WorkerTagLive: Layer.Layer<WorkerTag> = Layer.effect(
+  WorkerTag,
+  Effect.service(ValidationClient),
+).pipe(Layer.provide(ValidationWorkerBun), Layer.provide(CryptoDirect), Layer.orDie);
 
 const Pair: Layer.Layer<DirectTag | WorkerTag> = Layer.mergeAll(DirectTagLive, WorkerTagLive);
 

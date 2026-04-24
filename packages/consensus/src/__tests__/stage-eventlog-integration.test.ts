@@ -75,9 +75,7 @@ describe("SyncStage + EventLog integration", () => {
       const subscriber = yield* stream.subscribe.pipe(
         Effect.flatMap((sub) =>
           latch.await.pipe(
-            Effect.andThen(
-              Effect.forEach(blocks, () => PubSub.take(sub), { discard: false }),
-            ),
+            Effect.andThen(Effect.forEach(blocks, () => PubSub.take(sub), { discard: false })),
           ),
         ),
         Effect.scoped,

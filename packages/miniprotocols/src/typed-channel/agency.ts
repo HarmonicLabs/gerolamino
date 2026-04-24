@@ -26,10 +26,7 @@ export type Agency = "Client" | "Server" | "Neither";
  * state machine vertex; `agency` selects which party (if any) may send
  * the next message from this vertex.
  */
-export class ProtocolState<
-  const State extends string,
-  const A extends Agency,
-> extends Data.Class<{
+export class ProtocolState<const State extends string, const A extends Agency> extends Data.Class<{
   readonly name: State;
   readonly agency: A;
 }> {

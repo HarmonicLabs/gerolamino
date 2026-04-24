@@ -177,8 +177,7 @@ describe("Golden crypto vectors (WASM)", () => {
         Effect.gen(function* () {
           const crypto = yield* Crypto;
           const exit = yield* Effect.exit(crypto.vrfProofToHash(new Uint8Array(80)));
-          const byteLength =
-            exit._tag === "Success" ? exit.value.byteLength : -1;
+          const byteLength = exit._tag === "Success" ? exit.value.byteLength : -1;
           expect(byteLength === 64 || byteLength === -1).toBe(true);
         }),
       ),
@@ -241,10 +240,7 @@ describe("Golden crypto vectors (WASM)", () => {
       provide(
         Effect.gen(function* () {
           const wrongPk = Uint8Array.fromHex(KES_VECTORS.publicKey);
-          new DataView(wrongPk.buffer).setUint8(
-            0,
-            new DataView(wrongPk.buffer).getUint8(0) ^ 0xff,
-          );
+          new DataView(wrongPk.buffer).setUint8(0, new DataView(wrongPk.buffer).getUint8(0) ^ 0xff);
 
           const crypto = yield* Crypto;
           const valid = yield* crypto.kesSum6Verify(
@@ -284,13 +280,7 @@ describe("Golden crypto vectors (WASM)", () => {
           const crypto = yield* Crypto;
           // Even with low VRF output, 0 stake should never be leader
           const lowVrf = "0".repeat(127) + "1";
-          const isLeader = yield* crypto.checkVrfLeader(
-            lowVrf,
-            "0",
-            "1000000000",
-            "5",
-            "100",
-          );
+          const isLeader = yield* crypto.checkVrfLeader(lowVrf, "0", "1000000000", "5", "100");
           expect(isLeader).toBe(false);
         }),
       ),
@@ -301,13 +291,7 @@ describe("Golden crypto vectors (WASM)", () => {
         Effect.gen(function* () {
           const crypto = yield* Crypto;
           const lowVrf = "0".repeat(127) + "1";
-          const isLeader = yield* crypto.checkVrfLeader(
-            lowVrf,
-            "9000000",
-            "10000000",
-            "5",
-            "100",
-          );
+          const isLeader = yield* crypto.checkVrfLeader(lowVrf, "9000000", "10000000", "5", "100");
           expect(isLeader).toBe(true);
         }),
       ),

@@ -60,9 +60,7 @@ export type ChainTipSnapshot = {
 // `scheduleAtomRemoval` path for the underlying behavior.
 
 /** Current chain tip. `undefined` until the first tip-bearing event. */
-export const chainTipAtom = Atom.keepAlive(
-  Atom.make<ChainTipSnapshot | undefined>(undefined),
-);
+export const chainTipAtom = Atom.keepAlive(Atom.make<ChainTipSnapshot | undefined>(undefined));
 
 /** Block count. Monotonic on `BlockAccepted`; reset on rollback-to-origin. */
 export const chainLengthAtom = Atom.keepAlive(Atom.make(0));
@@ -71,9 +69,7 @@ export const chainLengthAtom = Atom.keepAlive(Atom.make(0));
 export const epochAtom = Atom.keepAlive(Atom.make<bigint | undefined>(undefined));
 
 /** Evolved epoch nonce — 32-byte derived value active from `epochAtom`. */
-export const epochNonceAtom = Atom.keepAlive(
-  Atom.make<Uint8Array | undefined>(undefined),
-);
+export const epochNonceAtom = Atom.keepAlive(Atom.make<Uint8Array | undefined>(undefined));
 
 /** Rolling rollback counter — useful for GSM health + dashboard incidents. */
 export const rollbackCountAtom = Atom.keepAlive(Atom.make(0));
@@ -139,10 +135,7 @@ const applyRollback = (
   });
 };
 
-const applyEvent = (
-  registry: AtomRegistry,
-  event: ChainEventType,
-): Effect.Effect<void> =>
+const applyEvent = (registry: AtomRegistry, event: ChainEventType): Effect.Effect<void> =>
   Effect.sync(() =>
     ChainEvent.match(event, {
       BlockAccepted: (p) => {
@@ -170,26 +163,21 @@ const applyEvent = (
  * `AtomRegistry.layer` — the default in-memory registry — or a
  * scheduled variant).
  */
-export const ChainAtomsLive: Layer.Layer<
-  never,
-  never,
-  ChainEventStream | AtomRegistry
-> = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const events = yield* ChainEventStream;
-    const registry = yield* AtomRegistry;
-    // Materialize the subscription synchronously BEFORE forking the
-    // consumer loop — if we passed `events.stream` to `forkScoped` the
-    // subscription registration happens asynchronously on first pull,
-    // so writes published between layer-init-complete and the fiber's
-    // first PubSub.take would slip past.
-    const subscription = yield* events.subscribe;
-    yield* Effect.forkScoped(
-      Effect.forever(
-        PubSub.take(subscription).pipe(
-          Effect.flatMap((event) => applyEvent(registry, event)),
+export const ChainAtomsLive: Layer.Layer<never, never, ChainEventStream | AtomRegistry> =
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const events = yield* ChainEventStream;
+      const registry = yield* AtomRegistry;
+      // Materialize the subscription synchronously BEFORE forking the
+      // consumer loop — if we passed `events.stream` to `forkScoped` the
+      // subscription registration happens asynchronously on first pull,
+      // so writes published between layer-init-complete and the fiber's
+      // first PubSub.take would slip past.
+      const subscription = yield* events.subscribe;
+      yield* Effect.forkScoped(
+        Effect.forever(
+          PubSub.take(subscription).pipe(Effect.flatMap((event) => applyEvent(registry, event))),
         ),
-      ),
-    );
-  }),
-);
+      );
+    }),
+  );

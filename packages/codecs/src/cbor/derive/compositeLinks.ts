@@ -315,8 +315,8 @@ export const taggedUnionLink =
   (tagField: string): CborLinkFactory =>
   (walkedAst) => {
     const union = Option.liftPredicate(walkedAst, AST.isUnion).pipe(
-      Option.getOrThrowWith(
-        () => derivationError("taggedUnionLink", walkedAst._tag, "expected Union AST"),
+      Option.getOrThrowWith(() =>
+        derivationError("taggedUnionLink", walkedAst._tag, "expected Union AST"),
       ),
     );
     const byTag = buildTaggedMembers(union, tagField);
@@ -492,7 +492,11 @@ export const sparseMapLink =
       const name = String(ps.name);
       const keyNum = Option.fromUndefinedOr(keyMapping[name]).pipe(
         Option.getOrThrowWith(() =>
-          derivationError("sparseMapLink", walkedAst._tag, `field "${name}" has no integer-key mapping`),
+          derivationError(
+            "sparseMapLink",
+            walkedAst._tag,
+            `field "${name}" has no integer-key mapping`,
+          ),
         ),
       );
       return { name, keyNum, isOptional: AST.isOptional(ps.type) };

@@ -77,12 +77,15 @@ const entriesToPolicyMap = (entries: ReadonlyArray<MultiAssetEntry>): PolicyMap 
   entries.reduce(addEntryToPolicyMap, HashMap.empty<PolicyKey, AssetMap>());
 
 const policyMapToEntries = (pm: PolicyMap): ReadonlyArray<MultiAssetEntry> =>
-  Array.from(pm, ([pk, am]): MultiAssetEntry => ({
-    policy: pk.bytes,
-    assets: Array.from(am, ([nk, q]) => ({ name: nk.bytes, quantity: q })).filter(
-      (a) => a.quantity !== 0n,
-    ),
-  })).filter((e) => e.assets.length > 0);
+  Array.from(
+    pm,
+    ([pk, am]): MultiAssetEntry => ({
+      policy: pk.bytes,
+      assets: Array.from(am, ([nk, q]) => ({ name: nk.bytes, quantity: q })).filter(
+        (a) => a.quantity !== 0n,
+      ),
+    }),
+  ).filter((e) => e.assets.length > 0);
 
 /**
  * Element-wise merge of two HashMaps under a `QuantityMonoid`-shaped combiner.
@@ -122,14 +125,10 @@ export function mergeMultiAsset(
   b: ReadonlyArray<MultiAssetEntry> | undefined,
   monoid: QuantityMonoid,
 ): ReadonlyArray<MultiAssetEntry> | undefined {
-  const merged = mergeWithMonoid(
-    entriesToPolicyMap(a ?? []),
-    entriesToPolicyMap(b ?? []),
-    {
-      empty: HashMap.empty<NameKey, bigint>(),
-      combine: (l, r) => mergeWithMonoid(l, r, monoid),
-    },
-  );
+  const merged = mergeWithMonoid(entriesToPolicyMap(a ?? []), entriesToPolicyMap(b ?? []), {
+    empty: HashMap.empty<NameKey, bigint>(),
+    combine: (l, r) => mergeWithMonoid(l, r, monoid),
+  });
   const out = policyMapToEntries(merged);
   return out.length > 0 ? out : undefined;
 }

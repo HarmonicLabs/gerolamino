@@ -209,8 +209,9 @@ pub fn ed25519_extended_public_key(extended_secret_key: &[u8]) -> Result<Vec<u8>
             extended_secret_key.len(),
         ));
     }
-    let sk_bytes = <[u8; 64]>::try_from(extended_secret_key)
-        .map_err(|_| CryptoError::bad_length("extended secret key", 64, extended_secret_key.len()))?;
+    let sk_bytes = <[u8; 64]>::try_from(extended_secret_key).map_err(|_| {
+        CryptoError::bad_length("extended secret key", 64, extended_secret_key.len())
+    })?;
 
     let sk = pallas_crypto::key::ed25519::SecretKeyExtended::from_bytes(sk_bytes)
         .map_err(|e| CryptoError::invalid_key("extended secret key", &format!("{:?}", e)))?;
@@ -231,8 +232,9 @@ pub fn ed25519_extended_sign(
             extended_secret_key.len(),
         ));
     }
-    let sk_bytes = <[u8; 64]>::try_from(extended_secret_key)
-        .map_err(|_| CryptoError::bad_length("extended secret key", 64, extended_secret_key.len()))?;
+    let sk_bytes = <[u8; 64]>::try_from(extended_secret_key).map_err(|_| {
+        CryptoError::bad_length("extended secret key", 64, extended_secret_key.len())
+    })?;
 
     let sk = pallas_crypto::key::ed25519::SecretKeyExtended::from_bytes(sk_bytes)
         .map_err(|e| CryptoError::invalid_key("extended secret key", &format!("{:?}", e)))?;

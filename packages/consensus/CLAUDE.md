@@ -75,7 +75,7 @@ boundary.
 - **Effect-provided `_tag` checks**: `Exit.isSuccess` / `Option.isSome` /
   `Option.match` are the standard helpers. Don't do `exit._tag === "Success"`.
 - **`Config.number(...)` unwrapping**: yield inside `Effect.gen(function*
-  () { return yield* Config.number(...).pipe(Config.withDefault(...)); }).pipe(Effect.orDie)`.
+() { return yield* Config.number(...).pipe(Config.withDefault(...)); }).pipe(Effect.orDie)`.
   Do NOT `Effect.orDie(config)` directly — a Config isn't an Effect until
   yielded.
 - **In-memory idempotency indexes**: pair a `KeyValueStore`-backed schema

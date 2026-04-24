@@ -21,10 +21,7 @@ import type { Transition } from "../../typed-channel";
 import { LocalTxMonitorMessageBytes, LocalTxMonitorMessageType } from "./Schemas";
 import type { LocalTxMonitorMessageT } from "./Schemas";
 
-type Narrow<Tag extends LocalTxMonitorMessageType> = Extract<
-  LocalTxMonitorMessageT,
-  { _tag: Tag }
->;
+type Narrow<Tag extends LocalTxMonitorMessageType> = Extract<LocalTxMonitorMessageT, { _tag: Tag }>;
 
 export const state_Idle = ProtocolState.make("Idle", "Client");
 export const state_Acquiring = ProtocolState.make("Acquiring", "Server");

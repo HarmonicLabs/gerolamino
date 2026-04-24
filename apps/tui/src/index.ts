@@ -363,7 +363,9 @@ const start = Command.make(
           ),
           dashboardMonitorLoop.pipe(
             Effect.retry(
-              Schedule.exponential("5 seconds").pipe(Schedule.bothLeft(Schedule.during("60 seconds"))),
+              Schedule.exponential("5 seconds").pipe(
+                Schedule.bothLeft(Schedule.during("60 seconds")),
+              ),
             ),
           ),
         ],
@@ -401,12 +403,7 @@ const makeStorageLayers = () =>
       const chainDbLayer = ChainDBLive.pipe(Layer.provide(storageDepsLayer));
       const snapshotStoreLayer = LedgerSnapshotStoreLive.pipe(Layer.provide(storageDepsLayer));
 
-      return Layer.mergeAll(
-        chainDbLayer,
-        snapshotStoreLayer,
-        sqlClientLayer,
-        blobStoreLayer,
-      );
+      return Layer.mergeAll(chainDbLayer, snapshotStoreLayer, sqlClientLayer, blobStoreLayer);
     }),
   );
 

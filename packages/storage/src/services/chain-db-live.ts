@@ -47,12 +47,7 @@ import {
   type BlockAnalysis,
 } from "../blob-store";
 import { IMMUTABLE_BLOCK_DEFAULTS, timeUnixSeconds } from "../operations/blocks.ts";
-import {
-  ChainDBEvent,
-  type ChainDBState,
-  initialChainDBState,
-  reduce,
-} from "../machines";
+import { ChainDBEvent, type ChainDBState, initialChainDBState, reduce } from "../machines";
 import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
 /** Tag an effect's failures as a `ChainDBError` with the given operation name.
@@ -293,9 +288,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
       /** Observable state — consumers can also subscribe via `.changes` if
        * a future dashboard wants live immutability-region telemetry. */
-      const state = yield* SubscriptionRef.make<ChainDBState>(
-        initialChainDBState(securityParam),
-      );
+      const state = yield* SubscriptionRef.make<ChainDBState>(initialChainDBState(securityParam));
 
       /** Event mailbox — bounded at 64 per the previous XState actor buffer. */
       const events = yield* Queue.bounded<ChainDBEvent>(64);
@@ -323,20 +316,18 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
       // fiber is forked AFTER this — but the shape is cleaner regardless).
       yield* SubscriptionRef.updateEffect(state, (s) =>
         Effect.all(
-          [
-            findVolatileCount(undefined),
-            findTipPoint(undefined),
-            findImmutableTipPoint(undefined),
-          ],
+          [findVolatileCount(undefined), findTipPoint(undefined), findImmutableTipPoint(undefined)],
           { concurrency: "unbounded" },
         ).pipe(
-          Effect.map(([vCountRow, vTip, iTip]): ChainDBState => ({
-            ...s,
-            volatileLength: vCountRow.n,
-            tip: Option.getOrUndefined(Option.map(vTip, toPoint)),
-            immutableTip: Option.getOrUndefined(Option.map(iTip, toPoint)),
-            immutability: vCountRow.n > s.securityParam ? "copying" : "idle",
-          })),
+          Effect.map(
+            ([vCountRow, vTip, iTip]): ChainDBState => ({
+              ...s,
+              volatileLength: vCountRow.n,
+              tip: Option.getOrUndefined(Option.map(vTip, toPoint)),
+              immutableTip: Option.getOrUndefined(Option.map(iTip, toPoint)),
+              immutability: vCountRow.n > s.securityParam ? "copying" : "idle",
+            }),
+          ),
         ),
       ).pipe(
         // Seed is a "nice to have" — if the tables don't exist yet
@@ -353,9 +344,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
       /** dispatchFiber: drain events → reduce → publish new state. */
       yield* Effect.forkScoped(
         Stream.fromQueue(events).pipe(
-          Stream.runForEach((event) =>
-            SubscriptionRef.update(state, (s) => reduce(s, event)),
-          ),
+          Stream.runForEach((event) => SubscriptionRef.update(state, (s) => reduce(s, event))),
         ),
       );
 
@@ -408,10 +397,9 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
           ).pipe(withOp("getBlockAt")),
 
         // --- Tip (max-slot across volatile + immutable) ---
-        getTip: Effect.all(
-          [findTipPoint(undefined), findImmutableTipPoint(undefined)],
-          { concurrency: "unbounded" },
-        ).pipe(
+        getTip: Effect.all([findTipPoint(undefined), findImmutableTipPoint(undefined)], {
+          concurrency: "unbounded",
+        }).pipe(
           // `Option.firstSomeOf([max(v,i), v, i])` picks the max when both
           // are Some (first), otherwise whichever single value is Some —
           // one chain expresses both the merge and the fallbacks.
@@ -489,7 +477,9 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
         // --- Batch blob writes (for derived entries: utxo diffs, stake, accounts) ---
         writeBlobEntries: (entries: ReadonlyArray<BlobEntry>) =>
-          entries.length > 0 ? store.putBatch(entries).pipe(withOp("writeBlobEntries")) : Effect.void,
+          entries.length > 0
+            ? store.putBatch(entries).pipe(withOp("writeBlobEntries"))
+            : Effect.void,
 
         // --- Batch blob deletes (consumed UTxO inputs, deregistered accounts) ---
         deleteBlobEntries: (keys: ReadonlyArray<Uint8Array>) =>

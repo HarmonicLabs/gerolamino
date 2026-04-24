@@ -140,8 +140,8 @@ pub fn unwrap_multiplexer_message(message: &[u8]) -> Result<JsValue, FramingErro
 
     let has_agency = (agency_and_protocol & 0x8000) == 0;
     let protocol_id = agency_and_protocol & 0x7FFF;
-    let protocol =
-        MiniProtocol::from_u16(protocol_id).ok_or_else(|| FramingError::invalid_protocol(protocol_id))?;
+    let protocol = MiniProtocol::from_u16(protocol_id)
+        .ok_or_else(|| FramingError::invalid_protocol(protocol_id))?;
 
     let payload_start = 8;
     let required = payload_start + payload_length as usize;

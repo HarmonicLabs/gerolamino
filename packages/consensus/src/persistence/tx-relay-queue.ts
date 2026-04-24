@@ -76,7 +76,7 @@ export const makeTxRelayQueue = Effect.gen(function* () {
   };
 });
 
-export type TxRelayQueue = Awaited<ReturnType<typeof makeTxRelayQueue["pipe"]>>;
+export type TxRelayQueue = Awaited<ReturnType<(typeof makeTxRelayQueue)["pipe"]>>;
 
 /**
  * Convenience: pre-composed test layer that wires the in-memory store

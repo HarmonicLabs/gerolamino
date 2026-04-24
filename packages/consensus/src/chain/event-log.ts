@@ -26,18 +26,8 @@
  * PubSub rather than multiple registered handlers.
  */
 import { Context, Effect, Layer, Metric, PubSub, Schema, Scope, Stream } from "effect";
-import {
-  EventGroup,
-  EventJournal,
-  EventLog,
-  EventLogEncryption,
-} from "effect/unstable/eventlog";
-import {
-  ChainLength,
-  ChainTipSlot,
-  EpochBoundaryCount,
-  RollbackCount,
-} from "../observability.ts";
+import { EventGroup, EventJournal, EventLog, EventLogEncryption } from "effect/unstable/eventlog";
+import { ChainLength, ChainTipSlot, EpochBoundaryCount, RollbackCount } from "../observability.ts";
 
 // ---------------------------------------------------------------------------
 // RollbackTarget — where a rollback points to (real point or origin)
@@ -164,10 +154,7 @@ export const writeChainEvent = (event: ChainEventType) =>
       BlockAccepted: () => Effect.void,
       RolledBack: () => Metric.update(RollbackCount, 1),
       TipAdvanced: (p) =>
-        Effect.all([
-          Metric.update(ChainTipSlot, p.slot),
-          Metric.update(ChainLength, p.blockNo),
-        ]),
+        Effect.all([Metric.update(ChainTipSlot, p.slot), Metric.update(ChainLength, p.blockNo)]),
       EpochBoundary: () => Metric.update(EpochBoundaryCount, 1),
     });
     return written;
@@ -180,15 +167,11 @@ export const writeChainEvent = (event: ChainEventType) =>
 // should go through `ChainEventStream`.
 // ---------------------------------------------------------------------------
 
-class ChainEventPubSub extends Context.Service<
-  ChainEventPubSub,
-  PubSub.PubSub<ChainEventType>
->()("consensus/ChainEventPubSub") {}
+class ChainEventPubSub extends Context.Service<ChainEventPubSub, PubSub.PubSub<ChainEventType>>()(
+  "consensus/ChainEventPubSub",
+) {}
 
-const ChainEventPubSubLive = Layer.effect(
-  ChainEventPubSub,
-  PubSub.bounded<ChainEventType>(256),
-);
+const ChainEventPubSubLive = Layer.effect(ChainEventPubSub, PubSub.bounded<ChainEventType>(256));
 
 // ---------------------------------------------------------------------------
 // ChainEventStream — the public subscribe surface. Exposes scoped
@@ -204,11 +187,7 @@ export class ChainEventStream extends Context.Service<
      * `PubSub.takeAll` / `PubSub.takeBetween`. Matches the canonical
      * `effect/test/PubSub.test.ts` pattern.
      */
-    readonly subscribe: Effect.Effect<
-      PubSub.Subscription<ChainEventType>,
-      never,
-      Scope.Scope
-    >;
+    readonly subscribe: Effect.Effect<PubSub.Subscription<ChainEventType>, never, Scope.Scope>;
 
     /** High-level `Stream` view — convenience for `.pipe(Stream.filter, ...)`. */
     readonly stream: Stream.Stream<ChainEventType>;

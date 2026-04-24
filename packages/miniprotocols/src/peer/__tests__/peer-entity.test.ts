@@ -141,10 +141,7 @@ describe("cursor-freshness helpers", () => {
 
   it.effect("IntersectNotFound → Reset to Origin", () =>
     Effect.gen(function* () {
-      const result = yield* onIntersectionReply(
-        { _tag: "IntersectNotFound" },
-        cursorPoint,
-      );
+      const result = yield* onIntersectionReply({ _tag: "IntersectNotFound" }, cursorPoint);
       expect(result._tag).toBe("Reset");
       expect(wasReset(result)).toBe(true);
       expect(effectiveCursor(result)._tag).toBe(ChainPointType.Origin);

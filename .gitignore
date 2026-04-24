@@ -46,14 +46,27 @@ Thumbs.db
 .claude/settings.local.json
 
 # Nix / devenv
-.direnv
+.direnv/
 .devenv
+.envrc.local
 result
 result-*
 
 # Rust build artifacts
 target/
 *.wasm
+
+# tsgo incremental build artifacts (per-developer paths, stale state)
+*.tsbuildinfo
+
+# Stale tsgo/tsc declaration artifacts emitted into src/ directories.
+# `tsconfig.lib.json` has `outDir: "./dist"` but past build configs routed
+# declarations next to sources. Path aliases resolve to `.ts` files, so these
+# are derived noise — never commit them.
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+apps/*/src/**/*.d.ts
+apps/*/src/**/*.d.ts.map
 
 # Mithril snapshot databases (not source code db/ directories)
 apps/bootstrap/db

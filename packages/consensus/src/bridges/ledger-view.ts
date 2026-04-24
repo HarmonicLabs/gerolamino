@@ -49,14 +49,11 @@ export const extractLedgerView = (state: ExtLedgerState) =>
     // at header-validation time). Normalise once at the bridge boundary so
     // each pool entry crosses `toHex()` exactly once even though it fans out
     // into two HashMaps.
-    const normalised = Array.from(
-      HashMap.entries(poolDistr.pools),
-      ([poolHash, ps]) => ({
-        hexHash: poolHash.toHex(),
-        vrfKeyHash: ps.vrfKeyHash,
-        totalStake: ps.totalStake,
-      }),
-    );
+    const normalised = Array.from(HashMap.entries(poolDistr.pools), ([poolHash, ps]) => ({
+      hexHash: poolHash.toHex(),
+      vrfKeyHash: ps.vrfKeyHash,
+      totalStake: ps.totalStake,
+    }));
     const poolVrfKeys = HashMap.fromIterable(
       normalised.map((p) => [p.hexHash, p.vrfKeyHash] as const),
     );
@@ -72,7 +69,8 @@ export const extractLedgerView = (state: ExtLedgerState) =>
       totalStake: poolDistr.totalActiveStake,
       activeSlotsCoeff: slotClock.config.activeSlotsCoeff,
       maxKesEvolutions: MAX_KES_EVOLUTIONS,
-      maxHeaderSize: extractPParamUint(pparams, PPARAM_KEY.maxHeaderSize) ?? PPARAM_DEFAULT.maxHeaderSize,
+      maxHeaderSize:
+        extractPParamUint(pparams, PPARAM_KEY.maxHeaderSize) ?? PPARAM_DEFAULT.maxHeaderSize,
       maxBlockBodySize:
         extractPParamUint(pparams, PPARAM_KEY.maxBlockBodySize) ?? PPARAM_DEFAULT.maxBlockBodySize,
       ocertCounters: extractOcertCounters(state.chainDepState),
@@ -162,11 +160,7 @@ const decodeNonce = (cbor: CborSchemaType): Uint8Array => {
   if (CborValue.guards[CborKinds.Array](cbor)) {
     if (cbor.items.length === 0) return ZERO_NONCE;
     const [head] = cbor.items;
-    if (
-      head !== undefined &&
-      CborValue.guards[CborKinds.Bytes](head) &&
-      head.bytes.length === 32
-    ) {
+    if (head !== undefined && CborValue.guards[CborKinds.Bytes](head) && head.bytes.length === 32) {
       return head.bytes;
     }
     return ZERO_NONCE;

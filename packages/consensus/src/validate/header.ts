@@ -324,9 +324,7 @@ const assertKesSignature = (
     const kesPeriodSinceOpcert = header.kesPeriod - header.opcertKesPeriod;
     if (kesPeriodSinceOpcert < 0)
       return yield* Effect.fail(
-        toErr(
-          `KES period ${header.kesPeriod} before opcert start ${header.opcertKesPeriod}`,
-        ),
+        toErr(`KES period ${header.kesPeriod} before opcert start ${header.opcertKesPeriod}`),
       );
     if (kesPeriodSinceOpcert >= view.maxKesEvolutions)
       return yield* Effect.fail(
@@ -335,12 +333,7 @@ const assertKesSignature = (
     // Verify KES signature over CBOR(headerBody) — not bodyHash.
     // pallas expects RELATIVE period (kesPeriod - opcertKesPeriod), not absolute.
     const valid = yield* crypto
-      .kesSum6Verify(
-        header.kesSig,
-        kesPeriodSinceOpcert,
-        header.opcertVkHot,
-        header.headerBodyCbor,
-      )
+      .kesSum6Verify(header.kesSig, kesPeriodSinceOpcert, header.opcertVkHot, header.headerBodyCbor)
       .pipe(Effect.mapError(toErr));
     if (!valid) return yield* Effect.fail(toErr("KES signature invalid"));
   });
@@ -356,9 +349,7 @@ const assertOperationalCertificate = (
   const toErr = headerErrFor("AssertOperationalCertificate", header);
   return Effect.gen(function* () {
     if (header.opcertSeqNo < 0)
-      return yield* Effect.fail(
-        toErr(`invalid opcert sequence number: ${header.opcertSeqNo}`),
-      );
+      return yield* Effect.fail(toErr(`invalid opcert sequence number: ${header.opcertSeqNo}`));
     // Opcert message: hotVk(32 bytes) ∥ seqNo(BE64) ∥ kesPeriod(BE64)
     // Per Amaru/Haskell: seqNo and kesPeriod are Word64, serialized as 8-byte big-endian.
     const msg = concat(header.opcertVkHot, be64(header.opcertSeqNo), be64(header.opcertKesPeriod));
@@ -370,9 +361,7 @@ const assertOperationalCertificate = (
     // Counter monotonicity check (per Haskell Praos.hs:645-648).
     // Gracefully skip when counters are empty (genesis sync without bootstrap).
     if (HashMap.size(view.ocertCounters) > 0) {
-      const poolIdBytes = yield* crypto
-        .blake2b256(header.issuerVk)
-        .pipe(Effect.mapError(toErr));
+      const poolIdBytes = yield* crypto.blake2b256(header.issuerVk).pipe(Effect.mapError(toErr));
       const poolId = poolIdBytes.toHex();
       const lastSeqNo = HashMap.get(view.ocertCounters, poolId).pipe(Option.getOrElse(() => 0));
       if (header.opcertSeqNo < lastSeqNo)

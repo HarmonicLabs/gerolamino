@@ -11,10 +11,7 @@ import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient"
 import { type BlobEntry, BlobStore } from "../blob-store/service.ts";
 import { ChainDB } from "../services/chain-db.ts";
 import { ChainDBLive } from "../services/chain-db-live.ts";
-import {
-  LedgerSnapshotStore,
-  LedgerSnapshotStoreLive,
-} from "../services/ledger-snapshot-store.ts";
+import { LedgerSnapshotStore, LedgerSnapshotStoreLive } from "../services/ledger-snapshot-store.ts";
 import { runMigrations } from "../operations/migrations.ts";
 import type { StoredBlock } from "../types/StoredBlock.ts";
 

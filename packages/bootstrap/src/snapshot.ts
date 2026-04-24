@@ -67,9 +67,7 @@ export const readSnapshotMeta = (snapshotPath: string) =>
     const lsmDir = p.join(snapshotPath, "lsm");
 
     const protocolMagic = parseInt(
-      new TextDecoder().decode(
-        yield* fs.readFile(p.join(snapshotPath, "protocolMagicId")),
-      ),
+      new TextDecoder().decode(yield* fs.readFile(p.join(snapshotPath, "protocolMagicId"))),
     );
 
     const chunkFiles = yield* fs.readDirectory(immutableDir);

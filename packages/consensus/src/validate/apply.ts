@@ -35,12 +35,9 @@ import { BlockAccepted } from "../observability.ts";
  * block's CBOR is malformed (wrapping a `BlockAnalysisParseError`) or
  * `parseSync` can't consume the body.
  */
-export class ApplyBlockError extends Schema.TaggedErrorClass<ApplyBlockError>()(
-  "ApplyBlockError",
-  {
-    reason: Schema.String,
-  },
-) {}
+export class ApplyBlockError extends Schema.TaggedErrorClass<ApplyBlockError>()("ApplyBlockError", {
+  reason: Schema.String,
+}) {}
 
 // ---------------------------------------------------------------------------
 // BlockDiff — the result of applying a block to the ledger state

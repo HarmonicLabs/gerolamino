@@ -115,9 +115,7 @@ describe("Handshake transitions", () => {
         })
         .pipe(Effect.provide(clientLayer));
 
-      const heardPropose = yield* server
-        .recv(state_Propose)
-        .pipe(Effect.provide(serverLayer));
+      const heardPropose = yield* server.recv(state_Propose).pipe(Effect.provide(serverLayer));
       expect(heardPropose.nextState.name).toBe("Confirm");
 
       yield* server
@@ -133,9 +131,7 @@ describe("Handshake transitions", () => {
         })
         .pipe(Effect.provide(serverLayer));
 
-      const heardAccept = yield* client
-        .recv(state_Confirm)
-        .pipe(Effect.provide(clientLayer));
+      const heardAccept = yield* client.recv(state_Confirm).pipe(Effect.provide(clientLayer));
       const decoded = heardAccept.message as {
         readonly _tag: HandshakeMessageType.MsgAcceptVersion;
         readonly version: number;
@@ -146,7 +142,6 @@ describe("Handshake transitions", () => {
       expect(heardAccept.nextState.agency).toBe("Neither");
     }),
   );
-
 });
 
 // ─── KeepAlive ───────────────────────────────────────────────────────────
@@ -170,9 +165,7 @@ describe("KeepAlive transitions", () => {
         .send(tKeepAlive, { _tag: KeepAliveMessageType.KeepAlive, cookie: 42 })
         .pipe(Effect.provide(clientLayer));
 
-      const heardKA = yield* server
-        .recv(keepAlive_state_Client)
-        .pipe(Effect.provide(serverLayer));
+      const heardKA = yield* server.recv(keepAlive_state_Client).pipe(Effect.provide(serverLayer));
       expect((heardKA.message as { cookie: number }).cookie).toBe(42);
       expect(heardKA.nextState.name).toBe("Server");
 
@@ -277,9 +270,7 @@ describe("ChainSync transitions", () => {
         })
         .pipe(Effect.provide(clientLayer));
 
-      const heard = yield* server
-        .recv(chainSync_state_Idle)
-        .pipe(Effect.provide(serverLayer));
+      const heard = yield* server.recv(chainSync_state_Idle).pipe(Effect.provide(serverLayer));
       expect(heard.nextState.name).toBe("Intersect");
 
       yield* server
@@ -290,12 +281,10 @@ describe("ChainSync transitions", () => {
         })
         .pipe(Effect.provide(serverLayer));
 
-      const reply = yield* client
-        .recv(chainSync_state_Intersect)
-        .pipe(Effect.provide(clientLayer));
-      expect(
-        (reply.message as { readonly _tag: ChainSyncMessageType })._tag,
-      ).toBe(ChainSyncMessageType.IntersectFound);
+      const reply = yield* client.recv(chainSync_state_Intersect).pipe(Effect.provide(clientLayer));
+      expect((reply.message as { readonly _tag: ChainSyncMessageType })._tag).toBe(
+        ChainSyncMessageType.IntersectFound,
+      );
       expect(reply.nextState.name).toBe("Idle");
     }),
   );
@@ -337,33 +326,25 @@ describe("BlockFetch transitions", () => {
       yield* server
         .send(tStartBatch, { _tag: BlockFetchMessageType.StartBatch })
         .pipe(Effect.provide(serverLayer));
-      yield* client
-        .recv(blockFetch_state_Busy)
-        .pipe(Effect.provide(clientLayer));
+      yield* client.recv(blockFetch_state_Busy).pipe(Effect.provide(clientLayer));
 
       // Server streams two blocks
       yield* server
         .send(tBlock, { _tag: BlockFetchMessageType.Block, block: blockBytes })
         .pipe(Effect.provide(serverLayer));
-      const b1 = yield* client
-        .recv(blockFetch_state_Streaming)
-        .pipe(Effect.provide(clientLayer));
+      const b1 = yield* client.recv(blockFetch_state_Streaming).pipe(Effect.provide(clientLayer));
       expect(b1.nextState.name).toBe("Streaming"); // self-loop
 
       yield* server
         .send(tBlock, { _tag: BlockFetchMessageType.Block, block: blockBytes })
         .pipe(Effect.provide(serverLayer));
-      yield* client
-        .recv(blockFetch_state_Streaming)
-        .pipe(Effect.provide(clientLayer));
+      yield* client.recv(blockFetch_state_Streaming).pipe(Effect.provide(clientLayer));
 
       // BatchDone returns to Idle
       yield* server
         .send(tBatchDone, { _tag: BlockFetchMessageType.BatchDone })
         .pipe(Effect.provide(serverLayer));
-      const done = yield* client
-        .recv(blockFetch_state_Streaming)
-        .pipe(Effect.provide(clientLayer));
+      const done = yield* client.recv(blockFetch_state_Streaming).pipe(Effect.provide(clientLayer));
       expect(done.nextState.name).toBe("Idle");
     }),
   );
@@ -447,9 +428,7 @@ describe("LocalTxSubmit transitions", () => {
       yield* server
         .send(tAcceptTx, { _tag: LocalTxSubmitMessageType.AcceptTx })
         .pipe(Effect.provide(serverLayer));
-      const accept = yield* client
-        .recv(localTxSubmit_state_Busy)
-        .pipe(Effect.provide(clientLayer));
+      const accept = yield* client.recv(localTxSubmit_state_Busy).pipe(Effect.provide(clientLayer));
       expect(accept.nextState.name).toBe("Idle");
     }),
   );

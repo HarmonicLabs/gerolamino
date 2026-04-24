@@ -254,9 +254,7 @@ function extractScriptArray(
   cbor: CborSchemaType | undefined,
 ): ReadonlyArray<Uint8Array> | undefined {
   if (!cbor || !CborValueSchema.guards[CborKinds.Array](cbor)) return undefined;
-  return cbor.items
-    .filter(CborValueSchema.guards[CborKinds.Bytes])
-    .map((i) => i.bytes);
+  return cbor.items.filter(CborValueSchema.guards[CborKinds.Bytes]).map((i) => i.bytes);
 }
 
 // Alonzo+ aux-data: Tag(259, Map{0?: metadata, 1-4?: script arrays})

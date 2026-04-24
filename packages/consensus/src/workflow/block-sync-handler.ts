@@ -39,9 +39,7 @@ import { BlockSyncSuccess, BlockSyncWorkflow } from "./block-sync.ts";
  */
 export const BlockSyncHandlerLive = BlockSyncWorkflow.toLayer(
   Effect.fn("BlockSyncWorkflow.handle")(function* (payload) {
-    yield* Effect.log(
-      `BlockSync: starting chain=${payload.chainId} fromSlot=${payload.fromSlot}`,
-    );
+    yield* Effect.log(`BlockSync: starting chain=${payload.chainId} fromSlot=${payload.fromSlot}`);
 
     // Activity 1 — DiscoverPeers. Cached on first success; resume
     // short-circuits. Stub returns a synthetic peer count; real handler
@@ -79,8 +77,7 @@ export const BlockSyncHandlerLive = BlockSyncWorkflow.toLayer(
           (i) => {
             const slot = payload.fromSlot + BigInt(i + 1);
             const hash = new Uint8Array(32).fill((i + 1) & 0xff);
-            const parentHash =
-              i === 0 ? new Uint8Array(32) : new Uint8Array(32).fill(i & 0xff);
+            const parentHash = i === 0 ? new Uint8Array(32) : new Uint8Array(32).fill(i & 0xff);
             return Effect.all(
               [
                 writeChainEvent({

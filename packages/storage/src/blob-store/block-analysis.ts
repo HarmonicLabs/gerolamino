@@ -152,7 +152,10 @@ function readArrayHeader(buf: Uint8Array, pos: number): { count: number; bytesRe
   const majorType = header >> 5;
   const addInfo = header & 0x1f;
   if (majorType !== 4)
-    throw new BlockAnalysisParseError({ pos, reason: `expected array, got major type ${majorType}` });
+    throw new BlockAnalysisParseError({
+      pos,
+      reason: `expected array, got major type ${majorType}`,
+    });
   const { value, bytesRead } = readArg(buf, pos + 1, addInfo);
   if (value < 0n)
     throw new BlockAnalysisParseError({
@@ -170,7 +173,10 @@ function readUint(buf: Uint8Array, pos: number): { value: bigint; bytesRead: num
   const majorType = header >> 5;
   const addInfo = header & 0x1f;
   if (majorType !== 0)
-    throw new BlockAnalysisParseError({ pos, reason: `expected uint, got major type ${majorType}` });
+    throw new BlockAnalysisParseError({
+      pos,
+      reason: `expected uint, got major type ${majorType}`,
+    });
   const { value, bytesRead } = readArg(buf, pos + 1, addInfo);
   return { value, bytesRead: 1 + bytesRead };
 }

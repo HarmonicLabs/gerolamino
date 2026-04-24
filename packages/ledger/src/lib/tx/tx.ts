@@ -721,15 +721,9 @@ export function encodeTxBody(body: TxBody): Effect.Effect<CborSchemaType, Schema
       ),
       ...mapEntry(15, body.networkId !== undefined ? uint(body.networkId) : undefined),
       ...mapEntry(16, collateralReturn),
-      ...mapEntry(
-        17,
-        body.totalCollateral !== undefined ? uint(body.totalCollateral) : undefined,
-      ),
+      ...mapEntry(17, body.totalCollateral !== undefined ? uint(body.totalCollateral) : undefined),
       ...mapEntry(18, referenceInputs ? arr(...referenceInputs) : undefined),
-      ...mapEntry(
-        21,
-        body.currentTreasury !== undefined ? uint(body.currentTreasury) : undefined,
-      ),
+      ...mapEntry(21, body.currentTreasury !== undefined ? uint(body.currentTreasury) : undefined),
       ...mapEntry(22, body.donation !== undefined ? uint(body.donation) : undefined),
     ]);
   });

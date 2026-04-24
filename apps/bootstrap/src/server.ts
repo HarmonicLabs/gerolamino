@@ -74,7 +74,11 @@ const parseOrigins = (raw: string): ReadonlyArray<string> =>
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
-export const startServer = (meta: SnapshotMeta, config: ServerConfig, preloaded: PreloadedLedger) => {
+export const startServer = (
+  meta: SnapshotMeta,
+  config: ServerConfig,
+  preloaded: PreloadedLedger,
+) => {
   const apiLive = HttpApiBuilder.layer(BootstrapApi, { openapiPath: "/openapi.json" }).pipe(
     Layer.provide(infoGroupLayer(meta)),
   );

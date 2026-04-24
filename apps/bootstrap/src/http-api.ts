@@ -103,7 +103,9 @@ export const BootstrapApi = HttpApi.make("bootstrap").add(
  * startup; dynamic endpoints (`sync-status`, `peers`, `mempool`) return
  * placeholder data until the respective services land.
  */
-export const infoGroupLayer = (meta: SnapshotMeta): Layer.Layer<HttpApiGroup.ApiGroup<"bootstrap", "info">> =>
+export const infoGroupLayer = (
+  meta: SnapshotMeta,
+): Layer.Layer<HttpApiGroup.ApiGroup<"bootstrap", "info">> =>
   HttpApiBuilder.group(BootstrapApi, "info", (handlers) =>
     handlers
       .handle("root", () =>
@@ -116,9 +118,7 @@ export const infoGroupLayer = (meta: SnapshotMeta): Layer.Layer<HttpApiGroup.Api
       .handle("snapshots", () =>
         // Single-snapshot deployment today. When Phase 0f-iii's fixture
         // manager lands, enumerate the cache.
-        Effect.succeed([
-          { slot: meta.snapshotSlot.toString(), chunks: meta.totalChunks },
-        ]),
+        Effect.succeed([{ slot: meta.snapshotSlot.toString(), chunks: meta.totalChunks }]),
       )
       .handle("syncStatus", () =>
         Effect.succeed({

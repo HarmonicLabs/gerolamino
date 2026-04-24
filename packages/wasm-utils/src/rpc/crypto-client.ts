@@ -59,7 +59,9 @@ export const CryptoFromRpc: Layer.Layer<Crypto, never, CryptoRpcClient> = Layer.
       operation: CryptoOperation,
       eff: Effect.Effect<A, CryptoOpError | RpcClientError>,
     ): Effect.Effect<A, CryptoOpError> =>
-      eff.pipe(Effect.catchTag("RpcClientError", (err) => Effect.fail(mapTransportError(operation)(err))));
+      eff.pipe(
+        Effect.catchTag("RpcClientError", (err) => Effect.fail(mapTransportError(operation)(err))),
+      );
 
     return {
       blake2b256: (data) => catchTransport("blake2b256", client.Blake2b256({ data })),
@@ -88,10 +90,7 @@ export const CryptoFromRpc: Layer.Layer<Crypto, never, CryptoRpcClient> = Layer.
           }),
         ),
       vrfVerifyProof: (vrfVkey, vrfProof, vrfInput) =>
-        catchTransport(
-          "vrfVerifyProof",
-          client.VrfVerifyProof({ vrfInput, vrfProof, vrfVkey }),
-        ),
+        catchTransport("vrfVerifyProof", client.VrfVerifyProof({ vrfInput, vrfProof, vrfVkey })),
       vrfProofToHash: (vrfProof) =>
         catchTransport("vrfProofToHash", client.VrfProofToHash({ vrfProof })),
     };

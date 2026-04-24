@@ -100,7 +100,12 @@ export const parseSync = (input: Uint8Array): CborValue => {
       default:
         throw new CborDecodeError({
           operation: "parse",
-          reason: { _tag: "MalformedHeader", at: offset, addInfos, message: "Invalid additional info" },
+          reason: {
+            _tag: "MalformedHeader",
+            at: offset,
+            addInfos,
+            message: "Invalid additional info",
+          },
         });
     }
   };

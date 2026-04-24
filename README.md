@@ -21,21 +21,21 @@ bunx --bun vitest run
 
 ## Packages
 
-| Package                  | Purpose                                                              |
-| ------------------------ | -------------------------------------------------------------------- |
-| `packages/codecs`        | CBOR + MemPack derivation over Effect Schema (foundation, no deps)   |
-| `packages/ledger`        | Cardano ledger decoders, 100% Mithril snapshot coverage (Byron→Conway) |
-| `packages/miniprotocols` | Ouroboros N2N + N2C mini-protocols + Effect-native multiplexer       |
-| `packages/storage`       | ImmutableDB / VolatileDB / LedgerDB / ChainDB over BlobStore + SqlClient |
-| `packages/bootstrap`     | Bootstrap WebSocket client library (schema-first TLV framing)        |
-| `packages/wasm-plexer`   | Rust→WASM multiplexer frame codec                                    |
-| `packages/wasm-utils`    | Rust→WASM crypto (blake2b tagged, ed25519, KES Sum6, VRF, leader math) |
+| Package                  | Purpose                                                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `packages/codecs`        | CBOR + MemPack derivation over Effect Schema (foundation, no deps)                                               |
+| `packages/ledger`        | Cardano ledger decoders, 100% Mithril snapshot coverage (Byron→Conway)                                           |
+| `packages/miniprotocols` | Ouroboros N2N + N2C mini-protocols + Effect-native multiplexer                                                   |
+| `packages/storage`       | ImmutableDB / VolatileDB / LedgerDB / ChainDB over BlobStore + SqlClient                                         |
+| `packages/bootstrap`     | Bootstrap WebSocket client library (schema-first TLV framing)                                                    |
+| `packages/wasm-plexer`   | Rust→WASM multiplexer frame codec                                                                                |
+| `packages/wasm-utils`    | Rust→WASM crypto (blake2b tagged, ed25519, KES Sum6, VRF, leader math)                                           |
 | `packages/consensus`     | Ouroboros Praos consensus (header validation, chain selection, nonce, SyncStage, ChainEventLog, HFC era-history) |
-| `packages/ffi`           | Bun FFI over Zig → Haskell V2LSM `BlobStore` + on-disk key encoders  |
-| `packages/dashboard`     | Render-backend-agnostic Solid.js dashboard components + Effect Atoms |
-| `packages/chrome-ext`    | Browser-side sync worker (deferred — ripe once core is frozen)       |
-| `apps/bootstrap`         | HTTP + WS server: streams Mithril snapshot data to browser clients   |
-| `apps/tui`               | Bun CLI: relay sync + consensus validation + Atom-backed dashboard   |
+| `packages/ffi`           | Bun FFI over Zig → Haskell V2LSM `BlobStore` + on-disk key encoders                                              |
+| `packages/dashboard`     | Render-backend-agnostic Solid.js dashboard components + Effect Atoms                                             |
+| `packages/chrome-ext`    | Browser-side sync worker (deferred — ripe once core is frozen)                                                   |
+| `apps/bootstrap`         | HTTP + WS server: streams Mithril snapshot data to browser clients                                               |
+| `apps/tui`               | Bun CLI: relay sync + consensus validation + Atom-backed dashboard                                               |
 
 See `docs/architecture.md` for the full dependency graph + distributed-system
 primitive mapping.
@@ -72,6 +72,7 @@ follow an HttpApi contract with auto-generated OpenAPI at `/openapi.json`
 and a Swagger UI at `/docs`.
 
 Required at runtime:
+
 - `LIBLSM_BRIDGE_PATH=/path/to/liblsm-bridge.so` (from `nix build .#lsm-bridge`)
 - A V2LSM-format snapshot (Mithril distribution 2537.0+, or a local
   cardano-node 10.7.x database).

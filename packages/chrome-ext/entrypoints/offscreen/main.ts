@@ -17,12 +17,7 @@
  */
 import { Effect, HashMap, Layer, Schema } from "effect";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
-import {
-  extractLedgerView,
-  extractNonces,
-  extractSnapshotTip,
-  SlotClockPreprod,
-} from "consensus";
+import { extractLedgerView, extractNonces, extractSnapshotTip, SlotClockPreprod } from "consensus";
 import { decodeExtLedgerState } from "ledger";
 import { type BlobEntry, BlobStore, accountKey, stakeKey } from "storage";
 import { encodeAccountValue } from "../background/account-encoder.ts";

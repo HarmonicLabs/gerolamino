@@ -97,8 +97,7 @@ export const crossesEraBoundary = (
   fromSlot: bigint,
   toSlot: bigint,
 ): boolean =>
-  toSlot > fromSlot &&
-  history.boundaries.some((b) => b.slot > fromSlot && b.slot <= toSlot);
+  toSlot > fromSlot && history.boundaries.some((b) => b.slot > fromSlot && b.slot <= toSlot);
 
 // ---------------------------------------------------------------------------
 // EraHistoryOrderError — malformed-history error carrier

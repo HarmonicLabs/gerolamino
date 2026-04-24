@@ -40,10 +40,9 @@ export const activeProtocols = Metric.gauge("ouroboros.protocols.active");
  * typo here so operator dashboards correlate with upstream telemetry
  * (wave-2 research correction #27).
  */
-export const keepAliveCookieMissmatch = Metric.counter(
-  "ouroboros.keepalive.cookie_missmatch",
-  { incremental: true },
-);
+export const keepAliveCookieMissmatch = Metric.counter("ouroboros.keepalive.cookie_missmatch", {
+  incremental: true,
+});
 
 /**
  * Bumped when a peer returns more entries in `MsgSharePeers` than we
@@ -52,10 +51,9 @@ export const keepAliveCookieMissmatch = Metric.counter(
  * we treat oversized responses as a protocol violation and disconnect
  * the peer (wave-2 research correction #28 — not silent truncate).
  */
-export const oversizedPeerSharingResponse = Metric.counter(
-  "ouroboros.peer_sharing.oversized",
-  { incremental: true },
-);
+export const oversizedPeerSharingResponse = Metric.counter("ouroboros.peer_sharing.oversized", {
+  incremental: true,
+});
 
 /**
  * Bumped when a reactivated peer entity's persisted ChainSync cursor is

@@ -47,12 +47,12 @@ src/
 
 ## Service split (matches Haskell ChainDB)
 
-| Layer          | Purpose                                    | Backing                      |
-|----------------|--------------------------------------------|------------------------------|
-| `ImmutableDB`  | append-only k-deep-stable blocks           | BlobStore + SQL metadata     |
-| `VolatileDB`   | in-flight blocks within rollback depth     | BlobStore + SQL metadata     |
-| `LedgerDB`     | snapshot + delta log (UTxO-HD V2LSM)       | BlobStore + SQL metadata     |
-| `ChainDB`      | unified view (volatile-first, rollback, GC)| composes the above           |
+| Layer         | Purpose                                     | Backing                  |
+| ------------- | ------------------------------------------- | ------------------------ |
+| `ImmutableDB` | append-only k-deep-stable blocks            | BlobStore + SQL metadata |
+| `VolatileDB`  | in-flight blocks within rollback depth      | BlobStore + SQL metadata |
+| `LedgerDB`    | snapshot + delta log (UTxO-HD V2LSM)        | BlobStore + SQL metadata |
+| `ChainDB`     | unified view (volatile-first, rollback, GC) | composes the above       |
 
 Consumers depend only on the `ChainDB` service tag; the layer composition is
 set at the app entrypoint.
@@ -66,14 +66,14 @@ set at the app entrypoint.
 - **`Context.Service`** for `ImmutableDB` / `VolatileDB` / `LedgerDB` /
   `ChainDB` — no inline `{ ... } satisfies Service` shapes.
 - **`Layer.effect` + explicit env annotation** (`Layer.Layer<S, never,
-  BlobStore | SqlClient>`) so downstream `tsgo --build` does not widen the
+BlobStore | SqlClient>`) so downstream `tsgo --build` does not widen the
   layer's environment to `any`.
 - **XState-free** — the previous `chainDBMachine` parallel-region
   chart collapsed to a pure `reduce(state, event): ChainDBState` fold.
-  `ChainDBLive` wires two scoped fibers: a *dispatch* fiber
-  (`Queue<ChainDBEvent> → SubscriptionRef.update(reduce)`) and a *driver*
+  `ChainDBLive` wires two scoped fibers: a _dispatch_ fiber
+  (`Queue<ChainDBEvent> → SubscriptionRef.update(reduce)`) and a _driver_
   fiber (`SubscriptionRef.changes → Stream.changesWith on immutability
-  region → dispatch promote / gc effects → feed completion events back`).
+region → dispatch promote / gc effects → feed completion events back`).
   Mempool state lives in the Mempool Cluster entity (`packages/consensus`).
 - **Effect Stream for range scans** — `ImmutableDB.streamBlocks(from, to)`
   returns `Stream<StoredBlock, ImmutableDBError>` backed by

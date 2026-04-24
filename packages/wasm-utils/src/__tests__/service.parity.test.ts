@@ -187,12 +187,8 @@ layer(Pair)("Crypto parity — CryptoDirect vs CryptoWorkerBun", (it) => {
           const worker = yield* CryptoWorkerTag;
           const hex = vrfOutputHex(vrfOut);
           const [sns, sds, cns, cds] = [sn, sd, cn, cd].map(String);
-          const a = yield* direct
-            .checkVrfLeader(hex, sns!, sds!, cns!, cds!)
-            .pipe(Effect.option);
-          const b = yield* worker
-            .checkVrfLeader(hex, sns!, sds!, cns!, cds!)
-            .pipe(Effect.option);
+          const a = yield* direct.checkVrfLeader(hex, sns!, sds!, cns!, cds!).pipe(Effect.option);
+          const b = yield* worker.checkVrfLeader(hex, sns!, sds!, cns!, cds!).pipe(Effect.option);
           expect(a).toEqual(b);
         }),
       { fastCheck: { numRuns: 20 } },

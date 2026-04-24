@@ -60,10 +60,7 @@ class HeaderCacheKeyBase extends Persistable.Class<{
  */
 export class HeaderCacheKey extends HeaderCacheKeyBase {
   [Equal.symbol](that: unknown): boolean {
-    return (
-      that instanceof HeaderCacheKey &&
-      PrimaryKey.value(this) === PrimaryKey.value(that)
-    );
+    return that instanceof HeaderCacheKey && PrimaryKey.value(this) === PrimaryKey.value(that);
   }
   [Hash.symbol](): number {
     return Hash.string(PrimaryKey.value(this));
@@ -95,10 +92,7 @@ class VrfCacheKeyBase extends Persistable.Class<{
 /** See `HeaderCacheKey` note — structural-equality override for byte payloads. */
 export class VrfCacheKey extends VrfCacheKeyBase {
   [Equal.symbol](that: unknown): boolean {
-    return (
-      that instanceof VrfCacheKey &&
-      PrimaryKey.value(this) === PrimaryKey.value(that)
-    );
+    return that instanceof VrfCacheKey && PrimaryKey.value(this) === PrimaryKey.value(that);
   }
   [Hash.symbol](): number {
     return Hash.string(PrimaryKey.value(this));
@@ -138,18 +132,15 @@ export const headerCacheLayer = (
 ) =>
   Layer.effect(
     HeaderCache,
-    PersistedCache.make(
-      (key: HeaderCacheKey) => decode(key.headerHash),
-      {
-        storeId: "consensus-header-cache",
-        // Plan §3b: recent 1000 headers; k=2160 is the security window.
-        // TTL = 1h covers a full k-depth rollback without prematurely
-        // evicting hot headers the sync loop is about to revisit.
-        timeToLive: () => Duration.hours(1),
-        inMemoryCapacity: 1024,
-        inMemoryTTL: () => Duration.minutes(5),
-      },
-    ),
+    PersistedCache.make((key: HeaderCacheKey) => decode(key.headerHash), {
+      storeId: "consensus-header-cache",
+      // Plan §3b: recent 1000 headers; k=2160 is the security window.
+      // TTL = 1h covers a full k-depth rollback without prematurely
+      // evicting hot headers the sync loop is about to revisit.
+      timeToLive: () => Duration.hours(1),
+      inMemoryCapacity: 1024,
+      inMemoryTTL: () => Duration.minutes(5),
+    }),
   );
 
 /**
@@ -166,19 +157,16 @@ export const vrfCacheLayer = (
 ) =>
   Layer.effect(
     VrfCache,
-    PersistedCache.make(
-      (key: VrfCacheKey) => verify(key.publicKey, key.proof, key.message),
-      {
-        storeId: "consensus-vrf-cache",
-        // VRF outputs are pure per-epoch; TTL = 24h means an epoch's
-        // leader checks + nonce contributions reuse the same cached
-        // outputs. Post-epoch the cache entries stop being hit by the
-        // fresh epoch's schedule so eviction is benign.
-        timeToLive: () => Duration.hours(24),
-        inMemoryCapacity: 4096,
-        inMemoryTTL: () => Duration.minutes(15),
-      },
-    ),
+    PersistedCache.make((key: VrfCacheKey) => verify(key.publicKey, key.proof, key.message), {
+      storeId: "consensus-vrf-cache",
+      // VRF outputs are pure per-epoch; TTL = 24h means an epoch's
+      // leader checks + nonce contributions reuse the same cached
+      // outputs. Post-epoch the cache entries stop being hit by the
+      // fresh epoch's schedule so eviction is benign.
+      timeToLive: () => Duration.hours(24),
+      inMemoryCapacity: 4096,
+      inMemoryTTL: () => Duration.minutes(15),
+    }),
   );
 
 /**

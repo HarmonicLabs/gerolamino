@@ -63,7 +63,11 @@ const vectors: ReadonlyArray<Vector> = [
 
 // Tamper positions from vrf_03.c: gamma (byte 0), c (byte 32), s (byte 48),
 // and high-order bit of the last byte of s (byte 79).
-const tamperPositions: ReadonlyArray<{ readonly label: string; readonly index: number; readonly mask: number }> = [
+const tamperPositions: ReadonlyArray<{
+  readonly label: string;
+  readonly index: number;
+  readonly mask: number;
+}> = [
   { label: "gamma byte 0", index: 0, mask: 0x01 },
   { label: "c byte 32", index: 32, mask: 0x01 },
   { label: "s byte 48", index: 48, mask: 0x01 },

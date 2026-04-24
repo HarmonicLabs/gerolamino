@@ -8,6 +8,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "type-check": "tsgo --noEmit -p tsconfig.json"
+  },
   "dependencies": {
     "@harmoniclabs/cbor": "^2.0.1",
     "@harmoniclabs/obj-utils": "^1.0.0",
@@ -20,8 +23,5 @@
   "devDependencies": {
     "tsc-alias": "^1.8.16",
     "vitest": "^4.1.4"
-  },
-  "scripts": {
-    "type-check": "tsgo --noEmit -p tsconfig.json"
   }
 }

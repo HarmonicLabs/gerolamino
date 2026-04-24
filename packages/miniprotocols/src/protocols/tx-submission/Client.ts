@@ -42,7 +42,8 @@ export interface TxSubmissionHandlers {
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.TxSubmissionMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.TxSubmissionMessageBytes);
 
-const makeError = (cause: string) => new TxSubmissionError({ cause: `Unexpected server message: ${cause}` });
+const makeError = (cause: string) =>
+  new TxSubmissionError({ cause: `Unexpected server message: ${cause}` });
 const unexpected = unexpectedFor(makeError);
 
 export class TxSubmissionClient extends Context.Service<

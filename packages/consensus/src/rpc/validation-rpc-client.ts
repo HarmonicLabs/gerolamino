@@ -46,104 +46,109 @@ export class ValidationRpcClient extends Context.Service<
  * `Crypto` (`CryptoDirect` or a platform-specific worker Crypto layer)
  * because the caller-side blake2b + decode shortcuts run in-process here.
  */
-export const ValidationFromRpc: Layer.Layer<
-  ValidationClient,
-  never,
-  Crypto | ValidationRpcClient
-> = Layer.effect(
-  ValidationClient,
-  Effect.gen(function* () {
-    const client = yield* ValidationRpcClient;
-    const crypto = yield* Crypto;
+export const ValidationFromRpc: Layer.Layer<ValidationClient, never, Crypto | ValidationRpcClient> =
+  Layer.effect(
+    ValidationClient,
+    Effect.gen(function* () {
+      const client = yield* ValidationRpcClient;
+      const crypto = yield* Crypto;
 
-    return ValidationClient.of({
-      computeBodyHash: (blockBodyCbor) =>
-        crypto.blake2b256(blockBodyCbor).pipe(
-          Effect.mapError(mapCryptoToValidation("ComputeBodyHash")),
-        ),
-      computeTxId: (txBodyCbor) =>
-        crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
-      blake2b256Tagged: (tag, data) =>
-        crypto.blake2b256(concat(new Uint8Array([tag & 0xff]), data)),
+      return ValidationClient.of({
+        computeBodyHash: (blockBodyCbor) =>
+          crypto
+            .blake2b256(blockBodyCbor)
+            .pipe(Effect.mapError(mapCryptoToValidation("ComputeBodyHash"))),
+        computeTxId: (txBodyCbor) =>
+          crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
+        blake2b256Tagged: (tag, data) =>
+          crypto.blake2b256(concat(new Uint8Array([tag & 0xff]), data)),
 
-      decodeBlockCbor: (blockCbor) =>
-        decodeMultiEraBlock(blockCbor).pipe(
-          Effect.map((block) =>
-            MultiEraBlock.match(block, {
-              byron: () => ({
-                eraVariant: Era.Byron,
-                slot: 0n,
-                blockNo: 0n,
-                hash: new Uint8Array(32),
+        decodeBlockCbor: (blockCbor) =>
+          decodeMultiEraBlock(blockCbor).pipe(
+            Effect.map((block) =>
+              MultiEraBlock.match(block, {
+                byron: () => ({
+                  eraVariant: Era.Byron,
+                  slot: 0n,
+                  blockNo: 0n,
+                  hash: new Uint8Array(32),
+                }),
+                postByron: ({ era, header }) => ({
+                  eraVariant: era,
+                  slot: header.slot,
+                  blockNo: header.blockNo,
+                  hash: new Uint8Array(32),
+                }),
               }),
-              postByron: ({ era, header }) => ({
-                eraVariant: era,
-                slot: header.slot,
-                blockNo: header.blockNo,
-                hash: new Uint8Array(32),
-              }),
-            }),
-          ),
-          Effect.mapError(
-            (issue) =>
-              new ValidationError({
-                operation: "DecodeBlockCbor",
-                message: issue._tag ?? "Decode failed",
-                cause: issue,
-              }),
-          ),
-        ),
-
-      // Worker-dispatched crypto primitives. The RPC error channel is
-      // `CryptoOpError | RpcClientError`: domain failures already surface
-      // as `CryptoOpError` from the handler; only `RpcClientError`
-      // (transport — worker crash, framing failure, serialization) needs
-      // narrowing. `Effect.catchTag("RpcClientError", ...)` maps it to a
-      // synthetic `CryptoOpError` so the service signature stays tight.
-      ed25519Verify: (message, signature, publicKey) =>
-        client.Ed25519Verify({ message, signature, publicKey }).pipe(
-          Effect.catchTag("RpcClientError", (err) =>
-            Effect.fail<CryptoOpError>(mapTransportToCrypto("ed25519Verify")(err)),
-          ),
-        ),
-      kesSum6Verify: (signature, period, publicKey, message) =>
-        client.KesSum6Verify({ message, period, publicKey, signature }).pipe(
-          Effect.catchTag("RpcClientError", (err) =>
-            Effect.fail<CryptoOpError>(mapTransportToCrypto("kesSum6Verify")(err)),
-          ),
-        ),
-      checkVrfLeader: (
-        vrfOutputHex,
-        sigmaNumerator,
-        sigmaDenominator,
-        activeSlotCoeffNum,
-        activeSlotCoeffDen,
-      ) =>
-        client
-          .CheckVrfLeader({
-            activeSlotCoeffDen,
-            activeSlotCoeffNum,
-            sigmaDenominator,
-            sigmaNumerator,
-            vrfOutputHex,
-          })
-          .pipe(
-            Effect.catchTag("RpcClientError", (err) =>
-              Effect.fail<CryptoOpError>(mapTransportToCrypto("checkVrfLeader")(err)),
+            ),
+            Effect.mapError(
+              (issue) =>
+                new ValidationError({
+                  operation: "DecodeBlockCbor",
+                  message: issue._tag ?? "Decode failed",
+                  cause: issue,
+                }),
             ),
           ),
-      vrfVerify: (vrfVkey, vrfProof, vrfInput) =>
-        client.VrfVerify({ vrfInput, vrfProof, vrfVkey }).pipe(
-          Effect.catchTag("RpcClientError", (err) =>
-            Effect.fail<CryptoOpError>(mapTransportToCrypto("vrfVerifyProof")(err)),
-          ),
-        ),
-      vrfProofToHash: (vrfProof) =>
-        client.VrfProofToHash({ vrfProof }).pipe(
-          Effect.catchTag("RpcClientError", (err) =>
-            Effect.fail<CryptoOpError>(mapTransportToCrypto("vrfProofToHash")(err)),
-          ),
-        ),
-    });
-  }),
-);
+
+        // Worker-dispatched crypto primitives. The RPC error channel is
+        // `CryptoOpError | RpcClientError`: domain failures already surface
+        // as `CryptoOpError` from the handler; only `RpcClientError`
+        // (transport — worker crash, framing failure, serialization) needs
+        // narrowing. `Effect.catchTag("RpcClientError", ...)` maps it to a
+        // synthetic `CryptoOpError` so the service signature stays tight.
+        ed25519Verify: (message, signature, publicKey) =>
+          client
+            .Ed25519Verify({ message, signature, publicKey })
+            .pipe(
+              Effect.catchTag("RpcClientError", (err) =>
+                Effect.fail<CryptoOpError>(mapTransportToCrypto("ed25519Verify")(err)),
+              ),
+            ),
+        kesSum6Verify: (signature, period, publicKey, message) =>
+          client
+            .KesSum6Verify({ message, period, publicKey, signature })
+            .pipe(
+              Effect.catchTag("RpcClientError", (err) =>
+                Effect.fail<CryptoOpError>(mapTransportToCrypto("kesSum6Verify")(err)),
+              ),
+            ),
+        checkVrfLeader: (
+          vrfOutputHex,
+          sigmaNumerator,
+          sigmaDenominator,
+          activeSlotCoeffNum,
+          activeSlotCoeffDen,
+        ) =>
+          client
+            .CheckVrfLeader({
+              activeSlotCoeffDen,
+              activeSlotCoeffNum,
+              sigmaDenominator,
+              sigmaNumerator,
+              vrfOutputHex,
+            })
+            .pipe(
+              Effect.catchTag("RpcClientError", (err) =>
+                Effect.fail<CryptoOpError>(mapTransportToCrypto("checkVrfLeader")(err)),
+              ),
+            ),
+        vrfVerify: (vrfVkey, vrfProof, vrfInput) =>
+          client
+            .VrfVerify({ vrfInput, vrfProof, vrfVkey })
+            .pipe(
+              Effect.catchTag("RpcClientError", (err) =>
+                Effect.fail<CryptoOpError>(mapTransportToCrypto("vrfVerifyProof")(err)),
+              ),
+            ),
+        vrfProofToHash: (vrfProof) =>
+          client
+            .VrfProofToHash({ vrfProof })
+            .pipe(
+              Effect.catchTag("RpcClientError", (err) =>
+                Effect.fail<CryptoOpError>(mapTransportToCrypto("vrfProofToHash")(err)),
+              ),
+            ),
+      });
+    }),
+  );

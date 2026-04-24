@@ -98,7 +98,9 @@ export class Mempool extends Context.Service<
      * `ChainEventStream` and calls `onReorg` on every `RolledBack` event,
      * so most consumers don't invoke this directly.
      */
-    readonly onReorg: (evictedTxIds: ReadonlyArray<Uint8Array>) => Effect.Effect<void, MempoolError>;
+    readonly onReorg: (
+      evictedTxIds: ReadonlyArray<Uint8Array>,
+    ) => Effect.Effect<void, MempoolError>;
 
     /** Total pending tx count. */
     readonly size: Effect.Effect<number>;
@@ -194,17 +196,13 @@ export class Mempool extends Context.Service<
           // Keep only `Some`, sort highest-fee-rate first. `.flatMap(Option.toArray)`
           // is the canonical filter-Some-and-unwrap idiom ([x] for Some(x), []
           // for None); preserved in a single pass with no branching.
-          return fetches
-            .flatMap(Option.toArray)
-            .toSorted((a, b) => b.feePerByte - a.feePerByte);
+          return fetches.flatMap(Option.toArray).toSorted((a, b) => b.feePerByte - a.feePerByte);
         }),
 
         removeByHash: (txId) =>
           Effect.gen(function* () {
             const key = hexKey(txId);
-            yield* store.remove(key).pipe(
-              Effect.mapError(toMempoolError("removeByHash.remove")),
-            );
+            yield* store.remove(key).pipe(Effect.mapError(toMempoolError("removeByHash.remove")));
             yield* Ref.update(index, HashSet.remove(key));
           }),
 

@@ -178,10 +178,9 @@ export const handleRollForward = (
                 )
               : state.nonces;
 
-          const newEvolving = yield* evolveNonce(
-            nonces.evolving,
-            header.nonceVrfOutput,
-          ).pipe(Effect.mapError(mapCryptoErr("handleRollForward.evolveNonce")));
+          const newEvolving = yield* evolveNonce(nonces.evolving, header.nonceVrfOutput).pipe(
+            Effect.mapError(mapCryptoErr("handleRollForward.evolveNonce")),
+          );
           const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
           const pastCollection = isPastStabilizationWindow(
             slotInEpoch,

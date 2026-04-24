@@ -1,14 +1,4 @@
-import {
-  Cause,
-  Config,
-  Context,
-  Duration,
-  Effect,
-  Layer,
-  Schema,
-  Scope,
-  Stream,
-} from "effect";
+import { Cause, Config, Context, Duration, Effect, Layer, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";

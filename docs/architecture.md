@@ -48,23 +48,23 @@ One-page map of the node as a distributed system in Effect v4.
 
 ## Distributed-system primitive mapping
 
-| Plan primitive | Module | Status |
-|---|---|---|
-| `SyncStage<In, Out, Err, R>` | `consensus/stage/SyncStage.ts` | Landed ✓ |
-| `ChainEventLog` durable-shape events | `consensus/chain-event-log.ts` | Landed ✓ (in-memory PubSub; SqlEventJournal-backed variant deferred) |
-| `ConsensusEvents` UI notifications | `consensus/events.ts` | Landed ✓ |
-| `EraHistory` + `eraAtSlot` | `consensus/hard-fork/era-transition.ts` | Landed ✓ (scaffold; state-translation deferred) |
-| `CryptoRpcGroup` / RPC over BunWorker | `wasm-utils/src/rpc/` | 6-method primitive group landed ✓ |
-| `BlobStore` via V2LSM FFI | `ffi/src/lsm/` | Landed ✓ |
-| `ChainDB` (XState parallel-region over BlobStore + SqlClient) | `storage/src/services/chain-db-live.ts` | Landed ✓ |
-| `Mempool Cluster Entity` | `consensus/mempool/` | Deferred (63-predicate Conway UTXOW) |
-| `BlockSync Workflow` | `consensus/workflow/` | Deferred (composes peer + ChainDb + stages) |
-| `PeerRegistry` + Peer Cluster Entity | `miniprotocols/src/peer/` | Deferred |
-| `HttpApi` REST (apps/bootstrap) | `apps/bootstrap/src/http-api.ts` | Landed ✓ (peers/mempool endpoints stubbed) |
-| `NodeRpcGroup` main-thread ↔ node-worker | `consensus/src/rpc/node-*.ts` | Deferred (couples w/ Phase 5 Bun.WebView) |
-| `AtomRegistry` UI state bridge | `packages/dashboard/src/atoms/` | Landed ✓ (Solid primitives) |
-| `OpenTelemetry` OTLP export | `apps/bootstrap/src/otlp-layer.ts` | Deferred |
-| `Workflow` durable block-sync | `consensus/workflow/block-sync.ts` | Deferred |
+| Plan primitive                                                | Module                                  | Status                                                               |
+| ------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------- |
+| `SyncStage<In, Out, Err, R>`                                  | `consensus/stage/SyncStage.ts`          | Landed ✓                                                             |
+| `ChainEventLog` durable-shape events                          | `consensus/chain-event-log.ts`          | Landed ✓ (in-memory PubSub; SqlEventJournal-backed variant deferred) |
+| `ConsensusEvents` UI notifications                            | `consensus/events.ts`                   | Landed ✓                                                             |
+| `EraHistory` + `eraAtSlot`                                    | `consensus/hard-fork/era-transition.ts` | Landed ✓ (scaffold; state-translation deferred)                      |
+| `CryptoRpcGroup` / RPC over BunWorker                         | `wasm-utils/src/rpc/`                   | 6-method primitive group landed ✓                                    |
+| `BlobStore` via V2LSM FFI                                     | `ffi/src/lsm/`                          | Landed ✓                                                             |
+| `ChainDB` (XState parallel-region over BlobStore + SqlClient) | `storage/src/services/chain-db-live.ts` | Landed ✓                                                             |
+| `Mempool Cluster Entity`                                      | `consensus/mempool/`                    | Deferred (63-predicate Conway UTXOW)                                 |
+| `BlockSync Workflow`                                          | `consensus/workflow/`                   | Deferred (composes peer + ChainDb + stages)                          |
+| `PeerRegistry` + Peer Cluster Entity                          | `miniprotocols/src/peer/`               | Deferred                                                             |
+| `HttpApi` REST (apps/bootstrap)                               | `apps/bootstrap/src/http-api.ts`        | Landed ✓ (peers/mempool endpoints stubbed)                           |
+| `NodeRpcGroup` main-thread ↔ node-worker                      | `consensus/src/rpc/node-*.ts`           | Deferred (couples w/ Phase 5 Bun.WebView)                            |
+| `AtomRegistry` UI state bridge                                | `packages/dashboard/src/atoms/`         | Landed ✓ (Solid primitives)                                          |
+| `OpenTelemetry` OTLP export                                   | `apps/bootstrap/src/otlp-layer.ts`      | Deferred                                                             |
+| `Workflow` durable block-sync                                 | `consensus/workflow/block-sync.ts`      | Deferred                                                             |
 
 ## XState scope
 
@@ -73,6 +73,7 @@ That machine runs two parallel regions (block processing + immutability
 promotion) concurrently — a genuine parallel-actor case that `Stream` /
 `Effect.forEach` patterns cannot express cleanly. All other XState machines
 were removed:
+
 - `packages/miniprotocols/src/protocols/chain-sync/Machine.ts` — orphaned,
   Client was already Effect-native.
 - `packages/consensus/src/machines/relay.ts` — replaced by Stream-based
@@ -85,6 +86,7 @@ full layer stack at the process entrypoint. No Layer construction happens
 inside library packages — they export Layers and let apps wire.
 
 Typical composition:
+
 ```ts
 const AppLive = Layer.mergeAll(
   // Platform

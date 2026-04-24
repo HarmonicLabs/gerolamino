@@ -23,13 +23,13 @@ provides ledger state, UTxO entries, and block data over the wire.
 
 ## Environment variables / CLI flags
 
-| Flag                  | Env var                 | Default                                 |
-|-----------------------|-------------------------|-----------------------------------------|
-| `--bootstrap-url/-b`  | `BOOTSTRAP_SERVER_URL`  | `ws://localhost:3040/bootstrap`         |
-| `--genesis / -g`      | (none)                  | `false`                                 |
-| `--relay-host`        | `RELAY_HOST`            | `preprod-node.play.dev.cardano.org`     |
-| `--relay-port`        | `RELAY_PORT`            | `3001`                                  |
-| `--network`           | (none)                  | `preprod`                               |
+| Flag                 | Env var                | Default                             |
+| -------------------- | ---------------------- | ----------------------------------- |
+| `--bootstrap-url/-b` | `BOOTSTRAP_SERVER_URL` | `ws://localhost:3040/bootstrap`     |
+| `--genesis / -g`     | (none)                 | `false`                             |
+| `--relay-host`       | `RELAY_HOST`           | `preprod-node.play.dev.cardano.org` |
+| `--relay-port`       | `RELAY_PORT`           | `3001`                              |
+| `--network`          | (none)                 | `preprod`                           |
 
 ## Running
 

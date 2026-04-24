@@ -84,9 +84,7 @@ describe("toCodecCbor — primitives", () => {
         _tag: CborKinds.Simple,
         value: null,
       });
-      expect(
-        yield* Schema.decodeEffect(codec)({ _tag: CborKinds.Simple, value: null }),
-      ).toBeNull();
+      expect(yield* Schema.decodeEffect(codec)({ _tag: CborKinds.Simple, value: null })).toBeNull();
     }),
   );
 

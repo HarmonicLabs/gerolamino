@@ -62,9 +62,7 @@ const mkSide = (tx: Queue.Queue<Uint8Array>, rx: Queue.Queue<Uint8Array>): Beare
   send: (bytes) =>
     Queue.offer(tx, bytes).pipe(
       Effect.asVoid,
-      Effect.mapError(
-        (cause) => new BearerError({ message: "MockBearer send failed", cause }),
-      ),
+      Effect.mapError((cause) => new BearerError({ message: "MockBearer send failed", cause })),
     ),
   close: Queue.shutdown(tx).pipe(Effect.zip(Queue.shutdown(rx)), Effect.asVoid),
 });

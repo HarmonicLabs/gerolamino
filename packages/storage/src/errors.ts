@@ -48,12 +48,7 @@ export class LedgerDBError extends Schema.TaggedErrorClass<LedgerDBError>()("Led
 // instance. The storage-side stub is kept for cross-package typing
 // compatibility; `operation` narrows to the literal set of ops the
 // storage-side mempool surface exposes.
-export const MempoolOperation = Schema.Literals([
-  "submit",
-  "snapshot",
-  "remove",
-  "validate",
-]);
+export const MempoolOperation = Schema.Literals(["submit", "snapshot", "remove", "validate"]);
 
 export class MempoolError extends Schema.TaggedErrorClass<MempoolError>()("MempoolError", {
   operation: MempoolOperation,

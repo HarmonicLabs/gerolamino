@@ -106,12 +106,7 @@ export class KeepAliveClient extends Context.Service<
         Effect.gen(function* () {
           const startMs = yield* Clock.currentTimeMillis;
           yield* sendMessage(Schemas.KeepAliveMessage.cases.KeepAlive.make({ cookie }));
-          const reply = yield* requireReply(
-            messages,
-            makeError,
-            "KeepAlive",
-            Duration.seconds(97),
-          );
+          const reply = yield* requireReply(messages, makeError, "KeepAlive", Duration.seconds(97));
           const result = yield* Schemas.KeepAliveMessage.guards.KeepAliveResponse(reply)
             ? reply.cookie === cookie
               ? Effect.succeed(reply.cookie)

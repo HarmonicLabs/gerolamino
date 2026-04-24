@@ -150,16 +150,13 @@ export const effectiveCursor = (result: FreshnessResult): ChainPoint => result.c
  * Check if a `FreshnessResult` represents a reset. Uses the schema's
  * generated per-case guard rather than a raw `_tag === "Reset"` compare.
  */
-export const wasReset = (result: FreshnessResult): boolean =>
-  FreshnessResult.guards.Reset(result);
+export const wasReset = (result: FreshnessResult): boolean => FreshnessResult.guards.Reset(result);
 
 /**
  * Convenience: `Option<ChainPoint>` getter over the intersection reply
  * — `None` iff the remote couldn't find any overlap at our candidates.
  */
-export const intersectionToOption = (
-  intersection: IntersectionReply,
-): Option.Option<ChainPoint> =>
+export const intersectionToOption = (intersection: IntersectionReply): Option.Option<ChainPoint> =>
   IntersectionReply.match(intersection, {
     IntersectFound: ({ point }) => Option.some(point),
     IntersectNotFound: () => Option.none(),

@@ -24,8 +24,7 @@ describe("nonce stabilization window (Praos §4.3)", () => {
       FastCheck.property(
         // slot range: 0 to just-before-freeze
         FastCheck.bigInt({ min: 0n, max: 259_199n }),
-        (slotInEpoch) =>
-          isPastStabilizationWindow(slotInEpoch, 2160, 0.05, 432_000n) === false,
+        (slotInEpoch) => isPastStabilizationWindow(slotInEpoch, 2160, 0.05, 432_000n) === false,
       ),
       { numRuns: NUM_RUNS },
     );
@@ -35,8 +34,7 @@ describe("nonce stabilization window (Praos §4.3)", () => {
     FastCheck.assert(
       FastCheck.property(
         FastCheck.bigInt({ min: 259_200n, max: 432_000n }),
-        (slotInEpoch) =>
-          isPastStabilizationWindow(slotInEpoch, 2160, 0.05, 432_000n) === true,
+        (slotInEpoch) => isPastStabilizationWindow(slotInEpoch, 2160, 0.05, 432_000n) === true,
       ),
       { numRuns: NUM_RUNS },
     );
@@ -72,9 +70,10 @@ describe("nonce stabilization window (Praos §4.3)", () => {
           const freezePoint = epochLength - windowSlots;
           if (freezePoint < 0n) return true; // window larger than epoch — degenerate
           const atFreezePoint = isPastStabilizationWindow(freezePoint, k, f, epochLength);
-          const justBefore = freezePoint === 0n
-            ? true // can't go before 0
-            : isPastStabilizationWindow(freezePoint - 1n, k, f, epochLength) === false;
+          const justBefore =
+            freezePoint === 0n
+              ? true // can't go before 0
+              : isPastStabilizationWindow(freezePoint - 1n, k, f, epochLength) === false;
           return atFreezePoint && justBefore;
         },
       ),

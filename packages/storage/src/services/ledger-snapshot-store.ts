@@ -93,11 +93,7 @@ const NoncesRow = Schema.Struct({
   candidate: Schema.Uint8Array,
 });
 
-type SnapshotOp =
-  | "writeLedgerSnapshot"
-  | "readLatestLedgerSnapshot"
-  | "writeNonces"
-  | "readNonces";
+type SnapshotOp = "writeLedgerSnapshot" | "readLatestLedgerSnapshot" | "writeNonces" | "readNonces";
 
 const withOp =
   (operation: SnapshotOp) =>

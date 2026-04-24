@@ -63,7 +63,10 @@ export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
         chainDb.getTip.pipe(
           Effect.flatMap((tipOpt) =>
             Option.match(tipOpt, {
-              onNone: () => Effect.succeed(Option.none<typeof import("./node-rpc-group.ts").ChainTipResult.Type>()),
+              onNone: () =>
+                Effect.succeed(
+                  Option.none<typeof import("./node-rpc-group.ts").ChainTipResult.Type>(),
+                ),
               onSome: (point) =>
                 chainDb.getBlockAt(point).pipe(
                   Effect.map((blockOpt) =>
@@ -110,9 +113,7 @@ export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
           // underlying storage layer). A future GetMempool update with a
           // declared error channel should propagate instead.
           Effect.catch((err) =>
-            Effect.logWarning(`GetMempool: snapshot failed — ${err.message}`).pipe(
-              Effect.as([]),
-            ),
+            Effect.logWarning(`GetMempool: snapshot failed — ${err.message}`).pipe(Effect.as([])),
           ),
         ),
 

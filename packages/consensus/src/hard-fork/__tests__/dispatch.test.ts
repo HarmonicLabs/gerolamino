@@ -9,9 +9,7 @@ import { dispatchByEra, type EraValidators } from "../dispatch.ts";
 // constructing Schema-valid `MultiEraBlock` values, which is heavyweight
 // and doesn't add coverage beyond `dispatchByEra` + `MultiEraBlock.match`.
 
-const mkLoggingValidators = (
-  log: Ref.Ref<string[]>,
-): EraValidators<"_", never, never> => ({
+const mkLoggingValidators = (log: Ref.Ref<string[]>): EraValidators<"_", never, never> => ({
   byron: () => Ref.update(log, (xs) => [...xs, "byron"]),
   shelley: () => Ref.update(log, (xs) => [...xs, "shelley"]),
   allegra: () => Ref.update(log, (xs) => [...xs, "allegra"]),

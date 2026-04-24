@@ -50,9 +50,7 @@ describe("chain/event-log", () => {
       const latch = yield* Latch.make();
       const subscriber = yield* stream.subscribe.pipe(
         Effect.flatMap((subscription) =>
-          latch.await.pipe(
-            Effect.andThen(Effect.forEach(values, () => PubSub.take(subscription))),
-          ),
+          latch.await.pipe(Effect.andThen(Effect.forEach(values, () => PubSub.take(subscription)))),
         ),
         Effect.scoped,
         Effect.forkChild({ startImmediately: true }),
@@ -72,9 +70,7 @@ describe("chain/event-log", () => {
 
       const makeSubscriber = stream.subscribe.pipe(
         Effect.flatMap((subscription) =>
-          latch.await.pipe(
-            Effect.andThen(Effect.forEach(values, () => PubSub.take(subscription))),
-          ),
+          latch.await.pipe(Effect.andThen(Effect.forEach(values, () => PubSub.take(subscription)))),
         ),
         Effect.scoped,
         Effect.forkChild({ startImmediately: true }),
@@ -105,9 +101,7 @@ describe("chain/event-log", () => {
       const latch = yield* Latch.make();
       const subscriber = yield* stream.subscribe.pipe(
         Effect.flatMap((subscription) =>
-          latch.await.pipe(
-            Effect.andThen(Effect.forEach(values, () => PubSub.take(subscription))),
-          ),
+          latch.await.pipe(Effect.andThen(Effect.forEach(values, () => PubSub.take(subscription)))),
         ),
         Effect.scoped,
         Effect.forkChild({ startImmediately: true }),
@@ -131,7 +125,11 @@ describe("chain/event-log", () => {
       const byteKey = (b: Uint8Array): string => Buffer.from(b).toString("hex");
       const fingerprint = (e: ChainEventType) =>
         ChainEvent.match(e, {
-          BlockAccepted: (p) => ({ ...p, hash: byteKey(p.hash), parentHash: byteKey(p.parentHash) }),
+          BlockAccepted: (p) => ({
+            ...p,
+            hash: byteKey(p.hash),
+            parentHash: byteKey(p.parentHash),
+          }),
           TipAdvanced: (p) => ({ ...p, hash: byteKey(p.hash) }),
           RolledBack: (p) =>
             RollbackTarget.match(p.to, {

@@ -9,11 +9,7 @@
  */
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import {
-  TxRelayQueueTestLayer,
-  makeTxRelayQueue,
-  type TxRelayEntry,
-} from "../tx-relay-queue";
+import { TxRelayQueueTestLayer, makeTxRelayQueue, type TxRelayEntry } from "../tx-relay-queue";
 
 const mkEntry = (first: number): TxRelayEntry => ({
   txId: new Uint8Array(32).fill(first),
@@ -59,13 +55,9 @@ describe("TxRelayQueue — PersistedQueue outbox", () => {
       const queue = yield* makeTxRelayQueue;
       yield* queue.raw.offer(mkEntry(7));
       // First attempt — handler fails, entry is re-offered.
-      yield* Effect.flip(
-        queue.takeEntry(() => Effect.fail(new Error("synthetic"))),
-      );
+      yield* Effect.flip(queue.takeEntry(() => Effect.fail(new Error("synthetic"))));
       // Second take — attempt counter reflects the prior failure.
-      const secondAttempt = yield* queue.takeEntry((_e, meta) =>
-        Effect.succeed(meta.attempts),
-      );
+      const secondAttempt = yield* queue.takeEntry((_e, meta) => Effect.succeed(meta.attempts));
       expect(secondAttempt).toBe(1);
     }).pipe(Effect.provide(TxRelayQueueTestLayer)),
   );

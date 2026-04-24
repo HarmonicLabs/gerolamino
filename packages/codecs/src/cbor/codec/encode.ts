@@ -162,9 +162,8 @@ export const encodeSync = (
     // `Array.from({ length }, mapper)` emits each big-endian byte directly
     // into its final slot — O(n) rather than O(n²). The inner shift-left
     // + 0xff mask is the canonical bignum-to-bytes idiom.
-    const bignumBytes = Uint8Array.from(
-      { length: byteCount },
-      (_, i) => Number((value >> BigInt(8 * (byteCount - 1 - i))) & 0xffn),
+    const bignumBytes = Uint8Array.from({ length: byteCount }, (_, i) =>
+      Number((value >> BigInt(8 * (byteCount - 1 - i))) & 0xffn),
     );
     writeTypeAndLength(CborKinds.Tag, tag);
     writeTypeAndLength(CborKinds.Bytes, BigInt(bignumBytes.length));

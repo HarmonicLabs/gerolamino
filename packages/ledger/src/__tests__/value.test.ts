@@ -1,14 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
-import {
-  Value,
-  ValueBytes,
-  emptyValue,
-  valueAdd,
-  valueSubtract,
-  type MultiAssetEntry,
-} from "..";
+import { Value, ValueBytes, emptyValue, valueAdd, valueSubtract, type MultiAssetEntry } from "..";
 
 describe("Value schema", () => {
   it.effect("accepts coin-only value", () =>
@@ -174,10 +167,10 @@ const coinArb: FastCheck.Arbitrary<bigint> = FastCheck.bigInt({
 
 const multiAssetEntryArb: FastCheck.Arbitrary<MultiAssetEntry> = FastCheck.record({
   policy: policyIdArb,
-  assets: FastCheck.array(
-    FastCheck.record({ name: assetNameArb, quantity: quantityArb }),
-    { minLength: 0, maxLength: 3 },
-  ),
+  assets: FastCheck.array(FastCheck.record({ name: assetNameArb, quantity: quantityArb }), {
+    minLength: 0,
+    maxLength: 3,
+  }),
 });
 
 const rawValueArb: FastCheck.Arbitrary<Value> = FastCheck.record({

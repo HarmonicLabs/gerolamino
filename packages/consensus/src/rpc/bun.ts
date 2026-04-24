@@ -44,19 +44,18 @@ const workerPoolSize = Effect.gen(function* () {
  * (`CryptoDirect` or `CryptoWorkerBun` from wasm-utils) because the
  * caller-side blake2b + decode shortcuts run in-process here.
  */
-export const ValidationWorkerBun: Layer.Layer<ValidationClient, WorkerError, Crypto> =
-  Layer.unwrap(
-    workerPoolSize.pipe(
-      Effect.map((size) =>
-        ValidationFromRpc.pipe(
-          Layer.provide(ValidationRpcClient.layer),
-          Layer.provide(RpcClient.layerProtocolWorker({ size, concurrency: 16 })),
-          Layer.provide(RpcSerialization.layerMsgPack),
-          Layer.provide(BunWorker.layer(() => new globalThis.Worker(WORKER_URL))),
-        ),
+export const ValidationWorkerBun: Layer.Layer<ValidationClient, WorkerError, Crypto> = Layer.unwrap(
+  workerPoolSize.pipe(
+    Effect.map((size) =>
+      ValidationFromRpc.pipe(
+        Layer.provide(ValidationRpcClient.layer),
+        Layer.provide(RpcClient.layerProtocolWorker({ size, concurrency: 16 })),
+        Layer.provide(RpcSerialization.layerMsgPack),
+        Layer.provide(BunWorker.layer(() => new globalThis.Worker(WORKER_URL))),
       ),
     ),
-  );
+  ),
+);
 
 export { ValidationRpcClient } from "./validation-rpc-client.ts";
 

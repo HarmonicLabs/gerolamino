@@ -29,8 +29,5 @@ export const MAX_UNACKED_TX_IDS = 10;
  *
  * Returns `true` if the request is valid to send.
  */
-export const isValidRequestWindow = (
-  currentUnacked: number,
-  ack: number,
-  req: number,
-): boolean => currentUnacked - ack + req <= MAX_UNACKED_TX_IDS;
+export const isValidRequestWindow = (currentUnacked: number, ack: number, req: number): boolean =>
+  currentUnacked - ack + req <= MAX_UNACKED_TX_IDS;

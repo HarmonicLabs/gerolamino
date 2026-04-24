@@ -54,8 +54,7 @@ const lexLt = (a: Uint8Array, b: Uint8Array): boolean => {
   return a.length < b.length;
 };
 
-const bytesArb = (length: number) =>
-  FastCheck.uint8Array({ minLength: length, maxLength: length });
+const bytesArb = (length: number) => FastCheck.uint8Array({ minLength: length, maxLength: length });
 
 const bigIntU64 = FastCheck.bigInt({ min: 0n, max: 2n ** 64n - 1n });
 
@@ -143,8 +142,9 @@ describe("ffi/keys: prefixEnd invariants", () => {
   it("prefixEnd of a non-saturated prefix is strictly lex-greater", () => {
     FastCheck.assert(
       FastCheck.property(
-        FastCheck.uint8Array({ minLength: 1, maxLength: 16 })
-          .filter((b) => !Array.from(b).every((x) => x === 0xff)),
+        FastCheck.uint8Array({ minLength: 1, maxLength: 16 }).filter(
+          (b) => !Array.from(b).every((x) => x === 0xff),
+        ),
         (prefix) => lexLt(prefix, prefixEnd(prefix)),
       ),
       { numRuns: NUM_RUNS },

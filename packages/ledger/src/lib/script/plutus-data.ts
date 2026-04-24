@@ -131,9 +131,7 @@ const decodeConstrFields = (
     Effect.map((fields) => ({ _tag: PlutusDataKind.Constr as const, constrTag, fields })),
   );
 
-const decodeGeneralConstr = (
-  data: CborSchemaType,
-): Effect.Effect<PlutusData, SchemaIssue.Issue> =>
+const decodeGeneralConstr = (data: CborSchemaType): Effect.Effect<PlutusData, SchemaIssue.Issue> =>
   expectArray(data, "Constr(general)", 2).pipe(
     Effect.flatMap((items) =>
       Effect.all({
@@ -159,11 +157,7 @@ const decodePlutusTag = (
     return decodeConstrFields(cbor.data, `Constr(${tagNum - 121})`, BigInt(tagNum - 121));
   }
   if (tagNum >= 1280 && tagNum <= 1400) {
-    return decodeConstrFields(
-      cbor.data,
-      `Constr(${tagNum - 1280 + 7})`,
-      BigInt(tagNum - 1280 + 7),
-    );
+    return decodeConstrFields(cbor.data, `Constr(${tagNum - 1280 + 7})`, BigInt(tagNum - 1280 + 7));
   }
   if (tagNum === 102) return decodeGeneralConstr(cbor.data);
   return invalid(cbor, `PlutusData: unsupported CBOR tag ${tagNum}`);

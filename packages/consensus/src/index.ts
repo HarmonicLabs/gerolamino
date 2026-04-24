@@ -19,12 +19,7 @@
  */
 
 // ─────────────────────────────── praos ───────────────────────────────
-export {
-  Nonces,
-  evolveNonce,
-  deriveEpochNonce,
-  isPastStabilizationWindow,
-} from "./praos/nonce";
+export { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "./praos/nonce";
 export {
   SlotClock,
   SlotClockLive,
@@ -45,12 +40,7 @@ export {
 // composition, not a dedicated service + Layer.
 
 // ─────────────────────────────── chain ───────────────────────────────
-export {
-  ChainTip,
-  preferCandidate,
-  GsmState,
-  gsmState,
-} from "./chain/selection";
+export { ChainTip, preferCandidate, GsmState, gsmState } from "./chain/selection";
 export { FIBONACCI_OFFSETS, fibonacciPoints } from "./chain/points";
 export {
   ChainEvent,
@@ -83,21 +73,11 @@ export {
   LedgerView,
   PrevTip,
 } from "./validate/header";
-export {
-  validateBlock,
-  verifyBodyHash,
-  BlockValidationError,
-} from "./validate/block";
+export { validateBlock, verifyBodyHash, BlockValidationError } from "./validate/block";
 export { applyBlock, BlockDiff } from "./validate/apply";
 
 // ─────────────────────────────── sync ───────────────────────────────
-export {
-  processBlock,
-  getSyncState,
-  syncFromStream,
-  SyncError,
-  SyncState,
-} from "./sync/bootstrap";
+export { processBlock, getSyncState, syncFromStream, SyncError, SyncState } from "./sync/bootstrap";
 export { VolatileState, initialVolatileState } from "./sync/driver";
 export {
   connectToRelay,

@@ -103,11 +103,7 @@ export const monitorLoop = Effect.gen(function* () {
 
       // Emit GsmTransition event on state change.
       const prevGsmState = yield* Ref.get(lastGsmState);
-      if (
-        prevGsmState !== undefined &&
-        prevGsmState !== status.gsmState &&
-        Option.isSome(events)
-      ) {
+      if (prevGsmState !== undefined && prevGsmState !== status.gsmState && Option.isSome(events)) {
         yield* events.value.emit({
           _tag: ConsensusEventKind.GsmTransition,
           from: prevGsmState,

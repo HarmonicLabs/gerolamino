@@ -190,10 +190,7 @@ export function decodeBlock(payload: Uint8Array) {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export function encodeBlobBatch(
-  dbName: string,
-  entries: ReadonlyArray<BlobEntry>,
-): Uint8Array {
+export function encodeBlobBatch(dbName: string, entries: ReadonlyArray<BlobEntry>): Uint8Array {
   const nameBytes = textEncoder.encode(dbName);
   let totalSize = 2 + nameBytes.length + 4;
   for (const e of entries) {

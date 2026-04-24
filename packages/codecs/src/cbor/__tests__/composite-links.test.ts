@@ -501,11 +501,7 @@ describe("positionalArrayLink — fixed-length positional struct", () => {
   );
 
   it.effect("rejects long arrays", () =>
-    expectDecodeFailure(
-      codec,
-      arr([u(1n), u(2n), u(3n), u(4n)]),
-      /expected at most 3 slots/,
-    ),
+    expectDecodeFailure(codec, arr([u(1n), u(2n), u(3n), u(4n)]), /expected at most 3 slots/),
   );
 
   it.effect("supports trailing-optional slots", () =>
@@ -518,9 +514,7 @@ describe("positionalArrayLink — fixed-length positional struct", () => {
       });
       const c = toCodecCbor(WithOpt);
       expect(yield* Schema.encodeEffect(c)({ a: 1n })).toStrictEqual(arr([u(1n)]));
-      expect(yield* Schema.encodeEffect(c)({ a: 1n, b: 2n })).toStrictEqual(
-        arr([u(1n), u(2n)]),
-      );
+      expect(yield* Schema.encodeEffect(c)({ a: 1n, b: 2n })).toStrictEqual(arr([u(1n), u(2n)]));
       expect(yield* Schema.decodeEffect(c)(arr([u(1n)]))).toStrictEqual({ a: 1n });
       expect(yield* Schema.decodeEffect(c)(arr([u(1n), u(2n)]))).toStrictEqual({
         a: 1n,

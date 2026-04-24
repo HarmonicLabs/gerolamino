@@ -37,9 +37,9 @@ export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto>
       // ───────────── Consensus-level ─────────────
 
       computeBodyHash: (blockBodyCbor) =>
-        crypto.blake2b256(blockBodyCbor).pipe(
-          Effect.mapError(mapCryptoToValidation("ComputeBodyHash")),
-        ),
+        crypto
+          .blake2b256(blockBodyCbor)
+          .pipe(Effect.mapError(mapCryptoToValidation("ComputeBodyHash"))),
       computeTxId: (txBodyCbor) =>
         crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
 

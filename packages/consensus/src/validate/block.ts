@@ -105,7 +105,9 @@ export const verifyBodyHash = (
           )
         : concat(txBodiesHash, witnessesHash, auxDataHash);
 
-    const computedHash = yield* crypto.blake2b256(hashConcat).pipe(Effect.mapError(verifyBodyHashErr));
+    const computedHash = yield* crypto
+      .blake2b256(hashConcat)
+      .pipe(Effect.mapError(verifyBodyHashErr));
     if (!Equal.equals(computedHash, declaredBodyHash))
       return yield* Effect.fail(
         new BlockValidationError({

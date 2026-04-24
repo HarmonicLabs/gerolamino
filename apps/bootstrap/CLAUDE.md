@@ -43,14 +43,14 @@ Previously included `lmdb.ts` / `lmdb-kv.ts` (LMDB integration) + hand-crafted
 
 ## Environment variables / CLI flags
 
-| Flag               | Env var              | Default                                            |
-|--------------------|----------------------|----------------------------------------------------|
-| `--upstream-url`   | `UPSTREAM_URL`       | `tcp://preprod-node.play.dev.cardano.org:3001`     |
-| `--network / -n`   | `NETWORK`            | `preprod`                                          |
-| `--lsm-lib`        | `LIBLSM_BRIDGE_PATH` | (none — required)                                  |
-| `--snapshot-path`  | (none)               | (optional)                                         |
-| `--db-path`        | (none)               | (optional)                                         |
-| (none)             | `CORS_ORIGINS`       | `*` (comma-separated allow-list; narrow in prod)   |
+| Flag              | Env var              | Default                                          |
+| ----------------- | -------------------- | ------------------------------------------------ |
+| `--upstream-url`  | `UPSTREAM_URL`       | `tcp://preprod-node.play.dev.cardano.org:3001`   |
+| `--network / -n`  | `NETWORK`            | `preprod`                                        |
+| `--lsm-lib`       | `LIBLSM_BRIDGE_PATH` | (none — required)                                |
+| `--snapshot-path` | (none)               | (optional)                                       |
+| `--db-path`       | (none)               | (optional)                                       |
+| (none)            | `CORS_ORIGINS`       | `*` (comma-separated allow-list; narrow in prod) |
 
 ## Running
 
@@ -102,8 +102,9 @@ bunx --bun vitest run apps/bootstrap
 ```
 
 The `lsm-bootstrap.test.ts` suite requires one of:
+
 - `SNAPSHOT_PATH` → Mithril-converted V2LSM snapshot, OR
-- `NODE_DB_PATH`  → cardano-node db (native V2LSM; default dev path is
+- `NODE_DB_PATH` → cardano-node db (native V2LSM; default dev path is
   `.devenv/state/prod-snapshot`)
 
 plus `LIBLSM_BRIDGE_PATH` (the liblsm-bridge.so). Without both, the suite

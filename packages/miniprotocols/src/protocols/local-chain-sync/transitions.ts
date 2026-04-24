@@ -12,10 +12,7 @@ import type { Transition } from "../../typed-channel";
 import { LocalChainSyncMessageBytes, LocalChainSyncMessageType } from "./Schemas";
 import type { LocalChainSyncMessageT } from "./Schemas";
 
-type Narrow<Tag extends LocalChainSyncMessageType> = Extract<
-  LocalChainSyncMessageT,
-  { _tag: Tag }
->;
+type Narrow<Tag extends LocalChainSyncMessageType> = Extract<LocalChainSyncMessageT, { _tag: Tag }>;
 
 export const state_Idle = ProtocolState.make("Idle", "Client");
 export const state_CanAwait = ProtocolState.make("CanAwait", "Server");

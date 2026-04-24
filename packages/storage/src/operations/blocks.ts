@@ -56,9 +56,8 @@ export const IMMUTABLE_BLOCK_DEFAULTS = {
 } as const;
 
 /** Unix-seconds wall clock — shared by every `time`-stamped write. */
-export const timeUnixSeconds: Effect.Effect<number> = Effect.map(
-  Clock.currentTimeMillis,
-  (ms) => Math.floor(Number(ms) / 1000),
+export const timeUnixSeconds: Effect.Effect<number> = Effect.map(Clock.currentTimeMillis, (ms) =>
+  Math.floor(Number(ms) / 1000),
 );
 
 // ---------------------------------------------------------------------------
@@ -87,11 +86,10 @@ export const writeImmutableBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
       Effect.all(
         [
           // Blob puts fan out; they're independent keys.
-          Effect.forEach(
-            blocks,
-            (b) => store.put(blockKey(b.slot, b.hash), b.blockCbor),
-            { concurrency: "unbounded", discard: true },
-          ),
+          Effect.forEach(blocks, (b) => store.put(blockKey(b.slot, b.hash), b.blockCbor), {
+            concurrency: "unbounded",
+            discard: true,
+          }),
           // Single multi-row INSERT via `sql.insert` (Effect Statement.ts:368)
           // collapses N round-trips into 1. UPSERT on slot conflict.
           sql`INSERT INTO immutable_blocks ${sql.insert(rows)}
@@ -171,11 +169,10 @@ export const writeVolatileBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
     yield* sql.withTransaction(
       Effect.all(
         [
-          Effect.forEach(
-            blocks,
-            (b) => store.put(blockKey(b.slot, b.hash), b.blockCbor),
-            { concurrency: "unbounded", discard: true },
-          ),
+          Effect.forEach(blocks, (b) => store.put(blockKey(b.slot, b.hash), b.blockCbor), {
+            concurrency: "unbounded",
+            discard: true,
+          }),
           sql`INSERT INTO volatile_blocks ${sql.insert(rows)}
               ON CONFLICT(hash) DO NOTHING`,
         ],

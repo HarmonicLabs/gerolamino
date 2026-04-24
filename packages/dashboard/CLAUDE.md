@@ -2,6 +2,7 @@
 
 Render-backend-agnostic Cardano node dashboard. Solid.js components backed
 by Effect `Atom` reactive state; same component tree renders in:
+
 - A web browser (DOM / `solid-js/web`)
 - Bun.WebView in apps/tui (future Phase 5 — Kitty-graphics screenshot loop)
 
@@ -29,6 +30,7 @@ src/
   raw `Atom<A>` for manual bridging).
 
 Intentionally NOT depending on:
+
 - `effect` directly — atoms are consumed as opaque read-only handles;
   consumers (apps/tui, browser bundle) provide the AtomRegistry Layer.
 - Any HTTP / WS client — remote data flows in through the parent's Layer.
@@ -37,6 +39,7 @@ Intentionally NOT depending on:
 
 `primitives.ts` exports a `PrimitivesProvider` Solid context + a
 `DashboardPrimitives` type. Consumers implement the type per backend:
+
 - Browser: DOM nodes via `solid-js/web`
 - OpenTUI (deprecated): terminal glyph primitives
 - Bun.WebView (future): DOM nodes inside the WebView

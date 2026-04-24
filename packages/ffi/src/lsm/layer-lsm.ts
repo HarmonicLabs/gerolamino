@@ -94,10 +94,7 @@ const toBlobStoreError = (cause: unknown) => new BlobStoreError({ operation: "ls
  * (disk full, corruption, lock contention) reported success to the
  * `Effect` layer and upstream logic proceeded on stale state.
  */
-const ensureRc = (
-  operation: LsmBridgeOperation,
-  rc: number,
-): Effect.Effect<void, LsmBridgeError> =>
+const ensureRc = (operation: LsmBridgeOperation, rc: number): Effect.Effect<void, LsmBridgeError> =>
   rc === 0
     ? Effect.void
     : Effect.fail(new LsmBridgeError({ operation, cause: `${operation} returned ${rc}` }));

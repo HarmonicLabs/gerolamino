@@ -17,6 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: cachix/cachix-action@v15
+        with:
+          name: harmoniclabs
+          # authToken is optional here — without it, cachix pulls from the
+          # cache but doesn't push. Set CACHIX_AUTH_TOKEN as a repo secret
+          # to enable pushes (only main-branch merges need this).
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
       - name: Flake check
         run: nix flake check --no-build
 
@@ -25,10 +33,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: cachix/cachix-action@v15
+        with:
+          name: harmoniclabs
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
       - name: Install Bun
         run: nix profile install nixpkgs#bun
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Link WASM outputs into source tree
+        # Mirrors `nix run .#link-wasm` (see nix/packages/wasm-lib.nix).
+        # Populates the gitignored pkg/ + result/ dirs consumed via
+        # tsconfig.base.json path aliases. WASM_BUILT stays unset here —
+        # the one dynamic-WASM-import test needs vite-plugin-wasm before
+        # it can run under vitest; unrelated to this build wiring.
+        run: |
+          nix build -L -o packages/wasm-utils/pkg .#wasm-utils
+          nix build -L -o packages/wasm-plexer/result .#wasm-plexer
       - name: Run unit tests
         run: bunx --bun vitest run
 
@@ -38,11 +60,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: cachix/cachix-action@v15
+        with:
+          name: harmoniclabs
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: Build WASM packages
-        run: |
-          nix build -L .#wasm-plexer
-          nix build -L .#wasm-utils
+        # Single invocation so Nix schedules both derivations concurrently
+        # (each is a pure leaf — no dep on the other). Sequential builds
+        # serialized on a 4-core runner; this drops wall-clock ~30-40%.
+        run: nix build -L .#wasm-plexer .#wasm-utils
 
       - name: Build TypeScript packages
         run: nix build -L .#ts-packages

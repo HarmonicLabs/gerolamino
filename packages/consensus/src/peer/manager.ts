@@ -74,7 +74,11 @@ const PEER_STATUS_ZERO_SEED: Record<PeerStatus, number> = Object.fromEntries(
 
 /** Immutable `m.set(key, updater(existing))` — returns a new Map if the
  *  key exists, otherwise `undefined` so callers can short-circuit. */
-const mapUpdate = <K, V>(m: ReadonlyMap<K, V>, key: K, f: (value: V) => V): Map<K, V> | undefined => {
+const mapUpdate = <K, V>(
+  m: ReadonlyMap<K, V>,
+  key: K,
+  f: (value: V) => V,
+): Map<K, V> | undefined => {
   const existing = m.get(key);
   if (existing === undefined) return undefined;
   const next = new Map(m);
@@ -140,22 +144,23 @@ export const PeerManagerLive = Effect.gen(function* () {
     updatePeerTip: (peerId: string, tip: ChainTip) =>
       Clock.currentTimeMillis.pipe(
         Effect.flatMap((now) =>
-          Ref.update(peers, (m) =>
-            mapUpdate(m, peerId, (peer) => ({
-              ...peer,
-              tip,
-              status: "syncing",
-              lastActivityMs: Number(now),
-              headersReceived: peer.headersReceived + 1,
-            })) ?? m,
+          Ref.update(
+            peers,
+            (m) =>
+              mapUpdate(m, peerId, (peer) => ({
+                ...peer,
+                tip,
+                status: "syncing",
+                lastActivityMs: Number(now),
+                headersReceived: peer.headersReceived + 1,
+              })) ?? m,
           ),
         ),
       ),
 
     removePeer: (peerId: string) =>
       modifyAndPublishCount(
-        (m) =>
-          mapUpdate(m, peerId, (peer) => ({ ...peer, status: "disconnected" })) ?? new Map(m),
+        (m) => mapUpdate(m, peerId, (peer) => ({ ...peer, status: "disconnected" })) ?? new Map(m),
       ).pipe(Effect.withSpan(SPAN.PeerDisconnect, { attributes: { "peer.id": peerId } })),
 
     getBestPeer: Ref.get(peers).pipe(

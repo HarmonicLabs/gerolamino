@@ -13,8 +13,7 @@ const derivationErr = (
   link: MemPackDerivationLink,
   message: string,
   astTag?: string,
-): MemPackDerivationError =>
-  new MemPackDerivationError({ link, astTag, message });
+): MemPackDerivationError => new MemPackDerivationError({ link, astTag, message });
 import { bool, float64, list, tag, text, tuple, varLen } from "../primitives";
 import { readMemPackAnnotation } from "./annotations";
 
@@ -316,11 +315,7 @@ const walkBase = (ast: AST.AST): MemPackCodec<unknown> => {
         ast._tag,
       );
     default:
-      throw derivationErr(
-        "walkBase",
-        `unsupported AST kind '${ast._tag}'`,
-        ast._tag,
-      );
+      throw derivationErr("walkBase", `unsupported AST kind '${ast._tag}'`, ast._tag);
   }
 };
 

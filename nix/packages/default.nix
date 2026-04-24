@@ -6,8 +6,9 @@
     ./wasm-plexer.nix
     ./wasm-utils.nix
     ./libsodium-vrf-wasm.nix
-    ./lsm-tree.nix
+    ./ffi.nix
     ./snapshot-converter.nix
+    ./download-mithril-lsm-snapshot.nix
     ./ts-packages.nix
     ./bootstrap-image.nix
   ];

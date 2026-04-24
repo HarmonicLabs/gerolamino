@@ -4,6 +4,7 @@
   "files": [],
   "references": [
     { "path": "./packages/codecs/tsconfig.lib.json" },
+    { "path": "./packages/ffi/tsconfig.lib.json" },
     { "path": "./packages/storage/tsconfig.lib.json" },
     { "path": "./packages/ledger/tsconfig.lib.json" },
     { "path": "./packages/miniprotocols/tsconfig.lib.json" },

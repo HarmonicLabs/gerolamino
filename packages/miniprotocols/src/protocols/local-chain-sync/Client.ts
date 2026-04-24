@@ -1,11 +1,11 @@
-import { Cause, Context, Duration, Effect, Layer, Option, Schema, Scope, Stream } from "effect";
+import { Cause, Context, Effect, Layer, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
-import { TimeoutError } from "effect/Cause";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
 import type { ChainPoint } from "../types/ChainPoint";
+import { requireReply, unexpectedFor } from "../common";
 import * as Schemas from "./Schemas";
 
 export class LocalChainSyncError extends Schema.TaggedErrorClass<LocalChainSyncError>()(
@@ -25,8 +25,8 @@ export type LocalChainSyncIntersectNotFound =
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalChainSyncMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new LocalChainSyncError({ cause: `Unexpected message: ${tag}` }));
+const makeError = (cause: string) => new LocalChainSyncError({ cause });
+const unexpected = unexpectedFor(makeError);
 
 export class LocalChainSyncClient extends Context.Service<
   LocalChainSyncClient,
@@ -71,64 +71,42 @@ export class LocalChainSyncClient extends Context.Service<
         Stream.mapEffect((bytes) => decodeMessage(bytes)),
       );
 
+      // AwaitReply tells us the tip has been reached; spec says the server
+      // may keep the channel open — filter AwaitReply out so `requestNext`
+      // sees only the RollForward / RollBackward / IntersectFound /
+      // IntersectNotFound / Done frames the caller cares about.
+      const rollStream = messages.pipe(
+        Stream.filter((msg) => !Schemas.LocalChainSyncMessage.guards.AwaitReply(msg)),
+      );
+
       return LocalChainSyncClient.of({
         requestNext: () =>
-          sendMessage({ _tag: Schemas.LocalChainSyncMessageType.RequestNext }).pipe(
-            Effect.andThen(
-              messages.pipe(
-                Stream.filter((msg) => !Schemas.LocalChainSyncMessage.guards.AwaitReply(msg)),
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(10)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new LocalChainSyncError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.LocalChainSyncMessage.match(v, {
-                        RollForward: (m) => Effect.succeed(m),
-                        RollBackward: (m) => Effect.succeed(m),
-                        RequestNext: (m) => unexpected(m._tag),
-                        AwaitReply: (m) => unexpected(m._tag),
-                        FindIntersect: (m) => unexpected(m._tag),
-                        IntersectFound: (m) => unexpected(m._tag),
-                        IntersectNotFound: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
-                ),
-              ),
+          sendMessage(Schemas.LocalChainSyncMessage.cases.RequestNext.make({})).pipe(
+            Effect.andThen(requireReply(rollStream, makeError, "requestNext")),
+            Effect.flatMap((v) =>
+              Schemas.LocalChainSyncMessage.isAnyOf([
+                Schemas.LocalChainSyncMessageType.RollForward,
+                Schemas.LocalChainSyncMessageType.RollBackward,
+              ])(v)
+                ? Effect.succeed(v)
+                : unexpected(v._tag),
             ),
           ),
         findIntersect: (points) =>
-          sendMessage({
-            _tag: Schemas.LocalChainSyncMessageType.FindIntersect,
-            points: [...points],
-          }).pipe(
-            Effect.andThen(
-              messages.pipe(
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(10)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new LocalChainSyncError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.LocalChainSyncMessage.match(v, {
-                        IntersectFound: (m) => Effect.succeed(m),
-                        IntersectNotFound: (m) => Effect.succeed(m),
-                        RequestNext: (m) => unexpected(m._tag),
-                        AwaitReply: (m) => unexpected(m._tag),
-                        RollForward: (m) => unexpected(m._tag),
-                        RollBackward: (m) => unexpected(m._tag),
-                        FindIntersect: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
-                ),
-              ),
+          sendMessage(
+            Schemas.LocalChainSyncMessage.cases.FindIntersect.make({ points: [...points] }),
+          ).pipe(
+            Effect.andThen(requireReply(messages, makeError, "findIntersect")),
+            Effect.flatMap((v) =>
+              Schemas.LocalChainSyncMessage.isAnyOf([
+                Schemas.LocalChainSyncMessageType.IntersectFound,
+                Schemas.LocalChainSyncMessageType.IntersectNotFound,
+              ])(v)
+                ? Effect.succeed(v)
+                : unexpected(v._tag),
             ),
           ),
-        done: () => sendMessage({ _tag: Schemas.LocalChainSyncMessageType.Done }),
+        done: () => sendMessage(Schemas.LocalChainSyncMessage.cases.Done.make({})),
       });
     }),
   );

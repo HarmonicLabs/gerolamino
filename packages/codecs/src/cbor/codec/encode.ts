@@ -1,4 +1,4 @@
-import { BigDecimal, Config, Effect, Schema } from "effect";
+import { BigDecimal, Config, Effect } from "effect";
 import { CborEncodeError } from "../CborError";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
 
@@ -9,12 +9,16 @@ const TEXT_ENCODER = new TextEncoder();
 // Growable ArrayBuffer (ES2025): the buffer resizes in place; the associated
 // length-tracking DataView and Uint8Array see the new byteLength automatically.
 // 16 MiB default upper bound mirrors the decoder's default `maxBytes` limit.
-export const INITIAL_CAPACITY = Config.number("CODECS_CBOR_INITIAL_CAPACITY").pipe(
-  Config.withDefault(256),
-);
-export const MAX_CAPACITY = Config.number("CODECS_CBOR_MAX_CAPACITY").pipe(
-  Config.withDefault(1 << 24),
-);
+// The Config values carry a `Config.withDefault`, so the only way
+// yielding them can fail is an unparseable env var — a deploy-time misconfig
+// rather than a recoverable runtime error. `.pipe(Effect.orDie)` folds that
+// into a defect so downstream Effects see a clean `never` error channel.
+export const INITIAL_CAPACITY = Effect.gen(function* () {
+  return yield* Config.number("CODECS_CBOR_INITIAL_CAPACITY").pipe(Config.withDefault(256));
+}).pipe(Effect.orDie);
+export const MAX_CAPACITY = Effect.gen(function* () {
+  return yield* Config.number("CODECS_CBOR_MAX_CAPACITY").pipe(Config.withDefault(1 << 24));
+}).pipe(Effect.orDie);
 
 export interface EncodeCapacities {
   readonly initialCapacity: number;
@@ -44,7 +48,7 @@ export const encodeSync = (
     if (newCap > maxCapacity) newCap = maxCapacity;
     if (required > newCap) {
       throw new CborEncodeError({
-        cause: `CBOR encoding exceeds ${maxCapacity}-byte cap (needed ${required})`,
+        reason: { _tag: "CapacityExceeded", needed: required, cap: maxCapacity },
       });
     }
     buf.resize(newCap);
@@ -150,14 +154,18 @@ export const encodeSync = (
   };
 
   const writeBignum = (tag: bigint, value: bigint): void => {
-    // Big-endian bytes via bigint shifts — avoids the hex-string round-trip.
-    const bytes: number[] = [];
-    let v = value;
-    while (v > 0n) {
-      bytes.unshift(Number(v & 0xffn));
-      v >>= 8n;
-    }
-    const bignumBytes = bytes.length === 0 ? Uint8Array.of(0) : Uint8Array.from(bytes);
+    // Big-endian byte width via `BigInt.prototype.toString(2)` — the
+    // most-significant bit count divided up to a whole byte gives us the
+    // final length in one shot, avoiding the `Array.prototype.unshift`
+    // loop (which is O(n²) as the array grows).
+    const byteCount = value === 0n ? 1 : Math.ceil(value.toString(2).length / 8);
+    // `Array.from({ length }, mapper)` emits each big-endian byte directly
+    // into its final slot — O(n) rather than O(n²). The inner shift-left
+    // + 0xff mask is the canonical bignum-to-bytes idiom.
+    const bignumBytes = Uint8Array.from(
+      { length: byteCount },
+      (_, i) => Number((value >> BigInt(8 * (byteCount - 1 - i))) & 0xffn),
+    );
     writeTypeAndLength(CborKinds.Tag, tag);
     writeTypeAndLength(CborKinds.Bytes, BigInt(bignumBytes.length));
     writeBytesInto(bignumBytes);
@@ -203,8 +211,10 @@ export const encodeSync = (
         // `isWellFormed` detects this up front so the encoder fails loudly.
         if (!item.text.isWellFormed()) {
           throw new CborEncodeError({
-            cause:
-              "CBOR Text contains unpaired UTF-16 surrogates (use .toWellFormed() to sanitize)",
+            reason: {
+              _tag: "IllFormedUtf16",
+              preview: item.text.slice(0, 20),
+            },
           });
         }
         const utf8 = TEXT_ENCODER.encode(item.text);
@@ -319,6 +329,4 @@ export const encode = (obj: CborValue): Effect.Effect<Uint8Array, CborEncodeErro
       try: () => encodeSync(obj, { initialCapacity, maxCapacity }),
       catch: (e) => new CborEncodeError({ cause: e }),
     });
-  }).pipe(
-    Effect.mapError((e) => (Schema.is(CborEncodeError)(e) ? e : new CborEncodeError({ cause: e }))),
-  );
+  });

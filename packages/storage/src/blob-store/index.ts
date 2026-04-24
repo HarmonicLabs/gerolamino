@@ -17,4 +17,10 @@ export {
   PREFIX_SNAP,
   PREFIX_COFF,
 } from "./keys";
-export { analyzeBlockCbor, BlockAnalysis, TxOffset } from "./block-analysis";
+export {
+  analyzeBlockCbor,
+  analyzeBlockCborUnsafe,
+  BlockAnalysis,
+  BlockAnalysisParseError,
+  TxOffset,
+} from "./block-analysis";

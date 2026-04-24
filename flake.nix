@@ -4,8 +4,26 @@
   nixConfig = {
     extra-substituters = [ "https://cache.iog.io" ];
     extra-trusted-public-keys = [ "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" ];
+    # To add a project-specific Cachix cache (e.g. harmoniclabs.cachix.org),
+    # create it via `cachix authtoken <TOKEN>` + `cachix create harmoniclabs`,
+    # then paste the printed public key here (e.g.
+    # `harmoniclabs.cachix.org-1:<KEY>=`). CI already consumes
+    # CACHIX_AUTH_TOKEN via `cachix/cachix-action@v15` — pushes + pulls
+    # succeed at the CI layer without this block being updated.
   };
 
+  # Local-iteration pattern: use `--override-input <name> path:...` to swap a
+  # flake input to a local checkout without editing anything here. Useful for
+  # debugging upstream breaks without a round-trip through GitHub.
+  #
+  #   nix develop --override-input ouroboros-consensus \
+  #     path:/home/hariamoor/code/reference/IntersectMBO/ouroboros-consensus
+  #   nix build  --override-input lsm-tree-src \
+  #     path:/home/hariamoor/code/reference/IntersectMBO/lsm-tree .#lsm-bridge
+  #   nix develop --override-input mithril \
+  #     path:/home/hariamoor/code/reference/input-output-hk/mithril
+  #
+  # CI uses the committed GitHub pins in flake.lock — overrides are dev-only.
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -27,6 +45,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # NB: don't collapse mithril's crane/flake-parts/rust-overlay/treefmt-nix via
+    # `follows` — IOG's binary cache indexes mithril's upstream default input
+    # resolution, so overriding those inputs triggers a full local rebuild of
+    # `mithril-client-cli` (mithril-stm + 200+ Rust deps). The lock-node saving
+    # (~4) is not worth the cache miss. Only `nixpkgs` is safe to follow.
     mithril = {
       url = "github:input-output-hk/mithril";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -59,6 +82,20 @@
       url = "github:serokell/deploy-rs";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Hardware-scan-based NixOS module — consumed by Phase 0g-iii/v for
+    # `hardware.facter.reportPath = ./facter.json;` auto-population of
+    # microcode + firmware + non-obvious kernel modules. Report is generated
+    # on-host via `nixos-facter` (shipped in nixpkgs) during kexec; this
+    # module reads the JSON and wires it into the NixOS evaluation.
+    nixos-facter-modules.url = "github:numtide/nixos-facter-modules";
+
+    # Curated hardware-specific NixOS modules. Used for `common-cpu-intel-cpu-only`
+    # (microcode updates without pulling the Intel GPU stack) + `common-pc-ssd`
+    # (fstrim for disks that pass through the hypervisor's discard signal).
+    # Non-PC boards (framework, Apple, etc.) not consumed; the flake is ~3MB
+    # but the import is lazy so only the used modules contribute to the closure.
+    nixos-hardware.url = "github:NixOS/nixos-hardware";
 
     zig2nix = {
       url = "github:Cloudef/zig2nix";
@@ -95,9 +132,19 @@
       url = "github:IntersectMBO/ouroboros-consensus/3a59a8a551141a5999f57e86b909bca6d6d6f1ff";
     };
 
-    cardano-node = {
-      url = "github:IntersectMBO/cardano-node/10.7.0";
-    };
+    # cardano-node — tracks `master` for self-hosted Mithril aggregator
+    # compatibility (Phase 0f). Master-built snapshots carry the
+    # `tablesCodecVersion` metadata key that `mithril-client tools
+    # utxo-hd snapshot-converter --utxo-hd-flavor LSM` requires. The
+    # input is consumed for:
+    #   1. `inputs.cardano-node.packages.${system}.cardano-node` — the
+    #      haskell.nix-built binary on production NixOS (replaces the
+    #      pre-built Linux tarball `pkgs.fetchurl` path). IOG's binary
+    #      cache `cache.iog.io` serves the closure so production builds
+    #      are warm.
+    #   2. `inputs.cardano-node.legacyPackages.${system}.cardanoLib` —
+    #      preprod config generation via `.environments.preprod.nodeConfig`.
+    cardano-node.url = "github:IntersectMBO/cardano-node";
   };
 
   outputs = inputs@{ flake-parts, ... }:
@@ -173,7 +220,7 @@
                 pkgs.wasm-pack
                 pkgs.binaryen
                 # pkgs.chromium
-                # mithril-client
+                (inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: { doCheck = false; }))
                 # snapshot-converter
                 config.flake-root.package
               ];
@@ -193,14 +240,13 @@
                   targets = [ "wasm32-unknown-unknown" ];
                   lsp.enable = true;
                 };
-                # typescript = {
-                #   enable = true;
-                #   lsp.enable = true;
-                # };
                 javascript = {
-                  enable = true;
-                  npm.enable = true;
-                  bun.enable = true;
+                  # enable = true;
+                  # npm.enable = true;
+                  bun = {
+                    enable = true;
+                    package = pkgs.bun;
+                  };
                 };
                 haskell = {
                   enable = true;

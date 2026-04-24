@@ -1,8 +1,9 @@
 # storage
 
 Chain storage for the node. Sits over the `BlobStore` service (from `ffi`)
-plus a `SqlClient` for metadata; XState is retained only for the genuinely
-parallel `chainDBMachine` region.
+plus a `SqlClient` for metadata. XState has been removed — the ChainDB
+lifecycle is now a pure reducer driven by a `SubscriptionRef` +
+`Queue<ChainDBEvent>` inside `chain-db-live.ts`.
 
 ## Structure
 
@@ -30,12 +31,11 @@ src/
     volatile-db.ts           <- VolatileDB service + VolatileDBLive layer
     ledger-db.ts             <- LedgerDB service + LedgerDBLive layer
     chain-db.ts              <- ChainDB unified service + ChainDBError + ChainUpdate
-    chain-db-live.ts         <- ChainDBLive — XState chainDBMachine + SqlClient + BlobStore
+    chain-db-live.ts         <- ChainDBLive — reducer + SubscriptionRef + SqlClient + BlobStore
   machines/
-    chaindb.ts               <- chainDBMachine (parallel regions: blockProcessing + immutability)
-    effect-transition.ts     <- XState↔Effect bridge helpers
-    events.ts                <- ChainDB machine events
-  __tests__/                 <- chain-db, chain-db-sql, sql-integration, chaindb (XState)
+    chaindb.ts               <- ChainDBState + pure `reduce(state, event)` transition function
+    events.ts                <- ChainDBEvent tagged union (_tag discriminator)
+  __tests__/                 <- chain-db, chain-db-sql, sql-integration, chaindb (reducer)
 ```
 
 ## Dependencies
@@ -44,7 +44,6 @@ src/
 - `@effect/sql-sqlite-bun` — `SqliteClient` for metadata (TUI + bootstrap)
 - `@effect/sql-sqlite-wasm` — browser backend (chrome-ext, future)
 - `ffi` — source-of-truth `BlobStore` + `BlobEntry` schema
-- `xstate` ^5.30 — retained only for `chainDBMachine` parallel regions
 
 ## Service split (matches Haskell ChainDB)
 
@@ -69,10 +68,13 @@ set at the app entrypoint.
 - **`Layer.effect` + explicit env annotation** (`Layer.Layer<S, never,
   BlobStore | SqlClient>`) so downstream `tsgo --build` does not widen the
   layer's environment to `any`.
-- **XState retained only for `chainDBMachine`** (`machines/chaindb.ts`):
-  parallel regions `blockProcessing` + `immutability` run concurrently.
-  The old linear `mempoolMachine` was removed; mempool state now lives in
-  the Mempool Cluster entity (`packages/consensus`).
+- **XState-free** — the previous `chainDBMachine` parallel-region
+  chart collapsed to a pure `reduce(state, event): ChainDBState` fold.
+  `ChainDBLive` wires two scoped fibers: a *dispatch* fiber
+  (`Queue<ChainDBEvent> → SubscriptionRef.update(reduce)`) and a *driver*
+  fiber (`SubscriptionRef.changes → Stream.changesWith on immutability
+  region → dispatch promote / gc effects → feed completion events back`).
+  Mempool state lives in the Mempool Cluster entity (`packages/consensus`).
 - **Effect Stream for range scans** — `ImmutableDB.streamBlocks(from, to)`
   returns `Stream<StoredBlock, ImmutableDBError>` backed by
   `BlobStore.scan(prefix)`.

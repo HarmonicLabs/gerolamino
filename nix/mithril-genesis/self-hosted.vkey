@@ -1,0 +1,17 @@
+PLACEHOLDER
+Replace this file with the self-hosted Mithril aggregator's genesis
+verification key after first deploy. See docs/deployment.md.
+
+On the production machine after the aggregator has run its first-boot
+ExecStartPre, `/data/mithril/aggregator/genesis.vkey` contains the
+public key. Copy it here with:
+
+    scp -P 2222 root@decentralizationmaxi.io:/data/mithril/aggregator/genesis.vkey \
+        nix/mithril-genesis/self-hosted.vkey
+
+Then commit. The `download-mithril-lsm-snapshot` flake app will
+substitute the committed file into `mithril-client --genesis-verification-key`
+so CI's snapshot downloads verify against our own root of trust.
+
+Until this placeholder is replaced, the flake app refuses to run and
+prints these instructions.

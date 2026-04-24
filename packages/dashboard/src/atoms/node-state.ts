@@ -58,13 +58,29 @@ export const nodeStateAtom: Atom.Writable<NodeState> = Atom.make(INITIAL_NODE_ST
 // Peers
 // ---------------------------------------------------------------------------
 
-export const PeerInfoStatus = Schema.Literals(["connected", "disconnected", "stalled"]);
+/**
+ * Peer status enum. MUST stay byte-identical to `consensus/peer/manager.ts`
+ * `PeerStatus` — that's the single wire-canonical source (re-exported as
+ * `PeerInfoStatus` from `consensus/rpc` for RPC consumers). Dashboard keeps
+ * a local copy to stay decoupled from consensus's type-check graph (dashboard
+ * is a leaf UI package with no other workspace deps beyond solid-js +
+ * es-toolkit). If a new peer status lands in consensus, this literal set
+ * must be updated in lockstep or NodeRpc decodes will schema-error at the UI.
+ */
+export const PeerInfoStatus = Schema.Literals([
+  "connecting",
+  "syncing",
+  "synced",
+  "stalled",
+  "disconnected",
+]);
 export type PeerInfoStatus = typeof PeerInfoStatus.Type;
 
 export const PeerInfo = Schema.Struct({
   id: Schema.String,
+  address: Schema.String,
   status: PeerInfoStatus,
-  tipSlot: Schema.BigInt,
+  tipSlot: Schema.optional(Schema.BigInt),
   latencyMs: Schema.optionalKey(Schema.Number),
 });
 export type PeerInfo = typeof PeerInfo.Type;

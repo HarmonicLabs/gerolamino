@@ -14,7 +14,7 @@
  *   - Epoch has epochLength slots
  *   - Slot → epoch: floor(slot / epochLength)
  */
-import { Clock, Config, Context, Effect, Schema } from "effect";
+import { Clock, Config, Context, Effect, Layer, Schema } from "effect";
 
 /** Cardano network time parameters. */
 export class SlotConfig extends Schema.TaggedClass<SlotConfig>()("SlotConfig", {
@@ -142,3 +142,30 @@ export const SlotClockLayerFromConfig = Effect.gen(function* () {
   const config = yield* SlotConfigFromEnv;
   return yield* SlotClockLive(config);
 });
+
+/**
+ * Pre-built `SlotClock` layers for the two live networks. Consumers that
+ * don't need env-driven config point at these directly instead of
+ * re-wrapping `SlotClockLive(PREPROD_CONFIG)` / `Layer.effect(SlotClock, ...)`
+ * at every call site.
+ */
+export const SlotClockPreprod: Layer.Layer<SlotClock> = Layer.effect(
+  SlotClock,
+  SlotClockLive(PREPROD_CONFIG),
+);
+
+export const SlotClockMainnet: Layer.Layer<SlotClock> = Layer.effect(
+  SlotClock,
+  SlotClockLive(MAINNET_CONFIG),
+);
+
+/**
+ * Env-first SlotClock layer: reads `CARDANO_*` env vars via
+ * `SlotClockLayerFromConfig`, falling back to `PREPROD_CONFIG` defaults
+ * when the env is missing. Used by `apps/tui` to let operators override
+ * the mainnet/preprod defaults without recompiling.
+ */
+export const SlotClockLiveFromEnvOrPreprod: Layer.Layer<SlotClock> = Layer.effect(
+  SlotClock,
+  SlotClockLayerFromConfig.pipe(Effect.catch(() => SlotClockLive(PREPROD_CONFIG))),
+);

@@ -8,3 +8,5 @@ export {
   type MempoolSizes,
   MempoolSizesSchema,
 } from "./Schemas";
+// Agency-typed transitions — import via `./transitions` subpath (states collide).
+export { localTxMonitorTransitions } from "./transitions";

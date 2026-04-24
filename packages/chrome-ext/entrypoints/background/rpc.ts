@@ -8,6 +8,7 @@
 import { Effect, Option, Queue, Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import { PeerInfoStatus } from "consensus";
 
 // ---------------------------------------------------------------------------
 // Sync State Schema
@@ -63,12 +64,16 @@ export class SyncState extends Schema.Class<SyncState>("SyncState")({
   syncPercent: Schema.optional(Schema.Number),
   peerCount: Schema.optional(Schema.Number),
   gsmState: Schema.optional(Schema.String),
-  /** Peer list — tipSlot as string (chrome.storage.session is JSON-only). */
+  /**
+   * Peer list — tipSlot as string (chrome.storage.session is JSON-only).
+   * `status` is narrowed to the canonical `PeerInfoStatus` from consensus
+   * so a drifting literal caught at RPC time (not silently at render time).
+   */
   peers: Schema.optional(
     Schema.Array(
       Schema.Struct({
         id: Schema.String,
-        status: Schema.String,
+        status: PeerInfoStatus,
         tipSlot: Schema.String,
       }),
     ),

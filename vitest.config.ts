@@ -1,11 +1,13 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import wasm from "vite-plugin-wasm";
 
 const hasSnapshot = !!process.env["SNAPSHOT_PATH"];
 const hasNetwork = !!process.env["CARDANO_NODE_HOST"];
 const hasWasm = !!process.env["WASM_BUILT"];
 
 export default defineConfig({
+  plugins: [wasm()],
   test: {
     globals: true,
     environment: "node",
@@ -86,7 +88,7 @@ export default defineConfig({
         __dirname,
         "packages/storage/src/services/chain-db.ts",
       ),
-      "lsm-tree": path.resolve(__dirname, "packages/lsm-tree/src/index.ts"),
+      ffi: path.resolve(__dirname, "packages/ffi/src/index.ts"),
     },
   },
   server: {

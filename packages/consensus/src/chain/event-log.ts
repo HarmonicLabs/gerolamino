@@ -25,13 +25,19 @@
  * (`Map.set` overwrites), multi-subscriber fan-out goes through the internal
  * PubSub rather than multiple registered handlers.
  */
-import { Context, Effect, Layer, PubSub, Schema, Scope, Stream } from "effect";
+import { Context, Effect, Layer, Metric, PubSub, Schema, Scope, Stream } from "effect";
 import {
   EventGroup,
   EventJournal,
   EventLog,
   EventLogEncryption,
 } from "effect/unstable/eventlog";
+import {
+  ChainLength,
+  ChainTipSlot,
+  EpochBoundaryCount,
+  RollbackCount,
+} from "../observability.ts";
 
 // ---------------------------------------------------------------------------
 // RollbackTarget — where a rollback points to (real point or origin)
@@ -95,16 +101,14 @@ export type ChainEventType = typeof ChainEvent.Type;
 // `EventLog` uses for de-dup + compaction.
 // ---------------------------------------------------------------------------
 
-const hexBytes = (h: Uint8Array): string => {
-  let s = "";
-  for (let i = 0; i < h.length; i++) s += h[i]!.toString(16).padStart(2, "0");
-  return s;
-};
-
+/** Derive an EventJournal primary key from a rollback target. Uses
+ *  `RollbackTarget.match` so `_tag` dispatch stays consistent with the
+ *  consensus-wide convention (per CLAUDE.md). */
 const rollbackKey = (payload: typeof RolledBackEvent.Type): string =>
-  payload.to._tag === "Origin"
-    ? "origin"
-    : `${payload.to.slot}:${hexBytes(payload.to.hash)}`;
+  RollbackTarget.match(payload.to, {
+    RealPoint: (p) => `${p.slot}:${p.hash.toHex()}`,
+    Origin: () => "origin",
+  });
 
 // ---------------------------------------------------------------------------
 // EventGroup — the domain of events for the log
@@ -113,7 +117,7 @@ const rollbackKey = (payload: typeof RolledBackEvent.Type): string =>
 export const ChainEventGroup = EventGroup.empty
   .add({
     tag: "BlockAccepted",
-    primaryKey: (payload: typeof BlockAcceptedEvent.Type) => hexBytes(payload.hash),
+    primaryKey: (payload: typeof BlockAcceptedEvent.Type) => payload.hash.toHex(),
     payload: BlockAcceptedEvent,
   })
   .add({
@@ -123,7 +127,7 @@ export const ChainEventGroup = EventGroup.empty
   })
   .add({
     tag: "TipAdvanced",
-    primaryKey: (payload: typeof TipAdvancedEvent.Type) => hexBytes(payload.hash),
+    primaryKey: (payload: typeof TipAdvancedEvent.Type) => payload.hash.toHex(),
     payload: TipAdvancedEvent,
   })
   .add({
@@ -144,7 +148,7 @@ export const ChainEventLogSchema = EventLog.schema(ChainEventGroup);
 export const writeChainEvent = (event: ChainEventType) =>
   Effect.gen(function* () {
     const log = yield* EventLog.EventLog;
-    return yield* ChainEvent.match(event, {
+    const written = yield* ChainEvent.match(event, {
       BlockAccepted: (payload) =>
         log.write({ schema: ChainEventLogSchema, event: "BlockAccepted", payload }),
       RolledBack: (payload) =>
@@ -154,6 +158,19 @@ export const writeChainEvent = (event: ChainEventType) =>
       EpochBoundary: (payload) =>
         log.write({ schema: ChainEventLogSchema, event: "EpochBoundary", payload }),
     });
+    // Mirror commit-time events into the shared Metric registry. Errors during
+    // metric update are swallowed — observability must never fail the writer.
+    yield* ChainEvent.match(event, {
+      BlockAccepted: () => Effect.void,
+      RolledBack: () => Metric.update(RollbackCount, 1),
+      TipAdvanced: (p) =>
+        Effect.all([
+          Metric.update(ChainTipSlot, p.slot),
+          Metric.update(ChainLength, p.blockNo),
+        ]),
+      EpochBoundary: () => Metric.update(EpochBoundaryCount, 1),
+    });
+    return written;
   });
 
 // ---------------------------------------------------------------------------
@@ -203,7 +220,7 @@ export class ChainEventStream extends Context.Service<
      */
     readonly history: Effect.Effect<
       ReadonlyArray<ChainEventType>,
-      EventJournal.EventJournalError | Schema.SchemaError
+      EventJournal.EventJournalError | Schema.SchemaError | DecodedUnknownEventError
     >;
   }
 >()("consensus/ChainEventStream") {}
@@ -239,8 +256,18 @@ const ChainEventStreamLive = Layer.effect(
     const log = yield* EventLog.EventLog;
 
     // Per-tag payload decoders pulled from the EventGroup's `payloadMsgPack`.
+    // The EventGroup's `payloadMsgPack` is the full tagged event schema
+    // (already includes `_tag`), so a single decode yields `ChainEventType`
+    // directly. An explicit return type on `decodeByTag` unifies the
+    // miss-branch (`Effect<never, DecodedUnknownEventError>`) and
+    // hit-branch (`Effect<ChainEventType, SchemaError>`) into one Effect
+    // type so downstream `Effect.forEach` sees a uniform signature rather
+    // than a union of Effects.
     const events = ChainEventGroup.events;
-    const decodeByTag = (tag: string, payload: Uint8Array) => {
+    const decodeByTag = (
+      tag: string,
+      payload: Uint8Array,
+    ): Effect.Effect<ChainEventType, DecodedUnknownEventError | Schema.SchemaError> => {
       const event = events[tag];
       if (!event) return Effect.fail(new DecodedUnknownEventError({ tag }));
       return Schema.decodeUnknownEffect(event.payloadMsgPack)(payload);
@@ -250,19 +277,19 @@ const ChainEventStreamLive = Layer.effect(
       subscribe: PubSub.subscribe(pubsub),
       stream: Stream.fromPubSub(pubsub),
       history: Effect.flatMap(log.entries, (entries) =>
-        Effect.forEach(entries, (entry) =>
-          decodeByTag(entry.event, entry.payload).pipe(
-            Effect.map((decoded) => decoded as ChainEventType),
-          ),
-        ),
+        Effect.forEach(entries, (entry) => decodeByTag(entry.event, entry.payload)),
       ),
     });
   }),
 );
 
-// Sentinel error for unknown event tag in the journal — only fires when a
-// stale journal is replayed against a new schema version.
-class DecodedUnknownEventError extends Schema.TaggedErrorClass<DecodedUnknownEventError>()(
+/**
+ * Sentinel error for unknown event tag in the journal — only fires when a
+ * stale journal is replayed against a new schema version. Exported so the
+ * `ChainEventStream.history` error channel resolves consistently for
+ * downstream consumers (UI, tests).
+ */
+export class DecodedUnknownEventError extends Schema.TaggedErrorClass<DecodedUnknownEventError>()(
   "DecodedUnknownEventError",
   { tag: Schema.String },
 ) {}

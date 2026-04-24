@@ -79,46 +79,41 @@ export const LocalTxMonitorMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return { _tag: LocalTxMonitorMessageType.Acquire as const };
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.Acquire].make({});
       case 1:
-        return {
-          _tag: LocalTxMonitorMessageType.Acquired as const,
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.Acquired].make({
           slot: Number(cborUint(cbor.items[1]!, "Acquired slot")),
-        };
+        });
       case 2:
-        return { _tag: LocalTxMonitorMessageType.Release as const };
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.Release].make({});
       case 3:
-        return { _tag: LocalTxMonitorMessageType.NextTx as const };
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.NextTx].make({});
       case 4: {
         const txNode = cbor.items[1];
-        return {
-          _tag: LocalTxMonitorMessageType.ReplyNextTx as const,
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.ReplyNextTx].make({
           tx: txNode !== undefined && txNode._tag === CborKinds.Bytes ? txNode.bytes : undefined,
-        };
+        });
       }
       case 5:
-        return {
-          _tag: LocalTxMonitorMessageType.HasTx as const,
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.HasTx].make({
           txId: cborBytes(cbor.items[1]!, "HasTx txId"),
-        };
+        });
       case 6:
-        return {
-          _tag: LocalTxMonitorMessageType.ReplyHasTx as const,
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.ReplyHasTx].make({
           hasTx: cborBool(cbor.items[1]!, "ReplyHasTx"),
-        };
+        });
       case 7:
-        return { _tag: LocalTxMonitorMessageType.GetSizes as const };
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.GetSizes].make({});
       case 8:
-        return {
-          _tag: LocalTxMonitorMessageType.ReplyGetSizes as const,
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.ReplyGetSizes].make({
           sizes: {
             capacity: Number(cborUint(cbor.items[1]!, "ReplyGetSizes capacity")),
             size: Number(cborUint(cbor.items[2]!, "ReplyGetSizes size")),
             txCount: Number(cborUint(cbor.items[3]!, "ReplyGetSizes txCount")),
           },
-        };
+        });
       default:
-        return { _tag: LocalTxMonitorMessageType.Done as const };
+        return LocalTxMonitorMessage.cases[LocalTxMonitorMessageType.Done].make({});
     }
   },
   LocalTxMonitorMessage.match({

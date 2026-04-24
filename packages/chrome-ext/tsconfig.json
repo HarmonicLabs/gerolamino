@@ -31,8 +31,10 @@
       "dashboard/*": ["./../dashboard/src/*"],
       "codecs": ["./../codecs/src/index.ts"],
       "codecs/*": ["./../codecs/src/*"],
-      "wasm-utils": ["./../wasm-utils/pkg/wasm_utils.d.ts"],
-      "wasm-plexer": ["./../wasm-plexer/result/wasm_plexer.d.ts"]
+      "wasm-utils": ["./../wasm-utils/src/index.ts"],
+      "wasm-utils/*": ["./../wasm-utils/src/*"],
+      "wasm-plexer": ["./../wasm-plexer/src/index.ts"],
+      "wasm-plexer/*": ["./../wasm-plexer/src/*"]
     }
   },
   "references": [

@@ -12,6 +12,7 @@
  *            cardano-ledger/libs/cardano-ledger-core/src/Cardano/Ledger/Metadata.hs
  */
 import { Effect, Option, Schema, SchemaIssue } from "effect";
+import { sumBy } from "es-toolkit";
 import {
   CborKinds,
   type CborSchemaType,
@@ -127,7 +128,7 @@ function decodeMetadatumArray(
   items: ReadonlyArray<CborSchemaType>,
 ): Effect.Effect<Metadatum, SchemaIssue.Issue> {
   if (items.length > 0 && items.every(CborValueSchema.guards[CborKinds.Bytes])) {
-    const totalLen = items.reduce((sum, i) => sum + i.bytes.length, 0);
+    const totalLen = sumBy(items, (i) => i.bytes.length);
     const result = new Uint8Array(totalLen);
     let offset = 0;
     for (const item of items) {

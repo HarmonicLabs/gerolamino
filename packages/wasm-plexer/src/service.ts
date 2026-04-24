@@ -6,14 +6,14 @@ import {
   wrap_multiplexer_message,
 } from "../result/wasm_plexer.js";
 
-import { FramingOpError, fromWasmError } from "./errors.ts";
+import { FramingOpError, type FramingOperation, fromWasmError } from "./errors.ts";
 import { WrappedFrame, WrappedFrameArray } from "./schemas.ts";
 
 const decodeFrame = Schema.decodeUnknownEffect(WrappedFrame);
 const decodeFrames = Schema.decodeUnknownEffect(WrappedFrameArray);
 
 const toFramingError =
-  (operation: string) =>
+  (operation: FramingOperation) =>
   (cause: unknown): FramingOpError => {
     if (cause instanceof Object && "_tag" in cause && cause._tag === "SchemaError") {
       return new FramingOpError({

@@ -3,14 +3,13 @@ import { Effect, Exit, HashMap } from "effect";
 import { Crypto } from "wasm-utils";
 import { validateHeader, HeaderValidationError } from "../validate/header";
 import type { BlockHeader, LedgerView } from "../validate/header";
-import { hex } from "../util";
 import { CryptoStub } from "./crypto-stub";
 
 const cryptoLayer = CryptoStub;
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
-  return hex(new Uint8Array(hasher.update(vk).digest().buffer));
+  return new Uint8Array(hasher.update(vk).digest().buffer).toHex();
 };
 
 const makeVk = (seed: number): Uint8Array => {

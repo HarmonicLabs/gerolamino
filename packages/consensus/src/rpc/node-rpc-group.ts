@@ -35,12 +35,25 @@ export const ChainTipResult = Schema.Struct({
   hash: Schema.Uint8Array,
 });
 
+/**
+ * Wire status for a tracked peer. Re-exported from `peer/manager.ts`'s
+ * `PeerStatus` so there's ONE source of truth for the literal set;
+ * downstream UI packages (dashboard, chrome-ext) pick up the single
+ * canonical definition via this re-export chain and stop hand-maintaining
+ * drifting copies.
+ */
+export { PeerStatus as PeerInfoStatus } from "../peer/manager.ts";
+import { PeerStatus as PeerInfoStatus } from "../peer/manager.ts";
+
 export const PeerInfo = Schema.Struct({
   id: Schema.String,
   address: Schema.String,
-  status: Schema.Literals(["connected", "disconnected", "syncing"]),
+  status: PeerInfoStatus,
   tipSlot: Schema.optional(Schema.BigInt),
+  /** Last-measured round-trip latency from keep-alive, populated when available. */
+  latencyMs: Schema.optionalKey(Schema.Number),
 });
+export type PeerInfo = typeof PeerInfo.Type;
 
 export const TxSummary = Schema.Struct({
   txIdHex: Schema.String,
@@ -48,13 +61,23 @@ export const TxSummary = Schema.Struct({
   feePerByte: Schema.Number,
 });
 
-export const SyncStatus = Schema.Struct({
+/**
+ * Metric snapshot of the node's sync progress. Returned by the
+ * `GetSyncStatus` RPC. Distinct from dashboard's `SyncStatus` (a literal
+ * enum of UI lifecycle states) and chrome-ext's matching enum — this is
+ * the wire-level metric struct.
+ */
+export const SyncMetrics = Schema.Struct({
   synced: Schema.Boolean,
   /** Distance from tip in slots (0 when synced). */
   slotsBehind: Schema.BigInt,
   tipSlot: Schema.BigInt,
   blocksProcessed: Schema.Number,
 });
+
+// `SyncStatus` deprecated alias removed — all internal consumers migrated
+// to `SyncMetrics`. Dashboard / chrome-ext `SyncStatus` (UI lifecycle enum)
+// lives in those packages independently.
 
 /** Atom-delta payload — key identifies which atom changed, value is encoded. */
 export const AtomDelta = Schema.Struct({
@@ -80,7 +103,7 @@ export class GetMempool extends Rpc.make("GetMempool", {
 }) {}
 
 export class GetSyncStatus extends Rpc.make("GetSyncStatus", {
-  success: SyncStatus,
+  success: SyncMetrics,
 }) {}
 
 export class SubmitTx extends Rpc.make("SubmitTx", {

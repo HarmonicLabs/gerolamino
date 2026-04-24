@@ -50,12 +50,15 @@ export type LocalChainSyncMessageT = typeof LocalChainSyncMessage.Type;
 
 function decodeChainPoint(node: CborSchemaType): ChainPoint {
   if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainPoint");
-  if (node.items.length === 0) return { _tag: ChainPointType.Origin as const };
+  if (node.items.length === 0) return ChainPointSchema.cases[ChainPointType.Origin].make({});
   const slot = node.items[0];
   const hash = node.items[1];
   if (slot?._tag !== CborKinds.UInt) throw new Error("Expected uint for slot");
   if (hash?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for hash");
-  return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
+  return ChainPointSchema.cases[ChainPointType.RealPoint].make({
+    slot: Number(slot.num),
+    hash: hash.bytes,
+  });
 }
 
 const encodeChainPoint = ChainPointSchema.match({
@@ -93,45 +96,40 @@ export const LocalChainSyncMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return { _tag: LocalChainSyncMessageType.RequestNext as const };
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.RequestNext].make({});
       case 1:
-        return { _tag: LocalChainSyncMessageType.AwaitReply as const };
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.AwaitReply].make({});
       case 2: {
         const block = cbor.items[1];
         if (block?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for block");
-        return {
-          _tag: LocalChainSyncMessageType.RollForward as const,
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.RollForward].make({
           block: block.bytes,
           tip: decodeChainTip(cbor.items[2]!),
-        };
+        });
       }
       case 3:
-        return {
-          _tag: LocalChainSyncMessageType.RollBackward as const,
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.RollBackward].make({
           point: decodeChainPoint(cbor.items[1]!),
           tip: decodeChainTip(cbor.items[2]!),
-        };
+        });
       case 4: {
         const arr = cbor.items[1];
         if (arr?._tag !== CborKinds.Array) throw new Error("Expected CBOR array for points");
-        return {
-          _tag: LocalChainSyncMessageType.FindIntersect as const,
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.FindIntersect].make({
           points: arr.items.map(decodeChainPoint),
-        };
+        });
       }
       case 5:
-        return {
-          _tag: LocalChainSyncMessageType.IntersectFound as const,
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.IntersectFound].make({
           point: decodeChainPoint(cbor.items[1]!),
           tip: decodeChainTip(cbor.items[2]!),
-        };
+        });
       case 6:
-        return {
-          _tag: LocalChainSyncMessageType.IntersectNotFound as const,
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.IntersectNotFound].make({
           tip: decodeChainTip(cbor.items[1]!),
-        };
+        });
       case 7:
-        return { _tag: LocalChainSyncMessageType.Done as const };
+        return LocalChainSyncMessage.cases[LocalChainSyncMessageType.Done].make({});
       default:
         throw new Error(`Unknown LocalChainSync tag: ${Number(tag.num)}`);
     }

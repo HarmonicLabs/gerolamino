@@ -40,6 +40,28 @@ const PointRow = Schema.Struct({
 });
 
 // ---------------------------------------------------------------------------
+// Shared defaults for `immutable_blocks` inserts.
+//
+// Gerolamino doesn't (yet) track these per-block; future migrations may
+// populate them from block header decoding. Centralising the constant
+// keeps `writeImmutableBlocks` + the lifecycle reactor's
+// `promoteBlocksEffect` in sync — a change here is picked up by both.
+// ---------------------------------------------------------------------------
+
+export const IMMUTABLE_BLOCK_DEFAULTS = {
+  epoch_no: 0,
+  slot_leader_id: 0,
+  proto_major: 0,
+  proto_minor: 0,
+} as const;
+
+/** Unix-seconds wall clock — shared by every `time`-stamped write. */
+export const timeUnixSeconds: Effect.Effect<number> = Effect.map(
+  Clock.currentTimeMillis,
+  (ms) => Math.floor(Number(ms) / 1000),
+);
+
+// ---------------------------------------------------------------------------
 // Immutable block operations
 // ---------------------------------------------------------------------------
 
@@ -50,19 +72,15 @@ export const writeImmutableBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
     if (blocks.length === 0) return;
     const sql = yield* SqlClient;
     const store = yield* BlobStore;
-    const now = yield* Clock.currentTimeMillis;
-    const time = Math.floor(Number(now) / 1000);
+    const time = yield* timeUnixSeconds;
     const rows = blocks.map((b) => ({
       slot: Number(b.slot),
       hash: b.hash,
       prev_hash: b.prevHash ?? null,
       block_no: Number(b.blockNo),
-      epoch_no: 0,
       size: b.blockSizeBytes,
       time,
-      slot_leader_id: 0,
-      proto_major: 0,
-      proto_minor: 0,
+      ...IMMUTABLE_BLOCK_DEFAULTS,
     }));
 
     yield* sql.withTransaction(
@@ -88,7 +106,6 @@ export const readImmutableBlock = (point: RealPoint) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient;
     const store = yield* BlobStore;
-
     const findBlock = SqlSchema.findOneOption({
       Request: Schema.Struct({ slot: Schema.Number, hash: Schema.Uint8Array }),
       Result: ImmutableBlockRow,
@@ -99,22 +116,21 @@ export const readImmutableBlock = (point: RealPoint) =>
         LIMIT 1
       `,
     });
-
-    const row = yield* findBlock({ slot: Number(point.slot), hash: point.hash });
-    if (Option.isNone(row)) return Option.none<StoredBlock>();
-
-    const r = row.value;
-    const blockCbor = yield* store.get(blockKey(point.slot, point.hash));
-    if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
-
-    return Option.some<StoredBlock>({
-      slot: BigInt(r.slot),
-      hash: r.hash,
-      blockNo: BigInt(r.block_no),
-      blockSizeBytes: r.size,
-      blockCbor: blockCbor.value,
-      ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-    });
+    const rowOpt = yield* findBlock({ slot: Number(point.slot), hash: point.hash });
+    if (Option.isNone(rowOpt)) return Option.none<StoredBlock>();
+    const r = rowOpt.value;
+    const cborOpt = yield* store.get(blockKey(point.slot, point.hash));
+    return Option.map(
+      cborOpt,
+      (blockCbor): StoredBlock => ({
+        slot: BigInt(r.slot),
+        hash: r.hash,
+        blockNo: BigInt(r.block_no),
+        blockSizeBytes: r.size,
+        blockCbor,
+        ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
+      }),
+    );
   }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "readBlock", cause })));
 
 export const getImmutableTip = Effect.gen(function* () {
@@ -172,7 +188,6 @@ export const readVolatileBlock = (hash: Uint8Array) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient;
     const store = yield* BlobStore;
-
     const findBlock = SqlSchema.findOneOption({
       Request: Schema.Struct({ hash: Schema.Uint8Array }),
       Result: VolatileBlockRow,
@@ -183,22 +198,21 @@ export const readVolatileBlock = (hash: Uint8Array) =>
         LIMIT 1
       `,
     });
-
-    const row = yield* findBlock({ hash });
-    if (Option.isNone(row)) return Option.none<StoredBlock>();
-
-    const r = row.value;
-    const blockCbor = yield* store.get(blockKey(BigInt(r.slot), r.hash));
-    if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
-
-    return Option.some<StoredBlock>({
-      slot: BigInt(r.slot),
-      hash: r.hash,
-      blockNo: BigInt(r.block_no),
-      blockSizeBytes: r.block_size_bytes,
-      blockCbor: blockCbor.value,
-      ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-    });
+    const rowOpt = yield* findBlock({ hash });
+    if (Option.isNone(rowOpt)) return Option.none<StoredBlock>();
+    const r = rowOpt.value;
+    const cborOpt = yield* store.get(blockKey(BigInt(r.slot), r.hash));
+    return Option.map(
+      cborOpt,
+      (blockCbor): StoredBlock => ({
+        slot: BigInt(r.slot),
+        hash: r.hash,
+        blockNo: BigInt(r.block_no),
+        blockSizeBytes: r.block_size_bytes,
+        blockCbor,
+        ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
+      }),
+    );
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "readBlock", cause })));
 
 export const getVolatileSuccessors = (hash: Uint8Array) =>
@@ -222,21 +236,20 @@ export const garbageCollectVolatile = (belowSlot: number) =>
     const sql = yield* SqlClient;
     const store = yield* BlobStore;
 
+    const findToDelete = SqlSchema.findAll({
+      Request: Schema.Struct({ belowSlot: Schema.Number }),
+      Result: PointRow,
+      execute: (req) => sql`
+        SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
+      `,
+    });
     yield* sql.withTransaction(
       Effect.gen(function* () {
-        const findToDelete = SqlSchema.findAll({
-          Request: Schema.Struct({ belowSlot: Schema.Number }),
-          Result: PointRow,
-          execute: (req) => sql`
-            SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
-          `,
-        });
-
         const rows = yield* findToDelete({ belowSlot });
         if (rows.length > 0) {
           yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
         }
-        yield* sql`DELETE FROM volatile_blocks WHERE slot < ${belowSlot}`.unprepared;
+        yield* sql`DELETE FROM volatile_blocks WHERE slot < ${belowSlot}`;
       }),
     );
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "garbageCollect", cause })));

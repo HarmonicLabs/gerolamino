@@ -33,9 +33,13 @@
         , extraArgs ? { }
         }:
         let
+          # Exact version pins so `nix build .#{wasm-utils,wasm-plexer} --check`
+          # stays bit-for-bit reproducible regardless of when rust-overlay is
+          # updated. Bump deliberately (never float on `.latest`). Last bumped
+          # 2026-04-20 — nightly toolchain date matches stable release 1.95.0.
           toolchain = (if rustChannel == "nightly"
-          then pkgs.rust-bin.nightly.latest.default
-          else pkgs.rust-bin.stable.latest.default).override {
+          then pkgs.rust-bin.nightly."2026-04-20".default
+          else pkgs.rust-bin.stable."1.95.0".default).override {
             targets = [ "wasm32-unknown-unknown" ];
           };
 
@@ -75,14 +79,27 @@
     {
       _module.args.buildWasmPackage = buildWasmPackage;
 
-      # Script to symlink Nix-built WASM outputs into the source tree
-      # for NPM-style imports (package.json main → ./pkg/ or ./result/).
+      # Build WASM derivations and point the source-tree consumer paths
+      # (`packages/wasm-utils/pkg`, `packages/wasm-plexer/result`) at the
+      # resulting /nix/store outputs via `nix build -o <path>`.
+      #
+      # Using `-o <path>` means each invocation re-evaluates the derivation
+      # and updates the symlink atomically — no stale pointers after a WASM
+      # source edit. Consuming TS code imports through these paths
+      # (see tsconfig.base.json aliases + package.json `main`).
+      #
       # Usage: nix run .#link-wasm   (or just `link-wasm` inside devenv shell)
       packages.link-wasm = pkgs.writeShellScriptBin "link-wasm" ''
-        ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo .)"
-        ln -sfn "${config.packages.wasm-utils}" "$ROOT/packages/wasm-utils/pkg"
-        ln -sfn "${config.packages.wasm-plexer}" "$ROOT/packages/wasm-plexer/result"
-        echo "==> WASM packages linked"
+        set -eu
+        cd "$(${lib.getExe config.flake-root.package})"
+        # Clear any stale target (directory from an older cp-based build, or
+        # a symlink pointing at a garbage-collected /nix/store path) so
+        # `nix build -o` lands a fresh symlink. Both paths are fully
+        # gitignored (`*` in their .gitignore), so nothing tracked is lost.
+        rm -rf packages/wasm-utils/pkg packages/wasm-plexer/result
+        nix build -o packages/wasm-utils/pkg .#wasm-utils
+        nix build -o packages/wasm-plexer/result .#wasm-plexer
+        echo "==> WASM outputs linked into source tree"
       '';
     };
 }

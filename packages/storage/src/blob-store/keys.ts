@@ -19,4 +19,4 @@ export {
   PREFIX_ACCT,
   PREFIX_SNAP,
   PREFIX_COFF,
-} from "ffi";
+} from "lsm-ffi";

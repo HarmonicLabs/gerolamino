@@ -2,13 +2,11 @@ import { describe, expect, it, layer } from "@effect/vitest";
 import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
 import { encodeSync, CborKinds, type CborSchemaType } from "codecs";
 import { handleRollForward, handleRollBackward, initialVolatileState } from "../sync/driver";
-import { ConsensusEngineLive } from "../praos/engine";
 import { CryptoStub } from "./crypto-stub";
 import { PeerManager, PeerManagerLive } from "../peer/manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
-import { ChainDB } from "storage";
+import { ChainDB, LedgerSnapshotStore } from "storage";
 import { Nonces } from "../praos/nonce";
-import { hex } from "../util";
 import type { LedgerView } from "../validate/header";
 
 const testConfig = new SlotConfig({
@@ -48,16 +46,20 @@ const stubChainDb = Layer.succeed(ChainDB, {
   streamFrom: () => Stream.empty,
   promoteToImmutable: () => Effect.void,
   garbageCollect: () => Effect.void,
-  writeLedgerSnapshot: () => Effect.void,
-  readLatestLedgerSnapshot: Effect.succeed(Option.none()),
-  writeNonces: () => Effect.void,
-  readNonces: Effect.succeed(Option.none()),
   writeBlobEntries: () => Effect.void,
   deleteBlobEntries: () => Effect.void,
 });
 
+const stubLedgerSnapshots = Layer.succeed(LedgerSnapshotStore, {
+  writeLedgerSnapshot: () => Effect.void,
+  readLatestLedgerSnapshot: Effect.succeed(Option.none()),
+  writeNonces: () => Effect.void,
+  readNonces: Effect.succeed(Option.none()),
+});
+
 const testLayers = Layer.mergeAll(
-  ConsensusEngineLive.pipe(Layer.provideMerge(CryptoStub)),
+  CryptoStub,
+  stubLedgerSnapshots,
   slotClockLayer,
   peerManagerLayer,
   stubChainDb,
@@ -109,7 +111,7 @@ const BABBAGE_ERA_VARIANT = 5;
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
-  return hex(new Uint8Array(hasher.update(vk).digest().buffer));
+  return new Uint8Array(hasher.update(vk).digest().buffer).toHex();
 };
 
 const TEST_ISSUER_VK = (() => {

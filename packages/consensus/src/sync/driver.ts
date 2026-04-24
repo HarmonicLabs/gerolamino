@@ -13,14 +13,13 @@
 import { Deferred, Effect, HashMap, Option, Ref, Schema } from "effect";
 import { Crypto, type CryptoOpError } from "wasm-utils";
 import { SlotClock } from "../praos/clock";
-import { ConsensusEngine } from "../praos/engine";
+import { validateHeader } from "../validate/header";
 import { PeerManager } from "../peer/manager";
 import { ChainTip } from "../chain/selection";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "../praos/nonce";
-import { hex } from "../util";
 import { decodeWrappedHeader, DecodedHeader } from "../bridges/header";
 import { ConsensusEvents, ConsensusEventKind } from "../peer/events";
-import { ChainDB } from "storage";
+import { ChainDB, LedgerSnapshotStore } from "storage";
 import { PrevTip } from "../validate/header";
 import type { BlockHeader, LedgerView } from "../validate/header";
 
@@ -81,11 +80,11 @@ export const handleRollForward = (
   byronSubtag?: number,
 ) =>
   Effect.gen(function* () {
-    const engine = yield* ConsensusEngine;
     const crypto = yield* Crypto;
     const peerManager = yield* PeerManager;
     const slotClock = yield* SlotClock;
     const chainDb = yield* ChainDB;
+    const ledgerSnapshots = yield* LedgerSnapshotStore;
 
     // Update peer tip (server's chain tip, not this block)
     yield* peerManager.updatePeerTip(
@@ -139,7 +138,9 @@ export const handleRollForward = (
     // (VRF key lookup, VRF proof, leader stake) gracefully skip when the
     // LedgerView has no pool data (genesis sync without bootstrap).
     // Pool-independent assertions (KES signature, opcert) always run.
-    yield* engine.validateHeader(header, viewWithCounters, prevTip);
+    // `Crypto` is provided by the app-level layer composition, so
+    // `validateHeader` binds it from the enclosing fiber.
+    yield* validateHeader(header, viewWithCounters, prevTip);
 
     // Storage and nonce evolution are INDEPENDENT — run in parallel.
     // Storage writes to DB; nonce computation reads only header fields.
@@ -157,20 +158,25 @@ export const handleRollForward = (
         // CPU-bound: compute nonces purely from header fields (two blake2b hashes via Crypto).
         Effect.gen(function* () {
           const blockEpoch = slotClock.slotToEpoch(header.slot);
-          let nonces = state.nonces;
-
-          if (blockEpoch > state.nonces.epoch) {
-            const newEpochNonce = yield* deriveEpochNonce(
-              state.nonces.candidate,
-              header.prevHash,
-            ).pipe(Effect.mapError(mapCryptoErr("handleRollForward.deriveEpochNonce")));
-            nonces = new Nonces({
-              active: newEpochNonce,
-              evolving: newEpochNonce,
-              candidate: newEpochNonce,
-              epoch: blockEpoch,
-            });
-          }
+          // Epoch-boundary tick: when the block advances past the current
+          // `epoch`, derive the next epoch's nonce (`blake2b(candidate ∥
+          // prevHash)`) and rebuild `Nonces` atomically. Non-boundary
+          // blocks reuse the incoming triple.
+          const nonces =
+            blockEpoch > state.nonces.epoch
+              ? yield* deriveEpochNonce(state.nonces.candidate, header.prevHash).pipe(
+                  Effect.mapError(mapCryptoErr("handleRollForward.deriveEpochNonce")),
+                  Effect.map(
+                    (newEpochNonce) =>
+                      new Nonces({
+                        active: newEpochNonce,
+                        evolving: newEpochNonce,
+                        candidate: newEpochNonce,
+                        epoch: blockEpoch,
+                      }),
+                  ),
+                )
+              : state.nonces;
 
           const newEvolving = yield* evolveNonce(
             nonces.evolving,
@@ -197,7 +203,7 @@ export const handleRollForward = (
 
     // Persist nonces on epoch boundary transitions + emit EpochTransition event
     if (newNonces.epoch > state.nonces.epoch) {
-      yield* chainDb.writeNonces(
+      yield* ledgerSnapshots.writeNonces(
         newNonces.epoch,
         newNonces.active,
         newNonces.evolving,
@@ -239,7 +245,7 @@ export const handleRollForward = (
     const poolIdBytes = yield* crypto
       .blake2b256(header.issuerVk)
       .pipe(Effect.mapError(mapCryptoErr("handleRollForward.poolIdHash")));
-    const poolId = hex(poolIdBytes);
+    const poolId = poolIdBytes.toHex();
     const updatedCounters = HashMap.set(state.ocertCounters, poolId, header.opcertSeqNo);
 
     const result: VolatileState = {

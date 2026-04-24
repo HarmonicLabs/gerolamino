@@ -63,34 +63,42 @@ export const BlockSyncHandlerLive = BlockSyncWorkflow.toLayer(
     const blocksProcessed = yield* Activity.make({
       name: "StartSyncLoop",
       success: Schema.Number,
-      execute: Effect.gen(function* () {
-        let processed = 0;
-        while (processed < 3) {
-          const slot = payload.fromSlot + BigInt(processed + 1);
-          const hash = new Uint8Array(32).fill((processed + 1) & 0xff);
-          const parentHash =
-            processed === 0
-              ? new Uint8Array(32)
-              : new Uint8Array(32).fill(processed & 0xff);
-
-          yield* writeChainEvent({
-            _tag: "BlockAccepted",
-            slot,
-            blockNo: slot,
-            hash,
-            parentHash,
-          });
-          yield* writeChainEvent({
-            _tag: "TipAdvanced",
-            slot,
-            blockNo: slot,
-            hash,
-          });
-
-          processed += 1;
-        }
-        return processed;
-      }),
+      // Emit three synthetic (BlockAccepted, TipAdvanced) pairs over the
+      // EventLog. `Effect.forEach(Array.from({length: 3}, …))` replaces
+      // the mutable-counter `while` loop; `discard: true` avoids
+      // allocating a result array we'd immediately throw away.
+      //
+      // Journal-write failures are infra defects (backing `EventJournal`
+      // is memory or sqlite; an error here means disk/IPC broke).
+      // `Effect.orDie` keeps the Activity's declared `error: never`
+      // contract stable without paper-over by adding a dummy error
+      // schema to the Activity definition.
+      execute: Effect.as(
+        Effect.forEach(
+          Array.from({ length: 3 }, (_, i) => i),
+          (i) => {
+            const slot = payload.fromSlot + BigInt(i + 1);
+            const hash = new Uint8Array(32).fill((i + 1) & 0xff);
+            const parentHash =
+              i === 0 ? new Uint8Array(32) : new Uint8Array(32).fill(i & 0xff);
+            return Effect.all(
+              [
+                writeChainEvent({
+                  _tag: "BlockAccepted",
+                  slot,
+                  blockNo: slot,
+                  hash,
+                  parentHash,
+                }),
+                writeChainEvent({ _tag: "TipAdvanced", slot, blockNo: slot, hash }),
+              ],
+              { discard: true },
+            ).pipe(Effect.orDie);
+          },
+          { discard: true },
+        ),
+        3,
+      ),
     });
 
     const finalSlot = payload.fromSlot + BigInt(blocksProcessed);

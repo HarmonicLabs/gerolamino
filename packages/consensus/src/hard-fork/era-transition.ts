@@ -2,8 +2,8 @@
  * Hard Fork Combinator era-transition primitives.
  *
  * Models Cardano's era transitions (Byron→Shelley→Allegra→Mary→Alonzo→
- * Babbage→Conway) as a series of `EraBoundary` records + a binary-search
- * resolver for "what era is slot S in?".
+ * Babbage→Conway) as a series of `EraBoundary` records + a resolver for
+ * "what era is slot S in?".
  *
  * Semantics match the Haskell HFC (verified 2026-04-22 wave-2 against
  * `~/code/reference/IntersectMBO/ouroboros-consensus/.../HardFork/
@@ -17,8 +17,8 @@
  * which is phased after this scaffolding. Consumers wire translation via
  * a `translate` callback passed into `tickToSlot` (see `dispatch.ts`).
  */
-import { Data, Schema } from "effect";
-import { Era, EraSchema } from "ledger/lib/core/era.ts";
+import { Schema } from "effect";
+import { Era, EraSchema } from "ledger";
 
 // ---------------------------------------------------------------------------
 // EraBoundary — a single era transition point
@@ -63,7 +63,12 @@ export class EraHistory extends Schema.Class<EraHistory>("EraHistory")({
 /**
  * Return the era a block at `slot` validates under. Post-translation
  * semantics: the boundary slot itself is in the NEW era (`toEra`), not the
- * outgoing era. Binary search — O(log n) in boundary count.
+ * outgoing era.
+ *
+ * Implementation: `Array.prototype.findLastIndex` scans right-to-left for
+ * the last boundary whose slot precedes or equals the query. Cardano has
+ * ≤7 boundaries, so the linear scan is effectively constant — the O(log n)
+ * gain of a hand-rolled binary search isn't worth the extra lines.
  *
  * Edge cases:
  *   - Empty history: returns `currentEra` unconditionally.
@@ -74,17 +79,8 @@ export class EraHistory extends Schema.Class<EraHistory>("EraHistory")({
 export const eraAtSlot = (history: EraHistory, slot: bigint): Era => {
   const bs = history.boundaries;
   if (bs.length === 0) return history.currentEra;
-  if (slot < bs[0]!.slot) return bs[0]!.fromEra;
-
-  // Binary search for the largest i such that bs[i].slot <= slot.
-  let lo = 0;
-  let hi = bs.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >>> 1;
-    if (bs[mid]!.slot <= slot) lo = mid;
-    else hi = mid - 1;
-  }
-  return bs[lo]!.toEra;
+  const idx = bs.findLastIndex((b) => b.slot <= slot);
+  return idx === -1 ? bs[0]!.fromEra : bs[idx]!.toEra;
 };
 
 // ---------------------------------------------------------------------------
@@ -100,28 +96,53 @@ export const crossesEraBoundary = (
   history: EraHistory,
   fromSlot: bigint,
   toSlot: bigint,
-): boolean => {
-  if (toSlot <= fromSlot) return false;
-  const bs = history.boundaries;
-  for (const b of bs) {
-    if (b.slot > fromSlot && b.slot <= toSlot) return true;
-  }
-  return false;
-};
+): boolean =>
+  toSlot > fromSlot &&
+  history.boundaries.some((b) => b.slot > fromSlot && b.slot <= toSlot);
 
 // ---------------------------------------------------------------------------
-// EraOrdering — lightweight error carrier for malformed histories
+// EraHistoryOrderError — malformed-history error carrier
 // ---------------------------------------------------------------------------
 
 /**
  * Thrown by `validateEraHistory` when boundaries are not monotonically
  * increasing by `slot` / `epoch` — indicates an ill-formed history that
- * would break `eraAtSlot`'s binary-search invariant.
+ * would break `eraAtSlot`'s monotonicity invariant.
  */
-export class EraHistoryOrderError extends Data.TaggedError("EraHistoryOrderError")<{
-  readonly message: string;
-  readonly boundaryIndex: number;
-}> {}
+export class EraHistoryOrderError extends Schema.TaggedErrorClass<EraHistoryOrderError>()(
+  "EraHistoryOrderError",
+  {
+    message: Schema.String,
+    boundaryIndex: Schema.Number,
+  },
+) {}
+
+/** Validate one adjacent pair of boundaries — returns `null` on OK, or the
+ *  `EraHistoryOrderError` explaining the first violation (monotonic slot,
+ *  monotonic epoch, or era chaining). Pulled out so `validateEraHistory`
+ *  can apply it via `.map().find()` without a mutable loop index. */
+const validateAdjacentPair = (
+  prev: EraBoundary,
+  cur: EraBoundary,
+  index: number,
+): EraHistoryOrderError | null => {
+  if (cur.slot <= prev.slot)
+    return new EraHistoryOrderError({
+      message: `boundary ${index} slot ${cur.slot} not strictly greater than prev ${prev.slot}`,
+      boundaryIndex: index,
+    });
+  if (cur.epoch <= prev.epoch)
+    return new EraHistoryOrderError({
+      message: `boundary ${index} epoch ${cur.epoch} not strictly greater than prev ${prev.epoch}`,
+      boundaryIndex: index,
+    });
+  if (prev.toEra !== cur.fromEra)
+    return new EraHistoryOrderError({
+      message: `boundary ${index} fromEra (${Era[cur.fromEra]}) does not chain from prev toEra (${Era[prev.toEra]})`,
+      boundaryIndex: index,
+    });
+  return null;
+};
 
 /**
  * Check that `history.boundaries` is strictly monotonic on `slot` and
@@ -131,33 +152,21 @@ export class EraHistoryOrderError extends Data.TaggedError("EraHistoryOrderError
  */
 export const validateEraHistory = (history: EraHistory): EraHistoryOrderError | null => {
   const bs = history.boundaries;
-  for (let i = 1; i < bs.length; i++) {
-    const prev = bs[i - 1]!;
-    const cur = bs[i]!;
-    if (cur.slot <= prev.slot) {
-      return new EraHistoryOrderError({
-        message: `boundary ${i} slot ${cur.slot} not strictly greater than prev ${prev.slot}`,
-        boundaryIndex: i,
-      });
-    }
-    if (cur.epoch <= prev.epoch) {
-      return new EraHistoryOrderError({
-        message: `boundary ${i} epoch ${cur.epoch} not strictly greater than prev ${prev.epoch}`,
-        boundaryIndex: i,
-      });
-    }
-    if (prev.toEra !== cur.fromEra) {
-      return new EraHistoryOrderError({
-        message: `boundary ${i} fromEra (${Era[cur.fromEra]}) does not chain from prev toEra (${Era[prev.toEra]})`,
-        boundaryIndex: i,
-      });
-    }
-  }
-  if (bs.length > 0 && history.currentEra !== bs[bs.length - 1]!.toEra) {
+
+  // `.slice(1).map(...)` pairs index i with boundary at i (prev) and i+1
+  // (cur); `.find` with a type-guard narrows the result to the error type.
+  const pairError = bs
+    .slice(1)
+    .map((cur, i) => validateAdjacentPair(bs[i]!, cur, i + 1))
+    .find((e): e is EraHistoryOrderError => e !== null);
+  if (pairError !== undefined) return pairError;
+
+  // Invariant: when boundaries is non-empty, currentEra === last.toEra.
+  const last = bs.at(-1);
+  if (last !== undefined && history.currentEra !== last.toEra)
     return new EraHistoryOrderError({
-      message: `currentEra (${Era[history.currentEra]}) does not match last boundary toEra (${Era[bs[bs.length - 1]!.toEra]})`,
+      message: `currentEra (${Era[history.currentEra]}) does not match last boundary toEra (${Era[last.toEra]})`,
       boundaryIndex: bs.length,
     });
-  }
   return null;
 };

@@ -10,12 +10,14 @@
  *
  * Uses Effect abstractions throughout:
  *   - Clock.currentTimeMillis for testable timestamps
- *   - Ref<Map> for atomic peer state
+ *   - Ref<Map> for atomic peer state (reads-after-write via Ref.modify)
  *   - Config for tunable timeouts
  */
-import { Clock, Config, Context, Effect, Option, Ref, Schema } from "effect";
+import { Clock, Config, Context, Effect, Layer, Metric, Option, Ref, Schema } from "effect";
+import { countBy } from "es-toolkit";
 import { SlotClock } from "../praos/clock";
 import { ChainTip, preferCandidate } from "../chain/selection";
+import { PeerCount, PeerStalledCount, SPAN } from "../observability.ts";
 
 /** Connection status for a tracked peer. */
 export const PeerStatus = Schema.Literals([
@@ -43,6 +45,43 @@ const StallTimeoutMs = Config.number("PEER_STALL_TIMEOUT_MS").pipe(
   Config.withDefault(2 * 60 * 1000),
 );
 
+// ───────────────────────────────────────────────────────────────────────
+// Pure helpers — narrowed predicates + small map summaries. Pulled out
+// so the service methods read as declarative data shuffles, not
+// imperative bookkeeping.
+// ───────────────────────────────────────────────────────────────────────
+
+/** Subset of `PeerState` where `tip` is known — used by `getBestPeer` so
+ *  the reduce inside can dereference `peer.tip` without `!` assertions. */
+type PeerWithTip = PeerState & { readonly tip: ChainTip };
+
+const isConnected = (p: PeerState): boolean => p.status !== "disconnected";
+const isEligibleForStall = (p: PeerState): boolean =>
+  p.status !== "disconnected" && p.status !== "stalled";
+const isActiveWithTip = (p: PeerState): p is PeerWithTip =>
+  p.tip !== undefined && p.status !== "disconnected" && p.status !== "stalled";
+
+/** Count of peers not yet disconnected — published to `PeerCount` after
+ *  every add / remove. */
+const activePeerCount = (m: ReadonlyMap<string, PeerState>): number =>
+  [...m.values()].filter(isConnected).length;
+
+/** Zero-seed for `getStatusCounts` derived directly from the Schema
+ *  literal list so adding a new status constant can't leave a gap. */
+const PEER_STATUS_ZERO_SEED: Record<PeerStatus, number> = Object.fromEntries(
+  PeerStatus.literals.map((s) => [s, 0]),
+) as Record<PeerStatus, number>;
+
+/** Immutable `m.set(key, updater(existing))` — returns a new Map if the
+ *  key exists, otherwise `undefined` so callers can short-circuit. */
+const mapUpdate = <K, V>(m: ReadonlyMap<K, V>, key: K, f: (value: V) => V): Map<K, V> | undefined => {
+  const existing = m.get(key);
+  if (existing === undefined) return undefined;
+  const next = new Map(m);
+  next.set(key, f(existing));
+  return next;
+};
+
 export class PeerManager extends Context.Service<
   PeerManager,
   {
@@ -67,13 +106,22 @@ export class PeerManager extends Context.Service<
 export const PeerManagerLive = Effect.gen(function* () {
   const slotClock = yield* SlotClock;
   const stallTimeoutMs = yield* StallTimeoutMs;
-  const peers = yield* Ref.make(new Map<string, PeerState>());
+  const peers = yield* Ref.make<Map<string, PeerState>>(new Map());
+
+  /** Atomic "replace entry + publish PeerCount" — used by add + remove.
+   *  `Ref.modify` returns the new active count from the same read, so the
+   *  metric update doesn't need a second `Ref.get`. */
+  const modifyAndPublishCount = (f: (m: Map<string, PeerState>) => Map<string, PeerState>) =>
+    Ref.modify(peers, (m) => {
+      const next = f(m);
+      return [activePeerCount(next), next] as const;
+    }).pipe(Effect.flatMap((count) => Metric.update(PeerCount, count)));
 
   return {
     addPeer: (peerId: string, address?: string) =>
       Clock.currentTimeMillis.pipe(
         Effect.flatMap((now) =>
-          Ref.update(peers, (m) => {
+          modifyAndPublishCount((m) => {
             const next = new Map(m);
             next.set(peerId, {
               peerId,
@@ -86,48 +134,42 @@ export const PeerManagerLive = Effect.gen(function* () {
             return next;
           }),
         ),
+        Effect.withSpan(SPAN.PeerConnect, { attributes: { "peer.id": peerId } }),
       ),
 
     updatePeerTip: (peerId: string, tip: ChainTip) =>
       Clock.currentTimeMillis.pipe(
         Effect.flatMap((now) =>
-          Ref.update(peers, (m) => {
-            const peer = m.get(peerId);
-            if (!peer) return m;
-            const next = new Map(m);
-            next.set(peerId, {
+          Ref.update(peers, (m) =>
+            mapUpdate(m, peerId, (peer) => ({
               ...peer,
               tip,
               status: "syncing",
               lastActivityMs: Number(now),
               headersReceived: peer.headersReceived + 1,
-            });
-            return next;
-          }),
+            })) ?? m,
+          ),
         ),
       ),
 
     removePeer: (peerId: string) =>
-      Ref.update(peers, (m) => {
-        const peer = m.get(peerId);
-        if (!peer) return m;
-        const next = new Map(m);
-        next.set(peerId, { ...peer, status: "disconnected" });
-        return next;
-      }),
+      modifyAndPublishCount(
+        (m) =>
+          mapUpdate(m, peerId, (peer) => ({ ...peer, status: "disconnected" })) ?? new Map(m),
+      ).pipe(Effect.withSpan(SPAN.PeerDisconnect, { attributes: { "peer.id": peerId } })),
 
     getBestPeer: Ref.get(peers).pipe(
       Effect.map((m) => {
-        const active = [...m.values()].filter(
-          (p) => p.tip !== undefined && p.status !== "disconnected" && p.status !== "stalled",
-        );
-        const best = active.reduce<PeerState | undefined>(
+        // Narrow to peers that (a) have a tip and (b) are eligible for
+        // selection. `isActiveWithTip` is a type guard so `peer.tip` reads
+        // directly inside the reduce — no `!` assertion needed.
+        const active = [...m.values()].filter(isActiveWithTip);
+        const best = active.reduce<PeerWithTip | undefined>(
           (acc, peer) =>
-            acc === undefined || acc.tip === undefined
+            acc === undefined ||
+            preferCandidate(acc.tip, peer.tip, 0, slotClock.config.securityParam)
               ? peer
-              : preferCandidate(acc.tip, peer.tip!, 0, slotClock.config.securityParam)
-                ? peer
-                : acc,
+              : acc,
           undefined,
         );
         return Option.fromNullishOr(best);
@@ -137,29 +179,52 @@ export const PeerManagerLive = Effect.gen(function* () {
     getPeers: Ref.get(peers).pipe(Effect.map((m) => [...m.values()])),
 
     detectStalls: Clock.currentTimeMillis.pipe(
-      Effect.flatMap((now) =>
-        Ref.modify(peers, (m) => {
+      Effect.flatMap((now) => {
+        const nowMs = Number(now);
+        return Ref.modify(peers, (m) => {
+          // Walk entries once; accumulate the stalled id list + new Map
+          // with status flipped. The for-of is a byte-assembly-adjacent
+          // site (dual accumulator: list + keyed map), so mutation is
+          // local and commented. No external state escapes.
           const stalled: string[] = [];
           const next = new Map(m);
-          for (const [id, peer] of next) {
-            if (peer.status === "disconnected" || peer.status === "stalled") continue;
-            if (Number(now) - peer.lastActivityMs > stallTimeoutMs) {
+          for (const [id, peer] of m) {
+            if (!isEligibleForStall(peer)) continue;
+            if (nowMs - peer.lastActivityMs > stallTimeoutMs) {
               next.set(id, { ...peer, status: "stalled" });
               stalled.push(id);
             }
           }
-          return [stalled, next];
-        }),
+          return [stalled as ReadonlyArray<string>, next] as const;
+        });
+      }),
+      Effect.tap((stalled) =>
+        stalled.length > 0
+          ? Metric.update(PeerStalledCount, stalled.length).pipe(
+              Effect.withSpan(SPAN.PeerStalled, {
+                attributes: { "peer.stall_count": stalled.length },
+              }),
+            )
+          : Effect.void,
       ),
     ),
 
     getStatusCounts: Ref.get(peers).pipe(
-      Effect.map((m) =>
-        [...m.values()].reduce<Record<PeerStatus, number>>(
-          (counts, peer) => ({ ...counts, [peer.status]: counts[peer.status] + 1 }),
-          { connecting: 0, syncing: 0, synced: 0, stalled: 0, disconnected: 0 },
-        ),
-      ),
+      // Single O(n) histogram merged with the zero-seed so downstream
+      // consumers can read any status without `?? 0` guards.
+      Effect.map((m) => ({
+        ...PEER_STATUS_ZERO_SEED,
+        ...countBy([...m.values()], (p) => p.status),
+      })),
     ),
   };
 });
+
+/**
+ * Pre-built `PeerManager` layer. Depends on `SlotClock`, so consumers must
+ * supply one of `SlotClockPreprod` / `SlotClockMainnet` /
+ * `SlotClockLiveFromEnvOrPreprod` (from `praos/clock.ts`). Extracted as a
+ * named export so every app entrypoint + chrome-ext offscreen doesn't
+ * re-roll `Layer.effect(PeerManager, PeerManagerLive)` identically.
+ */
+export const PeerManagerLayer = Layer.effect(PeerManager, PeerManagerLive);

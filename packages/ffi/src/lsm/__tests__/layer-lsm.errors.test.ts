@@ -99,7 +99,7 @@ describe.skipIf(skip)("LSM layer error paths", () => {
 
         const err = firstError(exit);
         expect(err).toBeInstanceOf(LsmAdminError);
-        expect((err as LsmAdminError).operation).toBe("open_snapshot");
+        expect((err as LsmAdminError).operation).toBe("openSnapshot");
       }),
   );
 
@@ -117,7 +117,7 @@ describe.skipIf(skip)("LSM layer error paths", () => {
 
         const err = firstError(exit);
         expect(err).toBeInstanceOf(LsmAdminError);
-        expect((err as LsmAdminError).operation).toBe("open_snapshot");
+        expect((err as LsmAdminError).operation).toBe("openSnapshot");
       }),
   );
 });

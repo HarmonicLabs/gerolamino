@@ -1,21 +1,11 @@
-import {
-  Cause,
-  Duration,
-  Effect,
-  Layer,
-  Option,
-  Ref,
-  Schema,
-  Scope,
-  Context,
-  Stream,
-} from "effect";
+import { Cause, Context, Effect, Layer, Ref, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
 import type { ChainPoint } from "../types/ChainPoint";
+import { requireReply, unexpectedFor } from "../common";
 import * as Schemas from "./Schemas";
 
 export class LocalStateQueryError extends Schema.TaggedErrorClass<LocalStateQueryError>()(
@@ -32,8 +22,8 @@ type QueryState = "Idle" | "Acquiring" | "Acquired" | "Querying" | "Done";
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalStateQueryMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalStateQueryMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new LocalStateQueryError({ cause: `Unexpected message: ${tag}` }));
+const makeError = (cause: string) => new LocalStateQueryError({ cause });
+const unexpected = unexpectedFor(makeError);
 
 export class LocalStateQueryClient extends Context.Service<
   LocalStateQueryClient,
@@ -102,36 +92,32 @@ export class LocalStateQueryClient extends Context.Service<
       const guardState = (expected: QueryState) =>
         Ref.get(state).pipe(
           Effect.flatMap((current) =>
-            current !== expected
-              ? Effect.fail(
+            current === expected
+              ? Effect.void
+              : Effect.fail(
                   new LocalStateQueryError({
                     cause: `Invalid state: expected ${expected}, got ${current}`,
                   }),
-                )
-              : Effect.void,
+                ),
           ),
         );
 
-      const handleAcquireResponse = messages.pipe(
-        Stream.runHead,
-        Effect.timeout(Duration.seconds(10)),
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.fail(new LocalStateQueryError({ cause: "No response received" })),
-            onSome: (v) =>
-              Schemas.LocalStateQueryMessage.match(v, {
-                Acquired: () => Ref.set(state, "Acquired"),
-                Failure: (m) =>
-                  Ref.set(state, "Idle").pipe(
-                    Effect.andThen(Effect.fail(new AcquireFailure({ failure: m.failure }))),
-                  ),
-                Acquire: (m) => unexpected(m._tag),
-                Query: (m) => unexpected(m._tag),
-                Result: (m) => unexpected(m._tag),
-                ReAcquire: (m) => unexpected(m._tag),
-                Release: (m) => unexpected(m._tag),
-                Done: (m) => unexpected(m._tag),
-              }),
+      const handleAcquireResponse: Effect.Effect<
+        void,
+        AcquireFailure | LocalStateQueryError | Schema.SchemaError | Cause.TimeoutError,
+        Scope.Scope
+      > = requireReply(messages, makeError, "acquire").pipe(
+        Effect.flatMap((v) =>
+          Effect.gen(function* () {
+            if (Schemas.LocalStateQueryMessage.guards.Acquired(v)) {
+              yield* Ref.set(state, "Acquired");
+              return;
+            }
+            if (Schemas.LocalStateQueryMessage.guards.Failure(v)) {
+              yield* Ref.set(state, "Idle");
+              return yield* Effect.fail(new AcquireFailure({ failure: v.failure }));
+            }
+            return yield* unexpected(v._tag);
           }),
         ),
       );
@@ -141,55 +127,38 @@ export class LocalStateQueryClient extends Context.Service<
           guardState("Idle").pipe(
             Effect.andThen(Ref.set(state, "Acquiring")),
             Effect.andThen(
-              sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Acquire, point }),
+              sendMessage(Schemas.LocalStateQueryMessage.cases.Acquire.make({ point })),
             ),
             Effect.andThen(handleAcquireResponse),
           ),
         query: (query) =>
           guardState("Acquired").pipe(
             Effect.andThen(Ref.set(state, "Querying")),
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Query, query })),
-            Effect.andThen(
-              messages.pipe(
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(10)),
-                Effect.tap(() => Ref.set(state, "Acquired")),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new LocalStateQueryError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.LocalStateQueryMessage.match(v, {
-                        Result: (m) => Effect.succeed(m.result),
-                        Acquire: (m) => unexpected(m._tag),
-                        Acquired: (m) => unexpected(m._tag),
-                        Failure: (m) => unexpected(m._tag),
-                        Query: (m) => unexpected(m._tag),
-                        ReAcquire: (m) => unexpected(m._tag),
-                        Release: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
-                ),
-              ),
+            Effect.andThen(sendMessage(Schemas.LocalStateQueryMessage.cases.Query.make({ query }))),
+            Effect.andThen(requireReply(messages, makeError, "query")),
+            Effect.tap(() => Ref.set(state, "Acquired")),
+            Effect.flatMap((v) =>
+              Schemas.LocalStateQueryMessage.guards.Result(v)
+                ? Effect.succeed(v.result)
+                : unexpected(v._tag),
             ),
           ),
         reAcquire: (point?) =>
           guardState("Acquired").pipe(
             Effect.andThen(Ref.set(state, "Acquiring")),
             Effect.andThen(
-              sendMessage({ _tag: Schemas.LocalStateQueryMessageType.ReAcquire, point }),
+              sendMessage(Schemas.LocalStateQueryMessage.cases.ReAcquire.make({ point })),
             ),
             Effect.andThen(handleAcquireResponse),
           ),
         release: () =>
           guardState("Acquired").pipe(
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Release })),
+            Effect.andThen(sendMessage(Schemas.LocalStateQueryMessage.cases.Release.make({}))),
             Effect.andThen(Ref.set(state, "Idle")),
           ),
         done: () =>
           guardState("Idle").pipe(
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalStateQueryMessageType.Done })),
+            Effect.andThen(sendMessage(Schemas.LocalStateQueryMessage.cases.Done.make({}))),
             Effect.andThen(Ref.set(state, "Done")),
           ),
       });

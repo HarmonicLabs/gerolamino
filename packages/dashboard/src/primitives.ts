@@ -10,6 +10,7 @@
  */
 import { createContext, useContext } from "solid-js";
 import type { Component, JSX, ParentComponent } from "solid-js";
+import { invariant } from "es-toolkit/util";
 
 // ---------------------------------------------------------------------------
 // Primitive prop interfaces
@@ -113,6 +114,10 @@ export const PrimitivesProvider = PrimitivesContext.Provider;
 
 export const usePrimitives = (): DashboardPrimitives => {
   const ctx = useContext(PrimitivesContext);
-  if (!ctx) throw new Error("DashboardPrimitives not provided — wrap with PrimitivesProvider");
+  // `invariant` narrows via `asserts condition` so the return doesn't need
+  // a non-null assertion. Throws at render time when a component is used
+  // outside a `PrimitivesProvider` wrapper — an unambiguous programmer
+  // error, not a recoverable runtime condition.
+  invariant(ctx, "DashboardPrimitives not provided — wrap with PrimitivesProvider");
   return ctx;
 };

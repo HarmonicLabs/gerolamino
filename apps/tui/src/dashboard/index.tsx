@@ -1,29 +1,16 @@
 /**
- * TUI Dashboard — renders the shared dashboard using OpenTUI.
+ * TUI Dashboard atom-push re-exports.
  *
- * Provides:
- * 1. AtomRegistry (Effect Atoms → SolidJS reactivity bridge)
- * 2. TUI DashboardPrimitives (OpenTUI constructs)
- * 3. Dashboard component from packages/dashboard
+ * The live-rendering TUI (`TuiDashboard` Solid component + OpenTUI
+ * primitives) was removed alongside the OpenTUI dependency — the
+ * replacement lives in Phase 5 (Bun.WebView + `packages/dashboard` DOM
+ * adapter). Until that phase lands, the TUI node renders nothing; atom
+ * state is exposed via log lines in `apps/tui/src/index.ts`.
  *
- * Atom push functions are in atoms.ts (plain TS, no JSX) so the main
- * entry point can import them without triggering Solid.js JSX compilation.
+ * This file stays as a barrel for the atom-push helpers — deleting the
+ * `./atoms.ts` re-export path would churn `apps/tui/src/index.ts` with
+ * unrelated imports, so we keep the indirection.
  */
-import { RegistryProvider } from "@effect/atom-solid";
-import { PrimitivesProvider, Dashboard } from "dashboard";
-import { registry } from "./atoms.ts";
-import { tuiPrimitives } from "./tui-primitives.tsx";
-
-/** Top-level TUI dashboard component. */
-export const TuiDashboard = () => (
-  <RegistryProvider registry={registry}>
-    <PrimitivesProvider value={tuiPrimitives}>
-      <Dashboard />
-    </PrimitivesProvider>
-  </RegistryProvider>
-);
-
-// Re-export atom push functions for convenience
 export {
   registry,
   pushNodeState,

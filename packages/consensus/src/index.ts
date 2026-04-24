@@ -29,17 +29,20 @@ export {
   SlotClock,
   SlotClockLive,
   SlotClockLayerFromConfig,
+  SlotClockPreprod,
+  SlotClockMainnet,
+  SlotClockLiveFromEnvOrPreprod,
   SlotConfig,
   SlotConfigFromEnv,
   PREPROD_CONFIG,
   MAINNET_CONFIG,
 } from "./praos/clock";
-export {
-  ConsensusEngine,
-  ConsensusEngineLive,
-  ConsensusEngineWithDirectCrypto,
-  ConsensusEngineWithWorkerCrypto,
-} from "./praos/engine";
+// The `ConsensusEngine` service was removed — its three methods were
+// one-line passthroughs to pure helpers (`validateHeader`, `preferCandidate`,
+// `gsmState`). Consumers now import those helpers directly and bind `Crypto`
+// at the app entrypoint (via `CryptoDirect` or `CryptoWorkerBun` from
+// `wasm-utils` / `wasm-utils/rpc/bun.ts`). This is a plain-function + Layer
+// composition, not a dedicated service + Layer.
 
 // ─────────────────────────────── chain ───────────────────────────────
 export {
@@ -107,6 +110,7 @@ export {
 // ─────────────────────────────── peer ───────────────────────────────
 export {
   PeerManager,
+  PeerManagerLayer,
   PeerManagerLive,
   PeerState,
   PeerStatus,
@@ -183,6 +187,8 @@ export {
 
 // ─────────────────────────────── rpc ───────────────────────────────
 export {
+  PeerInfo,
+  PeerInfoStatus,
   ValidationClient,
   ValidationDirectLayer,
   ValidationError,
@@ -215,11 +221,4 @@ export {
   RollbackCount as MetricRollbackCount,
   SPAN,
 } from "./observability";
-export {
-  hex,
-  fromHex,
-  concat,
-  compareBytes,
-  be32,
-  be64,
-} from "./util";
+export { concat, compareBytes, be32, be64 } from "./util";

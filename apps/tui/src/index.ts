@@ -29,13 +29,9 @@ import { Command, Flag } from "effect/unstable/cli";
 import {
   getNodeStatus,
   monitorLoop,
-  ConsensusEngineWithWorkerCrypto,
-  SlotClock,
-  SlotClockLive,
-  SlotClockLayerFromConfig,
-  PREPROD_CONFIG,
   PeerManager,
-  PeerManagerLive,
+  PeerManagerLayer,
+  SlotClockLiveFromEnvOrPreprod,
   connectToRelay,
   RelayRetrySchedule,
   PREPROD_MAGIC,
@@ -46,13 +42,25 @@ import {
   initialVolatileState,
   Nonces,
 } from "consensus";
+// Bun-specific worker-backed Crypto layer lives at `wasm-utils/rpc/bun.ts`
+// so the default `consensus` / `wasm-utils` barrels stay browser-compatible.
+import { CryptoWorkerBun } from "wasm-utils/rpc/bun.ts";
 import type { LedgerView } from "consensus";
 import { decodeExtLedgerState } from "ledger";
 import { connect, BootstrapMessage, BootstrapMessageKind } from "bootstrap";
 import type { BootstrapMessageType } from "bootstrap";
-import { BlobStore, PREFIX_UTXO, blockKey, stakeKey, ChainDBLive, runMigrations } from "storage";
+import {
+  type BlobEntry,
+  BlobStore,
+  PREFIX_UTXO,
+  blockKey,
+  stakeKey,
+  ChainDBLive,
+  LedgerSnapshotStoreLive,
+  runMigrations,
+} from "storage";
 import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient";
-import { layerLsm } from "lsm-tree";
+import { layerLsm } from "lsm-ffi";
 import {
   pushNodeState,
   pushBootstrapProgress,
@@ -74,7 +82,7 @@ const start = Command.make(
       Flag.withAlias("b"),
       Flag.withDescription("Bootstrap server WebSocket URL"),
       Flag.withFallbackConfig(Config.string("BOOTSTRAP_SERVER_URL")),
-      Flag.withDefault("ws://178.156.252.81:3040/bootstrap"),
+      Flag.withDefault("ws://localhost:3040/bootstrap"),
     ),
     genesis: Flag.boolean("genesis").pipe(
       Flag.withAlias("g"),
@@ -88,7 +96,7 @@ const start = Command.make(
     ),
     relayPort: Flag.integer("relay-port").pipe(
       Flag.withDescription("Upstream relay port"),
-      Flag.withFallbackConfig(Config.int("RELAY_PORT")),
+      Flag.withFallbackConfig(Config.number("RELAY_PORT")),
       Flag.withDefault(3001),
     ),
     network: Flag.string("network").pipe(
@@ -129,6 +137,9 @@ const start = Command.make(
               totalStake: 0n,
               activeSlotsCoeff: 0.05,
               maxKesEvolutions: 62,
+              maxHeaderSize: 1100,
+              maxBlockBodySize: 90112,
+              ocertCounters: HashMap.empty(),
             };
             const noSnapshot: SnapshotState | undefined = undefined;
             return { ledgerView: genesisLedgerView, snapshotState: noSnapshot };
@@ -168,7 +179,7 @@ const start = Command.make(
                           const extState = yield* decodeExtLedgerState(m.payload);
                           yield* Effect.log(
                             `Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
-                              `${extState.newEpochState.poolDistr.pools.size} pools`,
+                              `${HashMap.size(extState.newEpochState.poolDistr.pools)} pools`,
                           );
 
                           const lv = yield* extractLedgerView(extState);
@@ -245,8 +256,7 @@ const start = Command.make(
             if (!lv) return yield* new BootstrapMissingLedgerState();
 
             // Populate stake distribution table from LedgerView
-            const stakeEntries: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> =
-              [];
+            const stakeEntries: Array<BlobEntry> = [];
             for (const [poolHashHex, stake] of lv.poolStake) {
               const val = new Uint8Array(8);
               new DataView(val.buffer).setBigUint64(0, stake);
@@ -325,13 +335,9 @@ const start = Command.make(
             yield* pushPeers(
               peers.map((p) => ({
                 id: p.peerId,
-                status:
-                  p.status === "syncing" || p.status === "synced"
-                    ? "connected"
-                    : p.status === "stalled"
-                      ? "stalled"
-                      : "disconnected",
-                tipSlot: p.tip?.slot ?? 0n,
+                address: p.address,
+                status: p.status,
+                ...(p.tip ? { tipSlot: p.tip.slot } : {}),
               })),
             );
           }).pipe(Effect.catch((e) => Effect.logWarning(`Monitor check failed: ${e}`))),
@@ -356,7 +362,9 @@ const start = Command.make(
             RelayRetrySchedule,
           ),
           dashboardMonitorLoop.pipe(
-            Effect.retry(Schedule.exponential("5 seconds").pipe(Schedule.upTo("60 seconds"))),
+            Effect.retry(
+              Schedule.exponential("5 seconds").pipe(Schedule.bothLeft(Schedule.during("60 seconds"))),
+            ),
           ),
         ],
         { concurrency: "unbounded" },
@@ -389,22 +397,25 @@ const makeStorageLayers = () =>
       const blobStoreLayer = layerLsm(lsmDir);
       const sqlClientLayer = layerBunSqlClient({ filename: p.join(baseDir, "chain.db") });
 
-      const chainDbLayer = ChainDBLive.pipe(
-        Layer.provide(Layer.merge(blobStoreLayer, sqlClientLayer)),
-      );
+      const storageDepsLayer = Layer.merge(blobStoreLayer, sqlClientLayer);
+      const chainDbLayer = ChainDBLive.pipe(Layer.provide(storageDepsLayer));
+      const snapshotStoreLayer = LedgerSnapshotStoreLive.pipe(Layer.provide(storageDepsLayer));
 
-      return Layer.mergeAll(chainDbLayer, sqlClientLayer, blobStoreLayer);
+      return Layer.mergeAll(
+        chainDbLayer,
+        snapshotStoreLayer,
+        sqlClientLayer,
+        blobStoreLayer,
+      );
     }),
   );
 
-// SlotClock from Config env vars, falling back to PREPROD_CONFIG defaults.
-const slotClockLayer = Layer.effect(
-  SlotClock,
-  SlotClockLayerFromConfig.pipe(Effect.catch(() => SlotClockLive(PREPROD_CONFIG))),
-);
-const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
-  Layer.provide(slotClockLayer),
-);
+// SlotClock from env vars, falling back to PREPROD_CONFIG defaults.
+// `SlotClockLiveFromEnvOrPreprod` + `PeerManagerLayer` are the canonical
+// layer helpers from consensus — kept close to the Live services so every
+// consumer (apps + chrome-ext) binds identically.
+const slotClockLayer = SlotClockLiveFromEnvOrPreprod;
+const peerManagerLayer = PeerManagerLayer.pipe(Layer.provide(slotClockLayer));
 
 // Consensus + clock + peers — storage is provided per-command from CLI config.
 // BunWorker.layer provides WorkerPlatform + Spawner for Effect Worker pool.
@@ -414,7 +425,7 @@ const workerLayer = BunWorker.layer(
 );
 
 const consensusLayers = Layer.mergeAll(
-  ConsensusEngineWithWorkerCrypto(workerLayer),
+  CryptoWorkerBun.pipe(Layer.provide(workerLayer)),
   slotClockLayer,
   peerManagerLayer,
 );

@@ -1,124 +1,85 @@
 /**
- * ChainDB XState machine — orchestrates block processing, immutability, and snapshotting.
+ * ChainDB state + pure reducer.
  *
- * Uses parallel state regions so block processing and immutability transitions
- * operate independently.
+ * Previously an XState parallel-region machine; the `blockProcessing`
+ * region was a vestigial single-state (always `idle`) so only the
+ * `immutability` region carried dynamics. Collapsing to a flat state +
+ * pure reducer lets us drive transitions through a `SubscriptionRef`
+ * with Effect fibers and drops the `xstate` dependency entirely.
  *
- * Effect-free: the `copying` and `gc` states do not `invoke` anything. They
- * wait for externally-fired completion events (PROMOTE_DONE/FAILED,
- * GC_DONE/FAILED). ChainDBLive observes state via `actor.subscribe` and drives
- * the actual work on an Effect fiber, keeping the XState↔Effect bridge purely
- * event-based (no `Effect.runPromise` inside library code).
+ * Lifecycle per-block, same as before:
+ *   BlockAdded             → idle → copying (if volatileLength > k)
+ *   PromoteDone            → copying → gc
+ *   PromoteFailed          → copying → idle    (+ lastError)
+ *   GcDone                 → gc → idle
+ *   GcFailed               → gc → idle         (+ lastError)
+ *   Rollback               → update tip
+ *   ErrorRaised            → update lastError
+ *
+ * The reducer is referentially transparent; side effects (SQL writes,
+ * BlobStore puts) are dispatched from `chain-db-live.ts` by observing
+ * `SubscriptionRef<ChainDBState>` via `Stream.changesWith`.
  */
-import { setup, assign, raise } from "xstate";
 import type { RealPoint } from "../types/StoredBlock.ts";
-import type { ChainDBEvent } from "./events.ts";
+import { ChainDBEvent } from "./events.ts";
 
-export interface ChainDBContext {
+export type ImmutabilityState = "idle" | "copying" | "gc";
+
+export interface ChainDBState {
+  readonly immutability: ImmutabilityState;
   readonly tip: RealPoint | undefined;
   readonly immutableTip: RealPoint | undefined;
   readonly securityParam: number;
   readonly volatileLength: number;
-  readonly lastError: unknown | undefined;
+  readonly lastError: unknown;
 }
 
-export const chainDBMachine = setup({
-  types: {} as {
-    context: ChainDBContext;
-    events: ChainDBEvent;
-    input: { securityParam: number };
-  },
-  guards: {
-    shouldCopyToImmutable: ({ context }) =>
-      context.tip !== undefined && context.volatileLength > context.securityParam,
-  },
-}).createMachine({
-  id: "chainDB",
-  type: "parallel",
-  context: ({ input }) => ({
-    tip: undefined,
-    immutableTip: undefined,
-    securityParam: input.securityParam,
-    volatileLength: 0,
-    lastError: undefined,
-  }),
-  states: {
-    blockProcessing: {
-      initial: "idle",
-      states: {
-        idle: {
-          on: {
-            BLOCK_ADDED: {
-              actions: [
-                assign(({ context, event }) => ({
-                  ...context,
-                  volatileLength: context.volatileLength + 1,
-                  tip: event.tip,
-                })),
-                raise({ type: "IMMUTABILITY_CHECK" }),
-              ],
-            },
-          },
-        },
-      },
-    },
-    immutability: {
-      initial: "idle",
-      states: {
-        idle: {
-          on: {
-            IMMUTABILITY_CHECK: [
-              { guard: "shouldCopyToImmutable", target: "copying" },
-              { target: "idle" },
-            ],
-          },
-        },
-        copying: {
-          on: {
-            PROMOTE_DONE: {
-              target: "gc",
-              actions: assign(({ context, event }) => ({
-                ...context,
-                immutableTip: context.tip,
-                volatileLength: Math.max(0, context.volatileLength - event.promoted),
-              })),
-            },
-            PROMOTE_FAILED: {
-              target: "idle",
-              actions: assign(({ context, event }) => ({
-                ...context,
-                lastError: event.error,
-              })),
-            },
-          },
-        },
-        gc: {
-          on: {
-            GC_DONE: { target: "idle" },
-            GC_FAILED: {
-              target: "idle",
-              actions: assign(({ context, event }) => ({
-                ...context,
-                lastError: event.error,
-              })),
-            },
-          },
-        },
-      },
-    },
-  },
-  on: {
-    ROLLBACK: {
-      actions: assign(({ context, event }) => ({
-        ...context,
-        tip: event.point,
-      })),
-    },
-    ERROR: {
-      actions: assign(({ context, event }) => ({
-        ...context,
-        lastError: event.error,
-      })),
-    },
-  },
+export const initialChainDBState = (securityParam: number): ChainDBState => ({
+  immutability: "idle",
+  tip: undefined,
+  immutableTip: undefined,
+  securityParam,
+  volatileLength: 0,
+  lastError: undefined,
 });
+
+/**
+ * Apply a single event. Exhaustive on `ChainDBEvent`'s tagged union;
+ * `ChainDBEvent.match` enforces that at compile time.
+ */
+export const reduce = (state: ChainDBState, event: ChainDBEvent): ChainDBState =>
+  ChainDBEvent.match(event, {
+    BlockAdded: ({ tip }): ChainDBState => {
+      const bumped: ChainDBState = {
+        ...state,
+        tip,
+        volatileLength: state.volatileLength + 1,
+      };
+      // Threshold-crossing: idle → copying. Any other region state is
+      // left alone — concurrent BlockAdded while copying/gc just
+      // advances the volatile tip, the driver will pick it up on the
+      // next idle-transition.
+      return state.immutability === "idle" && bumped.volatileLength > state.securityParam
+        ? { ...bumped, immutability: "copying" as const }
+        : bumped;
+    },
+    PromoteDone: ({ promoted }): ChainDBState => ({
+      ...state,
+      immutability: "gc",
+      immutableTip: state.tip,
+      volatileLength: Math.max(0, state.volatileLength - promoted),
+    }),
+    PromoteFailed: ({ error }): ChainDBState => ({
+      ...state,
+      immutability: "idle",
+      lastError: error,
+    }),
+    GcDone: (): ChainDBState => ({ ...state, immutability: "idle" }),
+    GcFailed: ({ error }): ChainDBState => ({
+      ...state,
+      immutability: "idle",
+      lastError: error,
+    }),
+    Rollback: ({ point }) => ({ ...state, tip: point }),
+    ErrorRaised: ({ error }) => ({ ...state, lastError: error }),
+  });

@@ -37,17 +37,15 @@ export const KeepAliveMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return {
-          _tag: KeepAliveMessageType.KeepAlive as const,
+        return KeepAliveMessage.cases[KeepAliveMessageType.KeepAlive].make({
           cookie: Number(cborUint(cbor.items[1]!, "KeepAlive cookie")),
-        };
+        });
       case 1:
-        return {
-          _tag: KeepAliveMessageType.KeepAliveResponse as const,
+        return KeepAliveMessage.cases[KeepAliveMessageType.KeepAliveResponse].make({
           cookie: Number(cborUint(cbor.items[1]!, "KeepAliveResponse cookie")),
-        };
+        });
       default:
-        return { _tag: KeepAliveMessageType.Done as const };
+        return KeepAliveMessage.cases[KeepAliveMessageType.Done].make({});
     }
   },
   KeepAliveMessage.match({

@@ -24,7 +24,7 @@
  * can write code against the entity surface while the handler is still
  * stubbed.
  */
-import { Context, Hash, PrimaryKey, Schema } from "effect";
+import { Hash, PrimaryKey, Schema } from "effect";
 import { ClusterSchema, Entity } from "effect/unstable/cluster";
 import { Rpc } from "effect/unstable/rpc";
 
@@ -100,7 +100,12 @@ export class ConnectToPeer extends Rpc.make("ConnectToPeer", {
  * downstream journal emissions commit atomically. */
 export class AdvanceCursor extends Rpc.make("AdvanceCursor", {
   payload: { point: ChainPointSchema },
-  success: Schema.Void,
+  // `{ ok: true }` acknowledgement — Entity-level round-trip stubs in
+  // beta.50 decode responses through an internal Void schema for their
+  // reserved KeepAlive Rpc; keeping the success as a concrete struct
+  // side-steps that collision. Real Sharding runtime (Phase 3f) handles
+  // Void returns correctly.
+  success: Schema.Struct({ ok: Schema.Boolean }),
   error: PeerError,
 })
   .annotate(ClusterSchema.Persisted, true)
@@ -137,7 +142,7 @@ export class SubmitTx extends Rpc.make("SubmitTx", {
 /** Clean disconnect — ends the bearer + emits a final `ClientDone` on
  * every protocol. */
 export class Disconnect extends Rpc.make("Disconnect", {
-  success: Schema.Void,
+  success: Schema.Struct({ ok: Schema.Boolean }),
   error: PeerError,
 }) {}
 
@@ -155,15 +160,7 @@ export const Peer = Entity.make("Peer", [
   Disconnect,
 ]);
 
-/**
- * Dependency marker — reserved for future `PeerRegistry` service that
- * maintains `SubscriptionRef<HashMap<PeerId, PeerRef>>` for consensus
- * consumers that need to enumerate active peers (e.g., dashboard peer
- * list, tip-lag classifier).
- */
-export class PeerRegistry extends Context.Service<
-  PeerRegistry,
-  {
-    readonly list: ReadonlyArray<PeerId>;
-  }
->()("peer/PeerRegistry") {}
+// `PeerRegistry` lives in `./handler.ts` now — it needs a
+// `SubscriptionRef.make` + `KeyValueStore` at layer-construction time,
+// so it's paired with the handlers there rather than the pure Entity
+// declaration here.

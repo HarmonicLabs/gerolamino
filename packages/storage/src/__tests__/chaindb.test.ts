@@ -1,129 +1,104 @@
 /**
- * ChainDB XState machine tests — pure state transition logic.
+ * ChainDB reducer tests — pure state transitions on `ChainDBState`.
  *
- * The machine is effect-free: `copying` and `gc` states wait for
- * externally-fired completion events (PROMOTE_DONE/FAILED, GC_DONE/FAILED)
- * so tests drive the lifecycle by sending those events explicitly.
+ * The lifecycle used to be an XState parallel-region machine; it's now
+ * a plain `reduce(state, event)` fold driven by a `SubscriptionRef` +
+ * `Queue<ChainDBEvent>` inside `chain-db-live.ts`. These tests exercise
+ * the reducer directly — no actor lifecycle, no async, just function
+ * equality.
  */
 import { describe, it, expect } from "@effect/vitest";
-import { createActor } from "xstate";
-import { chainDBMachine } from "../machines/chaindb.ts";
+import { initialChainDBState, reduce } from "../machines/chaindb.ts";
 
-describe("ChainDB Machine", () => {
-  it("starts in idle state with correct context", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
-    actor.start();
-    const snap = actor.getSnapshot();
-    expect(snap.value).toEqual({
-      blockProcessing: "idle",
-      immutability: "idle",
-    });
-    expect(snap.context.securityParam).toBe(10);
-    expect(snap.context.volatileLength).toBe(0);
-    expect(snap.context.tip).toBeUndefined();
-    actor.stop();
+const mkTip = (slot: number, fill: number) => ({
+  slot: BigInt(slot),
+  hash: new Uint8Array(32).fill(fill),
+});
+
+describe("ChainDB reducer", () => {
+  it("initial state has idle immutability + zero volatile length", () => {
+    const s = initialChainDBState(10);
+    expect(s.immutability).toBe("idle");
+    expect(s.securityParam).toBe(10);
+    expect(s.volatileLength).toBe(0);
+    expect(s.tip).toBeUndefined();
+    expect(s.immutableTip).toBeUndefined();
+    expect(s.lastError).toBeUndefined();
   });
 
-  it("BLOCK_ADDED increments volatileLength and updates tip", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
-    actor.start();
-    const tip = { slot: 1n, hash: new Uint8Array(32).fill(1) };
-    actor.send({ type: "BLOCK_ADDED", tip });
-    const snap = actor.getSnapshot();
-    expect(snap.value.blockProcessing).toBe("idle");
-    expect(snap.context.volatileLength).toBe(1);
-    expect(snap.context.tip).toEqual(tip);
-    actor.stop();
+  it("BlockAdded increments volatileLength and updates tip", () => {
+    const tip = mkTip(1, 1);
+    const s1 = reduce(initialChainDBState(10), { _tag: "BlockAdded", tip });
+    expect(s1.volatileLength).toBe(1);
+    expect(s1.tip).toEqual(tip);
+    expect(s1.immutability).toBe("idle");
   });
 
-  it("BLOCK_ADDED past k transitions immutability to copying and waits for PROMOTE_DONE", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 2 } });
-    actor.start();
-    for (let i = 1; i <= 3; i++) {
-      actor.send({
-        type: "BLOCK_ADDED",
-        tip: { slot: BigInt(i), hash: new Uint8Array(32).fill(i) },
-      });
-    }
-    expect(actor.getSnapshot().context.volatileLength).toBe(3);
-    expect(actor.getSnapshot().value.immutability).toBe("copying");
+  it("BlockAdded past k transitions immutability to copying; PromoteDone → gc", () => {
+    const seq = [1, 2, 3].map((i) => mkTip(i, i));
+    const sCopying = seq.reduce(
+      (s, tip) => reduce(s, { _tag: "BlockAdded", tip }),
+      initialChainDBState(2),
+    );
+    expect(sCopying.volatileLength).toBe(3);
+    expect(sCopying.immutability).toBe("copying");
 
-    actor.send({ type: "PROMOTE_DONE", promoted: 1 });
-    expect(actor.getSnapshot().value.immutability).toBe("gc");
-    expect(actor.getSnapshot().context.volatileLength).toBe(2);
-    expect(actor.getSnapshot().context.immutableTip).toEqual({
-      slot: 3n,
-      hash: new Uint8Array(32).fill(3),
-    });
+    const sGc = reduce(sCopying, { _tag: "PromoteDone", promoted: 1 });
+    expect(sGc.immutability).toBe("gc");
+    expect(sGc.volatileLength).toBe(2);
+    expect(sGc.immutableTip).toEqual(mkTip(3, 3));
 
-    actor.send({ type: "GC_DONE" });
-    expect(actor.getSnapshot().value.immutability).toBe("idle");
-    actor.stop();
+    const sIdle = reduce(sGc, { _tag: "GcDone" });
+    expect(sIdle.immutability).toBe("idle");
   });
 
-  it("PROMOTE_FAILED returns to idle and records lastError", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 2 } });
-    actor.start();
-    for (let i = 1; i <= 3; i++) {
-      actor.send({
-        type: "BLOCK_ADDED",
-        tip: { slot: BigInt(i), hash: new Uint8Array(32).fill(i) },
-      });
-    }
-    expect(actor.getSnapshot().value.immutability).toBe("copying");
-    actor.send({ type: "PROMOTE_FAILED", error: "boom" });
-    expect(actor.getSnapshot().value.immutability).toBe("idle");
-    expect(actor.getSnapshot().context.lastError).toBe("boom");
-    actor.stop();
+  it("PromoteFailed returns to idle and records lastError", () => {
+    const seq = [1, 2, 3].map((i) => mkTip(i, i));
+    const sCopying = seq.reduce(
+      (s, tip) => reduce(s, { _tag: "BlockAdded", tip }),
+      initialChainDBState(2),
+    );
+    const s = reduce(sCopying, { _tag: "PromoteFailed", error: "boom" });
+    expect(s.immutability).toBe("idle");
+    expect(s.lastError).toBe("boom");
   });
 
-  it("GC_FAILED returns to idle and records lastError", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 2 } });
-    actor.start();
-    for (let i = 1; i <= 3; i++) {
-      actor.send({
-        type: "BLOCK_ADDED",
-        tip: { slot: BigInt(i), hash: new Uint8Array(32).fill(i) },
-      });
-    }
-    actor.send({ type: "PROMOTE_DONE", promoted: 1 });
-    expect(actor.getSnapshot().value.immutability).toBe("gc");
-    actor.send({ type: "GC_FAILED", error: "gc boom" });
-    expect(actor.getSnapshot().value.immutability).toBe("idle");
-    expect(actor.getSnapshot().context.lastError).toBe("gc boom");
-    actor.stop();
+  it("GcFailed returns to idle and records lastError", () => {
+    const seq = [1, 2, 3].map((i) => mkTip(i, i));
+    const sGc = reduce(
+      seq.reduce((s, tip) => reduce(s, { _tag: "BlockAdded", tip }), initialChainDBState(2)),
+      { _tag: "PromoteDone", promoted: 1 },
+    );
+    const s = reduce(sGc, { _tag: "GcFailed", error: "gc boom" });
+    expect(s.immutability).toBe("idle");
+    expect(s.lastError).toBe("gc boom");
   });
 
-  it("IMMUTABILITY_CHECK stays idle when volatileLength <= k", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
-    actor.start();
-    actor.send({ type: "BLOCK_ADDED", tip: { slot: 1n, hash: new Uint8Array(32).fill(1) } });
-    expect(actor.getSnapshot().value.immutability).toBe("idle");
-    actor.stop();
+  it("volatileLength <= k keeps immutability idle", () => {
+    const s = reduce(initialChainDBState(10), { _tag: "BlockAdded", tip: mkTip(1, 1) });
+    expect(s.immutability).toBe("idle");
   });
 
-  it("ROLLBACK updates tip", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
-    actor.start();
-    const rollbackPoint = { slot: 5n, hash: new Uint8Array(32).fill(5) };
-    actor.send({ type: "ROLLBACK", point: rollbackPoint });
-    expect(actor.getSnapshot().context.tip).toEqual(rollbackPoint);
-    actor.stop();
+  it("Rollback updates tip without touching immutability", () => {
+    const point = mkTip(5, 5);
+    const s = reduce(initialChainDBState(10), { _tag: "Rollback", point });
+    expect(s.tip).toEqual(point);
+    expect(s.immutability).toBe("idle");
   });
 
-  it("ERROR captures error in context", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 10 } });
-    actor.start();
-    actor.send({ type: "ERROR", error: "test error" });
-    expect(actor.getSnapshot().context.lastError).toBe("test error");
-    actor.stop();
+  it("ErrorRaised captures error in state", () => {
+    const s = reduce(initialChainDBState(10), { _tag: "ErrorRaised", error: "test error" });
+    expect(s.lastError).toBe("test error");
   });
 
-  it("guard prevents IMMUTABILITY_CHECK when tip is undefined", () => {
-    const actor = createActor(chainDBMachine, { input: { securityParam: 0 } });
-    actor.start();
-    actor.send({ type: "IMMUTABILITY_CHECK" });
-    expect(actor.getSnapshot().value.immutability).toBe("idle");
-    actor.stop();
+  it("transitions are pure — same input yields same output", () => {
+    const tip = mkTip(1, 1);
+    const s0 = initialChainDBState(10);
+    const a = reduce(s0, { _tag: "BlockAdded", tip });
+    const b = reduce(s0, { _tag: "BlockAdded", tip });
+    expect(a).toEqual(b);
+    // Input state must not mutate.
+    expect(s0.volatileLength).toBe(0);
+    expect(s0.tip).toBeUndefined();
   });
 });

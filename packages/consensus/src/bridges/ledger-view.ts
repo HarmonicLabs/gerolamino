@@ -6,8 +6,7 @@
  * the consensus-layer types needed for header validation.
  */
 import { Effect, HashMap, Option, Schema } from "effect";
-import { CborKinds, type CborSchemaType } from "codecs";
-import { hex } from "../util";
+import { CborKinds, type CborSchemaType, CborValue } from "codecs";
 import type { ExtLedgerState } from "ledger";
 import type { LedgerView } from "../validate/header";
 import { SlotClock } from "../praos/clock";
@@ -18,11 +17,27 @@ export class SnapshotDecodeError extends Schema.TaggedErrorClass<SnapshotDecodeE
   { message: Schema.String },
 ) {}
 
+// ---------------------------------------------------------------------------
+// Protocol-param defaults (current Cardano mainnet / preprod values)
+// ---------------------------------------------------------------------------
+
+/** Conway CBOR-Map keys for the two pparams we currently bridge. */
+const PPARAM_KEY = { maxHeaderSize: 4, maxBlockBodySize: 2 } as const;
+/** Fallbacks used when the CBOR Map has no entry for the requested key. */
+const PPARAM_DEFAULT = { maxHeaderSize: 1100, maxBlockBodySize: 90112 } as const;
+/** Haskell `maxKesEvolutions` constant (protocol-wide). */
+const MAX_KES_EVOLUTIONS = 62;
+
+// ---------------------------------------------------------------------------
+// LedgerView extraction
+// ---------------------------------------------------------------------------
+
 /**
  * Extract a LedgerView from a decoded ExtLedgerState.
  *
  * Uses PoolDistr for VRF keys and stake distribution (most direct source).
- * activeSlotsCoeff and maxKesEvolutions come from SlotClock config / protocol constants.
+ * `activeSlotsCoeff` + `maxKesEvolutions` come from `SlotClock.config` + a
+ * Haskell protocol constant, respectively.
  */
 export const extractLedgerView = (state: ExtLedgerState) =>
   Effect.gen(function* () {
@@ -31,57 +46,51 @@ export const extractLedgerView = (state: ExtLedgerState) =>
 
     // Ledger `poolDistr.pools` is `HashMap<Uint8Array, IndividualPoolStake>`;
     // `LedgerView` keys are hex strings (computed from `hex(blake2b256(issuerVk))`
-    // at header-validation time). Convert at the bridge boundary.
-    const poolEntries = Array.from(HashMap.entries(poolDistr.pools));
+    // at header-validation time). Normalise once at the bridge boundary so
+    // each pool entry crosses `toHex()` exactly once even though it fans out
+    // into two HashMaps.
+    const normalised = Array.from(
+      HashMap.entries(poolDistr.pools),
+      ([poolHash, ps]) => ({
+        hexHash: poolHash.toHex(),
+        vrfKeyHash: ps.vrfKeyHash,
+        totalStake: ps.totalStake,
+      }),
+    );
     const poolVrfKeys = HashMap.fromIterable(
-      poolEntries.map(([poolHash, ps]) => [hex(poolHash), ps.vrfKeyHash] as const),
+      normalised.map((p) => [p.hexHash, p.vrfKeyHash] as const),
     );
     const poolStake = HashMap.fromIterable(
-      poolEntries.map(([poolHash, ps]) => [hex(poolHash), ps.totalStake] as const),
+      normalised.map((p) => [p.hexHash, p.totalStake] as const),
     );
 
-    // Extract epoch nonce from PraosChainDepState if available
-    const epochNonce = extractEpochNonceFromChainDepState(state.chainDepState);
-
-    // Extract opcert counters from PraosChainDepState[1]
-    const ocertCounters = extractOcertCounters(state.chainDepState);
-
-    // Protocol params: maxHeaderSize and maxBlockBodySize.
-    // Extract from currentPParams CBOR Map (Conway keys: 4 = maxBHSize, 2 = maxBBSize).
-    // Default values match current Cardano mainnet/preprod.
     const pparams = state.newEpochState.epochState.ledgerState.utxoState.govState.currentPParams;
-    const maxHeaderSize = extractPParamUint(pparams, 4) ?? 1100;
-    const maxBlockBodySize = extractPParamUint(pparams, 2) ?? 90112;
-
     const result: LedgerView = {
-      epochNonce,
+      epochNonce: extractPraosNonces(state.chainDepState).epochNonce,
       poolVrfKeys,
       poolStake,
       totalStake: poolDistr.totalActiveStake,
       activeSlotsCoeff: slotClock.config.activeSlotsCoeff,
-      maxKesEvolutions: 62,
-      maxHeaderSize,
-      maxBlockBodySize,
-      ocertCounters,
+      maxKesEvolutions: MAX_KES_EVOLUTIONS,
+      maxHeaderSize: extractPParamUint(pparams, PPARAM_KEY.maxHeaderSize) ?? PPARAM_DEFAULT.maxHeaderSize,
+      maxBlockBodySize:
+        extractPParamUint(pparams, PPARAM_KEY.maxBlockBodySize) ?? PPARAM_DEFAULT.maxBlockBodySize,
+      ocertCounters: extractOcertCounters(state.chainDepState),
     };
     return result;
   });
 
 /**
- * Extract initial Nonces from a snapshot's ExtLedgerState.
- *
- * Reads the PraosChainDepState to get evolving, candidate, and epoch nonces.
- * Falls back to zeros if the chain dep state can't be decoded.
+ * Extract initial `Nonces` from a snapshot's ExtLedgerState. Falls back
+ * to zero-filled nonces if the chain-dep state fails to decode.
  */
 export const extractNonces = (state: ExtLedgerState): Nonces => {
-  const epoch = state.newEpochState.epoch;
-  const praosNonces = extractPraosNonces(state.chainDepState);
-
+  const { evolvingNonce, candidateNonce, epochNonce } = extractPraosNonces(state.chainDepState);
   return new Nonces({
-    active: praosNonces.epochNonce,
-    evolving: praosNonces.evolvingNonce,
-    candidate: praosNonces.candidateNonce,
-    epoch,
+    active: epochNonce,
+    evolving: evolvingNonce,
+    candidate: candidateNonce,
+    epoch: state.newEpochState.epoch,
   });
 };
 
@@ -91,29 +100,32 @@ export const extractNonces = (state: ExtLedgerState): Nonces => {
 export const extractSnapshotTip = (
   state: ExtLedgerState,
 ): { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined =>
-  Option.isSome(state.tip) ? state.tip.value : undefined;
+  Option.getOrUndefined(state.tip);
 
 // ---------------------------------------------------------------------------
-// Protocol parameter extraction from CBOR Map
+// Protocol-parameter extraction (CBOR Map lookup by uint key)
 // ---------------------------------------------------------------------------
 
-/** Extract a uint value from a CBOR Map by numeric key. */
-function extractPParamUint(pparams: CborSchemaType, key: number): number | undefined {
-  if (pparams._tag !== CborKinds.Map) return undefined;
-  for (const entry of pparams.entries) {
-    if (
-      entry.k._tag === CborKinds.UInt &&
-      Number(entry.k.num) === key &&
-      entry.v._tag === CborKinds.UInt
-    ) {
-      return Number(entry.v.num);
-    }
-  }
-  return undefined;
-}
+/**
+ * Look up a uint-valued entry in a CBOR Map by numeric key. Returns
+ * `undefined` if the input isn't a Map, the key is absent, or the value
+ * isn't a uint.
+ *
+ * Single `Array.prototype.find` + typed narrowing via `CborValue.guards`
+ * replaces the previous `for (const entry of …) { … return }` loop.
+ */
+const extractPParamUint = (pparams: CborSchemaType, key: number): number | undefined => {
+  if (!CborValue.guards[CborKinds.Map](pparams)) return undefined;
+  const entry = pparams.entries.find(
+    (e) => CborValue.guards[CborKinds.UInt](e.k) && Number(e.k.num) === key,
+  );
+  return entry !== undefined && CborValue.guards[CborKinds.UInt](entry.v)
+    ? Number(entry.v.num)
+    : undefined;
+};
 
 // ---------------------------------------------------------------------------
-// PraosChainDepState nonce extraction
+// Praos chain-dep-state nonce extraction
 // ---------------------------------------------------------------------------
 
 /**
@@ -128,70 +140,85 @@ function extractPParamUint(pparams: CborSchemaType, key: number): number | undef
  *
  * Nonce encoding: Array(0) = NeutralNonce, Array(1, [bytes32]) = Nonce(hash)
  */
-interface PraosNonces {
-  readonly evolvingNonce: Uint8Array;
-  readonly candidateNonce: Uint8Array;
-  readonly epochNonce: Uint8Array;
-}
+const PraosNonces = Schema.Struct({
+  evolvingNonce: Schema.Uint8Array,
+  candidateNonce: Schema.Uint8Array,
+  epochNonce: Schema.Uint8Array,
+});
+type PraosNonces = typeof PraosNonces.Type;
 
+/** Zero-filled 32-byte nonce — frozen module-level so fallback branches
+ *  all share a single allocation. */
 const ZERO_NONCE = new Uint8Array(32);
+const EMPTY_NONCES = PraosNonces.make({
+  evolvingNonce: ZERO_NONCE,
+  candidateNonce: ZERO_NONCE,
+  epochNonce: ZERO_NONCE,
+});
 
-/** Decode a CBOR Nonce: Array(0) → zeros, Array(1,[bytes32]) → hash. */
-function decodeNonce(cbor: CborSchemaType): Uint8Array {
-  if (cbor._tag === CborKinds.Array) {
+/** Decode a CBOR Nonce: Array(0) → zeros, Array(1, [bytes32]) → hash,
+ *  raw Bytes(32) → hash. Anything else falls back to zeros. */
+const decodeNonce = (cbor: CborSchemaType): Uint8Array => {
+  if (CborValue.guards[CborKinds.Array](cbor)) {
     if (cbor.items.length === 0) return ZERO_NONCE;
-    if (cbor.items.length === 1) {
-      const inner = cbor.items[0]!;
-      if (inner._tag === CborKinds.Bytes && inner.bytes.length === 32) return inner.bytes;
+    const [head] = cbor.items;
+    if (
+      head !== undefined &&
+      CborValue.guards[CborKinds.Bytes](head) &&
+      head.bytes.length === 32
+    ) {
+      return head.bytes;
     }
+    return ZERO_NONCE;
   }
-  // Raw bytes (some encodings may use this)
-  if (cbor._tag === CborKinds.Bytes && cbor.bytes.length === 32) return cbor.bytes;
+  if (CborValue.guards[CborKinds.Bytes](cbor) && cbor.bytes.length === 32) return cbor.bytes;
   return ZERO_NONCE;
-}
+};
 
-function extractPraosNonces(chainDepState: CborSchemaType): PraosNonces {
-  // PraosChainDepState is a newtype over PraosState = Array(7)
-  if (chainDepState._tag !== CborKinds.Array) {
-    return { evolvingNonce: ZERO_NONCE, candidateNonce: ZERO_NONCE, epochNonce: ZERO_NONCE };
-  }
+/** Pull `evolvingNonce` / `candidateNonce` / `epochNonce` out of the
+ *  PraosState CBOR Array. Gracefully returns `EMPTY_NONCES` on shape
+ *  mismatch — snapshots from older nodes may lack fields. */
+const extractPraosNonces = (chainDepState: CborSchemaType): PraosNonces => {
+  if (!CborValue.guards[CborKinds.Array](chainDepState)) return EMPTY_NONCES;
+  // Indices [2], [3], [4] per PraosState layout above.
+  const [, , evolving, candidate, epoch] = chainDepState.items;
+  if (evolving === undefined || candidate === undefined || epoch === undefined) return EMPTY_NONCES;
+  return PraosNonces.make({
+    evolvingNonce: decodeNonce(evolving),
+    candidateNonce: decodeNonce(candidate),
+    epochNonce: decodeNonce(epoch),
+  });
+};
 
-  const items = chainDepState.items;
-  if (items.length < 7) {
-    return { evolvingNonce: ZERO_NONCE, candidateNonce: ZERO_NONCE, epochNonce: ZERO_NONCE };
-  }
-
-  return {
-    evolvingNonce: decodeNonce(items[2]!),
-    candidateNonce: decodeNonce(items[3]!),
-    epochNonce: decodeNonce(items[4]!),
-  };
-}
-
-function extractEpochNonceFromChainDepState(chainDepState: CborSchemaType): Uint8Array {
-  return extractPraosNonces(chainDepState).epochNonce;
-}
+// ---------------------------------------------------------------------------
+// OpCert counter extraction
+// ---------------------------------------------------------------------------
 
 /**
- * Extract opcert counters from PraosState[1] (Map(KeyHash → Word64)).
+ * Extract opcert counters from PraosState[1] (`Map(KeyHash → Word64)`).
  *
- * Per Haskell PraosState: index [1] is `praosStateOCertCounters :: Map (KeyHash BlockIssuer) Word64`.
- * The CBOR Map has 28-byte key hashes (blake2b-224 of pool cold VKey) and uint64 seqNo values.
+ * Per Haskell PraosState: index [1] is
+ *   `praosStateOCertCounters :: Map (KeyHash BlockIssuer) Word64`.
+ * The CBOR Map has 28-byte key hashes (blake2b-224 of pool cold VKey)
+ * and uint64 seqNo values.
  */
-export function extractOcertCounters(
+export const extractOcertCounters = (
   chainDepState: CborSchemaType,
-): HashMap.HashMap<string, number> {
-  if (chainDepState._tag !== CborKinds.Array || chainDepState.items.length < 7) {
+): HashMap.HashMap<string, number> => {
+  if (!CborValue.guards[CborKinds.Array](chainDepState) || chainDepState.items.length < 7) {
     return HashMap.empty();
   }
   const mapNode = chainDepState.items[1]!;
-  if (mapNode._tag !== CborKinds.Map) return HashMap.empty();
+  if (!CborValue.guards[CborKinds.Map](mapNode)) return HashMap.empty();
 
-  const entries: Array<readonly [string, number]> = [];
-  for (const entry of mapNode.entries) {
-    if (entry.k._tag === CborKinds.Bytes && entry.v._tag === CborKinds.UInt) {
-      entries.push([hex(entry.k.bytes), Number(entry.v.num)] as const);
-    }
-  }
-  return HashMap.fromIterable(entries);
-}
+  // `.flatMap([tuple] | [])` is the canonical `filterMap` idiom —
+  // skips entries whose key/value types don't match, keeps the matching
+  // ones, no mutable accumulator.
+  return HashMap.fromIterable(
+    mapNode.entries.flatMap((e) =>
+      CborValue.guards[CborKinds.Bytes](e.k) && CborValue.guards[CborKinds.UInt](e.v)
+        ? [[e.k.bytes.toHex(), Number(e.v.num)] as const]
+        : [],
+    ),
+  );
+};

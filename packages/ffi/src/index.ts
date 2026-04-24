@@ -1,4 +1,4 @@
-export { BlobStore, BlobStoreError, BlobEntry } from "./blob-store.ts";
+export { BlobStore, BlobStoreError, BlobEntry, BlobStoreOperation } from "./blob-store.ts";
 export {
   utxoKey,
   blockKey,

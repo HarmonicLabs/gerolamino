@@ -2,12 +2,16 @@ import { Schema } from "effect";
 import { ProcessedFrameSchema } from "./Schemas";
 
 /**
- * Multiplexer error types
+ * Multiplexer error types. Each `operation` field is narrowed to the
+ * enum of actual ops the multiplexer exposes so consumers can
+ * `Match.value(e.operation)` without defaulting to a string pattern.
  */
+export const MultiplexerHeaderOperation = Schema.Literals(["Decode frames"]);
+
 export class MultiplexerHeaderError extends Schema.TaggedErrorClass<MultiplexerHeaderError>()(
   "MultiplexerHeaderError",
   {
-    operation: Schema.String,
+    operation: MultiplexerHeaderOperation,
     data: Schema.TaggedUnion({
       Parsed: { frame: ProcessedFrameSchema },
       Raw: { raw: Schema.Uint8Array },
@@ -16,10 +20,12 @@ export class MultiplexerHeaderError extends Schema.TaggedErrorClass<MultiplexerH
   },
 ) {}
 
+export const MultiplexerEncodingOperation = Schema.Literals(["Frame wrapping"]);
+
 export class MultiplexerEncodingError extends Schema.TaggedErrorClass<MultiplexerEncodingError>()(
   "MultiplexerEncodingError",
   {
-    operation: Schema.String,
+    operation: MultiplexerEncodingOperation,
     payload: Schema.Uint8Array,
     protocol: Schema.Number,
     cause: Schema.Defect,
@@ -40,11 +46,21 @@ export class MultiplexerConnectionError extends Schema.TaggedErrorClass<Multiple
   },
 ) {}
 
+/** Reserved for future mini-protocol-level faults. No current construction
+ * sites — the literal set is provisional and should be widened when
+ * protocol handlers start emitting this error. */
+export const MultiplexerProtocolOperation = Schema.Literals([
+  "send",
+  "receive",
+  "decode",
+  "encode",
+]);
+
 export class MultiplexerProtocolError extends Schema.TaggedErrorClass<MultiplexerProtocolError>()(
   "MultiplexerProtocolError",
   {
     protocolId: Schema.Number,
-    operation: Schema.String,
+    operation: MultiplexerProtocolOperation,
     cause: Schema.Defect,
   },
 ) {}

@@ -7,11 +7,11 @@
 import { Effect, Layer, Option, Ref, Stream } from "effect";
 import { KeyValueStore } from "effect/unstable/persistence/KeyValueStore";
 import * as KV from "effect/unstable/persistence/KeyValueStore";
-import { type BlobEntry, BlobStore, BlobStoreError } from "./service.ts";
+import { type BlobEntry, type BlobStoreOperation, BlobStore, BlobStoreError } from "./service.ts";
 import { prefixEnd } from "./keys.ts";
 
 const mapErr =
-  (operation: string) =>
+  (operation: BlobStoreOperation) =>
   <A>(effect: Effect.Effect<A, KV.KeyValueStoreError>) =>
     effect.pipe(Effect.mapError((cause) => new BlobStoreError({ operation, cause })));
 
@@ -29,22 +29,18 @@ const layerKeyValueStore: Layer.Layer<BlobStore, never, KeyValueStore> = Layer.e
 
       put: (key: Uint8Array, value: Uint8Array) => {
         const h = key.toHex();
-        return Effect.all([kv.set(h, value), Ref.update(keyIndex, (s) => new Set(s).add(h))], {
-          discard: true,
-        }).pipe(mapErr("put"));
+        const singleton = new Set([h]);
+        return Effect.all(
+          [kv.set(h, value), Ref.update(keyIndex, (s) => s.union(singleton))],
+          { discard: true },
+        ).pipe(mapErr("put"));
       },
 
       delete: (key: Uint8Array) => {
         const h = key.toHex();
+        const singleton = new Set([h]);
         return Effect.all(
-          [
-            kv.remove(h),
-            Ref.update(keyIndex, (s) => {
-              const next = new Set(s);
-              next.delete(h);
-              return next;
-            }),
-          ],
+          [kv.remove(h), Ref.update(keyIndex, (s) => s.difference(singleton))],
           { discard: true },
         ).pipe(mapErr("delete"));
       },
@@ -71,10 +67,11 @@ const layerKeyValueStore: Layer.Layer<BlobStore, never, KeyValueStore> = Layer.e
 
       putBatch: (entries: ReadonlyArray<BlobEntry>) => {
         const hexEntries = entries.map((e) => ({ h: e.key.toHex(), value: e.value }));
+        const add = new Set(hexEntries.map((e) => e.h));
         return Effect.all(
           [
             Effect.forEach(hexEntries, ({ h, value }) => kv.set(h, value), { discard: true }),
-            Ref.update(keyIndex, (s) => new Set([...s, ...hexEntries.map((e) => e.h)])),
+            Ref.update(keyIndex, (s) => s.union(add)),
           ],
           { discard: true },
         ).pipe(mapErr("putBatch"));

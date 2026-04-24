@@ -6,28 +6,35 @@ crypto, and Nix-based build/deploy pipeline.
 ## Architecture
 
 ```
-packages/codecs     <- CBOR encoding/decoding (foundation, no internal deps)
-packages/ledger          <- Cardano ledger model (depends: codecs, wasm-utils)
-packages/miniprotocols   <- Ouroboros network protocols (depends: codecs, wasm-plexer)
-packages/storage         <- Storage abstraction with XState machines (depends: effect, xstate)
-packages/bootstrap       <- Bootstrap protocol client (depends: effect)
+packages/codecs          <- CBOR + MemPack derivation (foundation, no internal deps)
+packages/ledger          <- Cardano ledger model, 100% Mithril snapshot decode
+packages/miniprotocols   <- 11 Ouroboros protocols + Effect-native multiplexer
+packages/storage         <- ImmutableDB / VolatileDB / LedgerDB / ChainDB
+packages/bootstrap       <- Bootstrap WS protocol client library
 packages/wasm-plexer     <- Multiplexer WASM (Rust, bindgen target: bundler)
 packages/wasm-utils      <- Crypto primitives WASM (Rust nightly, bindgen target: web)
-packages/chrome-ext      <- Chrome extension (Solid.js + WXT)
-packages/consensus       <- Ouroboros Praos consensus (depends: ledger, codecs, storage)
-packages/lsm-tree        <- LSM-tree FFI bindings (Haskell V2LSM via GHC WASM)
-packages/dashboard       <- (placeholder)
-apps/bootstrap           <- Bootstrap HTTP server (Effect CLI + Bun + LMDB)
+                           + 6-method CryptoRpcGroup for Worker-offloaded verify paths
+packages/chrome-ext      <- Chrome extension (Solid.js + WXT) — deferred
+packages/consensus       <- Ouroboros Praos + SyncStage + ChainEventLog + HFC
+packages/ffi             <- Native FFI boundary: V2LSM BlobStore (Zig → Haskell)
+packages/dashboard       <- Render-backend-agnostic Solid.js components + Atoms
+apps/bootstrap           <- HTTP + WS server; HttpApi + OpenAPI + Swagger UI + V2LSM
 apps/tui                 <- TUI node: relay sync + consensus validation
 ```
+
+See `docs/architecture.md` for the full dependency graph + distributed-system
+primitive mapping.
 
 ## Tech Stack
 
 - **Runtime**: Bun (not Node.js)
-- **Language**: TypeScript 5.9+, Rust (WASM targets)
-- **Monorepo**: Bun workspaces + tsc --build project references
-- **Effects**: Effect ^4.0.0-beta.47 (all packages)
-- **State machines**: XState ^5.30 (storage, miniprotocols, chrome-ext)
+- **Language**: TypeScript 7 via `@typescript/native-preview` (`tsgo`), Rust (WASM targets)
+- **Monorepo**: Bun workspaces + `tsgo` project references (never stock `tsc`)
+- **Effects**: Effect ^4.0.0-beta.47+ (all packages)
+- **State machines**: XState ^5.30 — retained ONLY for
+  `packages/storage/src/machines/chaindb.ts` (genuine parallel-region with
+  concurrent blockProcessing + immutability actors). All other machines have
+  been migrated to `Stream` / `Effect.gen` / `SubscriptionRef`.
 - **Testing**: `bunx --bun vitest` (Bun v1.3.11+ required)
 - **Nix**: flake-parts + bun2nix + crane + deploy-rs
 - **CI**: GitHub Actions with Arch Linux + Determinate Nix container
@@ -56,11 +63,10 @@ apps/tui                 <- TUI node: relay sync + consensus validation
 
 ### ES2025 / `@typescript/native-preview`
 
-The base `tsconfig.base.json` targets `es2024` (`lib: ["es2024"]`) as the
-monorepo-wide baseline. Packages may opt into `target: esnext` / `lib:
-["esnext"]` individually for ES2025 access — `packages/codecs` is the first
-to do so (see `packages/codecs/tsconfig.json`). We will gradually refactor the
-rest of the codebase to match.
+The base `tsconfig.base.json` targets `esnext` (`lib: ["esnext", "dom"]`) and
+pulls in ambient Bun types via `types: ["bun"]`. Every package inherits this;
+no per-package duplication. `@typescript/native-preview` (`tsgo`) is installed
+once at the monorepo root — stock `tsc` is banned.
 
 Prefer native ES primitives over hand-rolled alternatives:
 
@@ -92,24 +98,19 @@ isDisjointFrom` for set algebra (useful for CBOR canonical-form map key
 - `ArrayBuffer.prototype.transfer` / `.transferToFixedLength(N)` for
   zero-copy handoff from a growable buffer to a fixed-size result.
 
-`@typescript/native-preview` (aka `tsgo`) is installed as a devDependency in
-`packages/codecs`. It's the native Go rewrite of the TS compiler and
-understands `target: esnext` fully. Stock `tsc` (5.9) + `lib: ["esnext"]`
-also works for codecs today; tsgo is available for future use when its
-config validation stabilizes (currently rejects `baseUrl`).
-
 ## Building
 
-### TypeScript (via tsc --build)
+### TypeScript (via tsgo)
 
 ```sh
-bunx --bun tsc --build                                          # all packages
-bunx --bun tsc --build packages/ledger/tsconfig.lib.json        # single
-bunx --bun tsc --noEmit -p packages/ledger/tsconfig.lib.json    # type-check only
+bun run type-check                                              # all packages via `bun run --filter '*' type-check`
+bunx --bun tsgo --noEmit -p packages/ledger/tsconfig.json       # single package
+bunx --bun tsgo --build                                         # root project references
 ```
 
-Build targets come from `tsconfig.lib.json` files (`composite: true`). Root
-`tsconfig.json` references all buildable packages for `tsc --build`.
+Every package has a `"type-check"` script that invokes `tsgo --noEmit -p tsconfig.json`.
+Root `tsconfig.json` references packages with `tsconfig.lib.json` (composite: true) for
+`tsgo --build`. Never use stock `tsc`.
 
 ### WASM (via Nix)
 
@@ -159,10 +160,15 @@ Mithril snapshot mounted at `/data`.
 ### Mithril Snapshot
 
 ```sh
-nix run .#download-snapshot -- /var/lib/gerolamino/snapshot
+nix run .#download-mithril-lsm-snapshot -- preprod /var/lib/gerolamino/snapshot
 ```
 
-Downloads latest Mithril snapshot and converts to LMDB format.
+Downloads latest Mithril snapshot and converts to V2LSM (Mithril
+distribution 2537.0+ produces V2LSM natively; the fetch is a single-step
+operation against our self-hosted aggregator). Source: production
+`cardano-node` (master-tracked, preprod) + self-hosted
+`mithril-aggregator` + `mithril-signer` — see
+`nix/machine-configs/mithril-services.nix`.
 
 ## Nix Module Structure
 
@@ -170,7 +176,7 @@ Downloads latest Mithril snapshot and converts to LMDB format.
 flake.nix                          <- inputs, flake-parts, _module.args.root = ./.
 nix/default.nix                    <- imports packages/, apps/, machine-configs/
 nix/packages/wasm-lib.nix          <- buildWasmPackage shared builder (perSystem arg)
-nix/packages/ts-packages.nix       <- bun2nix + tsc --build for all TS packages
+nix/packages/ts-packages.nix       <- bun2nix + tsgo --build for all TS packages
 nix/packages/bootstrap-image.nix   <- OCI image (streamLayeredImage, 80 layers)
 nix/machine-configs/production.nix <- NixOS config + deploy-rs node
 ```

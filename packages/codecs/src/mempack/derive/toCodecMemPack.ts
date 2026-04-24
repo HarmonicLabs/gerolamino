@@ -1,7 +1,20 @@
 import { Option, Predicate, Schema, SchemaAST as AST } from "effect";
 import { memoize } from "effect/Function";
 import type { MemPackCodec } from "../MemPackCodec";
-import { MemPackDecodeError, MemPackEncodeError } from "../MemPackError";
+import {
+  MemPackDecodeError,
+  MemPackDerivationError,
+  type MemPackDerivationLink,
+  MemPackEncodeError,
+} from "../MemPackError";
+
+/** Typed walker-error helper — schema-author bugs caught at load time. */
+const derivationErr = (
+  link: MemPackDerivationLink,
+  message: string,
+  astTag?: string,
+): MemPackDerivationError =>
+  new MemPackDerivationError({ link, astTag, message });
 import { bool, float64, list, tag, text, tuple, varLen } from "../primitives";
 import { readMemPackAnnotation } from "./annotations";
 
@@ -167,8 +180,9 @@ const taggedUnionCodec = (
   // Word8 mapping).
   const arms = discriminatorLiterals.map((lit, i): UnionArm => {
     if (!isWord8(lit)) {
-      throw new Error(
-        `MemPack tagged union requires 0..255 integer tags on '${keyStr}', got ${String(lit)}`,
+      throw derivationErr(
+        "taggedUnionCodec",
+        `requires 0..255 integer tags on '${keyStr}', got ${String(lit)}`,
       );
     }
     return { label: String(lit), tagByte: lit, codec: memberCodecs[i]! };
@@ -296,11 +310,17 @@ const walkBase = (ast: AST.AST): MemPackCodec<unknown> => {
     case "Declaration":
       // Without an annotation, Declaration nodes can't be derived — the
       // user must supply a MemPack codec via the `toCodecMemPack` annotation.
-      throw new Error(
-        `MemPack Declaration without toCodecMemPack annotation is not supported (id: ${String(ast.annotations?.id)})`,
+      throw derivationErr(
+        "walkBase",
+        `Declaration without toCodecMemPack annotation is not supported (id: ${String(ast.annotations?.id)})`,
+        ast._tag,
       );
     default:
-      throw new Error(`MemPack derivation: unsupported AST kind '${ast._tag}'`);
+      throw derivationErr(
+        "walkBase",
+        `unsupported AST kind '${ast._tag}'`,
+        ast._tag,
+      );
   }
 };
 
@@ -316,7 +336,7 @@ const walkBase = (ast: AST.AST): MemPackCodec<unknown> => {
 const enumCodec = (ast: AST.Enum): MemPackCodec<string | number> => {
   const entries = ast.enums;
   if (entries.length > 256) {
-    throw new Error(`MemPack Enum: ${entries.length} members exceeds 256`);
+    throw derivationErr("enumCodec", `${entries.length} members exceeds 256`);
   }
   const values = entries.map(([, v]) => v);
   return {
@@ -354,8 +374,9 @@ const arraysCodec = (ast: AST.Arrays): MemPackCodec<ReadonlyArray<unknown>> => {
     return tuple(...ast.elements.map((e) => walk(e)));
   }
   if (ast.rest.length !== 1) {
-    throw new Error(
-      `MemPack Arrays: only fixed tuples and homogeneous lists supported; got ${ast.elements.length} elements + ${ast.rest.length} rest elements`,
+    throw derivationErr(
+      "arraysCodec",
+      `only fixed tuples and homogeneous lists supported; got ${ast.elements.length} elements + ${ast.rest.length} rest elements`,
     );
   }
   return list(walk(ast.rest[0]!));
@@ -369,8 +390,9 @@ const objectsCodec = (ast: AST.Objects): MemPackCodec<Record<string, unknown>> =
 const unionCodec = (ast: AST.Union): MemPackCodec<Record<string, unknown>> => {
   const detected = detectTaggedUnion(ast);
   if (!detected) {
-    throw new Error(
-      "MemPack Union: untagged unions unsupported. Use Schema.toTaggedUnion or provide a toCodecMemPack annotation.",
+    throw derivationErr(
+      "unionCodec",
+      "untagged unions unsupported. Use Schema.toTaggedUnion or provide a toCodecMemPack annotation.",
     );
   }
   // Every member MUST be an Objects AST (struct) for tagged-union wire
@@ -384,9 +406,12 @@ const unionCodec = (ast: AST.Union): MemPackCodec<Record<string, unknown>> => {
   const memberCodecs = ast.types.map((t, i) =>
     asObjects(t).pipe(
       Option.map(objectsCodec),
-      Option.getOrThrowWith(
-        () =>
-          new Error(`MemPack Union: member ${i} must be a struct (Objects AST), got '${t._tag}'`),
+      Option.getOrThrowWith(() =>
+        derivationErr(
+          "unionCodec",
+          `member ${i} must be a struct (Objects AST), got '${t._tag}'`,
+          t._tag,
+        ),
       ),
     ),
   );

@@ -11,16 +11,51 @@
  * `ValidationClient` and never know which transport is under the hood.
  */
 import { Context, Effect } from "effect";
-import type { CryptoOpError } from "wasm-utils";
-import type { ValidatedBlockBody, ValidatedHeader, ValidationError } from "./validation-rpc-group.ts";
+import { CryptoOpError, type CryptoOperation } from "wasm-utils";
+import { ValidationError, type ValidationOperation } from "./validation-rpc-group.ts";
 
 /**
- * The 12-method validation interface. Methods fall into two buckets per
+ * Extract the one-line `Effect.mapError` pattern used by every blake2b-backed
+ * `ValidationClient` method (`ComputeBodyHash`, `ComputeTxId`, etc.). Keeps
+ * the message field carrying the underlying Cause's `.message` so upstream
+ * diagnostics preserve the wasm-level error text.
+ */
+export const mapCryptoToValidation = (operation: ValidationOperation) =>
+  (cause: CryptoOpError): ValidationError =>
+    new ValidationError({ operation, message: cause.message, cause });
+
+/**
+ * Convert a worker-transport `RpcClientError` shape (message string field
+ * available regardless of the specific transport subtype) into a
+ * `CryptoOpError` so the crypto primitive methods' declared error channel
+ * (`CryptoOpError`) stays tight when routed through the RPC layer.
+ *
+ * Alternative — widening `ValidationClient`'s crypto methods to
+ * `CryptoOpError | RpcClientError` — would leak the transport choice across
+ * every consensus caller, even callers using `ValidationDirectLayer` where
+ * the transport error can't arise.
+ */
+export const mapTransportToCrypto = (operation: CryptoOperation) =>
+  (cause: { readonly message: string }): CryptoOpError =>
+    new CryptoOpError({
+      operation,
+      kind: "Unknown",
+      code: 0,
+      message: `rpc transport: ${cause.message}`,
+    });
+
+/**
+ * The 9-method validation interface. Methods fall into two buckets per
  * plan Tier-1 §11:
- *   - 6 consensus-level ops (ValidateHeader, ValidateBlockBody,
- *     ComputeBodyHash, ComputeTxId, DecodeHeaderCbor, DecodeBlockCbor)
+ *   - 3 consensus-level ops (ComputeBodyHash, ComputeTxId, DecodeBlockCbor)
  *   - 6 primitive crypto ops (Ed25519Verify, KesSum6Verify,
  *     CheckVrfLeader, VrfVerify, VrfProofToHash, Blake2b256Tagged)
+ *
+ * The higher-level validators (ValidateHeader, ValidateBlockBody,
+ * DecodeHeaderCbor) were removed from the service: carrying them as
+ * stub-backed methods lied at the type level about which calls were
+ * actually wired. They'll land when the SyncStage pipeline offloads
+ * them to a worker.
  *
  * All short-lease (<2ms median). The worker layer multiplexes many
  * in-flight calls per Worker via auto-tracked request IDs so a single
@@ -30,22 +65,10 @@ export class ValidationClient extends Context.Service<
   ValidationClient,
   {
     // Consensus-level
-    readonly validateHeader: (
-      headerCbor: Uint8Array,
-      eraVariant: number,
-    ) => Effect.Effect<ValidatedHeader, ValidationError>;
-    readonly validateBlockBody: (
-      blockCbor: Uint8Array,
-      eraVariant: number,
-    ) => Effect.Effect<ValidatedBlockBody, ValidationError>;
     readonly computeBodyHash: (
       blockBodyCbor: Uint8Array,
     ) => Effect.Effect<Uint8Array, ValidationError>;
     readonly computeTxId: (txBodyCbor: Uint8Array) => Effect.Effect<Uint8Array, ValidationError>;
-    readonly decodeHeaderCbor: (
-      headerCbor: Uint8Array,
-      eraVariant: number,
-    ) => Effect.Effect<ValidatedHeader, ValidationError>;
     readonly decodeBlockCbor: (blockCbor: Uint8Array) => Effect.Effect<
       {
         readonly eraVariant: number;

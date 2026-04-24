@@ -8,7 +8,17 @@ import {
   SchemaParser,
   SchemaTransformation,
 } from "effect";
+import { countBy } from "es-toolkit";
+import { CborDerivationError } from "../CborError";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
+
+/** Build a `CborDerivationError` for a walker-time schema bug. */
+const derivationError = (
+  link: typeof CborDerivationError.fields.link.Type,
+  astTag: string | undefined,
+  message: string,
+  cause?: unknown,
+) => new CborDerivationError({ link, astTag, message, cause });
 import { encode as encodeCborBytes, parse as parseCborBytes } from "../codec";
 import "./annotations";
 
@@ -188,26 +198,32 @@ const buildTaggedMembers = (
 ): ReadonlyMap<TagKey, TaggedMember> => {
   const members = walkedUnion.types.map((member): TaggedMember => {
     const objects = Option.liftPredicate(member, AST.isObjects).pipe(
-      Option.getOrThrowWith(
-        () =>
-          new Error(
-            `taggedUnionLink: expected every union member to be an Objects (TaggedStruct); got ${member._tag}`,
-          ),
+      Option.getOrThrowWith(() =>
+        derivationError(
+          "taggedUnionLink",
+          member._tag,
+          "expected every union member to be an Objects (TaggedStruct)",
+        ),
       ),
     );
     const sentinel = Option.fromUndefinedOr(
       AST.collectSentinels(objects).find((s) => s.key === tagField),
     ).pipe(
-      Option.getOrThrowWith(
-        () => new Error(`taggedUnionLink: member has no literal sentinel at key "${tagField}"`),
+      Option.getOrThrowWith(() =>
+        derivationError(
+          "taggedUnionLink",
+          objects._tag,
+          `member has no literal sentinel at key "${tagField}"`,
+        ),
       ),
     );
     const tagKey = Option.liftPredicate(sentinel.literal, isTagKey).pipe(
-      Option.getOrThrowWith(
-        () =>
-          new Error(
-            `taggedUnionLink: discriminant literal must be number | bigint | string; got ${typeof sentinel.literal}`,
-          ),
+      Option.getOrThrowWith(() =>
+        derivationError(
+          "taggedUnionLink",
+          objects._tag,
+          `discriminant literal must be number | bigint | string; got ${typeof sentinel.literal}`,
+        ),
       ),
     );
     const fields = objects.propertySignatures
@@ -218,8 +234,16 @@ const buildTaggedMembers = (
 
   const byTag = new Map(members.map((m) => [m.tagKey, m] as const));
   if (byTag.size === members.length) return byTag;
-  const firstDup = members.find((m, i) => members.findIndex((n) => n.tagKey === m.tagKey) !== i);
-  throw new Error(`taggedUnionLink: duplicate discriminant value ${String(firstDup?.tagKey)}`);
+  // Single O(n) pass over members finds the first tagKey used twice.
+  // The former double-`findIndex` scan was O(n²) + lost the frequency
+  // info; countBy surfaces the full multiplicity for diagnostics.
+  const tagCounts = countBy(members, (m) => String(m.tagKey));
+  const firstDup = Object.entries(tagCounts).find(([, count]) => count > 1);
+  throw derivationError(
+    "taggedUnionLink",
+    undefined,
+    `duplicate discriminant value ${firstDup?.[0] ?? "<unknown>"}`,
+  );
 };
 
 /**
@@ -292,7 +316,7 @@ export const taggedUnionLink =
   (walkedAst) => {
     const union = Option.liftPredicate(walkedAst, AST.isUnion).pipe(
       Option.getOrThrowWith(
-        () => new Error(`taggedUnionLink: expected Union AST, got ${walkedAst._tag}`),
+        () => derivationError("taggedUnionLink", walkedAst._tag, "expected Union AST"),
       ),
     );
     const byTag = buildTaggedMembers(union, tagField);
@@ -427,8 +451,10 @@ const validateKeyMapping = (keyMapping: Record<string, number>): void => {
     Option.match({
       onNone: () => undefined,
       onSome: ([loserName, keyNum]) => {
-        throw new Error(
-          `sparseMapLink: integer key ${keyNum} mapped from both "${byKeyNum.get(keyNum)}" and "${loserName}"`,
+        throw derivationError(
+          "sparseMapLink",
+          undefined,
+          `integer key ${keyNum} mapped from both "${byKeyNum.get(keyNum)}" and "${loserName}"`,
         );
       },
     }),
@@ -452,7 +478,7 @@ export const sparseMapLink =
   (keyMapping: Record<string, number>): CborLinkFactory =>
   (walkedAst) => {
     if (!AST.isObjects(walkedAst)) {
-      throw new Error(`sparseMapLink: expected Objects AST, got ${walkedAst._tag}`);
+      throw derivationError("sparseMapLink", walkedAst._tag, "expected Objects AST");
     }
     validateKeyMapping(keyMapping);
 
@@ -465,8 +491,8 @@ export const sparseMapLink =
     const fields: readonly Field[] = walkedAst.propertySignatures.map((ps) => {
       const name = String(ps.name);
       const keyNum = Option.fromUndefinedOr(keyMapping[name]).pipe(
-        Option.getOrThrowWith(
-          () => new Error(`sparseMapLink: field "${name}" has no integer-key mapping`),
+        Option.getOrThrowWith(() =>
+          derivationError("sparseMapLink", walkedAst._tag, `field "${name}" has no integer-key mapping`),
         ),
       );
       return { name, keyNum, isOptional: AST.isOptional(ps.type) };
@@ -550,7 +576,7 @@ export const cborTaggedLink =
     const expectedTag = typeof tagNum === "bigint" ? tagNum : BigInt(tagNum);
     const innerLink = lastLink(walkedAst);
     if (!innerLink) {
-      throw new Error("cborTaggedLink: walked AST has no inner CBOR encoding");
+      throw derivationError("cborTaggedLink", undefined, "walked AST has no inner CBOR encoding");
     }
     return new AST.Link(
       CborValueSchema.ast,
@@ -613,7 +639,7 @@ const encodeCborValueToBytes = (cbor: CborValue): Effect.Effect<Uint8Array, Sche
 export const cborInCborLink = (): CborLinkFactory => (walkedAst) => {
   const innerLink = lastLink(walkedAst);
   if (!innerLink) {
-    throw new Error("cborInCborLink: walked AST has no inner CBOR encoding");
+    throw derivationError("cborInCborLink", undefined, "walked AST has no inner CBOR encoding");
   }
   return new AST.Link(
     CborValueSchema.ast,
@@ -808,7 +834,7 @@ export const positionalArrayLink =
   (fieldOrder: ReadonlyArray<string>): CborLinkFactory =>
   (walkedAst) => {
     if (!AST.isObjects(walkedAst)) {
-      throw new Error(`positionalArrayLink: expected Objects AST, got ${walkedAst._tag}`);
+      throw derivationError("positionalArrayLink", walkedAst._tag, "expected Objects AST");
     }
 
     type Slot = {
@@ -823,7 +849,11 @@ export const positionalArrayLink =
     for (const name of fieldOrder) {
       const ps = byName.get(name);
       if (!ps) {
-        throw new Error(`positionalArrayLink: field "${name}" not present on struct`);
+        throw derivationError(
+          "positionalArrayLink",
+          walkedAst._tag,
+          `field "${name}" not present on struct`,
+        );
       }
       slots.push({ name, isOptional: AST.isOptional(ps.type) });
     }
@@ -832,8 +862,10 @@ export const positionalArrayLink =
     if (firstOptional !== -1) {
       for (let i = firstOptional + 1; i < slots.length; i++) {
         if (!slots[i]!.isOptional) {
-          throw new Error(
-            `positionalArrayLink: optional slot at index ${firstOptional} ("${slots[firstOptional]!.name}") precedes required slot at ${i} ("${slots[i]!.name}") — only trailing optionals are allowed`,
+          throw derivationError(
+            "positionalArrayLink",
+            walkedAst._tag,
+            `optional slot at index ${firstOptional} ("${slots[firstOptional]!.name}") precedes required slot at ${i} ("${slots[i]!.name}") — only trailing optionals are allowed`,
           );
         }
       }

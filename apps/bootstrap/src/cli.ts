@@ -11,7 +11,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { readSnapshotMeta, preloadLedgerFiles } from "./loader.ts";
 import { readNodeDbMeta } from "bootstrap";
 import { startServer } from "./server.ts";
-import { layerLsm, layerLsmFromSnapshot } from "lsm-tree";
+import { layerLsm, layerLsmFromSnapshot } from "lsm-ffi";
 
 const serve = Command.make(
   "serve",
@@ -62,7 +62,7 @@ const serve = Command.make(
         );
       }
 
-      let lsmLayer: Layer.Layer<import("storage/blob-store/service").BlobStore, unknown>;
+      let lsmLayer: Layer.Layer<import("lsm-ffi").BlobStore, unknown>;
 
       if (dbPath) {
         // Cardano-node database mode

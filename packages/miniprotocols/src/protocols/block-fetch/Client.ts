@@ -1,5 +1,6 @@
 import {
   Cause,
+  Context,
   Duration,
   Effect,
   Layer,
@@ -8,7 +9,6 @@ import {
   Result,
   Schema,
   Scope,
-  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
@@ -18,6 +18,7 @@ import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
 import type { ChainPoint } from "../types/ChainPoint";
+import { requireReply, unexpectedFor } from "../common";
 import * as Schemas from "./Schemas";
 
 export class BlockFetchError extends Schema.TaggedErrorClass<BlockFetchError>()("BlockFetchError", {
@@ -27,8 +28,8 @@ export class BlockFetchError extends Schema.TaggedErrorClass<BlockFetchError>()(
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.BlockFetchMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.BlockFetchMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new BlockFetchError({ cause: `Unexpected message: ${tag}` }));
+const makeError = (cause: string) => new BlockFetchError({ cause });
+const unexpected = unexpectedFor(makeError);
 
 export class BlockFetchClient extends Context.Service<
   BlockFetchClient,
@@ -63,8 +64,8 @@ export class BlockFetchClient extends Context.Service<
 
       // Persistent PubSub subscription — all messages buffered in this queue.
       // Stream.fromPubSub creates a NEW subscription per stream consumption,
-      // causing a race condition where messages published between consumptions
-      // are dropped. Stream.fromSubscription reuses one persistent subscription.
+      // causing a race where messages published between consumptions are
+      // dropped. Stream.fromSubscription reuses one persistent subscription.
       const subscription = yield* PubSub.subscribe(channel.pubsub);
 
       const messages = Stream.fromSubscription(subscription).pipe(
@@ -73,42 +74,30 @@ export class BlockFetchClient extends Context.Service<
 
       return BlockFetchClient.of({
         requestRange: (from, to) =>
-          sendMessage({ _tag: Schemas.BlockFetchMessageType.RequestRange, from, to }).pipe(
-            Effect.timeout(Duration.seconds(60)),
-            Effect.andThen(
-              messages.pipe(
-                Stream.runHead,
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new BlockFetchError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.BlockFetchMessage.match(v, {
-                        StartBatch: () =>
-                          messages.pipe(
-                            Stream.takeUntil(Schemas.BlockFetchMessage.guards.BatchDone, {
-                              excludeLast: true,
-                            }),
-                            Stream.filterMap((msg) =>
-                              Schemas.BlockFetchMessage.guards.Block(msg)
-                                ? Result.succeed(msg.block)
-                                : Result.fail(msg),
-                            ),
-                            Option.some,
-                            Effect.succeed,
-                          ),
-                        NoBlocks: () => Effect.succeed(Option.none()),
-                        RequestRange: (m) => unexpected(m._tag),
-                        ClientDone: (m) => unexpected(m._tag),
-                        Block: (m) => unexpected(m._tag),
-                        BatchDone: (m) => unexpected(m._tag),
-                      }),
-                  }),
-                ),
-              ),
+          sendMessage(Schemas.BlockFetchMessage.cases.RequestRange.make({ from, to })).pipe(
+            Effect.andThen(requireReply(messages, makeError, "requestRange", Duration.seconds(60))),
+            Effect.flatMap((v) =>
+              Schemas.BlockFetchMessage.guards.StartBatch(v)
+                ? Effect.succeed(
+                    Option.some(
+                      messages.pipe(
+                        Stream.takeUntil(Schemas.BlockFetchMessage.guards.BatchDone, {
+                          excludeLast: true,
+                        }),
+                        Stream.filterMap((msg) =>
+                          Schemas.BlockFetchMessage.guards.Block(msg)
+                            ? Result.succeed(msg.block)
+                            : Result.fail(msg),
+                        ),
+                      ),
+                    ),
+                  )
+                : Schemas.BlockFetchMessage.guards.NoBlocks(v)
+                  ? Effect.succeed(Option.none())
+                  : unexpected(v._tag),
             ),
           ),
-        done: () => sendMessage({ _tag: Schemas.BlockFetchMessageType.ClientDone }),
+        done: () => sendMessage(Schemas.BlockFetchMessage.cases.ClientDone.make({})),
       });
     }),
   );

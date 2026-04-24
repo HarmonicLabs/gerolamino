@@ -5,8 +5,11 @@
  */
 import { Context, Effect, Schema } from "effect";
 
+export const LsmAdminOperation = Schema.Literals(["snapshot", "openSnapshot"]);
+export type LsmAdminOperation = typeof LsmAdminOperation.Type;
+
 export class LsmAdminError extends Schema.TaggedErrorClass<LsmAdminError>()("LsmAdminError", {
-  operation: Schema.String,
+  operation: LsmAdminOperation,
   cause: Schema.Defect,
 }) {}
 

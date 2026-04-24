@@ -1,26 +1,17 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ESNext"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
-    "allowJs": true,
+    "module": "preserve",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
     "noEmit": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
+    "allowImportingTsExtensions": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false,
-    "paths": {
-      "storage/*": ["./../../packages/storage/src/*"],
-      "lsm-tree": ["./../../packages/lsm-tree/src/index.ts"]
-    }
-  }
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["./src/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
 }

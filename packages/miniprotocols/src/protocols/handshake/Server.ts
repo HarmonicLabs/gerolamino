@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, PubSub, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
+import { intersection } from "es-toolkit";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
@@ -45,10 +46,10 @@ const handleProposal = (
       Schema.String.pipe(Schema.decodeTo(Schemas.VersionNumber), Schema.Array),
     )(Object.keys(config.supportedVersions.data));
 
-    const supportedSet = new Set(supportedVersions);
-    const intersection = proposedVersions.filter((v) => supportedSet.has(v));
-    const selectedVersion =
-      intersection.length > 0 ? intersection.reduce((a, b) => (a > b ? a : b)) : undefined;
+    // Highest mutually-supported N2N version wins. `intersection` preserves
+    // the proposer's order; `Math.max` selects the newest regardless.
+    const shared = intersection(proposedVersions, supportedVersions);
+    const selectedVersion = shared.length > 0 ? Math.max(...shared) : undefined;
 
     if (selectedVersion) {
       const proposedData = message.versionTable.data[selectedVersion];

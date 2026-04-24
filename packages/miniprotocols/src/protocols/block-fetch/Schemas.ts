@@ -36,12 +36,15 @@ export type BlockFetchMessageT = typeof BlockFetchMessage.Type;
 
 function decodeChainPoint(node: CborSchemaType): ChainPoint {
   if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainPoint");
-  if (node.items.length === 0) return { _tag: ChainPointType.Origin as const };
+  if (node.items.length === 0) return ChainPointSchema.cases[ChainPointType.Origin].make({});
   const slot = node.items[0];
   const hash = node.items[1];
   if (slot?._tag !== CborKinds.UInt) throw new Error("Expected uint for slot");
   if (hash?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for hash");
-  return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
+  return ChainPointSchema.cases[ChainPointType.RealPoint].make({
+    slot: Number(slot.num),
+    hash: hash.bytes,
+  });
 }
 
 const encodeChainPoint = ChainPointSchema.match({
@@ -71,17 +74,16 @@ export const BlockFetchMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return {
-          _tag: BlockFetchMessageType.RequestRange as const,
+        return BlockFetchMessage.cases[BlockFetchMessageType.RequestRange].make({
           from: decodeChainPoint(cbor.items[1]!),
           to: decodeChainPoint(cbor.items[2]!),
-        };
+        });
       case 1:
-        return { _tag: BlockFetchMessageType.ClientDone as const };
+        return BlockFetchMessage.cases[BlockFetchMessageType.ClientDone].make({});
       case 2:
-        return { _tag: BlockFetchMessageType.StartBatch as const };
+        return BlockFetchMessage.cases[BlockFetchMessageType.StartBatch].make({});
       case 3:
-        return { _tag: BlockFetchMessageType.NoBlocks as const };
+        return BlockFetchMessage.cases[BlockFetchMessageType.NoBlocks].make({});
       case 4: {
         const blockCbor = cbor.items[1];
         // Block can be bare Bytes or Tag(24, Bytes) (CBOR-in-CBOR wrapping in N2N)
@@ -97,10 +99,10 @@ export const BlockFetchMessageBytes = cborSyncCodec(
         } else {
           blockBytes = encodeSync(blockCbor!);
         }
-        return { _tag: BlockFetchMessageType.Block as const, block: blockBytes };
+        return BlockFetchMessage.cases[BlockFetchMessageType.Block].make({ block: blockBytes });
       }
       case 5:
-        return { _tag: BlockFetchMessageType.BatchDone as const };
+        return BlockFetchMessage.cases[BlockFetchMessageType.BatchDone].make({});
       default:
         throw new Error(`Unknown BlockFetch tag: ${Number(tag.num)}`);
     }

@@ -12,7 +12,6 @@
  */
 import { Effect, Option, Ref, Schedule, Schema } from "effect";
 import { SlotClock } from "./praos/clock";
-import { ConsensusEngine } from "./praos/engine";
 import { PeerManager } from "./peer/manager";
 import { ConsensusEvents, ConsensusEventKind } from "./peer/events";
 import { getSyncState } from "./sync/bootstrap";
@@ -79,7 +78,11 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
 export const monitorLoop = Effect.gen(function* () {
   const peerManager = yield* PeerManager;
   const events = yield* Effect.serviceOption(ConsensusEvents);
-  let lastGsmState: string | undefined;
+  // Cross-iteration state held in a `Ref` — Effect-abstraction equivalent
+  // of the old `let lastGsmState`; survives fiber suspension (e.g.,
+  // `Effect.repeat` sleeping between ticks) and remains observable by
+  // future subscribers if the monitor ever needs one.
+  const lastGsmState = yield* Ref.make<string | undefined>(undefined);
 
   yield* Effect.repeat(
     Effect.gen(function* () {
@@ -90,21 +93,28 @@ export const monitorLoop = Effect.gen(function* () {
       if (stalled.length > 0) {
         yield* Effect.log(`Detected ${stalled.length} stalled peers: ${stalled.join(", ")}`);
         if (Option.isSome(events)) {
-          for (const peerId of stalled) {
-            yield* events.value.emit({ _tag: ConsensusEventKind.PeerStalled, peerId });
-          }
+          yield* Effect.forEach(
+            stalled,
+            (peerId) => events.value.emit({ _tag: ConsensusEventKind.PeerStalled, peerId }),
+            { discard: true },
+          );
         }
       }
 
-      // Emit GsmTransition event on state change
-      if (lastGsmState !== undefined && lastGsmState !== status.gsmState && Option.isSome(events)) {
+      // Emit GsmTransition event on state change.
+      const prevGsmState = yield* Ref.get(lastGsmState);
+      if (
+        prevGsmState !== undefined &&
+        prevGsmState !== status.gsmState &&
+        Option.isSome(events)
+      ) {
         yield* events.value.emit({
           _tag: ConsensusEventKind.GsmTransition,
-          from: lastGsmState,
+          from: prevGsmState,
           to: status.gsmState,
         });
       }
-      lastGsmState = status.gsmState;
+      yield* Ref.set(lastGsmState, status.gsmState);
 
       yield* Effect.log(
         `[${status.gsmState}] slot ${status.tipSlot}/${status.currentSlot} ` +

@@ -2,35 +2,50 @@ import {
   Cause,
   Clock,
   Config,
+  Context,
   Duration,
   Effect,
   Layer,
   Metric,
-  Option,
   Ref,
   Schedule,
   Schema,
   Scope,
-  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
 
-import { keepAliveRtt } from "../../Metrics";
+import { keepAliveRtt, keepAliveCookieMissmatch } from "../../Metrics";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
+import { requireReply, unexpectedFor } from "../common";
 import * as Schemas from "./Schemas";
 
 export class KeepAliveError extends Schema.TaggedErrorClass<KeepAliveError>()("KeepAliveError", {
   cause: Schema.Defect,
 }) {}
 
+/**
+ * Specific error raised when a peer returns `MsgKeepAliveResponse` with a
+ * cookie that doesn't match the one we sent. Preserves the upstream Haskell
+ * typo `Missmatch` (`ouroboros-network/.../KeepAlive/Type.hs:42-45`) so
+ * operator dashboards and post-mortems correlate with cardano-node
+ * telemetry — wave-2 research correction #27.
+ */
+export class KeepAliveCookieMissmatch extends Schema.TaggedErrorClass<KeepAliveCookieMissmatch>()(
+  "KeepAliveCookieMissmatch",
+  {
+    sent: Schema.Number,
+    received: Schema.Number,
+  },
+) {}
+
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.KeepAliveMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.KeepAliveMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new KeepAliveError({ cause: `Unexpected message: ${tag}` }));
+const makeError = (cause: string) => new KeepAliveError({ cause });
+const unexpected = unexpectedFor(makeError);
 
 /** KeepAlive interval — configurable, defaults to 30s. */
 const KeepAliveInterval = Config.duration("KEEP_ALIVE_INTERVAL").pipe(
@@ -45,6 +60,7 @@ export class KeepAliveClient extends Context.Service<
     ) => Effect.Effect<
       number,
       | KeepAliveError
+      | KeepAliveCookieMissmatch
       | MultiplexerEncodingError
       | Socket.SocketError
       | Schema.SchemaError
@@ -59,6 +75,7 @@ export class KeepAliveClient extends Context.Service<
     run: () => Effect.Effect<
       void,
       | KeepAliveError
+      | KeepAliveCookieMissmatch
       | MultiplexerEncodingError
       | Socket.SocketError
       | Schema.SchemaError
@@ -88,29 +105,24 @@ export class KeepAliveClient extends Context.Service<
       const sendAndValidate = (cookie: number) =>
         Effect.gen(function* () {
           const startMs = yield* Clock.currentTimeMillis;
-          yield* sendMessage({ _tag: Schemas.KeepAliveMessageType.KeepAlive, cookie });
-          const result = yield* messages.pipe(
-            Stream.runHead,
-            Effect.timeout(Duration.seconds(97)),
-            Effect.flatMap(
-              Option.match({
-                onNone: () => Effect.fail(new KeepAliveError({ cause: "No response received" })),
-                onSome: (v) =>
-                  Schemas.KeepAliveMessage.match(v, {
-                    KeepAliveResponse: (m) =>
-                      m.cookie === cookie
-                        ? Effect.succeed(m.cookie)
-                        : Effect.fail(
-                            new KeepAliveError({
-                              cause: `Cookie mismatch: sent ${cookie}, got ${m.cookie}`,
-                            }),
-                          ),
-                    KeepAlive: (m) => unexpected(m._tag),
-                    Done: (m) => unexpected(m._tag),
-                  }),
-              }),
-            ),
+          yield* sendMessage(Schemas.KeepAliveMessage.cases.KeepAlive.make({ cookie }));
+          const reply = yield* requireReply(
+            messages,
+            makeError,
+            "KeepAlive",
+            Duration.seconds(97),
           );
+          const result = yield* Schemas.KeepAliveMessage.guards.KeepAliveResponse(reply)
+            ? reply.cookie === cookie
+              ? Effect.succeed(reply.cookie)
+              : Metric.update(keepAliveCookieMissmatch, 1).pipe(
+                  Effect.andThen(
+                    Effect.fail(
+                      new KeepAliveCookieMissmatch({ sent: cookie, received: reply.cookie }),
+                    ),
+                  ),
+                )
+            : unexpected(reply._tag);
           const endMs = yield* Clock.currentTimeMillis;
           yield* Metric.update(keepAliveRtt, endMs - startMs);
           return result;
@@ -123,7 +135,7 @@ export class KeepAliveClient extends Context.Service<
                 new KeepAliveError({ cause: `Cookie must be word16 (0-65535), got ${cookie}` }),
               )
             : sendAndValidate(cookie),
-        done: () => sendMessage({ _tag: Schemas.KeepAliveMessageType.Done }),
+        done: () => sendMessage(Schemas.KeepAliveMessage.cases.Done.make({})),
         run: () =>
           Effect.gen(function* () {
             const cookie = yield* Ref.make(0);

@@ -58,8 +58,8 @@
           (root + "/packages/storage/package.json")
           (root + "/packages/storage/tsconfig.json")
 
-          (root + "/packages/lsm-tree/src")
-          (root + "/packages/lsm-tree/package.json")
+          (root + "/packages/ffi/src")
+          (root + "/packages/ffi/package.json")
 
           # consensus package.json needed for Bun workspace resolution
           (root + "/packages/consensus/package.json")

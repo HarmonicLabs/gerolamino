@@ -11,8 +11,8 @@
       };
 
       lsmFfiSrc = lib.fileset.toSource {
-        root = root + "/packages/lsm-tree/haskell/lsm-ffi";
-        fileset = root + "/packages/lsm-tree/haskell/lsm-ffi";
+        root = root + "/packages/ffi/haskell/lsm-ffi";
+        fileset = root + "/packages/ffi/haskell/lsm-ffi";
       };
 
       # Zig bridge shared library — wraps Haskell lsm-ffi with buffer-based API.
@@ -24,8 +24,8 @@
       };
       zigBridge = zigEnv.package {
         src = lib.fileset.toSource {
-          root = root + "/packages/lsm-tree/haskell/lsm-ffi/zig-init";
-          fileset = root + "/packages/lsm-tree/haskell/lsm-ffi/zig-init";
+          root = root + "/packages/ffi/haskell/lsm-ffi/zig-init";
+          fileset = root + "/packages/ffi/haskell/lsm-ffi/zig-init";
         };
         pname = "lsm-bridge";
         version = "0.1.0";

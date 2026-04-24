@@ -1,22 +1,21 @@
 import {
   Cause,
   Config,
+  Context,
   Duration,
   Effect,
   Layer,
-  Option,
   Schema,
   Scope,
-  Context,
   Stream,
 } from "effect";
 import { Socket } from "effect/unstable/socket";
-import { TimeoutError } from "effect/Cause";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
 import type { ChainPoint } from "../types/ChainPoint";
+import { requireReply, unexpectedFor } from "../common";
 import * as Schemas from "./Schemas";
 
 export class ChainSyncError extends Schema.TaggedErrorClass<ChainSyncError>()("ChainSyncError", {
@@ -35,8 +34,8 @@ export type ChainSyncIntersectNotFound =
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.ChainSyncMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new ChainSyncError({ cause: `Unexpected message: ${tag}` }));
+const makeError = (cause: string) => new ChainSyncError({ cause });
+const unexpected = unexpectedFor(makeError);
 
 /**
  * StMustReply timeout — per network spec 3.7.4, after AwaitReply the server
@@ -80,7 +79,13 @@ export class ChainSyncClient extends Context.Service<
     ChainSyncClient,
     Effect.gen(function* () {
       const multiplexer = yield* Multiplexer;
-      const mustReplyTimeout = yield* MustReplyTimeout;
+      // StMustReply session timeout — Ouroboros spec Table 3.6: one draw
+      // per session (not per request) so benign slow servers don't flap
+      // under an unlucky short draw. The operator-visible
+      // `CHAIN_SYNC_MUST_REPLY_TIMEOUT` knob takes precedence; without it,
+      // we draw uniformly in [601, 911]s on layer construction and reuse
+      // the value for every `RequestNext` in this session.
+      const mustReplySessionTimeout = yield* MustReplyTimeout;
       const channel = yield* multiplexer.getProtocolChannel(MiniProtocol.ChainSync);
 
       const sendMessage = (msg: Schemas.ChainSyncMessageT) =>
@@ -90,82 +95,57 @@ export class ChainSyncClient extends Context.Service<
         Stream.mapEffect((bytes) => decodeMessage(bytes)),
       );
 
-      /** Match a message that must be RollForward or RollBackward. */
-      const matchRollResult = (v: Schemas.ChainSyncMessageT) =>
-        Schemas.ChainSyncMessage.match(v, {
-          RollForward: (m) => Effect.succeed(m),
-          RollBackward: (m) => Effect.succeed(m),
-          RequestNext: (m) => unexpected(m._tag),
-          AwaitReply: (m) => unexpected(m._tag),
-          FindIntersect: (m) => unexpected(m._tag),
-          IntersectFound: (m) => unexpected(m._tag),
-          IntersectNotFound: (m) => unexpected(m._tag),
-          Done: (m) => unexpected(m._tag),
-        });
-
-      /** Read the next message from the stream with the given timeout. */
-      const nextMessage = (timeout: Duration.Duration, phase: string) =>
-        messages.pipe(
-          Stream.runHead,
-          Effect.timeout(timeout),
-          Effect.flatMap(
-            Option.match({
-              onNone: () => Effect.fail(new ChainSyncError({ cause: `No response in ${phase}` })),
-              onSome: Effect.succeed,
-            }),
-          ),
-        );
+      /** Expect a `RollForward` or `RollBackward`; anything else is a
+       * protocol violation on the current agency transition. */
+      const matchRollResult = (
+        v: Schemas.ChainSyncMessageT,
+      ): Effect.Effect<ChainSyncRollForward | ChainSyncRollBackward, ChainSyncError> =>
+        Schemas.ChainSyncMessage.isAnyOf([
+          Schemas.ChainSyncMessageType.RollForward,
+          Schemas.ChainSyncMessageType.RollBackward,
+        ])(v)
+          ? Effect.succeed(v)
+          : unexpected(v._tag);
 
       return ChainSyncClient.of({
         requestNext: () =>
-          sendMessage({ _tag: Schemas.ChainSyncMessageType.RequestNext }).pipe(
+          sendMessage(Schemas.ChainSyncMessage.cases.RequestNext.make({})).pipe(
             Effect.andThen(
               // StCanAwait: server must respond within 10s
-              nextMessage(Duration.seconds(10), "StCanAwait").pipe(
+              requireReply(messages, makeError, "StCanAwait").pipe(
                 Effect.flatMap((msg) =>
                   Schemas.ChainSyncMessage.guards.AwaitReply(msg)
-                    ? // StMustReply: at tip, wait for new block.
-                      // Spec Table 3.6: random timeout 601-911s per session.
-                      Effect.sync(() => Duration.seconds(601 + Math.random() * 310)).pipe(
-                        Effect.flatMap((timeout) =>
-                          nextMessage(timeout, "StMustReply").pipe(Effect.flatMap(matchRollResult)),
-                        ),
-                      )
+                    ? // StMustReply: at tip, wait for new block. Timeout
+                      // draws from the per-session constant above.
+                      requireReply(
+                        messages,
+                        makeError,
+                        "StMustReply",
+                        mustReplySessionTimeout,
+                      ).pipe(Effect.flatMap(matchRollResult))
                     : matchRollResult(msg),
                 ),
               ),
             ),
           ),
         findIntersect: (points) =>
-          sendMessage({
-            _tag: Schemas.ChainSyncMessageType.FindIntersect,
-            points: [...points],
-          }).pipe(
+          sendMessage(
+            Schemas.ChainSyncMessage.cases.FindIntersect.make({ points: [...points] }),
+          ).pipe(
             Effect.andThen(
-              messages.pipe(
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(10)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new ChainSyncError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.ChainSyncMessage.match(v, {
-                        IntersectFound: (m) => Effect.succeed(m),
-                        IntersectNotFound: (m) => Effect.succeed(m),
-                        RequestNext: (m) => unexpected(m._tag),
-                        AwaitReply: (m) => unexpected(m._tag),
-                        RollForward: (m) => unexpected(m._tag),
-                        RollBackward: (m) => unexpected(m._tag),
-                        FindIntersect: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
+              requireReply(messages, makeError, "FindIntersect").pipe(
+                Effect.flatMap((v) =>
+                  Schemas.ChainSyncMessage.isAnyOf([
+                    Schemas.ChainSyncMessageType.IntersectFound,
+                    Schemas.ChainSyncMessageType.IntersectNotFound,
+                  ])(v)
+                    ? Effect.succeed(v)
+                    : unexpected(v._tag),
                 ),
               ),
             ),
           ),
-        done: () => sendMessage({ _tag: Schemas.ChainSyncMessageType.Done }),
+        done: () => sendMessage(Schemas.ChainSyncMessage.cases.Done.make({})),
       });
     }),
   );

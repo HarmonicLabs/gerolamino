@@ -12,9 +12,9 @@
  * 5. Track sync progress via GSM state
  */
 import { Effect, Option, Ref, Stream, Schema } from "effect";
-import { ChainDB, RealPoint } from "storage";
+import { ChainDB, LedgerSnapshotStore, RealPoint } from "storage";
 import type { StoredBlock } from "storage";
-import { ConsensusEngine } from "../praos/engine";
+import { validateHeader } from "../validate/header";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "../praos/nonce";
 import { GsmState, gsmState } from "../chain/selection";
 import { SlotClock } from "../praos/clock";
@@ -48,32 +48,37 @@ export const processBlock = (
   prevTip?: PrevTip,
 ) =>
   Effect.gen(function* () {
-    const engine = yield* ConsensusEngine;
     const chainDb = yield* ChainDB;
     const slotClock = yield* SlotClock;
 
     // 1. Validate block header (envelope + 5 Praos assertions) + body hash integrity (parallel)
     yield* Effect.all([
-      engine.validateHeader(header, ledgerView, prevTip),
+      validateHeader(header, ledgerView, prevTip),
       verifyBodyHash(block.blockCbor, header.bodyHash),
     ]);
 
     // 2. Store block in ChainDB (volatile)
     yield* chainDb.addBlock(block);
 
-    // 3. Epoch transition — derive new epoch nonce at boundary
+    // 3. Epoch transition — derive new epoch nonce at boundary.
+    // η_{e+1} = blake2b(candidate_e ∥ prevHash); ticked into a fresh
+    // `Nonces` when the block crosses into a new epoch, else the current
+    // triple is reused.
     const blockEpoch = slotClock.slotToEpoch(header.slot);
-    let nonces = currentNonces;
-    if (blockEpoch > currentNonces.epoch) {
-      // Epoch boundary: η_{e+1} = blake2b(candidate_e ∥ prevHash)
-      const newEpochNonce = yield* deriveEpochNonce(currentNonces.candidate, header.prevHash);
-      nonces = new Nonces({
-        active: newEpochNonce,
-        evolving: newEpochNonce,
-        candidate: newEpochNonce,
-        epoch: blockEpoch,
-      });
-    }
+    const nonces =
+      blockEpoch > currentNonces.epoch
+        ? yield* deriveEpochNonce(currentNonces.candidate, header.prevHash).pipe(
+            Effect.map(
+              (newEpochNonce) =>
+                new Nonces({
+                  active: newEpochNonce,
+                  evolving: newEpochNonce,
+                  candidate: newEpochNonce,
+                  epoch: blockEpoch,
+                }),
+            ),
+          )
+        : currentNonces;
 
     // 4. Evolve nonces using nonce-tagged VRF output (not leader VRF output)
     const newEvolving = yield* evolveNonce(nonces.evolving, header.nonceVrfOutput);
@@ -119,10 +124,11 @@ const loadNonces = (epoch: bigint): Nonces =>
  */
 export const getSyncState = Effect.gen(function* () {
   const chainDb = yield* ChainDB;
+  const ledgerSnapshots = yield* LedgerSnapshotStore;
   const slotClock = yield* SlotClock;
 
   const tipOpt = yield* chainDb.getTip;
-  const snapshotOpt = yield* chainDb.readLatestLedgerSnapshot;
+  const snapshotOpt = yield* ledgerSnapshots.readLatestLedgerSnapshot;
 
   // Use snapshot epoch if available, otherwise derive from tip slot
   const epoch = Option.isSome(snapshotOpt)

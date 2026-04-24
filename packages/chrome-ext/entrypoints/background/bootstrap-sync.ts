@@ -15,13 +15,10 @@ import { Config, Effect, Fiber, HashMap, Layer, Queue, Ref, Schedule, Stream } f
 import * as Socket from "effect/unstable/socket/Socket";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import {
-  ConsensusEngineLive,
   ConsensusEvents,
-  SlotClock,
-  SlotClockLive,
-  PREPROD_CONFIG,
   PeerManager,
-  PeerManagerLive,
+  PeerManagerLayer,
+  SlotClockPreprod,
   connectToRelay,
   PREPROD_MAGIC,
   getNodeStatus,
@@ -388,8 +385,10 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
 
     // Push initial peer entry so the dashboard shows the peer immediately
     // (the 10s monitor loop will update with real tip/status data).
+    // Status "connecting" matches the canonical `PeerInfoStatus` enum in
+    // `consensus/rpc/node-rpc-group.ts` (pre-first-handshake state).
     yield* syncState.update({
-      peers: [{ id: peerId, status: "connected", tipSlot: "0" }],
+      peers: [{ id: peerId, status: "connecting", tipSlot: "0" }],
     });
 
     // Relay sync + monitor loop in parallel (with relay-only retry)
@@ -475,7 +474,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
  *
  * Provides:
  * - WebSocket constructor (browser global)
- * - ConsensusEngine + Crypto (WASM-based via CryptoDirect)
+ * - Crypto (WASM-based via CryptoDirect)
  * - ConsensusEvents (PubSub for tip changes, epoch transitions)
  * - ChainDB (IndexedDB BlobStore + SQLite WASM)
  * - SlotClock (preprod config)
@@ -485,13 +484,11 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
 function browserLayers() {
   const wsConstructorLayer = Socket.layerWebSocketConstructorGlobal;
 
-  const consensusLayer = ConsensusEngineLive.pipe(Layer.provideMerge(CryptoDirect));
-
-  const slotClockLayer = Layer.effect(SlotClock, SlotClockLive(PREPROD_CONFIG));
-
-  const peerManagerLayer = Layer.effect(PeerManager, PeerManagerLive).pipe(
-    Layer.provide(slotClockLayer),
-  );
+  // Canonical layer helpers from consensus — preprod clock + peer manager
+  // bound identically across apps. Storage + ws-constructor still bound
+  // per-context because they're platform-specific.
+  const slotClockLayer = SlotClockPreprod;
+  const peerManagerLayer = PeerManagerLayer.pipe(Layer.provide(slotClockLayer));
 
   // Service workers have no `window` — use globalThis.indexedDB directly.
   // IndexedDb.layerWindow fails in MV3 service workers because it accesses `window`.
@@ -506,7 +503,6 @@ function browserLayers() {
 
   return Layer.mergeAll(
     wsConstructorLayer,
-    consensusLayer,
     CryptoDirect,
     ConsensusEvents.Live,
     slotClockLayer,

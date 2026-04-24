@@ -67,16 +67,14 @@ export const TxSubmissionMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return {
-          _tag: TxSubmissionMessageType.RequestTxIds as const,
+        return TxSubmissionMessage.cases[TxSubmissionMessageType.RequestTxIds].make({
           blocking: cborBool(cbor.items[1]!, "RequestTxIds blocking"),
           ack: Number(cborUint(cbor.items[2]!, "RequestTxIds ack")),
           req: Number(cborUint(cbor.items[3]!, "RequestTxIds req")),
-        };
+        });
       case 1: {
         const idsItems = cborArray(cbor.items[1]!, "ReplyTxIds ids");
-        return {
-          _tag: TxSubmissionMessageType.ReplyTxIds as const,
+        return TxSubmissionMessage.cases[TxSubmissionMessageType.ReplyTxIds].make({
           ids: idsItems.map((pair) => {
             const pairItems = cborArray(pair, "ReplyTxIds pair");
             return {
@@ -84,26 +82,24 @@ export const TxSubmissionMessageBytes = cborSyncCodec(
               size: Number(cborUint(pairItems[1]!, "size")),
             };
           }),
-        };
+        });
       }
       case 2: {
         const txIdsItems = cborArray(cbor.items[1]!, "RequestTxs txIds");
-        return {
-          _tag: TxSubmissionMessageType.RequestTxs as const,
+        return TxSubmissionMessage.cases[TxSubmissionMessageType.RequestTxs].make({
           txIds: txIdsItems.map((item) => cborBytes(item, "txId")),
-        };
+        });
       }
       case 3: {
         const txsItems = cborArray(cbor.items[1]!, "ReplyTxs txs");
-        return {
-          _tag: TxSubmissionMessageType.ReplyTxs as const,
+        return TxSubmissionMessage.cases[TxSubmissionMessageType.ReplyTxs].make({
           txs: txsItems.map((item) => cborBytes(item, "tx")),
-        };
+        });
       }
       case 4:
-        return { _tag: TxSubmissionMessageType.Done as const };
+        return TxSubmissionMessage.cases[TxSubmissionMessageType.Done].make({});
       default:
-        return { _tag: TxSubmissionMessageType.Init as const };
+        return TxSubmissionMessage.cases[TxSubmissionMessageType.Init].make({});
     }
   },
   TxSubmissionMessage.match({

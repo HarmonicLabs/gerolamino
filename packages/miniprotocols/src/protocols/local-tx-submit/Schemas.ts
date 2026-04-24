@@ -46,17 +46,21 @@ export const LocalTxSubmitMessageBytes = cborSyncCodec(
       case 0: {
         const tx = cbor.items[1];
         if (tx?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for tx");
-        return { _tag: LocalTxSubmitMessageType.SubmitTx as const, tx: tx.bytes };
+        return LocalTxSubmitMessage.cases[LocalTxSubmitMessageType.SubmitTx].make({
+          tx: tx.bytes,
+        });
       }
       case 1:
-        return { _tag: LocalTxSubmitMessageType.AcceptTx as const };
+        return LocalTxSubmitMessage.cases[LocalTxSubmitMessageType.AcceptTx].make({});
       case 2: {
         const reason = cbor.items[1];
         if (reason?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for reason");
-        return { _tag: LocalTxSubmitMessageType.RejectTx as const, reason: reason.bytes };
+        return LocalTxSubmitMessage.cases[LocalTxSubmitMessageType.RejectTx].make({
+          reason: reason.bytes,
+        });
       }
       case 3:
-        return { _tag: LocalTxSubmitMessageType.Done as const };
+        return LocalTxSubmitMessage.cases[LocalTxSubmitMessageType.Done].make({});
       default:
         throw new Error(`Unknown LocalTxSubmit tag: ${Number(tag.num)}`);
     }

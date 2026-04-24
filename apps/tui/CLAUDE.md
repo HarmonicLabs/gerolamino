@@ -18,15 +18,18 @@ provides ledger state, UTxO entries, and block data over the wire.
 - `consensus` (workspace) - Header validation, slot clock, peer management
 - `ledger` (workspace) - Block/state decoding
 - `storage` (workspace) - ChainDB, SqliteDrizzle, BlobStore
-- `lsm-tree` (workspace) - LSM BlobStore backend
+- `ffi` (workspace) - LSM BlobStore backend (Zig → Haskell V2LSM FFI)
 - `effect` ^4.0.0-beta.47
 
-## CLI Flags
+## Environment variables / CLI flags
 
-- `--bootstrap-url / -b` — Bootstrap server WebSocket URL (default: ws://178.156.252.81:3040/bootstrap)
-- `--relay-host` — Upstream relay host for ChainSync
-- `--relay-port` — Upstream relay port
-- `--network` — Cardano network (preprod|mainnet)
+| Flag                  | Env var                 | Default                                 |
+|-----------------------|-------------------------|-----------------------------------------|
+| `--bootstrap-url/-b`  | `BOOTSTRAP_SERVER_URL`  | `ws://localhost:3040/bootstrap`         |
+| `--genesis / -g`      | (none)                  | `false`                                 |
+| `--relay-host`        | `RELAY_HOST`            | `preprod-node.play.dev.cardano.org`     |
+| `--relay-port`        | `RELAY_PORT`            | `3001`                                  |
+| `--network`           | (none)                  | `preprod`                               |
 
 ## Running
 

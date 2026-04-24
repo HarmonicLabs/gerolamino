@@ -40,30 +40,37 @@ import { CryptoOpError } from "wasm-utils";
  */
 const Bytes = Transferable.schema(Schema.Uint8Array, (u) => [u.buffer]);
 
+/** Enumerates every `ValidationClient` / `ValidationRpcGroup` op. Kept in
+ * sync with the Rpc class declarations below; narrows `operation` from a
+ * free-form string so `Match.value(e.operation)` exhaustively matches
+ * every handler the group exposes. */
+export const ValidationOperation = Schema.Literals([
+  "ComputeBodyHash",
+  "ComputeTxId",
+  "DecodeBlockCbor",
+  "Ed25519Verify",
+  "KesSum6Verify",
+  "CheckVrfLeader",
+  "VrfVerify",
+  "VrfProofToHash",
+  "Blake2b256Tagged",
+]);
+export type ValidationOperation = typeof ValidationOperation.Type;
+
 /** Validation-layer error — wraps primitive crypto + CBOR decode failures. */
 export class ValidationError extends Schema.TaggedErrorClass<ValidationError>()(
   "consensus/ValidationError",
   {
-    operation: Schema.String,
+    operation: ValidationOperation,
     message: Schema.String,
     cause: Schema.optional(Schema.Defect),
   },
 ) {}
 
-/** Header-specific validation outcome — carries `hash` for downstream caching. */
-export const ValidatedHeader = Schema.Struct({
-  slot: Schema.BigInt,
-  blockNo: Schema.BigInt,
-  hash: Bytes,
-});
-export type ValidatedHeader = typeof ValidatedHeader.Type;
-
-/** Body-validation outcome — `bodyHash` + per-tx ids. */
-export const ValidatedBlockBody = Schema.Struct({
-  bodyHash: Bytes,
-  txIds: Schema.Array(Bytes),
-});
-export type ValidatedBlockBody = typeof ValidatedBlockBody.Type;
+// ValidatedHeader / ValidatedBlockBody schemas were removed along with
+// the 3 stub consensus-level Rpcs (ValidateHeader, ValidateBlockBody,
+// DecodeHeaderCbor) in the wave-3 F7 pruning — they have no consumers
+// anywhere in the monorepo now.
 
 // ---------------------------------------------------------------------------
 // Primitive-crypto RPCs (6 methods)
@@ -117,30 +124,21 @@ export class Blake2b256Tagged extends Rpc.make("Blake2b256Tagged", {
 }) {}
 
 // ---------------------------------------------------------------------------
-// Consensus-level RPCs (6 methods)
+// Consensus-level RPCs (3 methods)
+//
+// The higher-level validators (`ValidateHeader`, `ValidateBlockBody`,
+// `DecodeHeaderCbor`) are implemented inline in consensus today; forwarding
+// them through this RPC surface would ship raw CBOR across the worker
+// boundary for a call that is *already* CPU-bound in the caller's fiber
+// via the consensus stage pipeline. They'll land here once the SyncStage
+// pipeline offloads them to a worker. Until then, carrying them as
+// stub-backed Rpcs lied at the type level about what the service could
+// do; every consumer had to know which methods worked and which raised
+// `validationNotImplemented`.
+//
+// `ComputeBodyHash`, `ComputeTxId`, `DecodeBlockCbor` stay — they are the
+// short-lease primitives downstream block-fetch code actually dispatches.
 // ---------------------------------------------------------------------------
-
-/**
- * Validate a Praos block header. Returns a lightweight `ValidatedHeader`
- * summary for downstream caching (so callers don't re-decode the CBOR).
- * Failures carry the first-caught predicate per the plan's `validate`
- * mode on `Effect.all`.
- */
-export class ValidateHeader extends Rpc.make("ValidateHeader", {
-  payload: { headerCbor: Bytes, eraVariant: Schema.Number },
-  success: ValidatedHeader,
-  error: ValidationError,
-}) {}
-
-/**
- * Validate a block body (body hash + per-tx ids). Independent from
- * header validation; dispatched after header passes.
- */
-export class ValidateBlockBody extends Rpc.make("ValidateBlockBody", {
-  payload: { blockCbor: Bytes, eraVariant: Schema.Number },
-  success: ValidatedBlockBody,
-  error: ValidationError,
-}) {}
 
 /** Compute the body hash (blake2b-256 of concatenated body sections). */
 export class ComputeBodyHash extends Rpc.make("ComputeBodyHash", {
@@ -153,13 +151,6 @@ export class ComputeBodyHash extends Rpc.make("ComputeBodyHash", {
 export class ComputeTxId extends Rpc.make("ComputeTxId", {
   payload: { txBodyCbor: Bytes },
   success: Bytes,
-  error: ValidationError,
-}) {}
-
-/** Decode a block header CBOR into the typed consensus `BlockHeader` shape. */
-export class DecodeHeaderCbor extends Rpc.make("DecodeHeaderCbor", {
-  payload: { headerCbor: Bytes, eraVariant: Schema.Number },
-  success: ValidatedHeader,
   error: ValidationError,
 }) {}
 
@@ -181,11 +172,8 @@ export class DecodeBlockCbor extends Rpc.make("DecodeBlockCbor", {
 
 export const ValidationRpcGroup = RpcGroup.make(
   // Consensus-level ops
-  ValidateHeader,
-  ValidateBlockBody,
   ComputeBodyHash,
   ComputeTxId,
-  DecodeHeaderCbor,
   DecodeBlockCbor,
   // Primitive-crypto ops
   Ed25519Verify,

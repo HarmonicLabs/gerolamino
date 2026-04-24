@@ -208,22 +208,19 @@ const refuseReasonFromCbor = (node: CborSchemaType): RefuseReason => {
   const reasonTag = Number(cborUint(items[0]!, "RefuseReason tag"));
   if (reasonTag === 0) {
     const versItems = cborArray(items[1]!, "RefuseReason versions");
-    return {
-      _tag: RefuseReasonType.VersionMismatch as const,
+    return RefuseReasonSchema.cases[RefuseReasonType.VersionMismatch].make({
       validVersions: versItems.map((v) => Number(cborUint(v, "version number"))),
-    };
+    });
   } else if (reasonTag === 1) {
-    return {
-      _tag: RefuseReasonType.HandshakeDecodeError as const,
+    return RefuseReasonSchema.cases[RefuseReasonType.HandshakeDecodeError].make({
       version: Number(cborUint(items[1]!, "version")),
       message: cborText(items[2]!, "message"),
-    };
+    });
   } else {
-    return {
-      _tag: RefuseReasonType.Refused as const,
+    return RefuseReasonSchema.cases[RefuseReasonType.Refused].make({
       version: Number(cborUint(items[1]!, "version")),
       message: cborText(items[2]!, "message"),
-    };
+    });
   }
 };
 
@@ -267,26 +264,22 @@ export const HandshakeMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return {
-          _tag: HandshakeMessageType.MsgProposeVersions as const,
+        return HandshakeMessage.cases[HandshakeMessageType.MsgProposeVersions].make({
           versionTable: versionTableFromCbor(cbor.items[1]!),
-        };
+        });
       case 1:
-        return {
-          _tag: HandshakeMessageType.MsgAcceptVersion as const,
+        return HandshakeMessage.cases[HandshakeMessageType.MsgAcceptVersion].make({
           version: Number(cborUint(cbor.items[1]!, "MsgAcceptVersion version")),
           versionData: versionDataFromCbor(cbor.items[2]!),
-        };
+        });
       case 2:
-        return {
-          _tag: HandshakeMessageType.MsgRefuse as const,
+        return HandshakeMessage.cases[HandshakeMessageType.MsgRefuse].make({
           reason: refuseReasonFromCbor(cbor.items[1]!),
-        };
+        });
       default:
-        return {
-          _tag: HandshakeMessageType.MsgQueryReply as const,
+        return HandshakeMessage.cases[HandshakeMessageType.MsgQueryReply].make({
           versionTable: versionTableFromCbor(cbor.items[1]!),
-        };
+        });
     }
   },
   HandshakeMessage.match({

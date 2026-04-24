@@ -40,8 +40,8 @@ const decodePeerAddress = (node: CborSchemaType): PeerAddress => {
   const addrBytesVal = cborBytes(node.items[1]!, "PeerAddress addr");
   const port = Number(cborUint(node.items[2]!, "PeerAddress port"));
   return Number(tagNode.num) === 0
-    ? { _tag: PeerAddressType.IPv4 as const, addr: addrBytesVal, port }
-    : { _tag: PeerAddressType.IPv6 as const, addr: addrBytesVal, port };
+    ? PeerAddressSchema.cases[PeerAddressType.IPv4].make({ addr: addrBytesVal, port })
+    : PeerAddressSchema.cases[PeerAddressType.IPv6].make({ addr: addrBytesVal, port });
 };
 
 const encodePeerAddress = PeerAddressSchema.match({
@@ -98,19 +98,17 @@ export const PeerSharingMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return {
-          _tag: PeerSharingMessageType.ShareRequest as const,
+        return PeerSharingMessage.cases[PeerSharingMessageType.ShareRequest].make({
           amount: Number(cborUint(cbor.items[1]!, "ShareRequest amount")),
-        };
+        });
       case 1: {
         const peersItems = cborArray(cbor.items[1]!, "SharePeers peers");
-        return {
-          _tag: PeerSharingMessageType.SharePeers as const,
+        return PeerSharingMessage.cases[PeerSharingMessageType.SharePeers].make({
           peers: peersItems.map(decodePeerAddress),
-        };
+        });
       }
       default:
-        return { _tag: PeerSharingMessageType.Done as const };
+        return PeerSharingMessage.cases[PeerSharingMessageType.Done].make({});
     }
   },
   PeerSharingMessage.match({

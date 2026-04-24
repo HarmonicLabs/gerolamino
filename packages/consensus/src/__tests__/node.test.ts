@@ -3,7 +3,7 @@ import { Clock, Effect, Layer, Option, Stream } from "effect";
 import { getNodeStatus } from "../node";
 import { PeerManager, PeerManagerLive } from "../peer/manager";
 import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
-import { ChainDB } from "storage";
+import { ChainDB, LedgerSnapshotStore } from "storage";
 import { ChainTip } from "../chain/selection";
 
 const testConfig = new SlotConfig({
@@ -43,15 +43,23 @@ const stubChainDb = Layer.succeed(ChainDB, {
   streamFrom: () => Stream.empty,
   promoteToImmutable: () => Effect.void,
   garbageCollect: () => Effect.void,
-  writeLedgerSnapshot: () => Effect.void,
-  readLatestLedgerSnapshot: Effect.succeed(Option.none()),
-  writeNonces: () => Effect.void,
-  readNonces: Effect.succeed(Option.none()),
   writeBlobEntries: () => Effect.void,
   deleteBlobEntries: () => Effect.void,
 });
 
-const testLayers = Layer.mergeAll(slotClockLayer, peerManagerLayer, stubChainDb);
+const stubLedgerSnapshots = Layer.succeed(LedgerSnapshotStore, {
+  writeLedgerSnapshot: () => Effect.void,
+  readLatestLedgerSnapshot: Effect.succeed(Option.none()),
+  writeNonces: () => Effect.void,
+  readNonces: Effect.succeed(Option.none()),
+});
+
+const testLayers = Layer.mergeAll(
+  slotClockLayer,
+  peerManagerLayer,
+  stubChainDb,
+  stubLedgerSnapshots,
+);
 
 layer(testLayers)("Node orchestrator", (it) => {
   it.effect("getNodeStatus reports tip and sync progress", () =>

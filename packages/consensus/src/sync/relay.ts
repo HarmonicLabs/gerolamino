@@ -9,7 +9,7 @@
  *                                      ↓
  *                              handleRollForward / handleRollBackward
  *                                      ↓
- *                              ConsensusEngine + ChainDB
+ *                              validateHeader + ChainDB
  */
 import { Deferred, Effect, Layer, Option, Ref, Schedule, Schema, Stream } from "effect";
 import {
@@ -26,9 +26,15 @@ import {
   HandshakeMessageType,
 } from "miniprotocols";
 import type { ChainPoint } from "miniprotocols";
-import { type BlobEntry, ChainDB, blockKey, cborOffsetKey, analyzeBlockCbor } from "storage";
+import {
+  type BlobEntry,
+  ChainDB,
+  LedgerSnapshotStore,
+  blockKey,
+  cborOffsetKey,
+  analyzeBlockCbor,
+} from "storage";
 import { Crypto, type CryptoOpError } from "wasm-utils";
-import { ConsensusEngine } from "../praos/engine";
 import { applyBlock } from "../validate/apply";
 import { PeerManager } from "../peer/manager";
 import { SlotClock } from "../praos/clock";
@@ -56,6 +62,18 @@ const mapCryptoErr =
   (operation: string) =>
   (cause: CryptoOpError): RelayError =>
     new RelayError({ message: `${operation}: ${String(cause)}` });
+
+/** Encode a CBOR tx-offset entry as an 8-byte big-endian buffer:
+ *  `[0..4)` = offset (u32 BE), `[4..8)` = size (u32 BE). Hoisted out of
+ *  `fetchAndStoreFullBlock` so the `analysis.txOffsets.map(...)` call
+ *  site reads declaratively instead of inlining a DataView block. */
+const encodeTxOffset = (offset: number, size: number): Uint8Array => {
+  const buf = new Uint8Array(8);
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(0, offset, false);
+  dv.setUint32(4, size, false);
+  return buf;
+};
 
 /**
  * Exponential backoff schedule for relay reconnection.
@@ -150,33 +168,51 @@ const fetchAndStoreFullBlock = (tip: { slot: bigint; blockNo: bigint; hash: Uint
     if (Option.isNone(maybeBlock)) return;
 
     const fullBlockCbor = maybeBlock.value;
-    const entries: Array<BlobEntry> = [];
 
-    // Overwrite header-only block entry with full block CBOR
-    entries.push({ key: blockKey(tip.slot, tip.hash), value: fullBlockCbor });
-
-    // Derive CBOR offset entries from full block
-    const analysis = analyzeBlockCbor(fullBlockCbor);
-    for (let i = 0; i < analysis.txOffsets.length; i++) {
-      const o = analysis.txOffsets[i]!;
-      const val = new Uint8Array(8);
-      const dv = new DataView(val.buffer);
-      dv.setUint32(0, o.offset, false);
-      dv.setUint32(4, o.size, false);
-      entries.push({ key: cborOffsetKey(tip.slot, i), value: val });
-    }
+    // Derive CBOR offset entries from full block. Parse failures surface as
+    // a typed `BlockAnalysisParseError`; we map them into the relay's error
+    // channel so upstream logging + metrics see genuinely malformed blocks
+    // instead of the old silent-empty behavior.
+    const analysis = yield* analyzeBlockCbor(fullBlockCbor).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RelayError({ message: `block-analysis failed: ${cause.reason} @${cause.pos}` }),
+      ),
+    );
 
     // Compute tx ids via Crypto service (Effect-based). applyBlock is pure — hash
     // work lives here so it can be routed through a worker-backed Crypto layer.
-    const txIds = yield* Effect.forEach(analysis.txOffsets, (o) =>
-      crypto.blake2b256(fullBlockCbor.subarray(o.offset, o.offset + o.size)),
+    // `unbounded` concurrency because each blake2b is independent and the
+    // WorkerCrypto layer (when used) multiplexes calls across the ValidationPool.
+    const txIds = yield* Effect.forEach(
+      analysis.txOffsets,
+      (o) => crypto.blake2b256(fullBlockCbor.subarray(o.offset, o.offset + o.size)),
+      { concurrency: "unbounded" },
     ).pipe(Effect.mapError(mapCryptoErr("fetchAndStoreFullBlock.txId")));
 
-    // Apply block: compute UTxO diffs, account/stake changes from certs
-    const diff = applyBlock(fullBlockCbor, txIds);
-    entries.push(...diff.utxoInserts);
-    entries.push(...diff.accountUpdates);
-    entries.push(...diff.stakeUpdates);
+    // Apply block: compute UTxO diffs, account/stake changes from certs.
+    // Propagate typed `ApplyBlockError` into the relay error channel so a
+    // malformed block body surfaces in telemetry instead of collapsing to
+    // an empty diff.
+    const diff = yield* applyBlock(fullBlockCbor, txIds).pipe(
+      Effect.mapError((cause) => new RelayError({ message: `applyBlock: ${cause.reason}` })),
+    );
+
+    // Single-pass assembly of BlobStore writes — overwrites the
+    // header-only entry with the full block CBOR, interleaves CBOR-offset
+    // index entries (one per tx), and appends every positive side of the
+    // block diff. `entries` is built as an immutable array so the shape
+    // reads declaratively instead of a five-`.push(...)` sequence.
+    const entries: ReadonlyArray<BlobEntry> = [
+      { key: blockKey(tip.slot, tip.hash), value: fullBlockCbor },
+      ...analysis.txOffsets.map((o, i) => ({
+        key: cborOffsetKey(tip.slot, i),
+        value: encodeTxOffset(o.offset, o.size),
+      })),
+      ...diff.utxoInserts,
+      ...diff.accountUpdates,
+      ...diff.stakeUpdates,
+    ];
 
     if (entries.length > 0) {
       yield* chainDb.writeBlobEntries(entries);
@@ -333,7 +369,7 @@ const chainSyncLoop = (
  * This creates the full N2N connection stack:
  *   Socket → Multiplexer → Handshake → ChainSync + KeepAlive
  *
- * Requires: ConsensusEngine, ChainDB, SlotClock, PeerManager, Socket, Scope
+ * Requires: Crypto, ChainDB, SlotClock, PeerManager, Socket, Scope
  */
 export const connectToRelay = (
   peerId: string,
@@ -348,6 +384,7 @@ export const connectToRelay = (
   Effect.gen(function* () {
     const peerManager = yield* PeerManager;
     const chainDb = yield* ChainDB;
+    const ledgerSnapshots = yield* LedgerSnapshotStore;
     const slotClock = yield* SlotClock;
 
     // Register peer
@@ -362,8 +399,8 @@ export const connectToRelay = (
     const intersectionTip = Option.isSome(dbTip) ? dbTip.value : snapshotState?.tip;
     yield* findIntersection(intersectionTip);
 
-    // 3. Initialize nonces — prefer persisted (ChainDB), then snapshot, then zeros.
-    const persistedNonces = yield* chainDb.readNonces;
+    // 3. Initialize nonces — prefer persisted (LedgerSnapshotStore), then snapshot, then zeros.
+    const persistedNonces = yield* ledgerSnapshots.readNonces;
     const nonces = Option.isSome(persistedNonces)
       ? new Nonces({
           active: persistedNonces.value.active,

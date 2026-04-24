@@ -11,7 +11,7 @@ import type { TableColumn } from "../primitives.ts";
 const columns: readonly TableColumn<PeerInfo>[] = [
   { header: "Peer", accessor: (p) => p.id },
   { header: "Status", accessor: (p) => p.status },
-  { header: "Tip Slot", accessor: (p) => p.tipSlot.toString(), align: "right" },
+  { header: "Tip Slot", accessor: (p) => (p.tipSlot ?? 0n).toString(), align: "right" },
   { header: "Latency", accessor: (p) => (p.latencyMs ? `${p.latencyMs}ms` : "--"), align: "right" },
 ];
 

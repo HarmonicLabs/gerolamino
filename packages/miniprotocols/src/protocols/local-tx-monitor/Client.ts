@@ -1,20 +1,10 @@
-import {
-  Cause,
-  Duration,
-  Effect,
-  Layer,
-  Option,
-  Ref,
-  Schema,
-  Scope,
-  Context,
-  Stream,
-} from "effect";
+import { Cause, Context, Effect, Layer, Option, Ref, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
+import { requireReply, unexpectedFor } from "../common";
 import * as Schemas from "./Schemas";
 
 export class LocalTxMonitorError extends Schema.TaggedErrorClass<LocalTxMonitorError>()(
@@ -27,8 +17,8 @@ type MonitorState = "Idle" | "Acquiring" | "Acquired" | "Busy" | "Done";
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalTxMonitorMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalTxMonitorMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new LocalTxMonitorError({ cause: `Unexpected message: ${tag}` }));
+const makeError = (cause: string) => new LocalTxMonitorError({ cause });
+const unexpected = unexpectedFor(makeError);
 
 export class LocalTxMonitorClient extends Context.Service<
   LocalTxMonitorClient,
@@ -100,17 +90,22 @@ export class LocalTxMonitorClient extends Context.Service<
       const guardState = (expected: MonitorState) =>
         Ref.get(state).pipe(
           Effect.flatMap((current) =>
-            current !== expected
-              ? Effect.fail(
+            current === expected
+              ? Effect.void
+              : Effect.fail(
                   new LocalTxMonitorError({
                     cause: `Invalid state: expected ${expected}, got ${current}`,
                   }),
-                )
-              : Effect.void,
+                ),
           ),
         );
 
-      // Helper: transition to Busy, send message, receive response, return to Acquired
+      /**
+       * Transition to Busy, send the request, read the reply, transition
+       * back to Acquired, then run the caller's extractor against the
+       * response. `extract` only needs to narrow / handle the expected
+       * reply variant; anything else falls through to `unexpected`.
+       */
       const busyRequest = <A>(
         msg: Schemas.LocalTxMonitorMessageT,
         extract: (v: Schemas.LocalTxMonitorMessageT) => Effect.Effect<A, LocalTxMonitorError>,
@@ -118,107 +113,49 @@ export class LocalTxMonitorClient extends Context.Service<
         guardState("Acquired").pipe(
           Effect.andThen(Ref.set(state, "Busy")),
           Effect.andThen(sendMessage(msg)),
-          Effect.andThen(
-            messages.pipe(
-              Stream.runHead,
-              Effect.timeout(Duration.seconds(10)),
-              Effect.tap(() => Ref.set(state, "Acquired")),
-              Effect.flatMap(
-                Option.match({
-                  onNone: () =>
-                    Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
-                  onSome: extract,
-                }),
-              ),
-            ),
-          ),
+          Effect.andThen(requireReply(messages, makeError, "busyRequest")),
+          Effect.tap(() => Ref.set(state, "Acquired")),
+          Effect.flatMap(extract),
         );
 
       return LocalTxMonitorClient.of({
         acquire: () =>
           guardState("Idle").pipe(
             Effect.andThen(Ref.set(state, "Acquiring")),
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalTxMonitorMessageType.Acquire })),
-            Effect.andThen(
-              messages.pipe(
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(10)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new LocalTxMonitorError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.LocalTxMonitorMessage.match(v, {
-                        Acquired: (m) => Ref.set(state, "Acquired").pipe(Effect.as(m.slot)),
-                        Acquire: (m) => unexpected(m._tag),
-                        Release: (m) => unexpected(m._tag),
-                        NextTx: (m) => unexpected(m._tag),
-                        ReplyNextTx: (m) => unexpected(m._tag),
-                        HasTx: (m) => unexpected(m._tag),
-                        ReplyHasTx: (m) => unexpected(m._tag),
-                        GetSizes: (m) => unexpected(m._tag),
-                        ReplyGetSizes: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
-                ),
-              ),
+            Effect.andThen(sendMessage(Schemas.LocalTxMonitorMessage.cases.Acquire.make({}))),
+            Effect.andThen(requireReply(messages, makeError, "acquire")),
+            Effect.flatMap((v) =>
+              Schemas.LocalTxMonitorMessage.guards.Acquired(v)
+                ? Ref.set(state, "Acquired").pipe(Effect.as(v.slot))
+                : unexpected(v._tag),
             ),
           ),
         nextTx: () =>
-          busyRequest({ _tag: Schemas.LocalTxMonitorMessageType.NextTx }, (v) =>
-            Schemas.LocalTxMonitorMessage.match(v, {
-              ReplyNextTx: (m) =>
-                Effect.succeed(m.tx !== undefined ? Option.some(m.tx) : Option.none()),
-              Acquire: (m) => unexpected(m._tag),
-              Acquired: (m) => unexpected(m._tag),
-              Release: (m) => unexpected(m._tag),
-              NextTx: (m) => unexpected(m._tag),
-              HasTx: (m) => unexpected(m._tag),
-              ReplyHasTx: (m) => unexpected(m._tag),
-              GetSizes: (m) => unexpected(m._tag),
-              ReplyGetSizes: (m) => unexpected(m._tag),
-              Done: (m) => unexpected(m._tag),
-            }),
+          busyRequest(Schemas.LocalTxMonitorMessage.cases.NextTx.make({}), (v) =>
+            Schemas.LocalTxMonitorMessage.guards.ReplyNextTx(v)
+              ? Effect.succeed(v.tx !== undefined ? Option.some(v.tx) : Option.none())
+              : unexpected(v._tag),
           ),
         hasTx: (txId) =>
-          busyRequest({ _tag: Schemas.LocalTxMonitorMessageType.HasTx, txId }, (v) =>
-            Schemas.LocalTxMonitorMessage.match(v, {
-              ReplyHasTx: (m) => Effect.succeed(m.hasTx),
-              Acquire: (m) => unexpected(m._tag),
-              Acquired: (m) => unexpected(m._tag),
-              Release: (m) => unexpected(m._tag),
-              NextTx: (m) => unexpected(m._tag),
-              ReplyNextTx: (m) => unexpected(m._tag),
-              HasTx: (m) => unexpected(m._tag),
-              GetSizes: (m) => unexpected(m._tag),
-              ReplyGetSizes: (m) => unexpected(m._tag),
-              Done: (m) => unexpected(m._tag),
-            }),
+          busyRequest(Schemas.LocalTxMonitorMessage.cases.HasTx.make({ txId }), (v) =>
+            Schemas.LocalTxMonitorMessage.guards.ReplyHasTx(v)
+              ? Effect.succeed(v.hasTx)
+              : unexpected(v._tag),
           ),
         getSizes: () =>
-          busyRequest({ _tag: Schemas.LocalTxMonitorMessageType.GetSizes }, (v) =>
-            Schemas.LocalTxMonitorMessage.match(v, {
-              ReplyGetSizes: (m) => Effect.succeed(m.sizes),
-              Acquire: (m) => unexpected(m._tag),
-              Acquired: (m) => unexpected(m._tag),
-              Release: (m) => unexpected(m._tag),
-              NextTx: (m) => unexpected(m._tag),
-              ReplyNextTx: (m) => unexpected(m._tag),
-              HasTx: (m) => unexpected(m._tag),
-              ReplyHasTx: (m) => unexpected(m._tag),
-              GetSizes: (m) => unexpected(m._tag),
-              Done: (m) => unexpected(m._tag),
-            }),
+          busyRequest(Schemas.LocalTxMonitorMessage.cases.GetSizes.make({}), (v) =>
+            Schemas.LocalTxMonitorMessage.guards.ReplyGetSizes(v)
+              ? Effect.succeed(v.sizes)
+              : unexpected(v._tag),
           ),
         release: () =>
           guardState("Acquired").pipe(
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalTxMonitorMessageType.Release })),
+            Effect.andThen(sendMessage(Schemas.LocalTxMonitorMessage.cases.Release.make({}))),
             Effect.andThen(Ref.set(state, "Idle")),
           ),
         done: () =>
           guardState("Idle").pipe(
-            Effect.andThen(sendMessage({ _tag: Schemas.LocalTxMonitorMessageType.Done })),
+            Effect.andThen(sendMessage(Schemas.LocalTxMonitorMessage.cases.Done.make({}))),
             Effect.andThen(Ref.set(state, "Done")),
           ),
       });

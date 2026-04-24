@@ -15,7 +15,6 @@ import {
   ed25519_public_key,
   ed25519_secret_key_from_seed,
 } from "wasm-utils";
-import { hex } from "../util";
 
 const provide = <A>(effect: Effect.Effect<A, unknown, Crypto>) =>
   effect.pipe(Effect.provide(CryptoDirect));
@@ -67,7 +66,7 @@ describe("Golden crypto vectors (WASM)", () => {
           const crypto = yield* Crypto;
           const hash = yield* crypto.blake2b256(new Uint8Array(0));
           // blake2b-256("") = 0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8
-          expect(hex(hash).startsWith("0e5751c0")).toBe(true);
+          expect(hash.toHex().startsWith("0e5751c0")).toBe(true);
           expect(hash.byteLength).toBe(32);
         }),
       ),
@@ -80,7 +79,7 @@ describe("Golden crypto vectors (WASM)", () => {
           const input = new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
           const h1 = yield* crypto.blake2b256(input);
           const h2 = yield* crypto.blake2b256(input);
-          expect(hex(h1)).toBe(hex(h2));
+          expect(h1.toHex()).toBe(h2.toHex());
         }),
       ),
     );

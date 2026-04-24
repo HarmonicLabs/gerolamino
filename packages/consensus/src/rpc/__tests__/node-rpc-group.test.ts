@@ -12,7 +12,7 @@ import {
   SubmitTx,
   SubscribeAtoms,
   SubscribeChainEvents,
-  SyncStatus,
+  SyncMetrics,
   TxSummary,
 } from "../node-rpc-group.ts";
 
@@ -43,15 +43,15 @@ describe("NodeRpcGroup contract", () => {
     expect(Schema.decodeUnknownSync(ChainTipResult)(tip)).toEqual(tip);
   });
 
-  it("SyncStatus schema accepts synced and unsynced states", () => {
-    const synced = SyncStatus.make({
+  it("SyncMetrics schema accepts synced and unsynced states", () => {
+    const synced = SyncMetrics.make({
       synced: true,
       slotsBehind: 0n,
       tipSlot: 1000n,
       blocksProcessed: 100,
     });
     expect(synced.synced).toBe(true);
-    const behind = SyncStatus.make({
+    const behind = SyncMetrics.make({
       synced: false,
       slotsBehind: 50n,
       tipSlot: 1000n,
@@ -60,13 +60,13 @@ describe("NodeRpcGroup contract", () => {
     expect(behind.slotsBehind).toBe(50n);
   });
 
-  it("PeerInfo status discriminates the 3 states", () => {
+  it("PeerInfo status discriminates the canonical 5 states", () => {
     const peer = PeerInfo.make({
       id: "peer1",
       address: "tcp://relay.example:3001",
-      status: "connected",
+      status: "syncing",
     });
-    expect(peer.status).toBe("connected");
+    expect(peer.status).toBe("syncing");
     expect(() =>
       Schema.decodeUnknownSync(PeerInfo)({
         id: "p",

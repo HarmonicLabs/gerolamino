@@ -45,12 +45,15 @@ export type LocalStateQueryMessageT = typeof LocalStateQueryMessage.Type;
 
 function decodeChainPoint(node: CborSchemaType): ChainPoint {
   if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainPoint");
-  if (node.items.length === 0) return { _tag: ChainPointType.Origin as const };
+  if (node.items.length === 0) return ChainPointSchema.cases[ChainPointType.Origin].make({});
   const slot = node.items[0];
   const hash = node.items[1];
   if (slot?._tag !== CborKinds.UInt) throw new Error("Expected uint for slot");
   if (hash?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for hash");
-  return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
+  return ChainPointSchema.cases[ChainPointType.RealPoint].make({
+    slot: Number(slot.num),
+    hash: hash.bytes,
+  });
 }
 
 const encodeChainPoint = ChainPointSchema.match({
@@ -96,36 +99,40 @@ export const LocalStateQueryMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return {
-          _tag: LocalStateQueryMessageType.Acquire as const,
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.Acquire].make({
           point: decodeOptionalChainPoint(cbor.items[1]),
-        };
+        });
       case 1:
-        return { _tag: LocalStateQueryMessageType.Acquired as const };
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.Acquired].make({});
       case 2: {
         const failure = cbor.items[1];
         if (failure?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for failure");
-        return { _tag: LocalStateQueryMessageType.Failure as const, failure: failure.bytes };
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.Failure].make({
+          failure: failure.bytes,
+        });
       }
       case 3: {
         const query = cbor.items[1];
         if (query?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for query");
-        return { _tag: LocalStateQueryMessageType.Query as const, query: query.bytes };
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.Query].make({
+          query: query.bytes,
+        });
       }
       case 4: {
         const result = cbor.items[1];
         if (result?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for result");
-        return { _tag: LocalStateQueryMessageType.Result as const, result: result.bytes };
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.Result].make({
+          result: result.bytes,
+        });
       }
       case 5:
-        return {
-          _tag: LocalStateQueryMessageType.ReAcquire as const,
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.ReAcquire].make({
           point: decodeOptionalChainPoint(cbor.items[1]),
-        };
+        });
       case 6:
-        return { _tag: LocalStateQueryMessageType.Release as const };
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.Release].make({});
       case 7:
-        return { _tag: LocalStateQueryMessageType.Done as const };
+        return LocalStateQueryMessage.cases[LocalStateQueryMessageType.Done].make({});
       default:
         throw new Error(`Unknown LocalStateQuery tag: ${Number(tag.num)}`);
     }

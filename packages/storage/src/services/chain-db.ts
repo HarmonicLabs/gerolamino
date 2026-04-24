@@ -19,8 +19,28 @@ import { Context, Effect, Option, Schema, Stream } from "effect";
 import type { BlobEntry } from "../blob-store/service.ts";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
+/** Enumerates every `ChainDB` entry point — the `operation` discriminator
+ * narrows to exactly this set so `Effect.catchTag("ChainDBError", ...)`
+ * consumers can match exhaustively against `e.operation`. */
+export const ChainDBOperation = Schema.Literals([
+  "getBlock",
+  "getBlockAt",
+  "getTip",
+  "getImmutableTip",
+  "addBlock",
+  "writeBlobEntries",
+  "deleteBlobEntries",
+  "rollback",
+  "getSuccessors",
+  "streamFrom",
+  "promoteToImmutable",
+  "garbageCollect",
+  "bootSeed",
+]);
+export type ChainDBOperation = typeof ChainDBOperation.Type;
+
 export class ChainDBError extends Schema.TaggedErrorClass<ChainDBError>()("ChainDBError", {
-  operation: Schema.String,
+  operation: ChainDBOperation,
   cause: Schema.Defect,
 }) {}
 
@@ -92,41 +112,10 @@ export class ChainDB extends Context.Service<
     /** Remove volatile blocks older than the given slot. */
     readonly garbageCollect: (belowSlot: bigint) => Effect.Effect<void, ChainDBError>;
 
-    // --- Ledger state ---
-
-    /** Write a ledger state snapshot. */
-    readonly writeLedgerSnapshot: (
-      slot: bigint,
-      hash: Uint8Array,
-      epoch: bigint,
-      stateBytes: Uint8Array,
-    ) => Effect.Effect<void, ChainDBError>;
-
-    /** Read the latest ledger state snapshot. */
-    readonly readLatestLedgerSnapshot: Effect.Effect<
-      Option.Option<{ point: RealPoint; stateBytes: Uint8Array; epoch: bigint }>,
-      ChainDBError
-    >;
-
-    // --- Nonce persistence ---
-
-    /** Write nonces for a given epoch. Upserts on conflict. */
-    readonly writeNonces: (
-      epoch: bigint,
-      active: Uint8Array,
-      evolving: Uint8Array,
-      candidate: Uint8Array,
-    ) => Effect.Effect<void, ChainDBError>;
-
-    /** Read the most recent persisted nonces. */
-    readonly readNonces: Effect.Effect<
-      Option.Option<{
-        epoch: bigint;
-        active: Uint8Array;
-        evolving: Uint8Array;
-        candidate: Uint8Array;
-      }>,
-      ChainDBError
-    >;
+    // NOTE: ledger-snapshot + nonce persistence moved to
+    // `LedgerSnapshotStore` (see `./ledger-snapshot-store.ts`). The chain
+    // aggregator now ONLY handles block / tip / fork / GC; ledger-state
+    // durability is its own service so consumers that only need one
+    // surface don't inherit both.
   }
 >()("storage/ChainDB") {}

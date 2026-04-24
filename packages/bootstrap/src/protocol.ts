@@ -269,16 +269,32 @@ export function encodeInit(init: {
   );
 }
 
+/**
+ * Wire shape for the Init JSON payload — `snapshotSlot` is a string over the
+ * wire because JSON has no bigint. Validated via `Schema.decodeUnknownSync`
+ * before lifting into the bigint domain type so a malformed frame produces a
+ * precise `Schema.SchemaError` instead of a silent `BigInt(undefined)` throw.
+ */
+const InitWireShape = Schema.Struct({
+  protocolMagic: Schema.Number,
+  snapshotSlot: Schema.String,
+  totalChunks: Schema.Number,
+  totalBlocks: Schema.Number,
+  totalBlobEntries: Schema.Number,
+  blobPrefixes: Schema.Array(Schema.String),
+});
+const decodeInitShape = Schema.decodeUnknownSync(InitWireShape);
+
 export function decodeInit(payload: Uint8Array) {
-  const json = JSON.parse(textDecoder.decode(payload));
+  const validated = decodeInitShape(JSON.parse(textDecoder.decode(payload)));
   return {
     _tag: BootstrapMessageKind.Init as const,
-    protocolMagic: json.protocolMagic,
-    snapshotSlot: BigInt(json.snapshotSlot),
-    totalChunks: json.totalChunks,
-    totalBlocks: json.totalBlocks,
-    totalBlobEntries: json.totalBlobEntries,
-    blobPrefixes: json.blobPrefixes,
+    protocolMagic: validated.protocolMagic,
+    snapshotSlot: BigInt(validated.snapshotSlot),
+    totalChunks: validated.totalChunks,
+    totalBlocks: validated.totalBlocks,
+    totalBlobEntries: validated.totalBlobEntries,
+    blobPrefixes: validated.blobPrefixes,
   };
 }
 
@@ -290,13 +306,20 @@ export function encodeProgress(phase: string, current: number, total: number): U
   return textEncoder.encode(JSON.stringify({ phase, current, total }));
 }
 
+const ProgressWireShape = Schema.Struct({
+  phase: Schema.String,
+  current: Schema.Number,
+  total: Schema.Number,
+});
+const decodeProgressShape = Schema.decodeUnknownSync(ProgressWireShape);
+
 export function decodeProgress(payload: Uint8Array) {
-  const json = JSON.parse(textDecoder.decode(payload));
+  const validated = decodeProgressShape(JSON.parse(textDecoder.decode(payload)));
   return {
     _tag: BootstrapMessageKind.Progress as const,
-    phase: json.phase,
-    current: json.current,
-    total: json.total,
+    phase: validated.phase,
+    current: validated.current,
+    total: validated.total,
   };
 }
 
@@ -333,9 +356,13 @@ export function decodeFrame(frame: Uint8Array): BootstrapMessageType {
     case WireTag.Block:
       return decodeBlock(payload);
     case WireTag.LedgerState:
-      return { _tag: BootstrapMessageKind.LedgerState as const, payload: payload.slice() };
+      // `payload` is already a subarray view of the frame buffer; pre-refactor
+      // copied the entire 50–200 MB ledger-state blob here just to drop the
+      // reference to the wider buffer. The receiver holds the frame's own
+      // scope and only reads the bytes, so the subarray is safe.
+      return { _tag: BootstrapMessageKind.LedgerState as const, payload };
     case WireTag.LedgerMeta:
-      return { _tag: BootstrapMessageKind.LedgerMeta as const, payload: payload.slice() };
+      return { _tag: BootstrapMessageKind.LedgerMeta as const, payload };
     case WireTag.BlobEntries:
       return decodeBlobBatch(payload);
     case WireTag.Progress:
@@ -343,7 +370,7 @@ export function decodeFrame(frame: Uint8Array): BootstrapMessageType {
     case WireTag.Complete:
       return { _tag: BootstrapMessageKind.Complete as const };
     default:
-      throw new Error(`Unknown message tag: 0x${tagByte.toString(16)}`);
+      throw new Error(`Unknown message tag: 0x${tagByte.toString(16).padStart(2, "0")}`);
   }
 }
 

@@ -8,15 +8,29 @@
  *   4. AssertKesSignature — KES Sum6 verify over CBOR(headerBody) + period bounds
  *   5. AssertOperationalCertificate — opcert ed25519 verify + sequence check
  */
-import { Effect, Equal, HashMap, Option, Schema } from "effect";
+import { Effect, Equal, HashMap, Metric, Option, Schema } from "effect";
 import { Crypto } from "wasm-utils";
-import { hex, concat, be64 } from "../util";
+import { concat, be64 } from "../util";
+import { BlockValidationFailed, SPAN } from "../observability.ts";
 import type { Context } from "effect";
+
+/** Enumerates the 5 Praos header-validation buckets (Envelope + the 4
+ * pool/VRF/KES/opcert assertions). Narrows `assertion` from a free-form
+ * string so `Match.value(e.assertion)` matches exhaustively. */
+export const HeaderAssertion = Schema.Literals([
+  "Envelope",
+  "AssertKnownLeaderVrf",
+  "AssertVrfProof",
+  "AssertLeaderStake",
+  "AssertKesSignature",
+  "AssertOperationalCertificate",
+]);
+export type HeaderAssertion = typeof HeaderAssertion.Type;
 
 export class HeaderValidationError extends Schema.TaggedErrorClass<HeaderValidationError>()(
   "HeaderValidationError",
   {
-    assertion: Schema.String,
+    assertion: HeaderAssertion,
     message: Schema.String,
     blockSlot: Schema.optional(Schema.BigInt),
     blockHash: Schema.optional(Schema.Uint8Array),
@@ -24,7 +38,7 @@ export class HeaderValidationError extends Schema.TaggedErrorClass<HeaderValidat
 ) {}
 
 const headerValidationError = (
-  assertion: string,
+  assertion: HeaderAssertion,
   message: string,
   header: BlockHeader,
 ): HeaderValidationError =>
@@ -34,6 +48,26 @@ const headerValidationError = (
     blockSlot: header.slot,
     blockHash: header.hash,
   });
+
+/** Curry-first helper: fix `(assertion, header)` so every `Effect.mapError`
+ *  along a crypto pipeline reads as `.pipe(Effect.mapError(toHeaderErr))`. */
+const headerErrFor =
+  (assertion: HeaderAssertion, header: BlockHeader) =>
+  (cause: unknown): HeaderValidationError =>
+    headerValidationError(assertion, String(cause), header);
+
+/** Babbage+ leader-VRF output = `blake2b256(0x4c ∥ proofHash)` (ASCII 'L',
+ *  per Haskell `Praos/VRF.hs:108`). Shared with `bridges/header.ts`. */
+const VRF_LEADER_TAG_BYTE = new Uint8Array([0x4c]);
+
+/** Praos fraction denominator for `activeSlotsCoeff` — f is always
+ *  expressed as `coeffNum / 100` in Cardano configs. */
+const COEFF_DENOMINATOR = 100;
+
+/** All-zero byte array sentinel — `view.epochNonce` and stub VRF proof
+ *  hashes use this to signal "no real data", in which case the affected
+ *  assertion gracefully no-ops (genesis-sync path). */
+const isAllZero = (bytes: Uint8Array): boolean => bytes.every((b) => b === 0);
 
 // ---------------------------------------------------------------------------
 // BlockHeader — consensus-layer view of a Shelley+ block header
@@ -105,10 +139,7 @@ export const validateHeader = (
   prevTip?: PrevTip,
 ): Effect.Effect<void, HeaderValidationError, Crypto> =>
   Effect.gen(function* () {
-    // Envelope checks (fast, sequential) — per Haskell HeaderValidation.hs:366-378
     yield* validateEnvelope(header, prevTip, ledgerView);
-
-    // Protocol checks (crypto-heavy, parallel) — 5 Praos assertions
     const crypto = yield* Crypto;
     yield* Effect.all([
       assertKnownLeaderVrf(crypto, header, ledgerView),
@@ -117,7 +148,15 @@ export const validateHeader = (
       assertKesSignature(crypto, header, ledgerView),
       assertOperationalCertificate(crypto, header, ledgerView),
     ]);
-  });
+  }).pipe(
+    Effect.tapError(() => Metric.update(BlockValidationFailed, 1)),
+    Effect.withSpan(SPAN.ValidateHeader, {
+      attributes: {
+        "block.slot": String(header.slot),
+        "block.no": String(header.blockNo),
+      },
+    }),
+  );
 
 // ---------------------------------------------------------------------------
 // Envelope validation — chain structure integrity (blockNo, slot, prevHash, sizes)
@@ -154,7 +193,7 @@ const validateEnvelope = (
         return yield* Effect.fail(
           headerValidationError(
             "Envelope",
-            `PrevHash mismatch: expected ${hex(prevTip.hash)}, got ${hex(header.prevHash)}`,
+            `PrevHash mismatch: expected ${prevTip.hash.toHex()}, got ${header.prevHash.toHex()}`,
             header,
           ),
         );
@@ -186,24 +225,15 @@ const assertKnownLeaderVrf = (
   view: LedgerView,
 ): Effect.Effect<void, HeaderValidationError> => {
   if (HashMap.size(view.poolVrfKeys) === 0) return Effect.void;
+  const toErr = headerErrFor("AssertKnownLeaderVrf", header);
   return Effect.gen(function* () {
-    const poolIdBytes = yield* crypto
-      .blake2b256(header.issuerVk)
-      .pipe(
-        Effect.mapError((cause) =>
-          headerValidationError("AssertKnownLeaderVrf", String(cause), header),
-        ),
-      );
-    const poolId = hex(poolIdBytes);
+    const poolIdBytes = yield* crypto.blake2b256(header.issuerVk).pipe(Effect.mapError(toErr));
+    const poolId = poolIdBytes.toHex();
     const registeredVrfVk = HashMap.get(view.poolVrfKeys, poolId);
     if (Option.isNone(registeredVrfVk))
-      return yield* Effect.fail(
-        headerValidationError("AssertKnownLeaderVrf", `pool ${poolId} not registered`, header),
-      );
+      return yield* Effect.fail(toErr(`pool ${poolId} not registered`));
     if (!Equal.equals(registeredVrfVk.value, header.vrfVk))
-      return yield* Effect.fail(
-        headerValidationError("AssertKnownLeaderVrf", `VRF key mismatch for pool ${poolId}`, header),
-      );
+      return yield* Effect.fail(toErr(`VRF key mismatch for pool ${poolId}`));
   });
 };
 
@@ -214,42 +244,33 @@ const assertVrfProof = (
   header: BlockHeader,
   view: LedgerView,
 ): Effect.Effect<void, HeaderValidationError> => {
-  if (view.epochNonce.every((b) => b === 0)) return Effect.void;
+  if (isAllZero(view.epochNonce)) return Effect.void;
+  const toErr = headerErrFor("AssertVrfProof", header);
   return Effect.gen(function* () {
-    // Construct VRF input: blake2b-256(slot_be64 || epoch_nonce)
-    const slotBuf = new Uint8Array(8);
-    new DataView(slotBuf.buffer).setBigUint64(0, header.slot);
+    // VRF input: `blake2b-256(slot_be64 ∥ epoch_nonce)`. `be64` already
+    // produces a big-endian 8-byte buffer (platform-independent).
     const vrfInput = yield* crypto
-      .blake2b256(concat(slotBuf, view.epochNonce))
-      .pipe(
-        Effect.mapError((cause) => headerValidationError("AssertVrfProof", String(cause), header)),
-      );
+      .blake2b256(concat(be64(header.slot), view.epochNonce))
+      .pipe(Effect.mapError(toErr));
 
     // Verify the VRF proof — WASM call; returns 64-byte proof hash on success.
     const proofHash = yield* crypto
       .vrfVerifyProof(header.vrfVk, header.vrfProof, vrfInput)
-      .pipe(
-        Effect.mapError((cause) => headerValidationError("AssertVrfProof", String(cause), header)),
-      );
+      .pipe(Effect.mapError(toErr));
 
     // Skip output comparison if stub returns all-zero hash (test-only).
     // A real ECVRF proof hash is never all zeros.
-    if (proofHash.every((b) => b === 0)) return;
+    if (isAllZero(proofHash)) return;
 
-    // Verify the declared VRF output matches the computed proof hash.
-    // The VRF output in the header is the leader-tagged hash: blake2b-256(0x4c || proofHash)
-    const leaderTag = new Uint8Array([0x4c]);
+    // Declared VRF output must equal `blake2b-256(0x4c ∥ proofHash)` —
+    // the leader-tagged derivation (Babbage+, Haskell `Praos/VRF.hs:108`).
     const expectedOutput = yield* crypto
-      .blake2b256(concat(leaderTag, proofHash))
-      .pipe(
-        Effect.mapError((cause) => headerValidationError("AssertVrfProof", String(cause), header)),
-      );
+      .blake2b256(concat(VRF_LEADER_TAG_BYTE, proofHash))
+      .pipe(Effect.mapError(toErr));
     if (!Equal.equals(expectedOutput, header.vrfOutput))
       return yield* Effect.fail(
-        headerValidationError(
-          "AssertVrfProof",
-          `VRF output mismatch: expected ${hex(expectedOutput)}, got ${hex(header.vrfOutput)}`,
-          header,
+        toErr(
+          `VRF output mismatch: expected ${expectedOutput.toHex()}, got ${header.vrfOutput.toHex()}`,
         ),
       );
   });
@@ -263,51 +284,31 @@ const assertLeaderStake = (
   view: LedgerView,
 ): Effect.Effect<void, HeaderValidationError> => {
   if (view.totalStake === 0n) return Effect.void;
+  const toErr = headerErrFor("AssertLeaderStake", header);
   return Effect.gen(function* () {
-    const poolIdBytes = yield* crypto
-      .blake2b256(header.issuerVk)
-      .pipe(
-        Effect.mapError((cause) =>
-          headerValidationError("AssertLeaderStake", String(cause), header),
-        ),
-      );
-    const poolId = hex(poolIdBytes);
+    const poolIdBytes = yield* crypto.blake2b256(header.issuerVk).pipe(Effect.mapError(toErr));
+    const poolId = poolIdBytes.toHex();
     const poolStake = HashMap.get(view.poolStake, poolId);
     if (Option.isNone(poolStake))
-      return yield* Effect.fail(
-        headerValidationError(
-          "AssertLeaderStake",
-          `pool ${poolId} has no registered stake`,
-          header,
-        ),
-      );
+      return yield* Effect.fail(toErr(`pool ${poolId} has no registered stake`));
 
-    // Decompose activeSlotsCoeff (e.g. 0.05 → 5/100)
-    // For Cardano mainnet/preprod, f = 1/20
-    const coeffDen = 100;
-    const coeffNum = Math.round(view.activeSlotsCoeff * coeffDen);
+    // Decompose activeSlotsCoeff (e.g. 0.05 → 5/100). For Cardano
+    // mainnet/preprod, f = 1/20 → coeffNum = 5.
+    const coeffNum = Math.round(view.activeSlotsCoeff * COEFF_DENOMINATOR);
 
     // checkVrfLeader is a WASM call via the Crypto service.
     const isLeader = yield* crypto
       .checkVrfLeader(
-        hex(header.vrfOutput),
+        header.vrfOutput.toHex(),
         poolStake.value.toString(),
         view.totalStake.toString(),
         coeffNum.toString(),
-        coeffDen.toString(),
+        COEFF_DENOMINATOR.toString(),
       )
-      .pipe(
-        Effect.mapError((cause) =>
-          headerValidationError("AssertLeaderStake", String(cause), header),
-        ),
-      );
+      .pipe(Effect.mapError(toErr));
     if (!isLeader)
       return yield* Effect.fail(
-        headerValidationError(
-          "AssertLeaderStake",
-          `pool ${poolId} is not leader for this slot (VRF threshold not met)`,
-          header,
-        ),
+        toErr(`pool ${poolId} is not leader for this slot (VRF threshold not met)`),
       );
   });
 };
@@ -317,24 +318,19 @@ const assertKesSignature = (
   crypto: Context.Service.Shape<typeof Crypto>,
   header: BlockHeader,
   view: LedgerView,
-): Effect.Effect<void, HeaderValidationError> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, HeaderValidationError> => {
+  const toErr = headerErrFor("AssertKesSignature", header);
+  return Effect.gen(function* () {
     const kesPeriodSinceOpcert = header.kesPeriod - header.opcertKesPeriod;
     if (kesPeriodSinceOpcert < 0)
       return yield* Effect.fail(
-        headerValidationError(
-          "AssertKesSignature",
+        toErr(
           `KES period ${header.kesPeriod} before opcert start ${header.opcertKesPeriod}`,
-          header,
         ),
       );
     if (kesPeriodSinceOpcert >= view.maxKesEvolutions)
       return yield* Effect.fail(
-        headerValidationError(
-          "AssertKesSignature",
-          `KES period ${kesPeriodSinceOpcert} exceeds max ${view.maxKesEvolutions}`,
-          header,
-        ),
+        toErr(`KES period ${kesPeriodSinceOpcert} exceeds max ${view.maxKesEvolutions}`),
       );
     // Verify KES signature over CBOR(headerBody) — not bodyHash.
     // pallas expects RELATIVE period (kesPeriod - opcertKesPeriod), not absolute.
@@ -345,16 +341,10 @@ const assertKesSignature = (
         header.opcertVkHot,
         header.headerBodyCbor,
       )
-      .pipe(
-        Effect.mapError((cause) =>
-          headerValidationError("AssertKesSignature", String(cause), header),
-        ),
-      );
-    if (!valid)
-      return yield* Effect.fail(
-        headerValidationError("AssertKesSignature", "KES signature invalid", header),
-      );
+      .pipe(Effect.mapError(toErr));
+    if (!valid) return yield* Effect.fail(toErr("KES signature invalid"));
   });
+};
 
 // 5. Opcert: cold key must have signed the hot key + counter monotonicity
 // Per Haskell Praos.hs:638-648: DSIGN verify + counter check (m <= n <= m+1)
@@ -362,62 +352,37 @@ const assertOperationalCertificate = (
   crypto: Context.Service.Shape<typeof Crypto>,
   header: BlockHeader,
   view: LedgerView,
-): Effect.Effect<void, HeaderValidationError> =>
-  Effect.gen(function* () {
+): Effect.Effect<void, HeaderValidationError> => {
+  const toErr = headerErrFor("AssertOperationalCertificate", header);
+  return Effect.gen(function* () {
     if (header.opcertSeqNo < 0)
       return yield* Effect.fail(
-        headerValidationError(
-          "AssertOperationalCertificate",
-          `invalid opcert sequence number: ${header.opcertSeqNo}`,
-          header,
-        ),
+        toErr(`invalid opcert sequence number: ${header.opcertSeqNo}`),
       );
     // Opcert message: hotVk(32 bytes) ∥ seqNo(BE64) ∥ kesPeriod(BE64)
     // Per Amaru/Haskell: seqNo and kesPeriod are Word64, serialized as 8-byte big-endian.
     const msg = concat(header.opcertVkHot, be64(header.opcertSeqNo), be64(header.opcertKesPeriod));
     const valid = yield* crypto
       .ed25519Verify(msg, header.opcertSig, header.issuerVk)
-      .pipe(
-        Effect.mapError((cause) =>
-          headerValidationError("AssertOperationalCertificate", String(cause), header),
-        ),
-      );
-    if (!valid)
-      return yield* Effect.fail(
-        headerValidationError(
-          "AssertOperationalCertificate",
-          "opcert Ed25519 signature invalid",
-          header,
-        ),
-      );
+      .pipe(Effect.mapError(toErr));
+    if (!valid) return yield* Effect.fail(toErr("opcert Ed25519 signature invalid"));
 
     // Counter monotonicity check (per Haskell Praos.hs:645-648).
     // Gracefully skip when counters are empty (genesis sync without bootstrap).
     if (HashMap.size(view.ocertCounters) > 0) {
       const poolIdBytes = yield* crypto
         .blake2b256(header.issuerVk)
-        .pipe(
-          Effect.mapError((cause) =>
-            headerValidationError("AssertOperationalCertificate", String(cause), header),
-          ),
-        );
-      const poolId = hex(poolIdBytes);
+        .pipe(Effect.mapError(toErr));
+      const poolId = poolIdBytes.toHex();
       const lastSeqNo = HashMap.get(view.ocertCounters, poolId).pipe(Option.getOrElse(() => 0));
       if (header.opcertSeqNo < lastSeqNo)
         return yield* Effect.fail(
-          headerValidationError(
-            "AssertOperationalCertificate",
-            `opcert seqNo ${header.opcertSeqNo} < last ${lastSeqNo} (CounterTooSmall)`,
-            header,
-          ),
+          toErr(`opcert seqNo ${header.opcertSeqNo} < last ${lastSeqNo} (CounterTooSmall)`),
         );
       if (header.opcertSeqNo > lastSeqNo + 1)
         return yield* Effect.fail(
-          headerValidationError(
-            "AssertOperationalCertificate",
-            `opcert seqNo ${header.opcertSeqNo} > last + 1 (CounterOverIncremented)`,
-            header,
-          ),
+          toErr(`opcert seqNo ${header.opcertSeqNo} > last + 1 (CounterOverIncremented)`),
         );
     }
   });
+};

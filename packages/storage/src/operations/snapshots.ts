@@ -48,7 +48,6 @@ export const writeSnapshot = (snapshot: LedgerStateSnapshot) =>
 export const readLatestSnapshot = Effect.gen(function* () {
   const sql = yield* SqlClient;
   const store = yield* BlobStore;
-
   const findLatest = SqlSchema.findOneOption({
     Request: Schema.Void,
     Result: SnapshotRow,
@@ -57,18 +56,17 @@ export const readLatestSnapshot = Effect.gen(function* () {
       ORDER BY slot DESC LIMIT 1
     `,
   });
-
-  const row = yield* findLatest(undefined);
-  if (Option.isNone(row)) return Option.none<LedgerStateSnapshot>();
-
-  const r = row.value;
-  const stateBytes = yield* store.get(snapshotKey(BigInt(r.slot)));
-  if (Option.isNone(stateBytes)) return Option.none<LedgerStateSnapshot>();
-
-  return Option.some<LedgerStateSnapshot>({
-    point: { slot: BigInt(r.slot), hash: r.hash },
-    stateBytes: stateBytes.value,
-    epoch: BigInt(r.epoch),
-    slot: BigInt(r.slot),
-  });
+  const rowOpt = yield* findLatest(undefined);
+  if (Option.isNone(rowOpt)) return Option.none<LedgerStateSnapshot>();
+  const r = rowOpt.value;
+  const bytesOpt = yield* store.get(snapshotKey(BigInt(r.slot)));
+  return Option.map(
+    bytesOpt,
+    (stateBytes): LedgerStateSnapshot => ({
+      point: { slot: BigInt(r.slot), hash: r.hash },
+      stateBytes,
+      epoch: BigInt(r.epoch),
+      slot: BigInt(r.slot),
+    }),
+  );
 }).pipe(Effect.mapError((cause) => new LedgerDBError({ operation: "readLatestSnapshot", cause })));

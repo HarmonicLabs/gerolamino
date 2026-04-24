@@ -19,7 +19,6 @@ import {
   Clock,
   Context,
   Effect,
-  Exit,
   Layer,
   Metric,
   Option,
@@ -30,7 +29,7 @@ import {
 } from "effect";
 
 import { blockFetchLatency } from "../../Metrics";
-import { ChainPoint } from "../types/ChainPoint";
+import type { ChainPoint } from "../types/ChainPoint";
 import { BlockFetchClient, BlockFetchError } from "./Client";
 
 /**
@@ -58,8 +57,15 @@ export const makeResolver = (options?: { readonly maxInFlight?: number }) =>
     const client = yield* BlockFetchClient;
     const maxInFlight = options?.maxInFlight ?? DEFAULT_MAX_IN_FLIGHT;
 
+    /** Collapse every underlying failure (stream errors, schema errors,
+     * timeouts) to the `BlockFetchError` the request class declares. */
+    const toBlockFetchError = (cause: unknown): BlockFetchError =>
+      cause instanceof BlockFetchError
+        ? cause
+        : new BlockFetchError({ cause });
+
     const base = RequestResolver.fromEffect(
-      (entry: Request.Entry<FetchBlockRange>) =>
+      (entry: Request.Entry<FetchBlockRange>): Effect.Effect<FetchBlockRangeResult, BlockFetchError> =>
         Effect.gen(function* () {
           const startMs = yield* Clock.currentTimeMillis;
           const maybeStream = yield* client.requestRange(
@@ -70,10 +76,11 @@ export const makeResolver = (options?: { readonly maxInFlight?: number }) =>
           yield* Metric.update(blockFetchLatency, endMs - startMs);
           return yield* Option.match(maybeStream, {
             onNone: (): Effect.Effect<FetchBlockRangeResult, BlockFetchError> =>
-              Effect.succeed([] as FetchBlockRangeResult),
-            onSome: (stream) => Stream.runCollect(stream) as any,
+              Effect.succeed<FetchBlockRangeResult>([]),
+            onSome: (stream) =>
+              Stream.runCollect(stream).pipe(Effect.mapError(toBlockFetchError)),
           });
-        }).pipe(Effect.scoped) as any,
+        }).pipe(Effect.scoped, Effect.mapError(toBlockFetchError)),
     );
 
     return RequestResolver.batchN(base, maxInFlight);

@@ -1,20 +1,21 @@
-import * as BunWorker from "@effect/platform-bun/BunWorker";
 import { Context, Effect, Layer } from "effect";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type * as RpcGroup from "effect/unstable/rpc/RpcGroup";
-import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
-import type { WorkerError } from "effect/unstable/workers/WorkerError";
 
+import { CryptoOpError, type CryptoOperation } from "../errors.ts";
 import { Crypto } from "../service.ts";
 
 import { CryptoRpcGroup } from "./crypto-rpc.ts";
 
-const WORKER_URL = new URL("./crypto-worker.ts", import.meta.url);
-
 /**
  * RpcClient service for the Crypto RPC group. Resolved from a worker pool
- * (see `CryptoWorkerBun`).
+ * (see the Bun-specific `./bun.ts` subpath, or a future `./browser.ts`).
+ *
+ * The class + `CryptoFromRpc` layer stay here because they are
+ * platform-agnostic — both browser and Bun consumers bind the same
+ * `RpcClient<CryptoRpcGroup>` service. Platform-specific spawners live in
+ * their own module so the default barrel stays browser-safe.
  */
 export class CryptoRpcClient extends Context.Service<
   CryptoRpcClient,
@@ -24,24 +25,50 @@ export class CryptoRpcClient extends Context.Service<
 }
 
 /**
- * Crypto service layer backed by a Bun Worker pool. Method signatures
- * match `CryptoDirect` — call sites stay identical; only the Layer
- * provided at the entrypoint changes.
+ * Convert a worker-transport `RpcClientError` into a `CryptoOpError` so the
+ * `Crypto` service signature stays `Effect<_, CryptoOpError>` whether the
+ * layer is direct or worker-backed. The alternative — widening the service
+ * error channel to `CryptoOpError | RpcClientError` — would ripple through
+ * every consensus caller for a failure shape they can't meaningfully
+ * differentiate from an in-process WASM error anyway.
  */
-const CryptoFromRpc: Layer.Layer<Crypto, never, CryptoRpcClient> = Layer.effect(
+const mapTransportError = (operation: CryptoOperation) => (err: RpcClientError) =>
+  new CryptoOpError({
+    operation,
+    kind: "Unknown",
+    code: 0,
+    message: `rpc transport: ${err.message}`,
+  });
+
+/**
+ * `Crypto` service implementation that forwards every call through the
+ * RPC client. Method signatures match `CryptoDirect` — call sites stay
+ * identical; only the Layer provided at the entrypoint changes.
+ *
+ * The RpcClient error channel carries `CryptoOpError | RpcClientError`;
+ * domain errors already surface as `CryptoOpError` from the handler side,
+ * so only the transport-failure arm needs mapping. `Effect.catchTag` on
+ * `RpcClientError` narrows the channel back to the service's declared
+ * `CryptoOpError` without casting.
+ */
+export const CryptoFromRpc: Layer.Layer<Crypto, never, CryptoRpcClient> = Layer.effect(
   Crypto,
   Effect.gen(function* () {
     const client = yield* CryptoRpcClient;
+    const catchTransport = <A>(
+      operation: CryptoOperation,
+      eff: Effect.Effect<A, CryptoOpError | RpcClientError>,
+    ): Effect.Effect<A, CryptoOpError> =>
+      eff.pipe(Effect.catchTag("RpcClientError", (err) => Effect.fail(mapTransportError(operation)(err))));
+
     return {
-      blake2b256: (data) =>
-        client.Blake2b256({ data }).pipe(Effect.mapError((err) => err as never)),
+      blake2b256: (data) => catchTransport("blake2b256", client.Blake2b256({ data })),
       ed25519Verify: (message, signature, publicKey) =>
-        client.Ed25519Verify({ message, signature, publicKey }).pipe(
-          Effect.mapError((err) => err as never),
-        ),
+        catchTransport("ed25519Verify", client.Ed25519Verify({ message, signature, publicKey })),
       kesSum6Verify: (signature, period, publicKey, message) =>
-        client.KesSum6Verify({ message, period, publicKey, signature }).pipe(
-          Effect.mapError((err) => err as never),
+        catchTransport(
+          "kesSum6Verify",
+          client.KesSum6Verify({ message, period, publicKey, signature }),
         ),
       checkVrfLeader: (
         vrfOutputHex,
@@ -50,46 +77,28 @@ const CryptoFromRpc: Layer.Layer<Crypto, never, CryptoRpcClient> = Layer.effect(
         activeSlotCoeffNum,
         activeSlotCoeffDen,
       ) =>
-        client
-          .CheckVrfLeader({
+        catchTransport(
+          "checkVrfLeader",
+          client.CheckVrfLeader({
             activeSlotCoeffDen,
             activeSlotCoeffNum,
             sigmaDenominator,
             sigmaNumerator,
             vrfOutputHex,
-          })
-          .pipe(Effect.mapError((err) => err as never)),
+          }),
+        ),
       vrfVerifyProof: (vrfVkey, vrfProof, vrfInput) =>
-        client.VrfVerifyProof({ vrfInput, vrfProof, vrfVkey }).pipe(
-          Effect.mapError((err) => err as never),
+        catchTransport(
+          "vrfVerifyProof",
+          client.VrfVerifyProof({ vrfInput, vrfProof, vrfVkey }),
         ),
       vrfProofToHash: (vrfProof) =>
-        client.VrfProofToHash({ vrfProof }).pipe(Effect.mapError((err) => err as never)),
+        catchTransport("vrfProofToHash", client.VrfProofToHash({ vrfProof })),
     };
   }),
 );
 
-/**
- * Single shared worker pool sized to the host's CPU core count.
- * `navigator.hardwareConcurrency` is available in Bun ≥1.1, Node.js ≥21,
- * and every browser per the WHATWG HTML spec; fall back to 1 if missing.
- */
-const workerPoolSize = navigator.hardwareConcurrency ?? 1;
-
-/**
- * `Crypto` service backed by Bun Workers + RPC. One shared pool for the
- * entire blockchain — compose once at the entrypoint:
- *
- * ```ts
- * const AppLive = Layer.mergeAll(
- *   CryptoWorkerBun,
- *   // ...
- * )
- * ```
- */
-export const CryptoWorkerBun: Layer.Layer<Crypto, WorkerError> = CryptoFromRpc.pipe(
-  Layer.provide(CryptoRpcClient.layer),
-  Layer.provide(RpcClient.layerProtocolWorker({ size: workerPoolSize })),
-  Layer.provide(RpcSerialization.layerMsgPack),
-  Layer.provide(BunWorker.layer(() => new globalThis.Worker(WORKER_URL))),
-);
+// The Bun-Worker entrypoint URL lives in `./bun.ts` alongside the spawner.
+// Keeping `new URL("./crypto-worker.ts", import.meta.url)` out of this module
+// prevents browser bundlers from traversing the Worker entrypoint and
+// picking up its `@effect/platform-bun` imports as transitive deps.

@@ -6,6 +6,7 @@ import {
   SchemaIssue,
   SchemaTransformation,
 } from "effect";
+import { CborDerivationError } from "../CborError";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -277,7 +278,10 @@ const literalToCbor = (literal: AST.LiteralValue): CborValue => {
             value: BigDecimal.fromNumberUnsafe(literal),
           });
     default:
-      throw new Error(`Unsupported literal type: ${typeof literal}`);
+      throw new CborDerivationError({
+        link: "literalEncoder",
+        message: `Unsupported literal type: ${typeof literal}`,
+      });
   }
 };
 

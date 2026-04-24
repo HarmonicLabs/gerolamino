@@ -16,11 +16,13 @@ import * as FastCheck from "effect/testing/FastCheck";
 import {
   Crypto,
   CryptoDirect,
-  CryptoWorkerBun,
   ed25519_public_key,
   ed25519_secret_key_from_seed,
   ed25519_sign,
 } from "../index.ts";
+// `CryptoWorkerBun` lives at the Bun-specific subpath so the default barrel
+// stays free of `@effect/platform-bun` imports (browser compatibility).
+import { CryptoWorkerBun } from "../rpc/bun.ts";
 
 // Two distinct Service tags, each re-wired to one backend. Lets a single
 // test body yield *both* services without resolving the same Crypto tag

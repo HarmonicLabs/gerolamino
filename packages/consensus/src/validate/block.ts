@@ -14,18 +14,34 @@
  * Uses the `Crypto` service for blake2b (abstracted, testable, platform-independent).
  * Assumes canonical CBOR encoding (per Cardano spec).
  */
-import { Effect, Equal, Schema } from "effect";
-import { parseSync, encodeSync, CborKinds } from "codecs";
+import { Effect, Equal, Metric, Schema } from "effect";
+import { parseSync, encodeSync, CborKinds, CborValue } from "codecs";
 import { Crypto } from "wasm-utils";
-import { hex, concat } from "../util";
+import { concat } from "../util";
+import { BlockValidationFailed, SPAN } from "../observability.ts";
+
+/** Block-body validation buckets — `VerifyBodyHash` (Merkle body-hash check)
+ * + `BlockSizeLimit` (protocol-param ceiling). Narrowed from `Schema.String`
+ * to let `Match.value(e.assertion)` stay exhaustive. */
+export const BlockAssertion = Schema.Literals(["VerifyBodyHash", "BlockSizeLimit"]);
+export type BlockAssertion = typeof BlockAssertion.Type;
 
 export class BlockValidationError extends Schema.TaggedErrorClass<BlockValidationError>()(
   "BlockValidationError",
   {
-    assertion: Schema.String,
+    assertion: BlockAssertion,
     cause: Schema.Defect,
   },
 ) {}
+
+/**
+ * Module-level combinator: wrap a `CryptoOpError` (or any other unknown
+ * failure) into a `BlockValidationError` with `assertion: "VerifyBodyHash"`.
+ * Kept out of the `Effect.gen` body so each blake2b pipeline in `verifyBodyHash`
+ * reads as a one-liner instead of capturing the helper in-scope.
+ */
+const verifyBodyHashErr = (cause: unknown) =>
+  new BlockValidationError({ assertion: "VerifyBodyHash", cause });
 
 /**
  * Verify the block body hash matches the header's declared bodyHash.
@@ -41,7 +57,7 @@ export const verifyBodyHash = (
     const crypto = yield* Crypto;
 
     const top = parseSync(blockCbor);
-    if (top._tag !== CborKinds.Array || top.items.length < 2)
+    if (!CborValue.guards[CborKinds.Array](top) || top.items.length < 2)
       return yield* Effect.fail(
         new BlockValidationError({
           assertion: "VerifyBodyHash",
@@ -50,34 +66,31 @@ export const verifyBodyHash = (
       );
 
     const eraNum = top.items[0]!;
-    if (eraNum._tag !== CborKinds.UInt || eraNum.num <= 1n) return; // Byron — no body hash to verify
+    if (!CborValue.guards[CborKinds.UInt](eraNum) || eraNum.num <= 1n) return; // Byron — no body hash to verify
 
     const blockBody = top.items[1]!;
-    if (blockBody._tag !== CborKinds.Array || blockBody.items.length < 4)
+    if (!CborValue.guards[CborKinds.Array](blockBody) || blockBody.items.length < 4)
       return yield* Effect.fail(
         new BlockValidationError({
           assertion: "VerifyBodyHash",
           cause: `Invalid block body: expected >= 4 elements, got ${
-            blockBody._tag === CborKinds.Array ? blockBody.items.length : "non-array"
+            CborValue.guards[CborKinds.Array](blockBody) ? blockBody.items.length : "non-array"
           }`,
         }),
       );
-
-    const mapCryptoErr = (cause: unknown) =>
-      new BlockValidationError({ assertion: "VerifyBodyHash", cause });
 
     // Body = [header, txBodies, witnesses, auxData, invalidTxs?]
     // Merkle-like double-hash: hash each segment individually, then hash the concatenation of hashes.
     // Per Haskell hashShelleySegWits / hashAlonzoSegWits (cardano-ledger BlockBody/Internal.hs).
     const txBodiesHash = yield* crypto
       .blake2b256(encodeSync(blockBody.items[1]!))
-      .pipe(Effect.mapError(mapCryptoErr));
+      .pipe(Effect.mapError(verifyBodyHashErr));
     const witnessesHash = yield* crypto
       .blake2b256(encodeSync(blockBody.items[2]!))
-      .pipe(Effect.mapError(mapCryptoErr));
+      .pipe(Effect.mapError(verifyBodyHashErr));
     const auxDataHash = yield* crypto
       .blake2b256(encodeSync(blockBody.items[3]!))
-      .pipe(Effect.mapError(mapCryptoErr));
+      .pipe(Effect.mapError(verifyBodyHashErr));
 
     // Alonzo+ (era >= 4) includes invalidTxs as 5th element
     const hashConcat =
@@ -88,16 +101,16 @@ export const verifyBodyHash = (
             auxDataHash,
             yield* crypto
               .blake2b256(encodeSync(blockBody.items[4]!))
-              .pipe(Effect.mapError(mapCryptoErr)),
+              .pipe(Effect.mapError(verifyBodyHashErr)),
           )
         : concat(txBodiesHash, witnessesHash, auxDataHash);
 
-    const computedHash = yield* crypto.blake2b256(hashConcat).pipe(Effect.mapError(mapCryptoErr));
+    const computedHash = yield* crypto.blake2b256(hashConcat).pipe(Effect.mapError(verifyBodyHashErr));
     if (!Equal.equals(computedHash, declaredBodyHash))
       return yield* Effect.fail(
         new BlockValidationError({
           assertion: "VerifyBodyHash",
-          cause: `Body hash mismatch: expected ${hex(declaredBodyHash)}, got ${hex(computedHash)}`,
+          cause: `Body hash mismatch: expected ${declaredBodyHash.toHex()}, got ${computedHash.toHex()}`,
         }),
       );
   });
@@ -123,4 +136,9 @@ export const validateBlock = (
         }),
       );
     }
-  });
+  }).pipe(
+    Effect.tapError(() => Metric.update(BlockValidationFailed, 1)),
+    Effect.withSpan(SPAN.ValidateBody, {
+      attributes: { "block.size_bytes": blockCbor.byteLength },
+    }),
+  );

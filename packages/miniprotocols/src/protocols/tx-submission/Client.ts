@@ -4,6 +4,7 @@ import { Socket } from "effect/unstable/socket";
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
+import { unexpectedFor } from "../common";
 import { MAX_UNACKED_TX_IDS } from "./limits";
 import * as Schemas from "./Schemas";
 
@@ -41,8 +42,8 @@ export interface TxSubmissionHandlers {
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.TxSubmissionMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.TxSubmissionMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new TxSubmissionError({ cause: `Unexpected server message: ${tag}` }));
+const makeError = (cause: string) => new TxSubmissionError({ cause: `Unexpected server message: ${cause}` });
+const unexpected = unexpectedFor(makeError);
 
 export class TxSubmissionClient extends Context.Service<
   TxSubmissionClient,
@@ -85,75 +86,64 @@ export class TxSubmissionClient extends Context.Service<
       const outstanding = yield* Ref.make(0);
 
       const enforceAckWindow = (ack: number, req: number) =>
-        Effect.gen(function* () {
-          const current = yield* Ref.get(outstanding);
-          if (ack > current) {
-            return yield* Effect.fail(
-              new TxSubmissionAckWindowError({
-                reason: "peer asked to acknowledge more ids than outstanding",
-                outstanding: current,
-                ack,
-                req,
-              }),
-            );
-          }
-          if (current - ack + req > MAX_UNACKED_TX_IDS) {
-            return yield* Effect.fail(
-              new TxSubmissionAckWindowError({
-                reason: `peer requested window > ${MAX_UNACKED_TX_IDS}`,
-                outstanding: current,
-                ack,
-                req,
-              }),
-            );
-          }
-          yield* Ref.update(outstanding, (n) => n - ack);
-        });
+        Ref.get(outstanding).pipe(
+          Effect.flatMap((current) =>
+            ack > current
+              ? Effect.fail(
+                  new TxSubmissionAckWindowError({
+                    reason: "peer asked to acknowledge more ids than outstanding",
+                    outstanding: current,
+                    ack,
+                    req,
+                  }),
+                )
+              : current - ack + req > MAX_UNACKED_TX_IDS
+                ? Effect.fail(
+                    new TxSubmissionAckWindowError({
+                      reason: `peer requested window > ${MAX_UNACKED_TX_IDS}`,
+                      outstanding: current,
+                      ack,
+                      req,
+                    }),
+                  )
+                : Ref.update(outstanding, (n) => n - ack),
+          ),
+        );
 
       return TxSubmissionClient.of({
         run: (handlers) =>
-          sendMessage({ _tag: Schemas.TxSubmissionMessageType.Init }).pipe(
+          sendMessage(Schemas.TxSubmissionMessage.cases.Init.make({})).pipe(
             Effect.andThen(
               messages.pipe(
                 Stream.mapEffect((msg) =>
-                  Schemas.TxSubmissionMessage.match(msg, {
-                    RequestTxIds: (m) =>
-                      enforceAckWindow(m.ack, m.req).pipe(
-                        Effect.andThen(handlers.onRequestTxIds(m.ack, m.req, m.blocking)),
-                        Effect.flatMap((ids) =>
-                          // Tally the outgoing ids BEFORE sending — if the
-                          // handler replied with more than `req`, clamp to
-                          // `req` and only count what we actually send.
-                          Effect.gen(function* () {
-                            const capped = ids.slice(0, m.req);
-                            yield* Ref.update(outstanding, (n) => n + capped.length);
-                            yield* sendMessage({
-                              _tag: Schemas.TxSubmissionMessageType.ReplyTxIds,
-                              ids: [...capped],
-                            });
-                          }),
-                        ),
-                      ),
-                    RequestTxs: (m) =>
-                      handlers.onRequestTxs(m.txIds).pipe(
-                        Effect.flatMap((txs) =>
-                          sendMessage({
-                            _tag: Schemas.TxSubmissionMessageType.ReplyTxs,
-                            txs: [...txs],
-                          }),
-                        ),
-                      ),
-                    Done: () => Effect.void,
-                    Init: (m) => unexpected(m._tag),
-                    ReplyTxIds: (m) => unexpected(m._tag),
-                    ReplyTxs: (m) => unexpected(m._tag),
+                  Effect.gen(function* () {
+                    if (Schemas.TxSubmissionMessage.guards.RequestTxIds(msg)) {
+                      yield* enforceAckWindow(msg.ack, msg.req);
+                      const ids = yield* handlers.onRequestTxIds(msg.ack, msg.req, msg.blocking);
+                      // Tally outgoing ids BEFORE sending — if the handler
+                      // replied with more than `req`, clamp to `req` and
+                      // only count what we actually send.
+                      const capped = ids.slice(0, msg.req);
+                      yield* Ref.update(outstanding, (n) => n + capped.length);
+                      return yield* sendMessage(
+                        Schemas.TxSubmissionMessage.cases.ReplyTxIds.make({ ids: [...capped] }),
+                      );
+                    }
+                    if (Schemas.TxSubmissionMessage.guards.RequestTxs(msg)) {
+                      const txs = yield* handlers.onRequestTxs(msg.txIds);
+                      return yield* sendMessage(
+                        Schemas.TxSubmissionMessage.cases.ReplyTxs.make({ txs: [...txs] }),
+                      );
+                    }
+                    if (Schemas.TxSubmissionMessage.guards.Done(msg)) return;
+                    return yield* unexpected(msg._tag);
                   }),
                 ),
                 Stream.runDrain,
               ),
             ),
           ),
-        done: () => sendMessage({ _tag: Schemas.TxSubmissionMessageType.Done }),
+        done: () => sendMessage(Schemas.TxSubmissionMessage.cases.Done.make({})),
       });
     }),
   );

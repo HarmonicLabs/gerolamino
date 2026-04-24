@@ -15,6 +15,7 @@
  * ChainDB: standard ChainDBLive from storage package, consuming both.
  */
 import { Effect, Layer, Option, Schema, Stream } from "effect";
+import { groupBy } from "es-toolkit";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import * as IndexedDbTable from "@effect/platform-browser/IndexedDbTable";
 import * as IndexedDbVersion from "@effect/platform-browser/IndexedDbVersion";
@@ -191,19 +192,14 @@ export const BlobStoreIndexedDB: Layer.Layer<
       putBatch: (entries: ReadonlyArray<BlobEntry>) =>
         Effect.gen(function* () {
           // Group entries by target table, then bulk-upsert per table.
-          // During bootstrap, batches are typically single-prefix (all UTxO or all blocks).
-          const groups = new Map<TableName, Array<{ hexKey: string; value: Uint8Array }>>();
-          for (const e of entries) {
-            const name = resolveTableName(e.key);
-            let group = groups.get(name);
-            if (!group) {
-              group = [];
-              groups.set(name, group);
-            }
-            group.push({ hexKey: e.key.toHex(), value: e.value });
-          }
-          for (const [name, group] of groups) {
-            yield* tables[name].upsertAll(group);
+          // During bootstrap, batches are typically single-prefix (all UTxO
+          // or all blocks). `groupBy` is declarative and returns a plain
+          // Record, which iterates cleanly via `Object.entries`.
+          const grouped = groupBy(entries, (e) => resolveTableName(e.key));
+          for (const [name, bucket] of Object.entries(grouped)) {
+            yield* tables[name as TableName].upsertAll(
+              bucket.map((e) => ({ hexKey: e.key.toHex(), value: e.value })),
+            );
           }
         }).pipe(
           Effect.asVoid,

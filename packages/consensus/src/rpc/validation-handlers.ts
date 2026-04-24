@@ -4,11 +4,11 @@
  * Each of the 12 Rpcs is mapped to an `Effect` that delegates to the
  * right backing service:
  *   - Crypto primitives → `Crypto` service from wasm-utils
+ *   - blake2b-256 (plain + tagged + body-hash + tx-id) → `Crypto.blake2b256`.
+ *     Routed through the shared WASM path (not `Bun.CryptoHasher`) so this
+ *     module stays browser-compatible — `packages/consensus` must compile
+ *     against the `@effect/platform-browser` stack too.
  *   - CBOR decoders → `codecs` + `ledger` (pure Effect)
- *   - `ComputeBodyHash` / `ComputeTxId` → `Bun.CryptoHasher("blake2b256")`
- *     (per `feedback_prefer_bun_crypto.md` — no WASM boundary for plain
- *     blake2b; the CryptoHasher is ~5-10× faster than the WASM path).
- *   - `Blake2b256Tagged` → concat(tag, data) → `Bun.CryptoHasher`.
  *   - `ValidateHeader` / `ValidateBlockBody` → existing
  *     `validate-header.ts` / `validate-block.ts` logic.
  *
@@ -19,26 +19,11 @@
  *     same handlers across a MessagePort boundary
  */
 import { Effect } from "effect";
+import { concat } from "codecs";
 import { MultiEraBlock, decodeMultiEraBlock } from "ledger/lib/block/block.ts";
 import { Era } from "ledger/lib/core/era.ts";
-import { Crypto, fromWasmError } from "wasm-utils";
+import { Crypto } from "wasm-utils";
 import { ValidationError, ValidationRpcGroup } from "./validation-rpc-group.ts";
-
-/**
- * Bun.CryptoHasher-backed blake2b-256 for hot-path hashing. Matches the
- * `feedback_prefer_bun_crypto.md` convention — WASM is reserved for
- * ed25519/KES/VRF/leader-math where the Rust-optimised implementation
- * is the only correct path.
- */
-const blake2b256 = (data: Uint8Array): Uint8Array =>
-  new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
-
-const blake2b256Tagged = (tag: number, data: Uint8Array): Uint8Array => {
-  const combined = new Uint8Array(1 + data.byteLength);
-  combined[0] = tag & 0xff;
-  combined.set(data, 1);
-  return blake2b256(combined);
-};
 
 /**
  * In-process handler layer. Every Rpc delegates to real backing services;
@@ -74,29 +59,28 @@ export const ValidationHandlersLive = ValidationRpcGroup.toLayer(
         crypto.vrfVerifyProof(vrfVkey, vrfProof, vrfInput),
       VrfProofToHash: ({ vrfProof }) => crypto.vrfProofToHash(vrfProof),
 
-      // ───────────── blake2b-256 (Bun.CryptoHasher, no WASM) ─────────────
+      // ───────────── blake2b-256 (via WASM — browser-compatible) ─────────────
 
       Blake2b256Tagged: ({ data, tag }) =>
-        Effect.try({
-          try: () => blake2b256Tagged(tag, data),
-          catch: (err) => fromWasmError("Blake2b256Tagged", err),
-        }),
+        crypto.blake2b256(concat(new Uint8Array([tag & 0xff]), data)),
       ComputeBodyHash: ({ blockBodyCbor }) =>
-        Effect.try({
-          try: () => blake2b256(blockBodyCbor),
-          catch: (err) =>
-            new ValidationError({
-              operation: "ComputeBodyHash",
-              message: String(err),
-              cause: err,
-            }),
-        }),
+        crypto.blake2b256(blockBodyCbor).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ValidationError({
+                operation: "ComputeBodyHash",
+                message: cause.message,
+                cause,
+              }),
+          ),
+        ),
       ComputeTxId: ({ txBodyCbor }) =>
-        Effect.try({
-          try: () => blake2b256(txBodyCbor),
-          catch: (err) =>
-            new ValidationError({ operation: "ComputeTxId", message: String(err), cause: err }),
-        }),
+        crypto.blake2b256(txBodyCbor).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ValidationError({ operation: "ComputeTxId", message: cause.message, cause }),
+          ),
+        ),
 
       // ───────────── CBOR decode ops ─────────────
 
@@ -133,35 +117,10 @@ export const ValidationHandlersLive = ValidationRpcGroup.toLayer(
           ),
         ),
 
-      DecodeHeaderCbor: (_) =>
-        // Dedicated header decode path — not strictly needed when the caller
-        // has the full block CBOR already (DecodeBlockCbor covers it). Stub
-        // defers to Phase 3b proper when header-only dispatch becomes useful.
-        Effect.fail(
-          new ValidationError({
-            operation: "DecodeHeaderCbor",
-            message: "not yet implemented — use DecodeBlockCbor for now",
-          }),
-        ),
-
-      // ───────────── Composite validation (Phase 3b proper) ─────────────
-
-      ValidateHeader: (_) =>
-        Effect.fail(
-          new ValidationError({
-            operation: "ValidateHeader",
-            message:
-              "not yet implemented — Phase 3b wires this into validate-header.ts + ledger-view",
-          }),
-        ),
-      ValidateBlockBody: (_) =>
-        Effect.fail(
-          new ValidationError({
-            operation: "ValidateBlockBody",
-            message:
-              "not yet implemented — Phase 3b wires this into validate-block.ts + body-hash check",
-          }),
-        ),
+      // `DecodeHeaderCbor`, `ValidateHeader`, `ValidateBlockBody` handlers
+      // were removed along with their Rpc declarations — see the group
+      // header comment in `validation-rpc-group.ts` for the rationale.
+      // They'll re-land with the SyncStage pipeline's worker offload.
     });
   }),
 );

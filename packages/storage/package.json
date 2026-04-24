@@ -11,6 +11,6 @@
     "type-check": "tsgo --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "ffi": "workspace:*"
+    "lsm-ffi": "workspace:*"
   }
 }

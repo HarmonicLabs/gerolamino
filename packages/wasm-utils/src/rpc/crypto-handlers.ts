@@ -8,6 +8,7 @@ import {
   vrf_proof_to_hash,
   vrf_verify_proof,
 } from "../../pkg/wasm_utils.js";
+
 import { fromWasmError } from "../errors.ts";
 import { initWasm } from "../init.ts";
 

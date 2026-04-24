@@ -11,6 +11,10 @@ import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient"
 import { type BlobEntry, BlobStore } from "../blob-store/service.ts";
 import { ChainDB } from "../services/chain-db.ts";
 import { ChainDBLive } from "../services/chain-db-live.ts";
+import {
+  LedgerSnapshotStore,
+  LedgerSnapshotStoreLive,
+} from "../services/ledger-snapshot-store.ts";
 import { runMigrations } from "../operations/migrations.ts";
 import type { StoredBlock } from "../types/StoredBlock.ts";
 
@@ -58,10 +62,11 @@ const makeInMemoryBlobStore = () => {
 
 const blobLayer = Layer.succeed(BlobStore, makeInMemoryBlobStore());
 const storageLayer = Layer.merge(sqlLayer, blobLayer);
-const fullLayer = Layer.provideMerge(ChainDBLive, storageLayer);
+const servicesLayer = Layer.merge(ChainDBLive, LedgerSnapshotStoreLive);
+const fullLayer = Layer.provideMerge(servicesLayer, storageLayer);
 
-/** Provide a ChainDB effect with fresh migrations + real SQLite. */
-const provide = <A>(effect: Effect.Effect<A, unknown, ChainDB>) =>
+/** Provide a ChainDB + LedgerSnapshotStore effect with fresh migrations + real SQLite. */
+const provide = <A>(effect: Effect.Effect<A, unknown, ChainDB | LedgerSnapshotStore>) =>
   runMigrations.pipe(Effect.andThen(effect), Effect.provide(fullLayer));
 
 // ---------------------------------------------------------------------------
@@ -188,15 +193,15 @@ describe("ChainDBLive with real SQLite", () => {
   it.effect("ledger snapshot write + read round-trip", () =>
     provide(
       Effect.gen(function* () {
-        const db = yield* ChainDB;
-        yield* db.writeLedgerSnapshot(
+        const snapshots = yield* LedgerSnapshotStore;
+        yield* snapshots.writeLedgerSnapshot(
           100n,
           new Uint8Array(32).fill(0xaa),
           5n,
           new Uint8Array([1, 2, 3]),
         );
 
-        const result = yield* db.readLatestLedgerSnapshot;
+        const result = yield* snapshots.readLatestLedgerSnapshot;
         expect(Option.isSome(result)).toBe(true);
         if (Option.isSome(result)) {
           expect(result.value.point.slot).toBe(100n);

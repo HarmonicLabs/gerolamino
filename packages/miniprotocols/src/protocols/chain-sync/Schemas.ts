@@ -53,12 +53,15 @@ export type ChainSyncMessageT = typeof ChainSyncMessage.Type;
 
 function decodeChainPoint(node: CborSchemaType): ChainPoint {
   if (node._tag !== CborKinds.Array) throw new Error("Expected CBOR array for ChainPoint");
-  if (node.items.length === 0) return { _tag: ChainPointType.Origin as const };
+  if (node.items.length === 0) return ChainPointSchema.cases[ChainPointType.Origin].make({});
   const slot = node.items[0];
   const hash = node.items[1];
   if (slot?._tag !== CborKinds.UInt) throw new Error("Expected uint for slot");
   if (hash?._tag !== CborKinds.Bytes) throw new Error("Expected bytes for hash");
-  return { _tag: ChainPointType.RealPoint as const, slot: Number(slot.num), hash: hash.bytes };
+  return ChainPointSchema.cases[ChainPointType.RealPoint].make({
+    slot: Number(slot.num),
+    hash: hash.bytes,
+  });
 }
 
 const encodeChainPoint = ChainPointSchema.match({
@@ -104,9 +107,9 @@ export const ChainSyncMessageBytes = cborSyncCodec(
     if (tag?._tag !== CborKinds.UInt) throw new Error("Expected uint tag");
     switch (Number(tag.num)) {
       case 0:
-        return { _tag: ChainSyncMessageType.RequestNext as const };
+        return ChainSyncMessage.cases[ChainSyncMessageType.RequestNext].make({});
       case 1:
-        return { _tag: ChainSyncMessageType.AwaitReply as const };
+        return ChainSyncMessage.cases[ChainSyncMessageType.AwaitReply].make({});
       case 2: {
         // N2N ChainSync RollForward: [2, wrappedHeader, tip]
         // wrappedHeader = [eraVariant, headerContent]
@@ -184,41 +187,36 @@ export const ChainSyncMessageBytes = cborSyncCodec(
           headerBytes = encodeSync(wrappedHeader!);
         }
 
-        return {
-          _tag: ChainSyncMessageType.RollForward as const,
+        return ChainSyncMessage.cases[ChainSyncMessageType.RollForward].make({
           header: headerBytes!,
           eraVariant,
           byronPrefix,
           tip: decodeChainTip(cbor.items[2]!),
-        };
+        });
       }
       case 3:
-        return {
-          _tag: ChainSyncMessageType.RollBackward as const,
+        return ChainSyncMessage.cases[ChainSyncMessageType.RollBackward].make({
           point: decodeChainPoint(cbor.items[1]!),
           tip: decodeChainTip(cbor.items[2]!),
-        };
+        });
       case 4: {
         const arr = cbor.items[1];
         if (arr?._tag !== CborKinds.Array) throw new Error("Expected CBOR array for points");
-        return {
-          _tag: ChainSyncMessageType.FindIntersect as const,
+        return ChainSyncMessage.cases[ChainSyncMessageType.FindIntersect].make({
           points: arr.items.map(decodeChainPoint),
-        };
+        });
       }
       case 5:
-        return {
-          _tag: ChainSyncMessageType.IntersectFound as const,
+        return ChainSyncMessage.cases[ChainSyncMessageType.IntersectFound].make({
           point: decodeChainPoint(cbor.items[1]!),
           tip: decodeChainTip(cbor.items[2]!),
-        };
+        });
       case 6:
-        return {
-          _tag: ChainSyncMessageType.IntersectNotFound as const,
+        return ChainSyncMessage.cases[ChainSyncMessageType.IntersectNotFound].make({
           tip: decodeChainTip(cbor.items[1]!),
-        };
+        });
       case 7:
-        return { _tag: ChainSyncMessageType.Done as const };
+        return ChainSyncMessage.cases[ChainSyncMessageType.Done].make({});
       default:
         throw new Error(`Unknown ChainSync tag: ${Number(tag.num)}`);
     }

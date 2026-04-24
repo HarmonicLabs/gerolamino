@@ -2,19 +2,18 @@ import { describe, it, expect } from "@effect/vitest";
 import { Clock, Effect, HashMap, Layer, Option, Stream } from "effect";
 import { processBlock, getSyncState, syncFromStream } from "../sync/bootstrap";
 import { Nonces } from "../praos/nonce";
-import { ConsensusEngineLive } from "../praos/engine";
 import { CryptoStub } from "./crypto-stub";
 import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
-import { ChainDB } from "storage";
+import { ChainDB, LedgerSnapshotStore } from "storage";
 import type { StoredBlock } from "storage";
-import { hex, concat } from "../util";
+import { concat } from "../util";
 import { encodeSync, CborKinds } from "codecs";
 import type { CborSchemaType } from "codecs";
 import type { BlockHeader, LedgerView } from "../validate/header";
 
 const poolIdFromVk = (vk: Uint8Array): string => {
   const hasher = new Bun.CryptoHasher("blake2b256");
-  return hex(new Uint8Array(hasher.update(vk).digest().buffer));
+  return new Uint8Array(hasher.update(vk).digest().buffer).toHex();
 };
 
 const makeVk = (seed: number): Uint8Array => {
@@ -108,7 +107,7 @@ const makeLedgerView = (): LedgerView => {
   };
 };
 
-// Stub ChainDB for sync tests (in-memory, no SQL/BlobStore)
+// Stub ChainDB + LedgerSnapshotStore for sync tests (in-memory, no SQL/BlobStore)
 const stubChainDb = Layer.succeed(ChainDB, {
   getBlock: () => Effect.succeed(Option.none()),
   getBlockAt: () => Effect.succeed(Option.none()),
@@ -120,12 +119,15 @@ const stubChainDb = Layer.succeed(ChainDB, {
   streamFrom: () => Stream.empty,
   promoteToImmutable: () => Effect.void,
   garbageCollect: () => Effect.void,
+  writeBlobEntries: () => Effect.void,
+  deleteBlobEntries: () => Effect.void,
+});
+
+const stubLedgerSnapshots = Layer.succeed(LedgerSnapshotStore, {
   writeLedgerSnapshot: () => Effect.void,
   readLatestLedgerSnapshot: Effect.succeed(Option.none()),
   writeNonces: () => Effect.void,
   readNonces: Effect.succeed(Option.none()),
-  writeBlobEntries: () => Effect.void,
-  deleteBlobEntries: () => Effect.void,
 });
 
 // SlotClock with test config: system start at 0, 1s slots, 100 slots/epoch
@@ -149,11 +151,7 @@ const stubSlotClock = Layer.effect(
   SlotClockLive(testConfig).pipe(Effect.provideService(Clock.Clock, fixedClock)),
 );
 
-const testLayers = Layer.mergeAll(
-  ConsensusEngineLive.pipe(Layer.provideMerge(CryptoStub)),
-  stubChainDb,
-  stubSlotClock,
-);
+const testLayers = Layer.mergeAll(CryptoStub, stubChainDb, stubLedgerSnapshots, stubSlotClock);
 
 describe("Sync pipeline", () => {
   it.effect("getSyncState returns initial state", () =>
@@ -225,9 +223,9 @@ describe("Sync pipeline", () => {
       // Epoch should advance
       expect(result.epoch).toBe(1n);
       // Active nonce should change (derived from candidate + prevHash)
-      expect(hex(result.active)).not.toBe(hex(nonces.active));
+      expect(result.active.toHex()).not.toBe(nonces.active.toHex());
       // Active should not be the old candidate verbatim — it's blake2b(candidate ∥ prevHash)
-      expect(hex(result.active)).not.toBe(hex(nonces.candidate));
+      expect(result.active.toHex()).not.toBe(nonces.candidate.toHex());
     }).pipe(Effect.provide(testLayers)),
   );
 
@@ -249,7 +247,7 @@ describe("Sync pipeline", () => {
       );
 
       // Active nonce unchanged — no epoch transition
-      expect(hex(result.active)).toBe(hex(nonces.active));
+      expect(result.active.toHex()).toBe(nonces.active.toHex());
       expect(result.epoch).toBe(0n);
     }).pipe(Effect.provide(testLayers)),
   );

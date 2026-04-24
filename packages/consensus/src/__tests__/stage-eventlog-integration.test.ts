@@ -46,7 +46,11 @@ const emitStage = new SyncStage<ValidatedBlock, ChainEventType, never, EventLog.
         hash: block.hash,
         parentHash: block.parentHash,
       };
-      yield* writeChainEvent(event);
+      // `writeChainEvent` surfaces `EventJournalError` on journal write
+      // failure; the stage's declared error channel is `never` (the in-memory
+      // test journal doesn't fail). `Effect.orDie` keeps the stage
+      // signature tight without widening to expose a transient infra error.
+      yield* writeChainEvent(event).pipe(Effect.orDie);
       return event;
     }),
   concurrency: 1,

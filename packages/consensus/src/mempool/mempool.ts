@@ -25,7 +25,7 @@
 import { Context, Effect, HashSet, Layer, Option, Ref, Schema, Stream } from "effect";
 import { KeyValueStore } from "effect/unstable/persistence";
 import { ChainEvent, ChainEventStream } from "../chain/event-log.ts";
-import type { MempoolRuleError } from "./conway-predicates.ts";
+import { MempoolRuleError } from "./conway-predicates.ts";
 
 /**
  * A `MempoolEntry` wraps the submitted tx CBOR + metadata consensus
@@ -60,7 +60,7 @@ export class MempoolError extends Schema.TaggedErrorClass<MempoolError>()("Mempo
  * KV keys are strings; hex encoding is the simplest correct canonical
  * form for a `Uint8Array` txId.
  */
-const hexKey = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");
+const hexKey = (bytes: Uint8Array): string => bytes.toHex();
 
 /**
  * Namespace prefix applied when deriving the mempool's slice of a shared
@@ -86,10 +86,10 @@ export class Mempool extends Context.Service<
     ) => Effect.Effect<SubmitResult, MempoolError>;
 
     /** Snapshot ordered by `feePerByte` descending (block-packing order). */
-    readonly snapshot: Effect.Effect<ReadonlyArray<MempoolEntry>>;
+    readonly snapshot: Effect.Effect<ReadonlyArray<MempoolEntry>, MempoolError>;
 
     /** Remove a tx by id (called after inclusion in a block). */
-    readonly removeByHash: (txId: Uint8Array) => Effect.Effect<void>;
+    readonly removeByHash: (txId: Uint8Array) => Effect.Effect<void, MempoolError>;
 
     /**
      * Handle a chain rollback: evict txs whose inputs came from
@@ -98,7 +98,7 @@ export class Mempool extends Context.Service<
      * `ChainEventStream` and calls `onReorg` on every `RolledBack` event,
      * so most consumers don't invoke this directly.
      */
-    readonly onReorg: (evictedTxIds: ReadonlyArray<Uint8Array>) => Effect.Effect<void>;
+    readonly onReorg: (evictedTxIds: ReadonlyArray<Uint8Array>) => Effect.Effect<void, MempoolError>;
 
     /** Total pending tx count. */
     readonly size: Effect.Effect<number>;
@@ -144,12 +144,14 @@ export class Mempool extends Context.Service<
        * To fail for a test, pass a `txId` whose first byte is 0xff; that
        * triggers a synthetic UtxoFailure for shape checking.
        */
-      const validateConway = (txId: Uint8Array): ReadonlyArray<MempoolRuleError> => {
-        if (txId[0] === 0xff) {
-          return [{ _tag: "UtxoFailure", inner: "synthetic rejection (first byte 0xff)" }];
-        }
-        return [];
-      };
+      const validateConway = (txId: Uint8Array): ReadonlyArray<MempoolRuleError> =>
+        txId[0] === 0xff
+          ? [
+              MempoolRuleError.cases.UtxoFailure.make({
+                inner: "synthetic rejection (first byte 0xff)",
+              }),
+            ]
+          : [];
 
       const toMempoolError = (message: string) => (cause: unknown) =>
         new MempoolError({ message, cause });
@@ -159,16 +161,13 @@ export class Mempool extends Context.Service<
           Effect.gen(function* () {
             const key = hexKey(txId);
             const known = yield* Ref.get(index).pipe(Effect.map(HashSet.has(key)));
-            if (known) {
-              return { _tag: "AlreadyPresent", txId } as const;
-            }
+            if (known) return SubmitResult.cases.AlreadyPresent.make({ txId });
             const reasons = validateConway(txId);
             if (reasons.length > 0) {
-              return {
-                _tag: "Rejected",
+              return SubmitResult.cases.Rejected.make({
                 txId,
                 reasons: reasons.map((r) => r._tag).join(","),
-              } as const;
+              });
             }
             const entry = new MempoolEntry({
               txId,
@@ -179,18 +178,24 @@ export class Mempool extends Context.Service<
             });
             yield* store.set(key, entry).pipe(Effect.mapError(toMempoolError("submit.set")));
             yield* Ref.update(index, HashSet.add(key));
-            return { _tag: "Accepted", txId, feePerByte } as const;
+            return SubmitResult.cases.Accepted.make({ txId, feePerByte });
           }),
 
         snapshot: Effect.gen(function* () {
           const keys = yield* Ref.get(index);
+          // KV reads are independent — parallelize to avoid O(n) wall-time on
+          // large pools. `unbounded` is safe because mempool sizes are bounded
+          // by Conway pparams.maxTxPoolSize (typically ≤ 4096 txs).
           const fetches = yield* Effect.forEach(
             keys,
             (key) => store.get(key).pipe(Effect.mapError(toMempoolError("snapshot.get"))),
+            { concurrency: "unbounded" },
           );
-          // Filter to the Some arm + sort highest-fee-rate first.
+          // Keep only `Some`, sort highest-fee-rate first. `.flatMap(Option.toArray)`
+          // is the canonical filter-Some-and-unwrap idiom ([x] for Some(x), []
+          // for None); preserved in a single pass with no branching.
           return fetches
-            .flatMap(Option.match({ onNone: () => [], onSome: (e) => [e] }))
+            .flatMap(Option.toArray)
             .toSorted((a, b) => b.feePerByte - a.feePerByte);
         }),
 
@@ -240,7 +245,7 @@ export class Mempool extends Context.Service<
                           `mempool cleared — rollback depth ${depth} > k=${K_DEEP}`,
                         ),
                       ),
-                      Effect.catchAll((err) =>
+                      Effect.catch((err: MempoolError) =>
                         Effect.logError(
                           `mempool clear failed (rollback depth ${depth}): ${err.message}`,
                         ),

@@ -13,7 +13,6 @@ import {
   ed25519_public_key,
   ed25519_secret_key_from_seed,
 } from "wasm-utils";
-import { hex } from "../util";
 
 const provide = <A>(effect: Effect.Effect<A, unknown, Crypto>) =>
   effect.pipe(Effect.provide(CryptoDirect));
@@ -28,7 +27,7 @@ describe("CryptoDirect (WASM)", () => {
         expect(hash.byteLength).toBe(32);
         // Deterministic — same input always produces same hash
         const hash2 = yield* crypto.blake2b256(new Uint8Array([1, 2, 3]));
-        expect(hex(hash)).toBe(hex(hash2));
+        expect(hash.toHex()).toBe(hash2.toHex());
       }),
     ),
   );

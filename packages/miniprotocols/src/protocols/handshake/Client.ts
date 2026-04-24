@@ -59,7 +59,27 @@ export class HandshakeClient extends Context.Service<
                   Option.match({
                     onNone: () =>
                       Effect.fail(new HandshakeError({ cause: "No response received" })),
-                    onSome: Effect.succeed,
+                    // Narrow to the three valid responder states — a server
+                    // that echoes `MsgProposeVersions` back at the client is
+                    // a protocol violation we surface as `HandshakeError`
+                    // rather than passing through as a typed message. The
+                    // match keys are the numeric-enum values because
+                    // `HandshakeMessageType` is a `Schema.Enum`.
+                    onSome: (msg) =>
+                      Schemas.HandshakeMessage.match(msg, {
+                        [Schemas.HandshakeMessageType.MsgAcceptVersion]: (m) =>
+                          Effect.succeed<Schemas.HandshakeMessageT>(m),
+                        [Schemas.HandshakeMessageType.MsgRefuse]: (m) =>
+                          Effect.succeed<Schemas.HandshakeMessageT>(m),
+                        [Schemas.HandshakeMessageType.MsgQueryReply]: (m) =>
+                          Effect.succeed<Schemas.HandshakeMessageT>(m),
+                        [Schemas.HandshakeMessageType.MsgProposeVersions]: (_m) =>
+                          Effect.fail(
+                            new HandshakeError({
+                              cause: `Unexpected handshake response from peer: MsgProposeVersions`,
+                            }),
+                          ),
+                      }),
                   }),
                 ),
               ),

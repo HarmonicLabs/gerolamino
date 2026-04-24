@@ -24,6 +24,62 @@
  */
 import { Schema } from "effect";
 
+// ───────────────────────────────────────────────────────────────────────
+// Primitive type aliases — give semantic names to raw Schema wrappers so
+// predicate fields read as `HashList` / `Lovelace` instead of repeating
+// `Schema.Array(Schema.Uint8Array)` / `Schema.BigInt`. Keeps the predicate
+// table legible and makes wire-format changes a one-liner.
+// ───────────────────────────────────────────────────────────────────────
+
+const Hash = Schema.Uint8Array;
+const HashList = Schema.Array(Hash);
+const StringList = Schema.Array(Schema.String);
+const NetworkId = Schema.Number;
+const Lovelace = Schema.BigInt;
+const SlotNo = Schema.BigInt;
+const EpochNo = Schema.BigInt;
+
+// ───────────────────────────────────────────────────────────────────────
+// Pair-shape field builders — Cardano ledger rules name both halves of
+// a comparison ("declared" / "computed", "declared" / "actual",
+// "declared" / "minimum", "declared" / "required", "declared" / "limit")
+// and the distinction is load-bearing for error messages. Keeping each
+// naming convention a named helper makes a new predicate a one-line add
+// and stops the table from drifting into ad-hoc shapes.
+// ───────────────────────────────────────────────────────────────────────
+
+/** `{ declared, computed }` — hash/value comparisons where both sides are
+ *  reconstructed (tx body hash, script-integrity hash, PP-view hash, …). */
+const Mismatch = <A, B>(inner: Schema.Codec<A, B>) => ({
+  declared: inner,
+  computed: inner,
+});
+
+/** `{ declared, actual }` — claimed network id vs. the cluster's network
+ *  id (wrong-network family). */
+const Mismatched = <A, B>(inner: Schema.Codec<A, B>) => ({
+  declared: inner,
+  actual: inner,
+});
+
+/** `{ declared, required }` — insufficient collateral / proposal deposit. */
+const AtLeast = <A, B>(inner: Schema.Codec<A, B>) => ({
+  declared: inner,
+  required: inner,
+});
+
+/** `{ declared, minimum }` — fee-too-small, expiration-epoch-too-small. */
+const AtLeastMin = <A, B>(inner: Schema.Codec<A, B>) => ({
+  declared: inner,
+  minimum: inner,
+});
+
+/** `{ declared, limit }` — size / ex-units / collateral-input count caps. */
+const AtMost = <A, B>(inner: Schema.Codec<A, B>) => ({
+  declared: inner,
+  limit: inner,
+});
+
 // ═══════════════════════════════════════════════════════════════════════
 // UTXOW layer — 19 predicates (Utxow.hs:76, tags 0-18)
 // ═══════════════════════════════════════════════════════════════════════
@@ -31,51 +87,30 @@ import { Schema } from "effect";
 const UtxowPredicateFields = [
   // Shelley base (tags 0-9, reused through all eras)
   Schema.TaggedStruct("UtxoFailure", { inner: Schema.String }), // 0
-  Schema.TaggedStruct("InvalidWitnessesUTXOW", { keyHashes: Schema.Array(Schema.Uint8Array) }), // 1
-  Schema.TaggedStruct("MissingVKeyWitnessesUTXOW", {
-    keyHashes: Schema.Array(Schema.Uint8Array),
-  }), // 2
-  Schema.TaggedStruct("MissingScriptWitnessesUTXOW", {
-    scriptHashes: Schema.Array(Schema.Uint8Array),
-  }), // 3
-  Schema.TaggedStruct("ScriptWitnessNotValidatingUTXOW", {
-    scriptHashes: Schema.Array(Schema.Uint8Array),
-  }), // 4
-  Schema.TaggedStruct("MissingTxBodyMetadataHash", { hash: Schema.Uint8Array }), // 5
-  Schema.TaggedStruct("MissingTxMetadata", { hash: Schema.Uint8Array }), // 6
-  Schema.TaggedStruct("ConflictingMetadataHash", {
-    declared: Schema.Uint8Array,
-    computed: Schema.Uint8Array,
-  }), // 7
+  Schema.TaggedStruct("InvalidWitnessesUTXOW", { keyHashes: HashList }), // 1
+  Schema.TaggedStruct("MissingVKeyWitnessesUTXOW", { keyHashes: HashList }), // 2
+  Schema.TaggedStruct("MissingScriptWitnessesUTXOW", { scriptHashes: HashList }), // 3
+  Schema.TaggedStruct("ScriptWitnessNotValidatingUTXOW", { scriptHashes: HashList }), // 4
+  Schema.TaggedStruct("MissingTxBodyMetadataHash", { hash: Hash }), // 5
+  Schema.TaggedStruct("MissingTxMetadata", { hash: Hash }), // 6
+  Schema.TaggedStruct("ConflictingMetadataHash", Mismatch(Hash)), // 7
   Schema.TaggedStruct("InvalidMetadata", {}), // 8
-  Schema.TaggedStruct("ExtraneousScriptWitnessesUTXOW", {
-    scriptHashes: Schema.Array(Schema.Uint8Array),
-  }), // 9
+  Schema.TaggedStruct("ExtraneousScriptWitnessesUTXOW", { scriptHashes: HashList }), // 9
   // Alonzo additions (tags 10-15)
-  Schema.TaggedStruct("MissingRedeemers", { pointers: Schema.Array(Schema.String) }), // 10
-  Schema.TaggedStruct("MissingRequiredDatums", { dataHashes: Schema.Array(Schema.Uint8Array) }), // 11
+  Schema.TaggedStruct("MissingRedeemers", { pointers: StringList }), // 10
+  Schema.TaggedStruct("MissingRequiredDatums", { dataHashes: HashList }), // 11
   Schema.TaggedStruct("NotAllowedSupplementalDatums", {
-    acceptable: Schema.Array(Schema.Uint8Array),
-    extraneous: Schema.Array(Schema.Uint8Array),
+    acceptable: HashList,
+    extraneous: HashList,
   }), // 12
-  Schema.TaggedStruct("PPViewHashesDontMatch", {
-    declared: Schema.Uint8Array,
-    computed: Schema.Uint8Array,
-  }), // 13
-  Schema.TaggedStruct("UnspendableUTxONoDatumHash", { txIns: Schema.Array(Schema.String) }), // 14
-  Schema.TaggedStruct("ExtraRedeemers", { pointers: Schema.Array(Schema.String) }), // 15
+  Schema.TaggedStruct("PPViewHashesDontMatch", Mismatch(Hash)), // 13
+  Schema.TaggedStruct("UnspendableUTxONoDatumHash", { txIns: StringList }), // 14
+  Schema.TaggedStruct("ExtraRedeemers", { pointers: StringList }), // 15
   // Babbage additions (tags 16-17)
-  Schema.TaggedStruct("MalformedScriptWitnesses", {
-    scriptHashes: Schema.Array(Schema.Uint8Array),
-  }), // 16
-  Schema.TaggedStruct("MalformedReferenceScripts", {
-    scriptHashes: Schema.Array(Schema.Uint8Array),
-  }), // 17
+  Schema.TaggedStruct("MalformedScriptWitnesses", { scriptHashes: HashList }), // 16
+  Schema.TaggedStruct("MalformedReferenceScripts", { scriptHashes: HashList }), // 17
   // Conway v11+ addition (tag 18)
-  Schema.TaggedStruct("ScriptIntegrityHashMismatch", {
-    declared: Schema.Uint8Array,
-    computed: Schema.Uint8Array,
-  }), // 18
+  Schema.TaggedStruct("ScriptIntegrityHashMismatch", Mismatch(Hash)), // 18
 ] as const;
 
 export const ConwayUtxowPredFailure = Schema.Union(UtxowPredicateFields).pipe(
@@ -90,51 +125,37 @@ export type ConwayUtxowPredFailure = typeof ConwayUtxowPredFailure.Type;
 const UtxoPredicateFields = [
   // Shelley base
   Schema.TaggedStruct("UtxosFailure", { inner: Schema.String }), // 0
-  Schema.TaggedStruct("BadInputsUTxO", { txIns: Schema.Array(Schema.String) }), // 1
+  Schema.TaggedStruct("BadInputsUTxO", { txIns: StringList }), // 1
   Schema.TaggedStruct("OutsideValidityIntervalUTxO", {
     interval: Schema.String,
-    currentSlot: Schema.BigInt,
+    currentSlot: SlotNo,
   }), // 2
-  Schema.TaggedStruct("MaxTxSizeUTxO", { declared: Schema.Number, limit: Schema.Number }), // 3
+  Schema.TaggedStruct("MaxTxSizeUTxO", AtMost(Schema.Number)), // 3
   Schema.TaggedStruct("InputSetEmptyUTxO", {}), // 4
-  Schema.TaggedStruct("FeeTooSmallUTxO", {
-    declared: Schema.BigInt,
-    minimum: Schema.BigInt,
-  }), // 5
+  Schema.TaggedStruct("FeeTooSmallUTxO", AtLeastMin(Lovelace)), // 5
   Schema.TaggedStruct("ValueNotConservedUTxO", {
     consumed: Schema.String,
     produced: Schema.String,
   }), // 6
-  Schema.TaggedStruct("WrongNetwork", {
-    declared: Schema.Number,
-    actual: Schema.Number,
-  }), // 7
-  Schema.TaggedStruct("WrongNetworkWithdrawal", { declared: Schema.Number }), // 8
-  Schema.TaggedStruct("OutputTooSmallUTxO", { outputs: Schema.Array(Schema.String) }), // 9
-  Schema.TaggedStruct("OutputBootAddrAttrsTooBig", { outputs: Schema.Array(Schema.String) }), // 10
+  Schema.TaggedStruct("WrongNetwork", Mismatched(NetworkId)), // 7
+  Schema.TaggedStruct("WrongNetworkWithdrawal", { declared: NetworkId }), // 8
+  Schema.TaggedStruct("OutputTooSmallUTxO", { outputs: StringList }), // 9
+  Schema.TaggedStruct("OutputBootAddrAttrsTooBig", { outputs: StringList }), // 10
   // Alonzo
-  Schema.TaggedStruct("OutputTooBigUTxO", { outputs: Schema.Array(Schema.String) }), // 11
-  Schema.TaggedStruct("InsufficientCollateral", {
-    declared: Schema.BigInt,
-    required: Schema.BigInt,
-  }), // 12 — Alonzo/Utxo.hs:341-354: balance*100 >= txfee*collPerc
-  Schema.TaggedStruct("ScriptsNotPaidUTxO", { offenders: Schema.Array(Schema.String) }), // 13
-  Schema.TaggedStruct("ExUnitsTooBigUTxO", { declared: Schema.String, limit: Schema.String }), // 14
+  Schema.TaggedStruct("OutputTooBigUTxO", { outputs: StringList }), // 11
+  // 12 — Alonzo/Utxo.hs:341-354: balance*100 >= txfee*collPerc
+  Schema.TaggedStruct("InsufficientCollateral", AtLeast(Lovelace)),
+  Schema.TaggedStruct("ScriptsNotPaidUTxO", { offenders: StringList }), // 13
+  Schema.TaggedStruct("ExUnitsTooBigUTxO", AtMost(Schema.String)), // 14
   Schema.TaggedStruct("CollateralContainsNonADA", { nonAda: Schema.String }), // 15
-  Schema.TaggedStruct("WrongNetworkInTxBody", {
-    declared: Schema.Number,
-    actual: Schema.Number,
-  }), // 16
-  Schema.TaggedStruct("OutsideForecast", { currentSlot: Schema.BigInt }), // 17
-  Schema.TaggedStruct("TooManyCollateralInputs", { declared: Schema.Number, limit: Schema.Number }), // 18
+  Schema.TaggedStruct("WrongNetworkInTxBody", Mismatched(NetworkId)), // 16
+  Schema.TaggedStruct("OutsideForecast", { currentSlot: SlotNo }), // 17
+  Schema.TaggedStruct("TooManyCollateralInputs", AtMost(Schema.Number)), // 18
   Schema.TaggedStruct("NoCollateralInputs", {}), // 19
-  Schema.TaggedStruct("IncorrectTotalCollateralField", {
-    declared: Schema.BigInt,
-    computed: Schema.BigInt,
-  }), // 20
+  Schema.TaggedStruct("IncorrectTotalCollateralField", Mismatch(Lovelace)), // 20
   // Babbage
-  Schema.TaggedStruct("BabbageOutputTooSmallUTxO", { outputs: Schema.Array(Schema.String) }), // 21
-  Schema.TaggedStruct("BabbageNonDisjointRefInputs", { txIns: Schema.Array(Schema.String) }), // 22
+  Schema.TaggedStruct("BabbageOutputTooSmallUTxO", { outputs: StringList }), // 21
+  Schema.TaggedStruct("BabbageNonDisjointRefInputs", { txIns: StringList }), // 22
 ] as const;
 
 export const ConwayUtxoPredFailure = Schema.Union(UtxoPredicateFields).pipe(
@@ -147,11 +168,8 @@ export type ConwayUtxoPredFailure = typeof ConwayUtxoPredFailure.Type;
 // ═══════════════════════════════════════════════════════════════════════
 
 const UtxosPredicateFields = [
-  Schema.TaggedStruct("ValidationTagMismatch", {
-    declared: Schema.Boolean,
-    actual: Schema.Boolean,
-  }), // 0
-  Schema.TaggedStruct("CollectErrors", { errors: Schema.Array(Schema.String) }), // 1
+  Schema.TaggedStruct("ValidationTagMismatch", Mismatched(Schema.Boolean)), // 0
+  Schema.TaggedStruct("CollectErrors", { errors: StringList }), // 1
 ] as const;
 
 export const ConwayUtxosPredFailure = Schema.Union(UtxosPredicateFields).pipe(
@@ -164,42 +182,30 @@ export type ConwayUtxosPredFailure = typeof ConwayUtxosPredFailure.Type;
 // ═══════════════════════════════════════════════════════════════════════
 
 const GovPredicateFields = [
-  Schema.TaggedStruct("GovActionsDoNotExist", { ids: Schema.Array(Schema.Uint8Array) }), // 0
+  Schema.TaggedStruct("GovActionsDoNotExist", { ids: HashList }), // 0
   Schema.TaggedStruct("MalformedProposal", { action: Schema.String }), // 1
-  Schema.TaggedStruct("ProposalProcedureNetworkIdMismatch", {
-    declared: Schema.Number,
-    actual: Schema.Number,
-  }), // 2
-  Schema.TaggedStruct("TreasuryWithdrawalsNetworkIdMismatch", {
-    declared: Schema.Number,
-    actual: Schema.Number,
-  }), // 3
-  Schema.TaggedStruct("ProposalDepositIncorrect", {
-    declared: Schema.BigInt,
-    required: Schema.BigInt,
-  }), // 4
-  Schema.TaggedStruct("DisallowedVoters", { voters: Schema.Array(Schema.String) }), // 5
-  Schema.TaggedStruct("ConflictingCommitteeUpdate", { members: Schema.Array(Schema.String) }), // 6
-  Schema.TaggedStruct("ExpirationEpochTooSmall", {
-    declared: Schema.BigInt,
-    minimum: Schema.BigInt,
-  }), // 7
+  Schema.TaggedStruct("ProposalProcedureNetworkIdMismatch", Mismatched(NetworkId)), // 2
+  Schema.TaggedStruct("TreasuryWithdrawalsNetworkIdMismatch", Mismatched(NetworkId)), // 3
+  Schema.TaggedStruct("ProposalDepositIncorrect", AtLeast(Lovelace)), // 4
+  Schema.TaggedStruct("DisallowedVoters", { voters: StringList }), // 5
+  Schema.TaggedStruct("ConflictingCommitteeUpdate", { members: StringList }), // 6
+  Schema.TaggedStruct("ExpirationEpochTooSmall", AtLeastMin(EpochNo)), // 7
   Schema.TaggedStruct("InvalidPrevGovActionId", { proposal: Schema.String }), // 8
-  Schema.TaggedStruct("VotingOnExpiredGovAction", { votes: Schema.Array(Schema.String) }), // 9
+  Schema.TaggedStruct("VotingOnExpiredGovAction", { votes: StringList }), // 9
   Schema.TaggedStruct("ProposalCantFollow", {
     newer: Schema.String,
     older: Schema.String,
   }), // 10
-  Schema.TaggedStruct("InvalidGuardrailsScriptHash", { hash: Schema.Uint8Array }), // 11
+  Schema.TaggedStruct("InvalidGuardrailsScriptHash", { hash: Hash }), // 11
   Schema.TaggedStruct("DisallowedProposalDuringBootstrap", { proposal: Schema.String }), // 12
-  Schema.TaggedStruct("DisallowedVotesDuringBootstrap", { votes: Schema.Array(Schema.String) }), // 13
-  Schema.TaggedStruct("VotersDoNotExist", { voters: Schema.Array(Schema.String) }), // 14
+  Schema.TaggedStruct("DisallowedVotesDuringBootstrap", { votes: StringList }), // 13
+  Schema.TaggedStruct("VotersDoNotExist", { voters: StringList }), // 14
   Schema.TaggedStruct("ZeroTreasuryWithdrawals", { proposal: Schema.String }), // 15
   Schema.TaggedStruct("ProposalReturnAccountDoesNotExist", { account: Schema.String }), // 16
   Schema.TaggedStruct("TreasuryWithdrawalReturnAccountsDoNotExist", {
-    accounts: Schema.Array(Schema.String),
+    accounts: StringList,
   }), // 17
-  Schema.TaggedStruct("UnelectedCommitteeVoters", { voters: Schema.Array(Schema.String) }), // 18
+  Schema.TaggedStruct("UnelectedCommitteeVoters", { voters: StringList }), // 18
 ] as const;
 
 export const ConwayGovPredFailure = Schema.Union(GovPredicateFields).pipe(
@@ -219,10 +225,15 @@ export const MempoolRuleError = Schema.Union([
 ]).pipe(Schema.toTaggedUnion("_tag"));
 export type MempoolRuleError = typeof MempoolRuleError.Type;
 
-/** Count invariants — tracked in tests. */
-export const UTXOW_PREDICATE_COUNT = 19;
-export const UTXO_PREDICATE_COUNT = 23;
-export const UTXOS_PREDICATE_COUNT = 2;
-export const GOV_PREDICATE_COUNT = 19;
+// ───────────────────────────────────────────────────────────────────────
+// Per-layer predicate counts — TS literal types anchor the values so
+// adding/removing a `Schema.TaggedStruct` in the layer's array and
+// forgetting to update the count fails `tsgo`, not just vitest.
+// ───────────────────────────────────────────────────────────────────────
+
+export const UTXOW_PREDICATE_COUNT: 19 = UtxowPredicateFields.length;
+export const UTXO_PREDICATE_COUNT: 23 = UtxoPredicateFields.length;
+export const UTXOS_PREDICATE_COUNT: 2 = UtxosPredicateFields.length;
+export const GOV_PREDICATE_COUNT: 19 = GovPredicateFields.length;
 export const CONWAY_PREDICATE_TOTAL =
   UTXOW_PREDICATE_COUNT + UTXO_PREDICATE_COUNT + UTXOS_PREDICATE_COUNT + GOV_PREDICATE_COUNT;

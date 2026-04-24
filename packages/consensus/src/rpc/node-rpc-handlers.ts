@@ -27,65 +27,123 @@
  *   - MessageChannel (future chrome-ext wave)
  */
 import { Effect, Option, Stream } from "effect";
+import { ChainDB } from "storage";
+import { Crypto } from "wasm-utils";
 import { ChainEventStream } from "../chain/event-log.ts";
 import { Mempool, SubmitResult } from "../mempool/mempool.ts";
+import { getNodeStatus } from "../node.ts";
+import { PeerManager } from "../peer/manager.ts";
 import { NodeRpcGroup } from "./node-rpc-group.ts";
 
 /**
  * Handlers live layer. Depends on:
- *   - ChainEventStream (live + historical chain events, backed by EventLog)
- *   - Mempool (submit + snapshot)
- *
- * ChainDB + PeerManager dependencies are Phase-3-integrated; until they
- * ship, `GetChainTip`, `GetPeers`, `GetSyncStatus` return placeholders.
+ *   - ChainDB           — tip + immutable tip, block-no lookup.
+ *   - PeerManager       — live peer list (tip / status / address).
+ *   - Mempool           — submit + snapshot.
+ *   - ChainEventStream  — live + historical chain events (EventLog-backed).
+ *   - Crypto            — TxId = blake2b-256(txCbor) for SubmitTx.
+ *   - getNodeStatus env — the helper itself yields ChainDB + SlotClock +
+ *                         PeerManager, so the composed layer reads them
+ *                         once at handler-build time and reuses them.
  */
 export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
   Effect.gen(function* () {
     const mempool = yield* Mempool;
     const chainEventStream = yield* ChainEventStream;
+    const chainDb = yield* ChainDB;
+    const peerManager = yield* PeerManager;
+    const crypto = yield* Crypto;
 
     return NodeRpcGroup.of({
       GetChainTip: () =>
-        // Placeholder — ChainDB.getTip integration lands with Phase 3c
-        // proper ChainDB consumer wiring.
-        Effect.succeed(Option.none()),
+        // ChainDB surfaces the (slot, hash) point; `blockNo` comes from
+        // resolving that point to the full StoredBlock. Storage failures
+        // collapse to `Option.none()` (with a log) — the RPC has no error
+        // payload, and a missing tip is the cold-start state anyway.
+        chainDb.getTip.pipe(
+          Effect.flatMap((tipOpt) =>
+            Option.match(tipOpt, {
+              onNone: () => Effect.succeed(Option.none<typeof import("./node-rpc-group.ts").ChainTipResult.Type>()),
+              onSome: (point) =>
+                chainDb.getBlockAt(point).pipe(
+                  Effect.map((blockOpt) =>
+                    Option.match(blockOpt, {
+                      onNone: () => Option.none(),
+                      onSome: (block) =>
+                        Option.some({ slot: point.slot, blockNo: block.blockNo, hash: point.hash }),
+                    }),
+                  ),
+                ),
+            }),
+          ),
+          Effect.catch((err) =>
+            Effect.logWarning(`GetChainTip: ChainDB read failed — ${err.message}`).pipe(
+              Effect.as(Option.none()),
+            ),
+          ),
+        ),
 
       GetPeers: () =>
-        // Placeholder — PeerManager integration needs a cross-service
-        // binding; returned empty until Phase 2e Peer Cluster Entity.
-        Effect.succeed([]),
+        peerManager.getPeers.pipe(
+          Effect.map((peers) =>
+            peers.map((p) => ({
+              id: p.peerId,
+              address: p.address,
+              status: p.status,
+              ...(p.tip ? { tipSlot: p.tip.slot } : {}),
+            })),
+          ),
+        ),
 
       GetMempool: () =>
         mempool.snapshot.pipe(
           Effect.map((entries) =>
             entries.map((e) => ({
-              txIdHex: Buffer.from(e.txId).toString("hex"),
+              txIdHex: e.txId.toHex(),
               sizeBytes: e.sizeBytes,
               feePerByte: e.feePerByte,
             })),
           ),
+          // Mempool.snapshot surfaces `MempoolError` on KV backend failure;
+          // the RPC shape has no declared error payload, so swallow to an
+          // empty list (operators see `MempoolError` in logs from the
+          // underlying storage layer). A future GetMempool update with a
+          // declared error channel should propagate instead.
+          Effect.catch((err) =>
+            Effect.logWarning(`GetMempool: snapshot failed — ${err.message}`).pipe(
+              Effect.as([]),
+            ),
+          ),
         ),
 
       GetSyncStatus: () =>
-        // Placeholder — synced=true + zero behind; real sync-status
-        // integration lands with Phase 3f BlockSyncWorkflow + ChainDB
-        // wiring.
-        Effect.succeed({
-          synced: true,
-          slotsBehind: 0n,
-          tipSlot: 0n,
-          blocksProcessed: 0,
-        }),
+        getNodeStatus().pipe(
+          Effect.map((status) => ({
+            synced: status.gsmState === "CaughtUp",
+            slotsBehind: status.currentSlot - status.tipSlot,
+            tipSlot: status.tipSlot,
+            blocksProcessed: status.blocksProcessed,
+          })),
+          Effect.catch((err) =>
+            Effect.logWarning(`GetSyncStatus: getNodeStatus failed — ${err.message}`).pipe(
+              Effect.as({
+                synced: false,
+                slotsBehind: 0n,
+                tipSlot: 0n,
+                blocksProcessed: 0,
+              }),
+            ),
+          ),
+        ),
 
       SubmitTx: ({ txCbor }) =>
         // Stub: extract txId as blake2b-256 of the CBOR. Full tx-id
         // computation matches the ledger's `hashTxBody` function;
         // proper wiring lands with Phase 3e Mempool + ledger TxBody
-        // decoder integration.
+        // decoder integration. Uses the platform-agnostic `Crypto`
+        // service so this handler compiles against the browser target.
         Effect.gen(function* () {
-          const txId = new Uint8Array(
-            new Bun.CryptoHasher("blake2b256").update(txCbor).digest().buffer,
-          );
+          const txId = yield* crypto.blake2b256(txCbor);
           const result = yield* mempool.submit(txId, txCbor, 0n, 0);
           return SubmitResult.match(result, {
             Accepted: () => ({ accepted: true, reason: undefined }),

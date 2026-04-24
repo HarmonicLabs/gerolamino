@@ -21,9 +21,7 @@ import {
   extractLedgerView,
   extractNonces,
   extractSnapshotTip,
-  PREPROD_CONFIG,
-  SlotClock,
-  SlotClockLive,
+  SlotClockPreprod,
 } from "consensus";
 import { decodeExtLedgerState } from "ledger";
 import { type BlobEntry, BlobStore, accountKey, stakeKey } from "storage";
@@ -197,11 +195,9 @@ const indexedDbLayer = Layer.succeed(
   }),
 );
 
-const slotClockLayer = Layer.effect(SlotClock, SlotClockLive(PREPROD_CONFIG));
-
 const runtimeLayer = Layer.mergeAll(
   BrowserStorageLayers().pipe(Layer.provide(indexedDbLayer), Layer.orDie),
-  slotClockLayer,
+  SlotClockPreprod,
 );
 
 // ---------------------------------------------------------------------------

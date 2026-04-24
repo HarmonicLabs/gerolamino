@@ -1,4 +1,5 @@
 import { BigDecimal, Effect } from "effect";
+import { sumBy } from "es-toolkit";
 import { CborDecodeError } from "../CborError";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
 
@@ -11,34 +12,48 @@ export const parseSync = (input: Uint8Array): CborValue => {
   const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
   let offset = 0;
 
+  /** Typed truncation-error constructor — runtime throws are caught by
+   * `parse`'s `Effect.try` boundary and pass through unchanged (the catch
+   * handler already detects `CborDecodeError` instances). */
+  const truncated = (needed: number) =>
+    new CborDecodeError({
+      operation: "parse",
+      reason: {
+        _tag: "Truncated",
+        at: offset,
+        needed,
+        available: input.byteLength - offset,
+      },
+    });
+
   const readUint8 = (): number => {
-    if (offset >= input.byteLength) throw new Error("Unexpected end of input");
+    if (offset >= input.byteLength) throw truncated(1);
     return view.getUint8(offset++);
   };
 
   const readUint16BE = (): number => {
-    if (offset + 2 > input.byteLength) throw new Error("Unexpected end of input");
+    if (offset + 2 > input.byteLength) throw truncated(2);
     const v = view.getUint16(offset);
     offset += 2;
     return v;
   };
 
   const readUint32BE = (): number => {
-    if (offset + 4 > input.byteLength) throw new Error("Unexpected end of input");
+    if (offset + 4 > input.byteLength) throw truncated(4);
     const v = view.getUint32(offset);
     offset += 4;
     return v;
   };
 
   const readBigUint64BE = (): bigint => {
-    if (offset + 8 > input.byteLength) throw new Error("Unexpected end of input");
+    if (offset + 8 > input.byteLength) throw truncated(8);
     const v = view.getBigUint64(offset);
     offset += 8;
     return v;
   };
 
   const readBytes = (n: number): Uint8Array => {
-    if (offset + n > input.byteLength) throw new Error("Unexpected end of input");
+    if (offset + n > input.byteLength) throw truncated(n);
     const slice = input.subarray(offset, offset + n);
     offset += n;
     return slice;
@@ -49,21 +64,21 @@ export const parseSync = (input: Uint8Array): CborValue => {
   // lines of manual sign/exponent/fraction bit manipulation and handles
   // subnormal / Infinity / NaN edge cases per the spec.
   const readFloat16 = (): number => {
-    if (offset + 2 > input.byteLength) throw new Error("Unexpected end of input");
+    if (offset + 2 > input.byteLength) throw truncated(2);
     const v = view.getFloat16(offset, false);
     offset += 2;
     return v;
   };
 
   const readFloat32 = (): number => {
-    if (offset + 4 > input.byteLength) throw new Error("Unexpected end of input");
+    if (offset + 4 > input.byteLength) throw truncated(4);
     const v = view.getFloat32(offset);
     offset += 4;
     return v;
   };
 
   const readFloat64 = (): number => {
-    if (offset + 8 > input.byteLength) throw new Error("Unexpected end of input");
+    if (offset + 8 > input.byteLength) throw truncated(8);
     const v = view.getFloat64(offset);
     offset += 8;
     return v;
@@ -83,7 +98,10 @@ export const parseSync = (input: Uint8Array): CborValue => {
       case CborKinds.AI_INDEFINITE:
         return -1n;
       default:
-        throw new Error(`Invalid additional info: ${addInfos}`);
+        throw new CborDecodeError({
+          operation: "parse",
+          reason: { _tag: "MalformedHeader", at: offset, addInfos, message: "Invalid additional info" },
+        });
     }
   };
 
@@ -96,7 +114,7 @@ export const parseSync = (input: Uint8Array): CborValue => {
   };
 
   const concatBytes = (chunks: readonly Uint8Array[]): Uint8Array => {
-    const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
+    const totalLen = sumBy(chunks, (c) => c.length);
     const result = new Uint8Array(totalLen);
     chunks.reduce((pos, c) => (result.set(c, pos), pos + c.length), 0);
     return result;
@@ -147,7 +165,15 @@ export const parseSync = (input: Uint8Array): CborValue => {
               addInfos,
             };
           }
-          throw new Error(`Invalid simple value addInfos: ${addInfos}`);
+          throw new CborDecodeError({
+            operation: "parse",
+            reason: {
+              _tag: "MalformedHeader",
+              at: offset,
+              addInfos,
+              message: "Invalid simple value addInfos",
+            },
+          });
         }
       }
     }
@@ -233,7 +259,15 @@ export const parseSync = (input: Uint8Array): CborValue => {
       }
 
       default:
-        throw new Error(`Unknown major type: ${majorType}`);
+        throw new CborDecodeError({
+          operation: "parse",
+          reason: {
+            _tag: "MalformedHeader",
+            at: offset,
+            majorType,
+            message: `Unknown major type ${majorType}`,
+          },
+        });
     }
   };
 
@@ -243,7 +277,7 @@ export const parseSync = (input: Uint8Array): CborValue => {
 export const parse = (bytes: Uint8Array): Effect.Effect<CborValue, CborDecodeError> =>
   Effect.try({
     try: () => parseSync(bytes),
-    catch: (e) => new CborDecodeError({ cause: e }),
+    catch: (e) => (e instanceof CborDecodeError ? e : new CborDecodeError({ cause: e })),
   });
 
 /**

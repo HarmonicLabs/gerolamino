@@ -1,9 +1,10 @@
-import { Cause, Context, Duration, Effect, Layer, Option, Schema, Scope, Stream } from "effect";
+import { Cause, Context, Effect, Layer, Schema, Scope, Stream } from "effect";
 import { Socket } from "effect/unstable/socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
 import { MiniProtocol } from "../../MiniProtocol";
+import { requireReply, unexpectedFor } from "../common";
 import * as Schemas from "./Schemas";
 
 export class LocalTxSubmitError extends Schema.TaggedErrorClass<LocalTxSubmitError>()(
@@ -14,8 +15,8 @@ export class LocalTxSubmitError extends Schema.TaggedErrorClass<LocalTxSubmitErr
 const decodeMessage = Schema.decodeUnknownEffect(Schemas.LocalTxSubmitMessageBytes);
 const encodeMessage = Schema.encodeUnknownEffect(Schemas.LocalTxSubmitMessageBytes);
 
-const unexpected = (tag: string) =>
-  Effect.fail(new LocalTxSubmitError({ cause: `Unexpected message: ${tag}` }));
+const makeError = (cause: string) => new LocalTxSubmitError({ cause });
+const unexpected = unexpectedFor(makeError);
 
 export class LocalTxSubmitClient extends Context.Service<
   LocalTxSubmitClient,
@@ -53,29 +54,20 @@ export class LocalTxSubmitClient extends Context.Service<
 
       return LocalTxSubmitClient.of({
         submit: (tx) =>
-          sendMessage({ _tag: Schemas.LocalTxSubmitMessageType.SubmitTx, tx }).pipe(
-            Effect.andThen(
-              messages.pipe(
-                Stream.runHead,
-                Effect.timeout(Duration.seconds(10)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      Effect.fail(new LocalTxSubmitError({ cause: "No response received" })),
-                    onSome: (v) =>
-                      Schemas.LocalTxSubmitMessage.match(v, {
-                        AcceptTx: () => Effect.succeed({ accepted: true as const }),
-                        RejectTx: (m) =>
-                          Effect.succeed({ accepted: false as const, reason: m.reason }),
-                        SubmitTx: (m) => unexpected(m._tag),
-                        Done: (m) => unexpected(m._tag),
-                      }),
-                  }),
-                ),
-              ),
+          sendMessage(Schemas.LocalTxSubmitMessage.cases.SubmitTx.make({ tx })).pipe(
+            Effect.andThen(requireReply(messages, makeError, "submit")),
+            Effect.flatMap((v) =>
+              Schemas.LocalTxSubmitMessage.guards.AcceptTx(v)
+                ? Effect.succeed<Schemas.LocalTxSubmitResult>({ accepted: true })
+                : Schemas.LocalTxSubmitMessage.guards.RejectTx(v)
+                  ? Effect.succeed<Schemas.LocalTxSubmitResult>({
+                      accepted: false,
+                      reason: v.reason,
+                    })
+                  : unexpected(v._tag),
             ),
           ),
-        done: () => sendMessage({ _tag: Schemas.LocalTxSubmitMessageType.Done }),
+        done: () => sendMessage(Schemas.LocalTxSubmitMessage.cases.Done.make({})),
       });
     }),
   );

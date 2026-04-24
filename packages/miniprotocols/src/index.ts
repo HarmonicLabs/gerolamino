@@ -5,6 +5,9 @@ export * from "./Metrics";
 // Multiplexer
 export * from "./multiplexer";
 
+// Typed-channel (Phase 2a — agency-typed protocol driver primitive)
+export * from "./typed-channel";
+
 // Shared types
 export * from "./protocols/types";
 

@@ -9,9 +9,7 @@ import { Context, Effect, Layer, Option, Stream } from "effect";
 import { type BlobEntry, BlobStore, BlobStoreError } from "../blob-store.ts";
 import { prefixEnd } from "../keys.ts";
 import { LsmAdmin, LsmAdminError } from "./admin";
-import { type BridgeLib, LsmBridgeError, openBridge } from "./ffi";
-
-const lenBuf = new BigUint64Array(1);
+import { type BridgeLib, LsmBridgeError, type LsmBridgeOperation, openBridge } from "./ffi";
 
 /**
  * Bun's `ptr()` rejects empty ArrayBufferViews, but the Zig bridge honors
@@ -29,7 +27,15 @@ const lsmGet = (
   key: Uint8Array,
 ): Effect.Effect<Option.Option<Uint8Array>, LsmBridgeError> =>
   Effect.gen(function* () {
-    lenBuf[0] = 0n;
+    // Per-call `lenBuf` — earlier revisions shared a module-level buffer
+    // across `get` / `has` / phase-1 / phase-2 reads. That worked by
+    // accident because every FFI call is synchronous, so the runtime never
+    // yielded between probe + read. Any future `Effect.tap` / `Effect.log`
+    // inserted between the two `ffi.lsm_bridge_get` calls would open a
+    // race window where a concurrent fiber's `has` probe clobbers
+    // `lenBuf[0]` between phase 1 and phase 2. 16 bytes/call is a cheap
+    // price for removing the latent coupling.
+    const lenBuf = new BigUint64Array(1);
     const rc1 = ffi.lsm_bridge_get(bufPtr(key), key.byteLength, null, 0, lenBuf);
     if (rc1 === 1) return Option.none();
     if (rc1 !== 0)
@@ -40,7 +46,6 @@ const lsmGet = (
     const len = Number(lenBuf[0]);
     if (len === 0) return Option.some(new Uint8Array(0));
     const outBuf = new Uint8Array(len);
-    lenBuf[0] = 0n;
     const rc2 = ffi.lsm_bridge_get(bufPtr(key), key.byteLength, ptr(outBuf), len, lenBuf);
     if (rc2 !== 0)
       return yield* new LsmBridgeError({
@@ -81,25 +86,64 @@ const lessThan = (a: Uint8Array, b: Uint8Array): boolean => {
 
 const toBlobStoreError = (cause: unknown) => new BlobStoreError({ operation: "lsm", cause });
 
+/**
+ * Raise a typed `LsmBridgeError` when the Zig bridge returns a non-zero
+ * status code for an operation that should have succeeded. Pre-refactor,
+ * the `put` / `delete` / `putBatch` / `deleteBatch` wrappers silently
+ * discarded the return code, so writes that failed on the Zig boundary
+ * (disk full, corruption, lock contention) reported success to the
+ * `Effect` layer and upstream logic proceeded on stale state.
+ */
+const ensureRc = (
+  operation: LsmBridgeOperation,
+  rc: number,
+): Effect.Effect<void, LsmBridgeError> =>
+  rc === 0
+    ? Effect.void
+    : Effect.fail(new LsmBridgeError({ operation, cause: `${operation} returned ${rc}` }));
+
 /** Build BlobStore operations from an initialized FFI handle. */
 const makeBlobStoreOps = (ffi: BridgeLib) => ({
   get: (key: Uint8Array) => lsmGet(ffi, key).pipe(Effect.mapError(toBlobStoreError)),
 
   put: (key: Uint8Array, value: Uint8Array) =>
-    Effect.sync(() => {
-      ffi.lsm_bridge_put(bufPtr(key), key.byteLength, bufPtr(value), value.byteLength);
-    }),
+    Effect.suspend(() =>
+      ensureRc(
+        "lsm_bridge_put",
+        ffi.lsm_bridge_put(bufPtr(key), key.byteLength, bufPtr(value), value.byteLength),
+      ),
+    ).pipe(Effect.mapError(toBlobStoreError)),
 
   delete: (key: Uint8Array) =>
-    Effect.sync(() => {
-      ffi.lsm_bridge_delete(bufPtr(key), key.byteLength);
-    }),
+    Effect.suspend(() =>
+      ensureRc("lsm_bridge_delete", ffi.lsm_bridge_delete(bufPtr(key), key.byteLength)),
+    ).pipe(Effect.mapError(toBlobStoreError)),
 
   has: (key: Uint8Array) =>
     Effect.sync(() => {
-      lenBuf[0] = 0n;
-      return ffi.lsm_bridge_get(bufPtr(key), key.byteLength, null, 0, lenBuf) === 0;
-    }),
+      // lsm_bridge_get with a NULL value buffer is the "exists" probe; the
+      // bridge returns rc=0 (present) or rc=1 (missing). Any other rc is a
+      // bridge-side fault and we surface it as a typed error. `lenBuf` is
+      // per-call (not module-level) so concurrent fibers don't race on a
+      // shared length-return slot.
+      const lenBuf = new BigUint64Array(1);
+      return ffi.lsm_bridge_get(bufPtr(key), key.byteLength, null, 0, lenBuf);
+    }).pipe(
+      Effect.flatMap((rc) =>
+        rc === 0
+          ? Effect.succeed(true)
+          : rc === 1
+            ? Effect.succeed(false)
+            : Effect.fail(
+                toBlobStoreError(
+                  new LsmBridgeError({
+                    operation: "lsm_bridge_get",
+                    cause: `lsm_bridge_get (has) returned ${rc}`,
+                  }),
+                ),
+              ),
+      ),
+    ),
 
   scan: (prefix: Uint8Array) => {
     const hi = prefixEnd(prefix);
@@ -174,15 +218,27 @@ const makeBlobStoreOps = (ffi: BridgeLib) => ({
   },
 
   putBatch: (entries: ReadonlyArray<BlobEntry>) =>
-    Effect.sync(() => {
-      for (const { key, value } of entries)
-        ffi.lsm_bridge_put(bufPtr(key), key.byteLength, bufPtr(value), value.byteLength);
-    }),
+    Effect.forEach(
+      entries,
+      ({ key, value }) =>
+        Effect.suspend(() =>
+          ensureRc(
+            "lsm_bridge_put",
+            ffi.lsm_bridge_put(bufPtr(key), key.byteLength, bufPtr(value), value.byteLength),
+          ),
+        ),
+      { discard: true },
+    ).pipe(Effect.mapError(toBlobStoreError)),
 
   deleteBatch: (keys: ReadonlyArray<Uint8Array>) =>
-    Effect.sync(() => {
-      for (const key of keys) ffi.lsm_bridge_delete(bufPtr(key), key.byteLength);
-    }),
+    Effect.forEach(
+      keys,
+      (key) =>
+        Effect.suspend(() =>
+          ensureRc("lsm_bridge_delete", ffi.lsm_bridge_delete(bufPtr(key), key.byteLength)),
+        ),
+      { discard: true },
+    ).pipe(Effect.mapError(toBlobStoreError)),
 });
 
 /** Default snapshot label used by cardano-node V2LSM. */
@@ -219,7 +275,7 @@ const makeAdminOps = (ffi: BridgeLib) => ({
       );
       if (rc !== 0)
         return yield* new LsmAdminError({
-          operation: "open_snapshot",
+          operation: "openSnapshot",
           cause: `lsm_bridge_open_snapshot returned ${rc} for snapshot ${name}, label ${label}`,
         });
     }),

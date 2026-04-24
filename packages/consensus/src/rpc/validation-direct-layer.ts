@@ -2,8 +2,14 @@
  * `ValidationDirectLayer` — in-process ValidationClient implementation.
  *
  * Every method delegates directly to its backing service (`Crypto` from
- * wasm-utils, `codecs` + `ledger` decoders, `Bun.CryptoHasher` for
- * blake2b). No Worker, no RPC serialisation, no transport boundary.
+ * wasm-utils for blake2b-256 + the remaining primitives, `codecs` +
+ * `ledger` decoders for the CBOR reads). No Worker, no RPC serialisation,
+ * no transport boundary.
+ *
+ * The blake2b path goes through the shared WASM `Crypto.blake2b256`
+ * (not `Bun.CryptoHasher`) so this module stays browser-compatible —
+ * `packages/consensus` must compile against the `@effect/platform-browser`
+ * stack too, and `Bun.CryptoHasher` has no browser equivalent.
  *
  * Use in:
  *   - Unit tests (paired with `CryptoDirect` from wasm-utils)
@@ -15,29 +21,12 @@
  * wasm-utils) in the app's layer composition.
  */
 import { Effect, Layer } from "effect";
+import { concat } from "codecs";
 import { MultiEraBlock, decodeMultiEraBlock } from "ledger/lib/block/block.ts";
 import { Era } from "ledger/lib/core/era.ts";
 import { Crypto } from "wasm-utils";
-import { ValidationClient } from "./validation-client.ts";
+import { ValidationClient, mapCryptoToValidation } from "./validation-client.ts";
 import { ValidationError } from "./validation-rpc-group.ts";
-
-const blake2b256 = (data: Uint8Array): Uint8Array =>
-  new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
-
-const blake2b256Tagged = (tag: number, data: Uint8Array): Uint8Array => {
-  const combined = new Uint8Array(1 + data.byteLength);
-  combined[0] = tag & 0xff;
-  combined.set(data, 1);
-  return blake2b256(combined);
-};
-
-const notImplemented = (operation: string, detail: string) =>
-  Effect.fail(
-    new ValidationError({
-      operation,
-      message: `${operation}: ${detail}`,
-    }),
-  );
 
 export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto> = Layer.effect(
   ValidationClient,
@@ -47,38 +36,12 @@ export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto>
     return ValidationClient.of({
       // ───────────── Consensus-level ─────────────
 
-      // Phase 3b wires these into validate-header.ts / validate-block.ts.
-      // Until that lands, signal not-yet-implemented so callers can detect
-      // and fall back to the existing direct validators.
-      validateHeader: () =>
-        notImplemented(
-          "ValidateHeader",
-          "Phase 3b wires this into validate-header.ts + LedgerView",
-        ),
-      validateBlockBody: () =>
-        notImplemented(
-          "ValidateBlockBody",
-          "Phase 3b wires this into validate-block.ts + ComputeBodyHash",
-        ),
-
       computeBodyHash: (blockBodyCbor) =>
-        Effect.try({
-          try: () => blake2b256(blockBodyCbor),
-          catch: (err) =>
-            new ValidationError({ operation: "ComputeBodyHash", message: String(err), cause: err }),
-        }),
-      computeTxId: (txBodyCbor) =>
-        Effect.try({
-          try: () => blake2b256(txBodyCbor),
-          catch: (err) =>
-            new ValidationError({ operation: "ComputeTxId", message: String(err), cause: err }),
-        }),
-
-      decodeHeaderCbor: () =>
-        notImplemented(
-          "DecodeHeaderCbor",
-          "use decodeBlockCbor until Phase 3b wires dedicated header decode",
+        crypto.blake2b256(blockBodyCbor).pipe(
+          Effect.mapError(mapCryptoToValidation("ComputeBodyHash")),
         ),
+      computeTxId: (txBodyCbor) =>
+        crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
 
       decodeBlockCbor: (blockCbor) =>
         decodeMultiEraBlock(blockCbor).pipe(
@@ -119,13 +82,10 @@ export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto>
         crypto.vrfVerifyProof(vrfVkey, vrfProof, vrfInput),
       vrfProofToHash: (vrfProof) => crypto.vrfProofToHash(vrfProof),
       blake2b256Tagged: (tag, data) =>
-        crypto.blake2b256(data).pipe(
-          Effect.flatMap(() =>
-            // Use Bun-native blake2b for tagged hashes — WASM path is only
-            // needed for ed25519/KES/VRF where Rust-optimised beats native.
-            Effect.succeed(blake2b256Tagged(tag, data)),
-          ),
-        ),
+        // prepend the tag byte and hash — keeps hashing on the shared
+        // WASM path so the browser build works. `concat` comes from
+        // `codecs` so we don't hand-roll a join.
+        crypto.blake2b256(concat(new Uint8Array([tag & 0xff]), data)),
     });
   }),
 );

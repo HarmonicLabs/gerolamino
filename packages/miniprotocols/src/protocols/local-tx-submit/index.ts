@@ -7,3 +7,5 @@ export {
   LocalTxSubmitMessageTypeSchema,
   type LocalTxSubmitResult,
 } from "./Schemas";
+// Agency-typed transitions — import via `./transitions` subpath (states collide).
+export { localTxSubmitTransitions } from "./transitions";

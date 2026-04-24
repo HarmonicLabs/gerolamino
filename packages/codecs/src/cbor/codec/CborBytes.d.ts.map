@@ -1,1 +1,0 @@
-{"version":3,"file":"CborBytes.d.ts","sourceRoot":"","sources":["CborBytes.ts"],"names":[],"mappings":"AAAA,OAAO,EAAkB,MAAM,EAAe,oBAAoB,EAAE,MAAM,QAAQ,CAAC;AACnF,OAAO,EAAE,SAAS,EAAE,MAAM,cAAc,CAAC;AAIzC,eAAO,MAAM,cAAc,EAAE,oBAAoB,CAAC,cAAc,CAAC,SAAS,EAAE,UAAU,CAclF,CAAC;AAEL,8EAA8E;AAC9E,eAAO,MAAM,SAAS;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;sCAAqE,CAAC"}

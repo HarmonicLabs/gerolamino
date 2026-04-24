@@ -1,40 +1,66 @@
 /**
- * ChainDB live implementation — backed by BlobStore + SqlClient + XState machine.
+ * ChainDB live implementation — backed by BlobStore + SqlClient + a pure
+ * Effect-native lifecycle reducer.
  *
  * Block CBOR stored in BlobStore under `blk:` prefix.
  * Metadata (slot, hash, prevHash, blockNo) stored in SQL.
  * Ledger state bytes stored in BlobStore under `snap` prefix.
  *
- * The XState machine (chainDBMachine) orchestrates the block lifecycle:
- *   addBlock → BLOCK_ADDED → (if volatileLength > k) copying → gc → idle
+ * Lifecycle orchestration (previously an XState parallel-region machine)
+ * is now three scoped fibers hung off `Layer.effect`:
  *
- * Block writes bypass the machine for performance — they go directly to
- * BlobStore + SQL. The machine manages the background lifecycle only
- * (immutability promotion, garbage collection).
+ *   1. **dispatchFiber** drains `Queue<ChainDBEvent>` and folds each event
+ *      into `SubscriptionRef<ChainDBState>` via the pure `reduce`
+ *      function from `../machines/chaindb.ts`.
+ *
+ *   2. **driverFiber** watches `state.changes` for immutability-region
+ *      transitions (`idle → copying → gc → idle`) and dispatches the
+ *      corresponding side effects (SQL `promoteBlocksEffect` or
+ *      `collectGarbageEffect`). The completion feedback loops back by
+ *      offering `PromoteDone` / `PromoteFailed` / `GcDone` / `GcFailed`
+ *      onto the same event queue — a closed-loop reactor, no XState,
+ *      no `*Unsafe` ops, no dual-world teardown.
+ *
+ *   3. `Effect.forkScoped` ties both fibers to the layer's scope so
+ *      `Layer.launch` shutdown interrupts them cleanly.
+ *
+ * Block writes bypass the lifecycle for performance — they go directly
+ * to BlobStore + SQL, then enqueue a `BlockAdded` event so bookkeeping
+ * catches up and the immutability region advances if the volatile window
+ * has grown past `k`.
  *
  * Lookups follow spec 12.1.1: try volatile first, then immutable.
- * Rollback removes volatile blocks after the rollback point.
+ * Rollback removes volatile blocks after the rollback point and
+ * enqueues a `Rollback` event so the state cursor tracks the tip move.
  */
-import { Clock, Config, Effect, Layer, Option, Queue, Schema, Scope, Stream } from "effect";
+import { Config, Effect, Layer, Option, Queue, Schema, Stream, SubscriptionRef } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { createActor } from "xstate";
-import { ChainDB, ChainDBError } from "./chain-db.ts";
+import { ChainDB, ChainDBError, type ChainDBOperation } from "./chain-db.ts";
 import {
   type BlobEntry,
   BlobStore,
   blockKey,
   blockIndexKey,
   cborOffsetKey,
-  snapshotKey,
   analyzeBlockCbor,
+  type BlockAnalysis,
 } from "../blob-store";
-import { chainDBMachine } from "../machines/chaindb.ts";
+import { IMMUTABLE_BLOCK_DEFAULTS, timeUnixSeconds } from "../operations/blocks.ts";
+import {
+  ChainDBEvent,
+  type ChainDBState,
+  initialChainDBState,
+  reduce,
+} from "../machines";
 import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
-/** Tag an effect's failures as a `ChainDBError` with the given operation name. */
+/** Tag an effect's failures as a `ChainDBError` with the given operation name.
+ * `operation` is typed to the `ChainDBOperation` union so typos fail at
+ * compile time (the error class's Schema would accept anything at runtime
+ * but TS narrows the input). */
 const withOp =
-  (operation: string) =>
+  (operation: ChainDBOperation) =>
   <A, R>(effect: Effect.Effect<A, unknown, R>): Effect.Effect<A, ChainDBError, R> =>
     Effect.mapError(effect, (cause) => new ChainDBError({ operation, cause }));
 
@@ -42,7 +68,12 @@ const withOp =
 // Row schemas — type-safe SQL result decoding
 // ---------------------------------------------------------------------------
 
-const VolatileBlockRow = Schema.Struct({
+/** Both `volatile_blocks` and `immutable_blocks` expose the same logical
+ *  shape (hash, slot, prev_hash, block_no, size); the only physical diff is
+ *  the size column's name (`block_size_bytes` vs `size`), which we paper
+ *  over by aliasing `immutable_blocks.size AS block_size_bytes` in every
+ *  SELECT. One schema + one row reader + uniform `streamFrom` merge. */
+const BlockRow = Schema.Struct({
   hash: Schema.Uint8Array,
   slot: Schema.Number,
   prev_hash: Schema.NullOr(Schema.Uint8Array),
@@ -50,30 +81,15 @@ const VolatileBlockRow = Schema.Struct({
   block_size_bytes: Schema.Number,
 });
 
-const ImmutableBlockRow = Schema.Struct({
-  slot: Schema.Number,
-  hash: Schema.Uint8Array,
-  prev_hash: Schema.NullOr(Schema.Uint8Array),
-  block_no: Schema.Number,
-  size: Schema.Number,
-});
-
 const PointRow = Schema.Struct({
   slot: Schema.Number,
   hash: Schema.Uint8Array,
 });
 
-const SnapshotRow = Schema.Struct({
-  slot: Schema.Number,
-  hash: Schema.Uint8Array,
-  epoch: Schema.Number,
-});
-
-const NoncesRow = Schema.Struct({
-  epoch: Schema.Number,
-  active: Schema.Uint8Array,
-  evolving: Schema.Uint8Array,
-  candidate: Schema.Uint8Array,
+/** Lift a decoded `PointRow` into the bigint-slot `RealPoint` shape. */
+const toPoint = (r: typeof PointRow.Type): RealPoint => ({
+  slot: BigInt(r.slot),
+  hash: r.hash,
 });
 
 /** Default security param (k) — overridable via SECURITY_PARAM env. */
@@ -86,62 +102,51 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
       const store = yield* BlobStore;
       const sql = yield* SqlClient;
       const securityParam = yield* securityParamConfig;
-      const scope = yield* Effect.scope;
 
       // --- Helpers ---
 
-      /** Decode a volatile or immutable row + fetch CBOR from BlobStore. */
-      const readBlockFromVolatileRow = (r: typeof VolatileBlockRow.Type) =>
-        Effect.gen(function* () {
-          const slot = BigInt(r.slot);
-          const blockCbor = yield* store.get(blockKey(slot, r.hash));
-          if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
-          return Option.some<StoredBlock>({
-            slot,
-            hash: r.hash,
-            blockNo: BigInt(r.block_no),
-            blockSizeBytes: r.block_size_bytes,
-            blockCbor: blockCbor.value,
-            ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-          });
-        });
+      /** Fetch the block CBOR for a decoded row; zip with row metadata to
+       *  produce `Option<StoredBlock>`. Returns `None` when the SQL row
+       *  exists but the BlobStore has no blob (stale index / GC race). */
+      const readBlockFromRow = (r: typeof BlockRow.Type) =>
+        Effect.map(
+          store.get(blockKey(BigInt(r.slot), r.hash)),
+          Option.map(
+            (blockCbor): StoredBlock => ({
+              slot: BigInt(r.slot),
+              hash: r.hash,
+              blockNo: BigInt(r.block_no),
+              blockSizeBytes: r.block_size_bytes,
+              blockCbor,
+              ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
+            }),
+          ),
+        );
 
-      const readBlockFromImmutableRow = (r: typeof ImmutableBlockRow.Type) =>
-        Effect.gen(function* () {
-          const slot = BigInt(r.slot);
-          const blockCbor = yield* store.get(blockKey(slot, r.hash));
-          if (Option.isNone(blockCbor)) return Option.none<StoredBlock>();
-          return Option.some<StoredBlock>({
-            slot,
-            hash: r.hash,
-            blockNo: BigInt(r.block_no),
-            blockSizeBytes: r.size,
-            blockCbor: blockCbor.value,
-            ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-          });
-        });
-
-      /** Volatile-first lookup: try volatile query, fall back to immutable. */
+      /** Volatile-first lookup: try volatile query, fall back to immutable.
+       *  Falls through to immutable when either (a) the SQL row is absent
+       *  or (b) the row is present but the BlobStore doesn't have the CBOR. */
       const lookupBlock = (
-        volatileQuery: Effect.Effect<Option.Option<typeof VolatileBlockRow.Type>, unknown>,
-        immutableQuery: Effect.Effect<Option.Option<typeof ImmutableBlockRow.Type>, unknown>,
+        volatileQuery: Effect.Effect<Option.Option<typeof BlockRow.Type>, unknown>,
+        immutableQuery: Effect.Effect<Option.Option<typeof BlockRow.Type>, unknown>,
       ) =>
         Effect.gen(function* () {
           const vRow = yield* volatileQuery;
           if (Option.isSome(vRow)) {
-            const block = yield* readBlockFromVolatileRow(vRow.value);
+            const block = yield* readBlockFromRow(vRow.value);
             if (Option.isSome(block)) return block;
           }
           const iRow = yield* immutableQuery;
-          if (Option.isNone(iRow)) return Option.none<StoredBlock>();
-          return yield* readBlockFromImmutableRow(iRow.value);
+          return Option.isNone(iRow)
+            ? Option.none<StoredBlock>()
+            : yield* readBlockFromRow(iRow.value);
         });
 
       // --- SqlSchema query builders (created once, reused) ---
 
       const findVolatileByHash = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array }),
-        Result: VolatileBlockRow,
+        Result: BlockRow,
         execute: (req) => sql`
           SELECT hash, slot, prev_hash, block_no, block_size_bytes
           FROM volatile_blocks WHERE hash = ${req.hash} LIMIT 1
@@ -150,16 +155,16 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
       const findImmutableByHash = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array }),
-        Result: ImmutableBlockRow,
+        Result: BlockRow,
         execute: (req) => sql`
-          SELECT slot, hash, prev_hash, block_no, size
+          SELECT hash, slot, prev_hash, block_no, size AS block_size_bytes
           FROM immutable_blocks WHERE hash = ${req.hash} LIMIT 1
         `,
       });
 
       const findVolatileByPoint = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array, slot: Schema.Number }),
-        Result: VolatileBlockRow,
+        Result: BlockRow,
         execute: (req) => sql`
           SELECT hash, slot, prev_hash, block_no, block_size_bytes
           FROM volatile_blocks
@@ -169,9 +174,9 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
       const findImmutableByPoint = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array, slot: Schema.Number }),
-        Result: ImmutableBlockRow,
+        Result: BlockRow,
         execute: (req) => sql`
-          SELECT slot, hash, prev_hash, block_no, size
+          SELECT hash, slot, prev_hash, block_no, size AS block_size_bytes
           FROM immutable_blocks
           WHERE hash = ${req.hash} AND slot = ${req.slot} LIMIT 1
         `,
@@ -201,34 +206,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         `,
       });
 
-      const findLatestSnapshot = SqlSchema.findOneOption({
-        Request: Schema.Void,
-        Result: SnapshotRow,
-        execute: () => sql`
-          SELECT slot, hash, epoch FROM ledger_snapshots ORDER BY slot DESC LIMIT 1
-        `,
-      });
-
-      const findLatestNonces = SqlSchema.findOneOption({
-        Request: Schema.Void,
-        Result: NoncesRow,
-        execute: () => sql`
-          SELECT epoch, active, evolving, candidate FROM nonces ORDER BY epoch DESC LIMIT 1
-        `,
-      });
-
-      // --- Effect-side lifecycle work (pure Effect, no runPromise) ---
-
-      const findToPromote = SqlSchema.findAll({
-        Request: Schema.Struct({ slot: Schema.Number }),
-        Result: VolatileBlockRow,
-        execute: (req) => sql`
-          SELECT hash, slot, prev_hash, block_no, block_size_bytes
-          FROM volatile_blocks WHERE slot <= ${req.slot} ORDER BY slot ASC
-        `,
-      });
-
-      const findToGc = SqlSchema.findAll({
+      const findVolatileBelowSlot = SqlSchema.findAll({
         Request: Schema.Struct({ belowSlot: Schema.Number }),
         Result: PointRow,
         execute: (req) => sql`
@@ -236,30 +214,62 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         `,
       });
 
+      const findVolatileAboveSlot = SqlSchema.findAll({
+        Request: Schema.Struct({ slot: Schema.Number }),
+        Result: PointRow,
+        execute: (req) => sql`
+          SELECT slot, hash FROM volatile_blocks WHERE slot > ${req.slot}
+        `,
+      });
+
+      const findImmutableFrom = SqlSchema.findAll({
+        Request: Schema.Struct({ slot: Schema.Number }),
+        Result: BlockRow,
+        execute: (req) => sql`
+          SELECT slot, hash, prev_hash, block_no, size AS block_size_bytes
+          FROM immutable_blocks WHERE slot > ${req.slot} ORDER BY slot ASC
+        `,
+      });
+
+      const findVolatileFrom = SqlSchema.findAll({
+        Request: Schema.Struct({ slot: Schema.Number }),
+        Result: BlockRow,
+        execute: (req) => sql`
+          SELECT hash, slot, prev_hash, block_no, block_size_bytes
+          FROM volatile_blocks WHERE slot > ${req.slot} ORDER BY slot ASC
+        `,
+      });
+
+      const findToPromote = SqlSchema.findAll({
+        Request: Schema.Struct({ slot: Schema.Number }),
+        Result: BlockRow,
+        execute: (req) => sql`
+          SELECT hash, slot, prev_hash, block_no, block_size_bytes
+          FROM volatile_blocks WHERE slot <= ${req.slot} ORDER BY slot ASC
+        `,
+      });
+
       const promoteBlocksEffect = (tip: RealPoint) =>
         Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          const time = Math.floor(Number(now) / 1000);
+          const time = yield* timeUnixSeconds;
           return yield* sql.withTransaction(
             Effect.gen(function* () {
               const rows = yield* findToPromote({ slot: Number(tip.slot) });
               if (rows.length > 0) {
-                const payload = rows.map((r) => ({
-                  slot: r.slot,
-                  hash: r.hash,
-                  prev_hash: r.prev_hash,
-                  block_no: r.block_no,
-                  epoch_no: 0,
-                  size: r.block_size_bytes,
-                  time,
-                  slot_leader_id: 0,
-                  proto_major: 0,
-                  proto_minor: 0,
-                }));
                 // Single multi-VALUES insert using `sql.insert` (Effect
                 // `Statement.ts:368`) + SQLite ON CONFLICT DO UPDATE with
                 // `excluded.hash` to reuse the row being inserted.
-                yield* sql`INSERT INTO immutable_blocks ${sql.insert(payload)}
+                yield* sql`INSERT INTO immutable_blocks ${sql.insert(
+                  rows.map((r) => ({
+                    slot: r.slot,
+                    hash: r.hash,
+                    prev_hash: r.prev_hash,
+                    block_no: r.block_no,
+                    size: r.block_size_bytes,
+                    time,
+                    ...IMMUTABLE_BLOCK_DEFAULTS,
+                  })),
+                )}
                   ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`;
               }
               yield* sql`DELETE FROM volatile_blocks WHERE slot <= ${Number(tip.slot)}`;
@@ -271,75 +281,117 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
       const collectGarbageEffect = (belowSlot: bigint) =>
         sql.withTransaction(
           Effect.gen(function* () {
-            const rows = yield* findToGc({ belowSlot: Number(belowSlot) });
+            const rows = yield* findVolatileBelowSlot({ belowSlot: Number(belowSlot) });
             if (rows.length > 0) {
               yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
             }
-            yield* sql`
-              DELETE FROM volatile_blocks WHERE slot < ${Number(belowSlot)}
-            `.unprepared;
+            yield* sql`DELETE FROM volatile_blocks WHERE slot < ${Number(belowSlot)}`;
           }),
         );
 
-      // --- XState actor (pure state) + Queue-based lifecycle bridge ---
+      // --- Lifecycle reactor (SubscriptionRef + Queue + Stream) ---
 
-      const actor = createActor(chainDBMachine, { input: { securityParam } });
-      actor.start();
+      /** Observable state — consumers can also subscribe via `.changes` if
+       * a future dashboard wants live immutability-region telemetry. */
+      const state = yield* SubscriptionRef.make<ChainDBState>(
+        initialChainDBState(securityParam),
+      );
 
-      type LifecycleRequest =
-        | { readonly _tag: "PROMOTE"; readonly tip: RealPoint }
-        | { readonly _tag: "GC"; readonly belowSlot: bigint };
+      /** Event mailbox — bounded at 64 per the previous XState actor buffer. */
+      const events = yield* Queue.bounded<ChainDBEvent>(64);
 
-      const lifecycleQueue = yield* Queue.bounded<LifecycleRequest>(32);
-
-      // Observe state transitions; enqueue work when entering copying/gc.
-      let prevCopying = false;
-      let prevGc = false;
-      const subscription = actor.subscribe((snapshot) => {
-        const inCopying = snapshot.matches({ immutability: "copying" });
-        const inGc = snapshot.matches({ immutability: "gc" });
-        if (inCopying && !prevCopying && snapshot.context.tip) {
-          Queue.offerUnsafe(lifecycleQueue, { _tag: "PROMOTE", tip: snapshot.context.tip });
-        }
-        if (inGc && !prevGc) {
-          const belowSlot = snapshot.context.immutableTip?.slot ?? 0n;
-          Queue.offerUnsafe(lifecycleQueue, { _tag: "GC", belowSlot });
-        }
-        prevCopying = inCopying;
-        prevGc = inGc;
+      /**
+       * Boot seed — SQL is authoritative for block data; on restart the
+       * reducer's in-memory `volatileLength` + `tip` would otherwise start
+       * at zero until the next `BlockAdded` flows in. Reading from SQL
+       * once at layer startup catches the "crashed mid-sync with volatile
+       * window past k" case so the immutability region resumes promotion
+       * without waiting for new inbound blocks.
+       *
+       * Runs BEFORE the dispatch + driver fibers fork so there's no race
+       * between this seed and an incoming `BlockAdded`.
+       */
+      const findVolatileCount = SqlSchema.findOne({
+        Request: Schema.Void,
+        Result: Schema.Struct({ n: Schema.Number }),
+        execute: () => sql`SELECT COUNT(*) AS n FROM volatile_blocks`,
       });
-
-      // Drain fiber: runs Effects, sends completion events back to the actor.
-      yield* Effect.forkScoped(
-        Stream.fromQueue(lifecycleQueue).pipe(
-          Stream.runForEach((req) =>
-            req._tag === "PROMOTE"
-              ? promoteBlocksEffect(req.tip).pipe(
-                  Effect.matchCauseEffect({
-                    onSuccess: (promoted) =>
-                      Effect.sync(() => actor.send({ type: "PROMOTE_DONE", promoted })),
-                    onFailure: (cause) =>
-                      Effect.sync(() => actor.send({ type: "PROMOTE_FAILED", error: cause })),
-                  }),
-                )
-              : collectGarbageEffect(req.belowSlot).pipe(
-                  Effect.matchCauseEffect({
-                    onSuccess: () => Effect.sync(() => actor.send({ type: "GC_DONE" })),
-                    onFailure: (cause) =>
-                      Effect.sync(() => actor.send({ type: "GC_FAILED", error: cause })),
-                  }),
-                ),
+      // `SubscriptionRef.updateEffect` runs the updater under the ref's
+      // semaphore → the three SQL queries + the state mutation are one
+      // atomic transition, no separate "fetch then update" phase that
+      // could in theory interleave (not currently possible — the dispatch
+      // fiber is forked AFTER this — but the shape is cleaner regardless).
+      yield* SubscriptionRef.updateEffect(state, (s) =>
+        Effect.all(
+          [
+            findVolatileCount(undefined),
+            findTipPoint(undefined),
+            findImmutableTipPoint(undefined),
+          ],
+          { concurrency: "unbounded" },
+        ).pipe(
+          Effect.map(([vCountRow, vTip, iTip]): ChainDBState => ({
+            ...s,
+            volatileLength: vCountRow.n,
+            tip: Option.getOrUndefined(Option.map(vTip, toPoint)),
+            immutableTip: Option.getOrUndefined(Option.map(iTip, toPoint)),
+            immutability: vCountRow.n > s.securityParam ? "copying" : "idle",
+          })),
+        ),
+      ).pipe(
+        // Seed is a "nice to have" — if the tables don't exist yet
+        // (tests that skip migrations) or the query fails for any other
+        // reason, fall back to the default in-memory zero state. The
+        // reducer self-heals on the next `BlockAdded` regardless.
+        Effect.catchCause((cause) =>
+          Effect.logDebug("chain-db boot seed skipped").pipe(
+            Effect.annotateLogs({ cause: String(cause) }),
           ),
         ),
       );
 
-      // Stop actor + unsubscribe on scope finalization.
-      yield* Scope.addFinalizer(
-        scope,
-        Effect.sync(() => {
-          subscription.unsubscribe();
-          actor.stop();
-        }),
+      /** dispatchFiber: drain events → reduce → publish new state. */
+      yield* Effect.forkScoped(
+        Stream.fromQueue(events).pipe(
+          Stream.runForEach((event) =>
+            SubscriptionRef.update(state, (s) => reduce(s, event)),
+          ),
+        ),
+      );
+
+      /** driverFiber: watch immutability-region transitions; fire the
+       * side-effectful work and feed completion events back into the
+       * same queue. `Stream.changesWith` keys on the region alone so
+       * unrelated state updates (tip changes, volatileLength bumps) do
+       * NOT re-trigger the driver. */
+      yield* Effect.forkScoped(
+        SubscriptionRef.changes(state).pipe(
+          Stream.changesWith((a, b) => a.immutability === b.immutability),
+          Stream.runForEach((s) => {
+            if (s.immutability === "copying" && s.tip !== undefined) {
+              const tip = s.tip;
+              return promoteBlocksEffect(tip).pipe(
+                Effect.matchCauseEffect({
+                  onSuccess: (promoted) =>
+                    Queue.offer(events, ChainDBEvent.cases.PromoteDone.make({ promoted })),
+                  onFailure: (cause) =>
+                    Queue.offer(events, ChainDBEvent.cases.PromoteFailed.make({ error: cause })),
+                }),
+              );
+            }
+            if (s.immutability === "gc") {
+              const belowSlot = s.immutableTip?.slot ?? 0n;
+              return collectGarbageEffect(belowSlot).pipe(
+                Effect.matchCauseEffect({
+                  onSuccess: () => Queue.offer(events, ChainDBEvent.cases.GcDone.make({})),
+                  onFailure: (cause) =>
+                    Queue.offer(events, ChainDBEvent.cases.GcFailed.make({ error: cause })),
+                }),
+              );
+            }
+            return Effect.void;
+          }),
+        ),
       );
 
       return {
@@ -355,31 +407,31 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             findImmutableByPoint({ hash: point.hash, slot: Number(point.slot) }),
           ).pipe(withOp("getBlockAt")),
 
-        // --- Tip (max of volatile and immutable) ---
-        getTip: Effect.gen(function* () {
-          const vTip = yield* findTipPoint(undefined);
-          const iTip = yield* findImmutableTipPoint(undefined);
-          const toPoint = (r: typeof PointRow.Type): RealPoint => ({
-            slot: BigInt(r.slot),
-            hash: r.hash,
-          });
-          if (Option.isSome(vTip) && Option.isSome(iTip)) {
-            return vTip.value.slot >= iTip.value.slot
-              ? Option.some(toPoint(vTip.value))
-              : Option.some(toPoint(iTip.value));
-          }
-          if (Option.isSome(vTip)) return Option.some(toPoint(vTip.value));
-          if (Option.isSome(iTip)) return Option.some(toPoint(iTip.value));
-          return Option.none<RealPoint>();
-        }).pipe(withOp("getTip")),
+        // --- Tip (max-slot across volatile + immutable) ---
+        getTip: Effect.all(
+          [findTipPoint(undefined), findImmutableTipPoint(undefined)],
+          { concurrency: "unbounded" },
+        ).pipe(
+          // `Option.firstSomeOf([max(v,i), v, i])` picks the max when both
+          // are Some (first), otherwise whichever single value is Some —
+          // one chain expresses both the merge and the fallbacks.
+          Effect.map(([vTip, iTip]) =>
+            Option.map(
+              Option.firstSomeOf([
+                Option.zipWith(vTip, iTip, (v, i) => (v.slot >= i.slot ? v : i)),
+                vTip,
+                iTip,
+              ]),
+              toPoint,
+            ),
+          ),
+          withOp("getTip"),
+        ),
 
-        getImmutableTip: Effect.gen(function* () {
-          const row = yield* findImmutableTipPoint(undefined);
-          return Option.map(
-            row,
-            (r) => ({ slot: BigInt(r.slot), hash: r.hash }) satisfies RealPoint,
-          );
-        }).pipe(withOp("getImmutableTip")),
+        getImmutableTip: findImmutableTipPoint(undefined).pipe(
+          Effect.map(Option.map(toPoint)),
+          withOp("getImmutableTip"),
+        ),
 
         // --- Writing ---
         addBlock: (block: StoredBlock) =>
@@ -390,17 +442,21 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             idxView.setBigUint64(0, block.slot, false);
             idxVal.set(block.hash, 8);
 
-            // Analyze block CBOR for tx offsets (works on full blocks; no-ops on headers)
-            const analysis = analyzeBlockCbor(block.blockCbor);
-            const offsetEntries: Array<BlobEntry> = [];
-            for (let i = 0; i < analysis.txOffsets.length; i++) {
-              const o = analysis.txOffsets[i]!;
+            // Analyze block CBOR for tx offsets (works on full blocks; no-ops on headers).
+            // Malformed blocks surface as `BlockAnalysisParseError`; swallow to empty here
+            // — the callers' upstream path (consensus validation) rejects invalid blocks
+            // before they ever reach `PROMOTE`, so a parse failure at this layer means a
+            // synthetic / legacy block that we still want to index without offsets.
+            const analysis = yield* analyzeBlockCbor(block.blockCbor).pipe(
+              Effect.orElseSucceed((): BlockAnalysis => ({ blockNo: 0n, txOffsets: [] })),
+            );
+            const offsetEntries: ReadonlyArray<BlobEntry> = analysis.txOffsets.map((o, i) => {
               const val = new Uint8Array(8);
               const dv = new DataView(val.buffer);
               dv.setUint32(0, o.offset, false);
               dv.setUint32(4, o.size, false);
-              offsetEntries.push({ key: cborOffsetKey(block.slot, i), value: val });
-            }
+              return { key: cborOffsetKey(block.slot, i), value: val };
+            });
 
             yield* sql.withTransaction(
               Effect.all(
@@ -420,12 +476,15 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
               ),
             );
 
-            // Notify machine — drives lifecycle (immutability promotion, GC).
-            // Block write is already complete; this event updates bookkeeping only.
-            actor.send({
-              type: "BLOCK_ADDED",
-              tip: { slot: block.slot, hash: block.hash },
-            });
+            // Notify the lifecycle reactor — drives the immutability
+            // region (promotion + GC). Block write is already complete;
+            // this event updates bookkeeping only.
+            yield* Queue.offer(
+              events,
+              ChainDBEvent.cases.BlockAdded.make({
+                tip: { slot: block.slot, hash: block.hash },
+              }),
+            );
           }).pipe(withOp("addBlock")),
 
         // --- Batch blob writes (for derived entries: utxo diffs, stake, accounts) ---
@@ -441,25 +500,15 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
           Effect.gen(function* () {
             yield* sql.withTransaction(
               Effect.gen(function* () {
-                const findToDelete = SqlSchema.findAll({
-                  Request: Schema.Struct({ slot: Schema.Number }),
-                  Result: PointRow,
-                  execute: (req) => sql`
-                    SELECT slot, hash FROM volatile_blocks WHERE slot > ${req.slot}
-                  `,
-                });
-
-                const rows = yield* findToDelete({ slot: Number(point.slot) });
+                const rows = yield* findVolatileAboveSlot({ slot: Number(point.slot) });
                 if (rows.length > 0) {
                   yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
                 }
-                yield* sql`
-                  DELETE FROM volatile_blocks WHERE slot > ${Number(point.slot)}
-                `.unprepared;
+                yield* sql`DELETE FROM volatile_blocks WHERE slot > ${Number(point.slot)}`;
               }),
             );
 
-            actor.send({ type: "ROLLBACK", point });
+            yield* Queue.offer(events, ChainDBEvent.cases.Rollback.make({ point }));
           }).pipe(withOp("rollback")),
 
         getSuccessors: (hash: Uint8Array) =>
@@ -471,191 +520,34 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         // --- Iterators ---
         streamFrom: (from: RealPoint) =>
           Stream.fromEffect(
-            Effect.gen(function* () {
-              const findImmutableFrom = SqlSchema.findAll({
-                Request: Schema.Struct({ slot: Schema.Number }),
-                Result: ImmutableBlockRow,
-                execute: (req) => sql`
-                  SELECT slot, hash, prev_hash, block_no, size
-                  FROM immutable_blocks WHERE slot > ${req.slot} ORDER BY slot ASC
-                `,
-              });
-              const findVolatileFrom = SqlSchema.findAll({
-                Request: Schema.Struct({ slot: Schema.Number }),
-                Result: VolatileBlockRow,
-                execute: (req) => sql`
-                  SELECT hash, slot, prev_hash, block_no, block_size_bytes
-                  FROM volatile_blocks WHERE slot > ${req.slot} ORDER BY slot ASC
-                `,
-              });
-
-              const slot = Number(from.slot);
-              const iRows = yield* findImmutableFrom({ slot });
-              const vRows = yield* findVolatileFrom({ slot });
-
-              // Merge in slot order (ES2025 `toSorted` — immutable).
-              const allRows = [
-                ...iRows.map((r) => ({
-                  slot: r.slot,
-                  hash: r.hash,
-                  prev_hash: r.prev_hash,
-                  block_no: r.block_no,
-                  blockSizeBytes: r.size,
-                })),
-                ...vRows.map((r) => ({
-                  slot: r.slot,
-                  hash: r.hash,
-                  prev_hash: r.prev_hash,
-                  block_no: r.block_no,
-                  blockSizeBytes: r.block_size_bytes,
-                })),
-              ].toSorted((a, b) => a.slot - b.slot);
-
-              const fetches = yield* Effect.forEach(allRows, (r) =>
-                store.get(blockKey(BigInt(r.slot), r.hash)).pipe(
-                  Effect.map(
-                    Option.map((blockCbor): StoredBlock => ({
-                      slot: BigInt(r.slot),
-                      hash: r.hash,
-                      ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-                      blockNo: BigInt(r.block_no),
-                      blockSizeBytes: r.blockSizeBytes,
-                      blockCbor,
-                    })),
-                  ),
-                ),
-              );
-              return fetches.flatMap(Option.match({ onNone: () => [], onSome: (b) => [b] }));
-            }).pipe(withOp("streamFrom")),
-          ).pipe(Stream.flatMap((blocks) => Stream.fromIterable(blocks))),
-
-        // --- Immutable promotion ---
-        promoteToImmutable: (upTo: RealPoint) =>
-          Effect.gen(function* () {
-            const now = yield* Clock.currentTimeMillis;
-            const time = Math.floor(Number(now) / 1000);
-
-            yield* sql.withTransaction(
-              Effect.gen(function* () {
-                const findToPromote = SqlSchema.findAll({
-                  Request: Schema.Struct({ slot: Schema.Number }),
-                  Result: VolatileBlockRow,
-                  execute: (req) => sql`
-                    SELECT hash, slot, prev_hash, block_no, block_size_bytes
-                    FROM volatile_blocks WHERE slot <= ${req.slot} ORDER BY slot ASC
-                  `,
-                });
-
-                const rows = yield* findToPromote({ slot: Number(upTo.slot) });
-                if (rows.length > 0) {
-                  const payload = rows.map((r) => ({
-                    slot: r.slot,
-                    hash: r.hash,
-                    prev_hash: r.prev_hash,
-                    block_no: r.block_no,
-                    epoch_no: 0,
-                    size: r.block_size_bytes,
-                    time,
-                    slot_leader_id: 0,
-                    proto_major: 0,
-                    proto_minor: 0,
-                  }));
-                  yield* sql`INSERT INTO immutable_blocks ${sql.insert(payload)}
-                    ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`;
-                }
-                yield* sql`DELETE FROM volatile_blocks WHERE slot <= ${Number(upTo.slot)}`;
-              }),
-            );
-          }).pipe(withOp("promoteToImmutable")),
-
-        // --- Garbage collection ---
-        garbageCollect: (belowSlot: bigint) =>
-          sql
-            .withTransaction(
-              Effect.gen(function* () {
-                const findToDelete = SqlSchema.findAll({
-                  Request: Schema.Struct({ belowSlot: Schema.Number }),
-                  Result: PointRow,
-                  execute: (req) => sql`
-                  SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
-                `,
-                });
-
-                const rows = yield* findToDelete({ belowSlot: Number(belowSlot) });
-                if (rows.length > 0) {
-                  yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
-                }
-                yield* sql`
-                DELETE FROM volatile_blocks WHERE slot < ${Number(belowSlot)}
-              `.unprepared;
-              }),
-            )
-            .pipe(withOp("garbageCollect")),
-
-        // --- Ledger state ---
-        writeLedgerSnapshot: (
-          slot: bigint,
-          hash: Uint8Array,
-          epoch: bigint,
-          stateBytes: Uint8Array,
-        ) =>
-          sql
-            .withTransaction(
-              Effect.all(
-                [
-                  store.put(snapshotKey(slot), stateBytes),
-                  sql`INSERT INTO ledger_snapshots ${sql.insert({
-                    slot: Number(slot),
-                    hash,
-                    epoch: Number(epoch),
-                  })} ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`,
-                ],
-                { concurrency: "unbounded" },
+            Effect.all(
+              [
+                findImmutableFrom({ slot: Number(from.slot) }),
+                findVolatileFrom({ slot: Number(from.slot) }),
+              ],
+              { concurrency: "unbounded" },
+            ).pipe(
+              // Merge both window halves and sort by slot (ES2025 `.toSorted`
+              // — immutable). Since both queries now return the uniform
+              // `BlockRow` shape, no per-half remap is needed.
+              Effect.map(([iRows, vRows]) =>
+                [...iRows, ...vRows].toSorted((a, b) => a.slot - b.slot),
               ),
-            )
-            .pipe(withOp("writeLedgerSnapshot")),
+              Effect.flatMap((rows) => Effect.forEach(rows, readBlockFromRow)),
+              Effect.map((opts) => opts.flatMap(Option.toArray)),
+              withOp("streamFrom"),
+            ),
+          ).pipe(Stream.flatMap(Stream.fromIterable)),
 
-        readLatestLedgerSnapshot: Effect.gen(function* () {
-          const row = yield* findLatestSnapshot(undefined);
-          if (Option.isNone(row)) return Option.none();
-          const r = row.value;
-          const stateBytes = yield* store.get(snapshotKey(BigInt(r.slot)));
-          if (Option.isNone(stateBytes)) return Option.none();
-          return Option.some({
-            point: { slot: BigInt(r.slot), hash: r.hash },
-            stateBytes: stateBytes.value,
-            epoch: BigInt(r.epoch),
-          });
-        }).pipe(withOp("readLatestLedgerSnapshot")),
+        // --- Immutable promotion (public entrypoint; `promoteBlocksEffect`
+        //     is the driver-loop version used by the lifecycle reactor). ---
+        promoteToImmutable: (upTo: RealPoint) =>
+          promoteBlocksEffect(upTo).pipe(Effect.asVoid, withOp("promoteToImmutable")),
 
-        // --- Nonce persistence ---
-        writeNonces: (
-          epoch: bigint,
-          active: Uint8Array,
-          evolving: Uint8Array,
-          candidate: Uint8Array,
-        ) =>
-          sql`INSERT INTO nonces ${sql.insert({
-            epoch: Number(epoch),
-            active,
-            evolving,
-            candidate,
-          })} ON CONFLICT(epoch) DO UPDATE SET
-              active = excluded.active,
-              evolving = excluded.evolving,
-              candidate = excluded.candidate`.pipe(withOp("writeNonces")),
-
-        readNonces: Effect.gen(function* () {
-          const row = yield* findLatestNonces(undefined);
-          if (Option.isNone(row)) return Option.none();
-          const r = row.value;
-          return Option.some({
-            epoch: BigInt(r.epoch),
-            active: r.active,
-            evolving: r.evolving,
-            candidate: r.candidate,
-          });
-        }).pipe(withOp("readNonces")),
+        // --- Garbage collection (public entrypoint mirrors the reactor's
+        //     `collectGarbageEffect`). ---
+        garbageCollect: (belowSlot: bigint) =>
+          collectGarbageEffect(belowSlot).pipe(withOp("garbageCollect")),
       };
     }),
   );

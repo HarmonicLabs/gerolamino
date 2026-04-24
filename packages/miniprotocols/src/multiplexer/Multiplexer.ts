@@ -104,7 +104,9 @@ export class Multiplexer extends Context.Service<
                           _tag: "Parsed",
                           frame,
                         },
-                        cause: new Error(`Invalid frame header`),
+                        cause: new Error(
+                          `Frame arrived for unregistered protocol id ${frame.protocol}`,
+                        ),
                       }),
                     ),
                   onSome: (ps) => ps.pipe(PubSub.publish(frame.payload)),

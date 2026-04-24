@@ -4,19 +4,11 @@
  * Scope: functions taking `Uint8Array` / `ArrayBuffer` in and out — no domain
  * types. Living in `codecs` (the foundation package) keeps every downstream
  * package on one implementation.
+ *
+ * Hex encoding/decoding is done inline via the ES2025 native methods —
+ * `bytes.toHex()` / `Uint8Array.fromHex(s)`. No wrapper helpers ship from
+ * this module for those; direct native use is the canonical form.
  */
-
-/** Hex-encode a `Uint8Array` as a lowercase string. */
-export const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-
-/** Decode a hex string (any case) into a `Uint8Array`. */
-export const fromHex = (s: string): Uint8Array => {
-  const n = s.length >>> 1;
-  const out = new Uint8Array(n);
-  for (let i = 0; i < n; i++) out[i] = parseInt(s.substring(i * 2, i * 2 + 2), 16);
-  return out;
-};
 
 /** Concatenate multiple `Uint8Array`s into a single buffer. */
 export const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
@@ -48,9 +40,12 @@ export const be32 = (n: number): Uint8Array => {
   return buf;
 };
 
-/** Encode a number as big-endian 64-bit unsigned integer. */
-export const be64 = (n: number): Uint8Array => {
+/** Encode a number or bigint as big-endian 64-bit unsigned integer.
+ *  Accepting both avoids a `Number(bigint)` downcast at call sites where
+ *  the input is a protocol-level `u64` modelled as `bigint` (slot numbers,
+ *  ada amounts, etc.) — `setBigUint64` accepts `bigint` natively. */
+export const be64 = (n: number | bigint): Uint8Array => {
   const buf = new Uint8Array(8);
-  new DataView(buf.buffer).setBigUint64(0, BigInt(n));
+  new DataView(buf.buffer).setBigUint64(0, typeof n === "bigint" ? n : BigInt(n));
   return buf;
 };

@@ -1,4 +1,4 @@
-# Unified TypeScript package build using bun2nix + tsc --build.
+# Unified TypeScript package build using bun2nix + tsgo --build.
 # Builds all TS packages in dependency order via project references.
 { inputs, root, ... }: {
   perSystem = { lib, self', pkgs, inputs', ... }:
@@ -9,7 +9,7 @@
         bunNix = root + "/bun.nix";
       };
 
-      # Only include what tsc --build needs — no tests, no db, no .git
+      # Only include what tsgo --build needs — no tests, no db, no .git
       monorepoSrc = lib.fileset.toSource {
         inherit root;
         fileset = lib.fileset.unions [
@@ -47,7 +47,7 @@
           (root + "/packages/chrome-ext/package.json")
           (root + "/packages/consensus/package.json")
           (root + "/packages/dashboard/package.json")
-          (root + "/packages/lsm-tree/package.json")
+          (root + "/packages/ffi/package.json")
           (root + "/apps/bootstrap/package.json")
           (root + "/apps/tui/package.json")
         ];
@@ -72,17 +72,14 @@
         dontRunLifecycleScripts = true;
 
         postUnpack = ''
-          mkdir -p $sourceRoot/packages/wasm-plexer/result
-          cp -r ${self'.packages.wasm-plexer}/* $sourceRoot/packages/wasm-plexer/result/
-
-          mkdir -p $sourceRoot/packages/wasm-utils/pkg
-          cp -r ${self'.packages.wasm-utils}/* $sourceRoot/packages/wasm-utils/pkg/
+          ln -sfn ${self'.packages.wasm-plexer} $sourceRoot/packages/wasm-plexer/result
+          ln -sfn ${self'.packages.wasm-utils} $sourceRoot/packages/wasm-utils/pkg
         '';
 
         buildPhase = ''
           runHook preBuild
 
-          bunx --bun tsc --build \
+          bunx --bun tsgo --build \
             packages/codecs/tsconfig.lib.json \
             packages/storage/tsconfig.lib.json \
             packages/ledger/tsconfig.lib.json \

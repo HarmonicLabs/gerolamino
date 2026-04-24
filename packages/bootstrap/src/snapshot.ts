@@ -44,8 +44,14 @@ export const readSnapshotMeta = (snapshotPath: string) =>
     const ledgerBase = p.join(snapshotPath, "ledger");
     const ledgerEntries = yield* fs.readDirectory(ledgerBase);
 
-    // Find the primary snapshot slot directory (skip *_lsm suffixed dirs)
-    const snapshotSlotStr = ledgerEntries.find((e) => !e.includes("_"));
+    // Find the primary snapshot slot directory. A cardano-node V2LSM dump
+    // has `ledger/<slot>` (primary) plus optional sibling directories
+    // `ledger/<slot>_lsm` / `<slot>_tables`. The old filter
+    // `!e.includes("_")` was too permissive — any oddly-named dir like
+    // `foo_bar_baz` also slipped through. Match exact numeric-only names
+    // so the slot parser below always receives a valid BigInt input.
+    const SLOT_DIR = /^\d+$/;
+    const snapshotSlotStr = ledgerEntries.find((e) => SLOT_DIR.test(e));
     if (!snapshotSlotStr) {
       return yield* Effect.fail(
         new SnapshotReadError({

@@ -3,7 +3,7 @@
  * Streams Mithril snapshot data in the correct order.
  * Reads UTxO entries from BlobStore (LSM backend).
  */
-import { Effect, FileSystem, Option, Path, Stream } from "effect";
+import { Effect, FileSystem, Option, Path, Schema, Stream } from "effect";
 import type { BootstrapError } from "./errors.ts";
 import { readAllChunks } from "./chunk-reader.ts";
 import {
@@ -54,10 +54,11 @@ export const preloadLedgerFiles = (meta: SnapshotMeta) =>
     return { stateBytes, metaBytes };
   });
 
-export type PreloadedLedger = {
-  readonly stateBytes: Option.Option<Uint8Array>;
-  readonly metaBytes: Option.Option<Uint8Array>;
-};
+export const PreloadedLedger = Schema.Struct({
+  stateBytes: Schema.Option(Schema.Uint8Array),
+  metaBytes: Schema.Option(Schema.Uint8Array),
+});
+export type PreloadedLedger = typeof PreloadedLedger.Type;
 
 /**
  * Bootstrap stream: Init → LedgerState → LedgerMeta → UTxO batches → Blocks → Complete.

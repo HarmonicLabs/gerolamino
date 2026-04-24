@@ -9,7 +9,7 @@ import {
   vrf_verify_proof,
 } from "../pkg/wasm_utils.js";
 
-import { CryptoOpError, fromWasmError } from "./errors.ts";
+import { CryptoOpError, type CryptoOperation, fromWasmError } from "./errors.ts";
 import { initWasm } from "./init.ts";
 
 /**
@@ -60,13 +60,17 @@ export const CryptoDirect: Layer.Layer<Crypto> = Layer.effect(
   Effect.gen(function* () {
     yield* initWasm;
 
-    const wrap = <A>(operation: string, tryFn: () => A): Effect.Effect<A, CryptoOpError> =>
+    const wrap = <A>(operation: CryptoOperation, tryFn: () => A): Effect.Effect<A, CryptoOpError> =>
       Effect.try({
         try: tryFn,
         catch: (err) => fromWasmError(operation, err),
       });
 
     return {
+      // Goes through the pallas-crypto / blake2b_simd Rust implementation in
+      // WASM so shared `packages/consensus` + `packages/storage` code that
+      // binds to `Crypto` is browser-compatible. `Bun.CryptoHasher` is not
+      // available in the browser and must not appear in shared-package source.
       blake2b256: (data) => wrap("blake2b256", () => blake2b_256(data)),
       ed25519Verify: (message, signature, publicKey) =>
         wrap("ed25519Verify", () => ed25519_verify(message, signature, publicKey)),

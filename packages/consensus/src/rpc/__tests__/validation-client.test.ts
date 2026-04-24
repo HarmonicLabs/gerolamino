@@ -43,14 +43,6 @@ describe("ValidationDirectLayer", () => {
     }).pipe(Effect.provide(ValidationTestLayer)),
   );
 
-  it.effect("validateHeader is flagged not-implemented until Phase 3b", () =>
-    Effect.gen(function* () {
-      const client = yield* ValidationClient;
-      const exit = yield* Effect.exit(client.validateHeader(new Uint8Array(), 5));
-      expect(Exit.isFailure(exit)).toBe(true);
-    }).pipe(Effect.provide(ValidationTestLayer)),
-  );
-
   it.effect("decodeBlockCbor fails cleanly on invalid CBOR", () =>
     Effect.gen(function* () {
       const client = yield* ValidationClient;

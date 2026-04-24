@@ -116,6 +116,11 @@ pub fn vrf_nonce_tag() -> u8 {
 // ---------------------------------------------------------------------------
 
 /// Compute Blake2b-256 hash (32-byte digest) of input bytes.
+///
+/// Shared with browser targets via `Crypto.blake2b256` — there is no
+/// `Bun.CryptoHasher` equivalent in the browser, so the shared
+/// `packages/wasm-utils` and `packages/consensus` code must route
+/// through this export for platform-agnostic hashing.
 #[wasm_bindgen]
 pub fn blake2b_256(data: &[u8]) -> Vec<u8> {
     let hash = pallas_crypto::hash::Hasher::<256>::hash(data);

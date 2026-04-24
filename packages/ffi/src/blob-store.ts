@@ -14,8 +14,20 @@
  */
 import { Context, Effect, Option, Schema, Stream } from "effect";
 
+export const BlobStoreOperation = Schema.Literals([
+  "get",
+  "put",
+  "delete",
+  "has",
+  "scan",
+  "putBatch",
+  "deleteBatch",
+  "lsm",
+]);
+export type BlobStoreOperation = typeof BlobStoreOperation.Type;
+
 export class BlobStoreError extends Schema.TaggedErrorClass<BlobStoreError>()("BlobStoreError", {
-  operation: Schema.String,
+  operation: BlobStoreOperation,
   cause: Schema.Defect,
 }) {}
 

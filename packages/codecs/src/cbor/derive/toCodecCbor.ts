@@ -7,6 +7,7 @@ import {
   SchemaIssue,
   SchemaTransformation,
 } from "effect";
+import { CborDerivationError } from "../CborError";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
 import { CborBytes } from "../codec/CborBytes";
 import "./annotations";
@@ -300,7 +301,12 @@ function deriveCborBase(ast: AST.AST): AST.AST {
 
     case "Objects": {
       if (ast.propertySignatures.some((ps) => typeof ps.name !== "string")) {
-        throw new Error("CBOR Struct property names must be strings", { cause: ast });
+        throw new CborDerivationError({
+          link: "objectsWalker",
+          astTag: ast._tag,
+          message: "CBOR Struct property names must be strings",
+          cause: ast,
+        });
       }
       const recurred = ast.recur(deriveCborWalker);
       if (!AST.isObjects(recurred)) return recurred;

@@ -5,10 +5,13 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer, Option, Stream } from "effect";
 import { ChainDB } from "../services/chain-db.ts";
+import { LedgerSnapshotStore } from "../services/ledger-snapshot-store.ts";
 import type { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
-// In-memory stub ChainDB for testing the service interface
-const makeInMemoryChainDB = () => {
+// In-memory stub pair — `makeInMemory` returns a shared closure state that
+// both the `ChainDB` and `LedgerSnapshotStore` stubs read/write into. This
+// keeps per-test state isolated while exercising the two-service split.
+const makeInMemory = () => {
   const blocks = new Map<string, StoredBlock>();
   const immutableSlots = new Set<string>();
   let ledgerSnapshot: { point: RealPoint; stateBytes: Uint8Array; epoch: bigint } | undefined;
@@ -16,7 +19,7 @@ const makeInMemoryChainDB = () => {
   const hashKey = (hash: Uint8Array) =>
     Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
 
-  return {
+  const chainDb = {
     getBlock: (hash: Uint8Array) => Effect.succeed(Option.fromNullishOr(blocks.get(hashKey(hash)))),
 
     getBlockAt: (point: RealPoint) =>
@@ -95,18 +98,21 @@ const makeInMemoryChainDB = () => {
         }
       }),
 
+    writeBlobEntries: () => Effect.void,
+    deleteBlobEntries: () => Effect.void,
+  };
+
+  const ledgerSnapshots = {
     writeLedgerSnapshot: (slot: bigint, hash: Uint8Array, epoch: bigint, stateBytes: Uint8Array) =>
       Effect.sync(() => {
         ledgerSnapshot = { point: { slot, hash }, stateBytes, epoch };
       }),
-
     readLatestLedgerSnapshot: Effect.sync(() => Option.fromNullishOr(ledgerSnapshot)),
-
     writeNonces: () => Effect.void,
     readNonces: Effect.succeed(Option.none()),
-    writeBlobEntries: () => Effect.void,
-    deleteBlobEntries: () => Effect.void,
   };
+
+  return { chainDb, ledgerSnapshots };
 };
 
 const makeBlock = (slot: bigint, blockNo: bigint, prevHash?: Uint8Array): StoredBlock => ({
@@ -118,8 +124,17 @@ const makeBlock = (slot: bigint, blockNo: bigint, prevHash?: Uint8Array): Stored
   blockCbor: new Uint8Array(256),
 });
 
-const provide = <A>(effect: Effect.Effect<A, unknown, ChainDB>) =>
-  effect.pipe(Effect.provide(Layer.succeed(ChainDB, makeInMemoryChainDB())));
+const provide = <A>(effect: Effect.Effect<A, unknown, ChainDB | LedgerSnapshotStore>) => {
+  const { chainDb, ledgerSnapshots } = makeInMemory();
+  return effect.pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.succeed(ChainDB, chainDb),
+        Layer.succeed(LedgerSnapshotStore, ledgerSnapshots),
+      ),
+    ),
+  );
+};
 
 describe("ChainDB unified service", () => {
   it.effect("addBlock and getBlock", () =>
@@ -235,14 +250,14 @@ describe("ChainDB unified service", () => {
   it.effect("ledger snapshot write and read", () =>
     provide(
       Effect.gen(function* () {
-        const db = yield* ChainDB;
-        yield* db.writeLedgerSnapshot(
+        const snapshots = yield* LedgerSnapshotStore;
+        yield* snapshots.writeLedgerSnapshot(
           100n,
           new Uint8Array(32).fill(0xaa),
           5n,
           new Uint8Array([1, 2, 3]),
         );
-        const result = yield* db.readLatestLedgerSnapshot;
+        const result = yield* snapshots.readLatestLedgerSnapshot;
         expect(Option.isSome(result)).toBe(true);
         if (Option.isSome(result)) {
           expect(result.value.point.slot).toBe(100n);

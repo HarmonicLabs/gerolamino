@@ -120,12 +120,14 @@ function decodeMultiAsset(
   );
 }
 
-// RFC 8949 canonical order on byte strings: shorter length first, then
-// bytewise lex. Cardano additionally requires MultiAsset outer keys sorted
-// on policy-id bytes and inner keys on asset-name bytes. Any encode path
-// that forwards insertion order diverges from the on-wire TxId of the same
-// logical value — wallet-visible bug.
-const compareBytes = (a: Uint8Array, b: Uint8Array): number => {
+// Cardano's historical MultiAsset key order: shorter length first, then
+// bytewise lex within same length. This differs from RFC 8949 §4.2.1's
+// pure-lex canonical order (which `compareBytes` in `codecs/util/bytes.ts`
+// implements). Locally named `compareMultiAssetKey` to make the semantic
+// gap explicit — using `codecs`'s lex-first comparator here would produce
+// a different TxId than cardano-cli / pallas / ouroboros-consensus for
+// the same MultiAsset, breaking the on-wire tx hash (wallet-visible bug).
+const compareMultiAssetKey = (a: Uint8Array, b: Uint8Array): number => {
   if (a.length !== b.length) return a.length - b.length;
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return a[i]! - b[i]!;
@@ -139,9 +141,9 @@ export function multiAssetToSortedEntries(
   return ma
     .map((entry) => ({
       policy: entry.policy,
-      assets: entry.assets.toSorted((a, b) => compareBytes(a.name, b.name)),
+      assets: entry.assets.toSorted((a, b) => compareMultiAssetKey(a.name, b.name)),
     }))
-    .toSorted((a, b) => compareBytes(a.policy, b.policy));
+    .toSorted((a, b) => compareMultiAssetKey(a.policy, b.policy));
 }
 
 function encodeMultiAsset(ma: readonly MultiAssetEntry[]): CborSchemaType {

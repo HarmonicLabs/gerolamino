@@ -8,9 +8,26 @@ import { dlopen, FFIType } from "bun:ffi";
 import { Config, Effect, Schema } from "effect";
 import type { ConfigError } from "effect/Config";
 
+/** Enumerates every FFI entry point into the Zig → Haskell V2LSM bridge. */
+export const LsmBridgeOperation = Schema.Literals([
+  "init",
+  "init_from_snapshot",
+  "get",
+  "cursor_open",
+  "cursor_read",
+  "snapshot",
+  "lsm_bridge_put",
+  "lsm_bridge_delete",
+  "lsm_bridge_get",
+  "lsm_bridge_snapshot",
+  "snapshot_restore",
+  "lsm_session_open",
+]);
+export type LsmBridgeOperation = typeof LsmBridgeOperation.Type;
+
 /** Typed error for LSM bridge FFI failures. */
 export class LsmBridgeError extends Schema.TaggedErrorClass<LsmBridgeError>()("LsmBridgeError", {
-  operation: Schema.String,
+  operation: LsmBridgeOperation,
   cause: Schema.Defect,
 }) {}
 

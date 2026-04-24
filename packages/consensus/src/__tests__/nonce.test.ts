@@ -2,7 +2,7 @@ import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { CryptoDirect } from "wasm-utils";
 import { evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "../praos/nonce";
-import { hex, concat } from "../util";
+import { concat } from "../util";
 
 const blake2b256 = (data: Uint8Array): Uint8Array =>
   new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);
@@ -53,7 +53,7 @@ describe("evolveNonce", () => {
       // Manual computation: blake2b(current ∥ blake2b(vrfOutput))
       const eta = blake2b256(vrfOutput);
       const expected = blake2b256(concat(current, eta));
-      expect(hex(result)).toBe(hex(expected));
+      expect(result.toHex()).toBe(expected.toHex());
     }).pipe(Effect.provide(CryptoDirect)),
   );
 });
@@ -87,7 +87,7 @@ describe("deriveEpochNonce", () => {
 
       const result = yield* deriveEpochNonce(candidate, parentHash);
       const expected = blake2b256(concat(candidate, parentHash));
-      expect(hex(result)).toBe(hex(expected));
+      expect(result.toHex()).toBe(expected.toHex());
     }).pipe(Effect.provide(CryptoDirect)),
   );
 
@@ -99,7 +99,7 @@ describe("deriveEpochNonce", () => {
 
       const ab = yield* deriveEpochNonce(a, b);
       const ba = yield* deriveEpochNonce(b, a);
-      expect(hex(ab)).not.toBe(hex(ba));
+      expect(ab.toHex()).not.toBe(ba.toHex());
     }).pipe(Effect.provide(CryptoDirect)),
   );
 
@@ -110,7 +110,7 @@ describe("deriveEpochNonce", () => {
       const zeroHash = new Uint8Array(32);
       const result = yield* deriveEpochNonce(candidate, zeroHash);
       // blake2b(cc...cc ∥ 00...00) ≠ cc...cc
-      expect(hex(result)).not.toBe(hex(candidate));
+      expect(result.toHex()).not.toBe(candidate.toHex());
     }).pipe(Effect.provide(CryptoDirect)),
   );
 });

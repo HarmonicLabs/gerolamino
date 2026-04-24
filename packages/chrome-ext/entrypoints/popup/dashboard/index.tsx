@@ -21,7 +21,7 @@ import {
   peersAtom,
   networkInfoAtom,
 } from "dashboard";
-import type { NodeState, BootstrapProgress, PeerInfo, NetworkInfo } from "dashboard";
+import type { NodeState, BootstrapProgress, NetworkInfo } from "dashboard";
 import { SyncState } from "../../background/rpc.ts";
 import { browserPrimitives } from "./browser-primitives.tsx";
 
@@ -30,9 +30,12 @@ const registry = AtomRegistry.make();
 
 const decodeSyncState = Schema.decodeUnknownOption(SyncState);
 
-/** Map consensus peer status → dashboard PeerInfo status. */
-const mapPeerStatus = (s: string): PeerInfo["status"] =>
-  s === "stalled" ? "stalled" : s === "disconnected" ? "disconnected" : "connected";
+/*
+ * `mapPeerStatus` has been removed: the wire-side `SyncState.peers[].status`
+ * is already narrowed to `PeerInfoStatus` (the canonical 5-state enum from
+ * consensus/rpc — see `packages/chrome-ext/entrypoints/background/rpc.ts`).
+ * The popup now forwards the status through unchanged.
+ */
 
 /** Map SyncState from chrome.storage → dashboard atoms. */
 const pushSyncState = (s: SyncState) => {
@@ -78,12 +81,15 @@ const pushSyncState = (s: SyncState) => {
     ...(s.totalStakeEntries !== undefined ? { totalStakeEntries: s.totalStakeEntries } : {}),
   }));
 
-  // Peers — map string tipSlot → bigint
+  // Peers — map string tipSlot → bigint and synthesize address from id.
+  // The background-side `SyncState.peers[].status` is already narrowed to
+  // `PeerInfoStatus` (canonical 5-state), so we forward it unchanged.
   if (s.peers !== undefined) {
     registry.update(peersAtom, () =>
       s.peers!.map((p) => ({
         id: p.id,
-        status: mapPeerStatus(p.status),
+        address: p.id,
+        status: p.status,
         tipSlot: BigInt(p.tipSlot),
       })),
     );

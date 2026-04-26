@@ -54,7 +54,11 @@ export class ConsensusEvents extends Context.Service<
   static readonly Live = Layer.effect(
     ConsensusEvents,
     Effect.gen(function* () {
-      const pubsub = yield* PubSub.unbounded<ConsensusEventType>();
+      // `sliding(256)` keeps the newest events and drops oldest when full —
+      // matches UI-consumer semantics where the dashboard only cares about
+      // the latest tip / GSM transition. `unbounded` previously let memory
+      // grow without bound when a paused popup never drained its queue.
+      const pubsub = yield* PubSub.sliding<ConsensusEventType>(256);
 
       return ConsensusEvents.of({
         emit: (event) => PubSub.publish(pubsub, event),

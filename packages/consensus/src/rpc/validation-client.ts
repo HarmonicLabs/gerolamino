@@ -11,7 +11,10 @@
  * `ValidationClient` and never know which transport is under the hood.
  */
 import { Context, Effect } from "effect";
-import { CryptoOpError, type CryptoOperation } from "wasm-utils";
+import { concat } from "codecs";
+import { MultiEraBlock, decodeMultiEraBlock } from "ledger/lib/block/block.ts";
+import { Era } from "ledger/lib/core/era.ts";
+import { Crypto, CryptoOpError, type CryptoOperation } from "wasm-utils";
 import { ValidationError, type ValidationOperation } from "./validation-rpc-group.ts";
 
 /**
@@ -45,6 +48,69 @@ export const mapTransportToCrypto =
       code: 0,
       message: `rpc transport: ${cause.message}`,
     });
+
+/**
+ * The four "local" `ValidationClient` ops that never go through the RPC /
+ * worker boundary:
+ *   - `computeBodyHash` + `computeTxId` — blake2b-256 over small inputs
+ *     (per-call Worker IPC dominates the <0.5ms hash cost)
+ *   - `blake2b256Tagged` — tag-byte + data hash, same rationale
+ *   - `decodeBlockCbor` — pure CBOR decode through the in-process `codecs`
+ *     + `ledger` stack (no WASM call)
+ *
+ * Both `ValidationDirectLayer` and `ValidationFromRpc` consume this factory
+ * so they can't drift on the shared error-shape conventions. The primitive
+ * crypto ops (`ed25519Verify` / `kesSum6Verify` / …) stay layer-specific
+ * because their transport differs (direct → `crypto.X`, RPC → `client.X`).
+ */
+// Pre-allocated 256 single-byte `Uint8Array`s — the per-call hot path of
+// `blake2b256Tagged` then becomes a constant-time array index + `concat`,
+// no per-call `new Uint8Array(1)` allocation. Total module-level footprint
+// is ~256 × (8-byte header + 1 byte payload) ≈ 2.3KiB, paid once.
+const TAG_BYTE_CACHE: ReadonlyArray<Uint8Array> = Array.from(
+  { length: 256 },
+  (_, i) => new Uint8Array([i]),
+);
+
+export const makeLocalValidationOps = (crypto: Context.Service.Shape<typeof Crypto>) => ({
+  computeBodyHash: (blockBodyCbor: Uint8Array) =>
+    crypto.blake2b256(blockBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeBodyHash"))),
+  computeTxId: (txBodyCbor: Uint8Array) =>
+    crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
+  blake2b256Tagged: (tag: number, data: Uint8Array) =>
+    crypto.blake2b256(
+      // `?? new Uint8Array([...])` is unreachable (the cache covers every
+      // `tag & 0xff`) but satisfies `noUncheckedIndexedAccess`.
+      concat(TAG_BYTE_CACHE[tag & 0xff] ?? new Uint8Array([tag & 0xff]), data),
+    ),
+  decodeBlockCbor: (blockCbor: Uint8Array) =>
+    decodeMultiEraBlock(blockCbor).pipe(
+      Effect.map((block) =>
+        MultiEraBlock.match(block, {
+          byron: () => ({
+            eraVariant: Era.Byron,
+            slot: 0n,
+            blockNo: 0n,
+            hash: new Uint8Array(32),
+          }),
+          postByron: ({ era, header }) => ({
+            eraVariant: era,
+            slot: header.slot,
+            blockNo: header.blockNo,
+            hash: new Uint8Array(32),
+          }),
+        }),
+      ),
+      Effect.mapError(
+        (issue) =>
+          new ValidationError({
+            operation: "DecodeBlockCbor",
+            message: issue._tag ?? "Decode failed",
+            cause: issue,
+          }),
+      ),
+    ),
+});
 
 /**
  * The 9-method validation interface. Methods fall into two buckets per

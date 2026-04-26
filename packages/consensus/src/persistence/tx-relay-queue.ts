@@ -28,13 +28,18 @@ import { MempoolEntry } from "../mempool/mempool";
 export const TX_RELAY_QUEUE_NAME = "consensus/tx-relay-outbox";
 
 /** Entry schema — we serialize the full `MempoolEntry` so consumers can
- * re-derive fee-rate ordering + tx size without re-measuring. */
+ * re-derive fee-rate ordering + tx size without re-measuring.
+ *
+ * `feePerByte` is genuinely a float (lovelace ÷ bytes); `sizeBytes` is an
+ * integer byte count, so use `Schema.Int` so a malformed serializer that
+ * emits a float gets caught at decode time instead of producing nonsense
+ * downstream. */
 export const TxRelayEntry = Schema.Struct({
   txId: Schema.Uint8Array,
   txCbor: Schema.Uint8Array,
   addedSlot: Schema.BigInt,
   feePerByte: Schema.Number,
-  sizeBytes: Schema.Number,
+  sizeBytes: Schema.Int,
 });
 export type TxRelayEntry = typeof TxRelayEntry.Type;
 
@@ -76,7 +81,7 @@ export const makeTxRelayQueue = Effect.gen(function* () {
   };
 });
 
-export type TxRelayQueue = Awaited<ReturnType<(typeof makeTxRelayQueue)["pipe"]>>;
+export type TxRelayQueue = Effect.Success<typeof makeTxRelayQueue>;
 
 /**
  * Convenience: pre-composed test layer that wires the in-memory store

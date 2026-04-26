@@ -11,6 +11,7 @@
 
 // Atoms (reactive state)
 export {
+  // Existing
   nodeStateAtom,
   peersAtom,
   bootstrapAtom,
@@ -18,9 +19,24 @@ export {
   isSyncingAtom,
   slotsBehindAtom,
   syncPercentLabelAtom,
+  // New (this wave)
+  mempoolSnapshotAtom,
+  mempoolSizeAtom,
+  mempoolFeeP50Atom,
+  chainEventLogAtom,
+  syncSparklineAtom,
+  // Constants
   INITIAL_NODE_STATE,
   INITIAL_BOOTSTRAP,
   INITIAL_NETWORK,
+  CHAIN_EVENT_LOG_CAP,
+  SYNC_SPARKLINE_CAP,
+  // Push helpers
+  pushMempoolSnapshot,
+  pushChainEventLog,
+  appendChainEvent,
+  pushSyncSparklinePoint,
+  // Schemas / types
   NodeState,
   SyncStatus,
   GsmState,
@@ -30,6 +46,8 @@ export {
   BootstrapPhase,
   NetworkInfo,
   NetworkName,
+  MempoolEntry,
+  ChainEventEntry,
 } from "./atoms";
 
 // Primitives (platform abstraction)
@@ -47,7 +65,25 @@ export type {
   TableProps,
   ScrollAreaProps,
   SeparatorProps,
+  // New (this wave)
+  LayoutProps,
+  TooltipProps,
+  IconButtonProps,
+  SparklineProps,
+  LogRowProps,
 } from "./primitives.ts";
 
+// DOM-host primitive factory — shared between apps/tui Bun.WebView host
+// (Phase E, deferred) and packages/chrome-ext popup. Each call returns
+// a fresh `DashboardPrimitives` record over Tailwind v4 + Kobalte + Corvu.
+export { createDomPrimitives } from "./primitives/dom";
+
 // Components
-export { Dashboard, SyncOverview, PeerTable, NetworkPanel } from "./components";
+export {
+  Dashboard,
+  SyncOverview,
+  PeerTable,
+  NetworkPanel,
+  MempoolTable,
+  ChainEventLog,
+} from "./components";

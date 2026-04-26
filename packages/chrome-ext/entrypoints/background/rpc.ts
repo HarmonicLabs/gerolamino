@@ -9,6 +9,7 @@ import { Effect, Option, Queue, Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { PeerInfoStatus } from "consensus";
+import { MempoolEntry, ChainEventEntry } from "dashboard";
 
 // ---------------------------------------------------------------------------
 // Sync State Schema
@@ -82,6 +83,22 @@ export class SyncState extends Schema.Class<SyncState>("SyncState")({
   network: Schema.optional(Schema.String),
   relayHost: Schema.optional(Schema.String),
   relayPort: Schema.optional(Schema.Number),
+
+  /**
+   * Mempool snapshot — server-side capped at 256 entries before publish.
+   * Optional so old chrome.storage sessions decode cleanly; new sessions
+   * populate as the SW's `Mempool.snapshot` poll fiber pushes data
+   * (gated on `DASHBOARD_FEED_ENABLED`, default OFF this wave).
+   */
+  mempoolSnapshot: Schema.optional(Schema.Array(MempoolEntry)),
+
+  /**
+   * Chain event log — bounded ring of 256 most-recent consensus events
+   * (the popup re-caps at `CHAIN_EVENT_LOG_CAP = 1000` defensively in
+   * the dashboard atom). Optional for the same backwards-decode reason
+   * as `mempoolSnapshot`.
+   */
+  chainEventLog: Schema.optional(Schema.Array(ChainEventEntry)),
 }) {}
 
 export const INITIAL_STATE = new SyncState({

@@ -33,7 +33,7 @@ import { ChainEventStream } from "../chain/event-log.ts";
 import { Mempool, SubmitResult } from "../mempool/mempool.ts";
 import { getNodeStatus } from "../node.ts";
 import { PeerManager } from "../peer/manager.ts";
-import { NodeRpcGroup } from "./node-rpc-group.ts";
+import { ChainTipResult, NodeRpcGroup } from "./node-rpc-group.ts";
 
 /**
  * Handlers live layer. Depends on:
@@ -60,21 +60,25 @@ export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
         // resolving that point to the full StoredBlock. Storage failures
         // collapse to `Option.none()` (with a log) — the RPC has no error
         // payload, and a missing tip is the cold-start state anyway.
+        //
+        // Shape: `Option<Point> → Effect<Option<ChainTipResult>>` — `None`
+        // short-circuits, `Some(point)` fetches the block and maps the row
+        // Option straight through (`Option.map` preserves None without a
+        // second nested `match`).
         chainDb.getTip.pipe(
-          Effect.flatMap((tipOpt) =>
-            Option.match(tipOpt, {
-              onNone: () =>
-                Effect.succeed(
-                  Option.none<typeof import("./node-rpc-group.ts").ChainTipResult.Type>(),
-                ),
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.succeed(Option.none<typeof ChainTipResult.Type>()),
               onSome: (point) =>
                 chainDb.getBlockAt(point).pipe(
-                  Effect.map((blockOpt) =>
-                    Option.match(blockOpt, {
-                      onNone: () => Option.none(),
-                      onSome: (block) =>
-                        Option.some({ slot: point.slot, blockNo: block.blockNo, hash: point.hash }),
-                    }),
+                  Effect.map(
+                    Option.map(
+                      (block): typeof ChainTipResult.Type => ({
+                        slot: point.slot,
+                        blockNo: block.blockNo,
+                        hash: point.hash,
+                      }),
+                    ),
                   ),
                 ),
             }),
@@ -113,7 +117,10 @@ export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
           // underlying storage layer). A future GetMempool update with a
           // declared error channel should propagate instead.
           Effect.catch((err) =>
-            Effect.logWarning(`GetMempool: snapshot failed — ${err.message}`).pipe(Effect.as([])),
+            // Backend failure (KV down etc.) — `logError` rather than `logWarning`
+            // since the empty fallback is otherwise indistinguishable from a
+            // legitimately-empty mempool at the caller.
+            Effect.logError(`GetMempool: snapshot failed — ${err.message}`).pipe(Effect.as([])),
           ),
         ),
 
@@ -126,7 +133,9 @@ export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
             blocksProcessed: status.blocksProcessed,
           })),
           Effect.catch((err) =>
-            Effect.logWarning(`GetSyncStatus: getNodeStatus failed — ${err.message}`).pipe(
+            // Backend failure — `logError` rather than `logWarning` (default
+            // values would otherwise look like a normally-syncing node).
+            Effect.logError(`GetSyncStatus: getNodeStatus failed — ${err.message}`).pipe(
               Effect.as({
                 synced: false,
                 slotsBehind: 0n,

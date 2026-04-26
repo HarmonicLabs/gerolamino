@@ -10,10 +10,13 @@
  *
  * Uses Effect abstractions throughout:
  *   - Clock.currentTimeMillis for testable timestamps
- *   - Ref<Map> for atomic peer state (reads-after-write via Ref.modify)
+ *   - Ref<HashMap> for atomic peer state — Effect's `HashMap` is a persistent
+ *     hash-array-mapped trie, so `set` / `modify` share spine nodes with the
+ *     prior version (no full O(n) Map clone per header). The `updatePeerTip`
+ *     hot path costs O(log n) instead of O(n).
  *   - Config for tunable timeouts
  */
-import { Clock, Config, Context, Effect, Layer, Metric, Option, Ref, Schema } from "effect";
+import { Clock, Config, Context, Effect, HashMap, Layer, Metric, Option, Ref, Schema } from "effect";
 import { countBy } from "es-toolkit";
 import { SlotClock } from "../praos/clock";
 import { ChainTip, preferCandidate } from "../chain/selection";
@@ -62,29 +65,16 @@ const isActiveWithTip = (p: PeerState): p is PeerWithTip =>
   p.tip !== undefined && p.status !== "disconnected" && p.status !== "stalled";
 
 /** Count of peers not yet disconnected — published to `PeerCount` after
- *  every add / remove. */
-const activePeerCount = (m: ReadonlyMap<string, PeerState>): number =>
-  [...m.values()].filter(isConnected).length;
+ *  every add / remove. `HashMap.reduce` walks the spine in-place so the
+ *  count stays O(n) without materializing an intermediate array. */
+const activePeerCount = (m: HashMap.HashMap<string, PeerState>): number =>
+  HashMap.reduce(m, 0, (acc, peer) => acc + (isConnected(peer) ? 1 : 0));
 
 /** Zero-seed for `getStatusCounts` derived directly from the Schema
  *  literal list so adding a new status constant can't leave a gap. */
 const PEER_STATUS_ZERO_SEED: Record<PeerStatus, number> = Object.fromEntries(
   PeerStatus.literals.map((s) => [s, 0]),
 ) as Record<PeerStatus, number>;
-
-/** Immutable `m.set(key, updater(existing))` — returns a new Map if the
- *  key exists, otherwise `undefined` so callers can short-circuit. */
-const mapUpdate = <K, V>(
-  m: ReadonlyMap<K, V>,
-  key: K,
-  f: (value: V) => V,
-): Map<K, V> | undefined => {
-  const existing = m.get(key);
-  if (existing === undefined) return undefined;
-  const next = new Map(m);
-  next.set(key, f(existing));
-  return next;
-};
 
 export class PeerManager extends Context.Service<
   PeerManager,
@@ -110,12 +100,14 @@ export class PeerManager extends Context.Service<
 export const PeerManagerLive = Effect.gen(function* () {
   const slotClock = yield* SlotClock;
   const stallTimeoutMs = yield* StallTimeoutMs;
-  const peers = yield* Ref.make<Map<string, PeerState>>(new Map());
+  const peers = yield* Ref.make(HashMap.empty<string, PeerState>());
 
   /** Atomic "replace entry + publish PeerCount" — used by add + remove.
    *  `Ref.modify` returns the new active count from the same read, so the
    *  metric update doesn't need a second `Ref.get`. */
-  const modifyAndPublishCount = (f: (m: Map<string, PeerState>) => Map<string, PeerState>) =>
+  const modifyAndPublishCount = (
+    f: (m: HashMap.HashMap<string, PeerState>) => HashMap.HashMap<string, PeerState>,
+  ) =>
     Ref.modify(peers, (m) => {
       const next = f(m);
       return [activePeerCount(next), next] as const;
@@ -125,18 +117,16 @@ export const PeerManagerLive = Effect.gen(function* () {
     addPeer: (peerId: string, address?: string) =>
       Clock.currentTimeMillis.pipe(
         Effect.flatMap((now) =>
-          modifyAndPublishCount((m) => {
-            const next = new Map(m);
-            next.set(peerId, {
+          modifyAndPublishCount((m) =>
+            HashMap.set(m, peerId, {
               peerId,
               address: address ?? peerId,
               status: "connecting",
               tip: undefined,
               lastActivityMs: Number(now),
               headersReceived: 0,
-            });
-            return next;
-          }),
+            }),
+          ),
         ),
         Effect.withSpan(SPAN.PeerConnect, { attributes: { "peer.id": peerId } }),
       ),
@@ -144,23 +134,24 @@ export const PeerManagerLive = Effect.gen(function* () {
     updatePeerTip: (peerId: string, tip: ChainTip) =>
       Clock.currentTimeMillis.pipe(
         Effect.flatMap((now) =>
-          Ref.update(
-            peers,
-            (m) =>
-              mapUpdate(m, peerId, (peer) => ({
-                ...peer,
-                tip,
-                status: "syncing",
-                lastActivityMs: Number(now),
-                headersReceived: peer.headersReceived + 1,
-              })) ?? m,
+          // `HashMap.modify` is a no-op when the peer isn't tracked, so
+          // unregistered tip notifications drop silently — same semantics
+          // as the previous `mapUpdate(...) ?? m` guard.
+          Ref.update(peers, (m) =>
+            HashMap.modify(m, peerId, (peer) => ({
+              ...peer,
+              tip,
+              status: "syncing",
+              lastActivityMs: Number(now),
+              headersReceived: peer.headersReceived + 1,
+            })),
           ),
         ),
       ),
 
     removePeer: (peerId: string) =>
-      modifyAndPublishCount(
-        (m) => mapUpdate(m, peerId, (peer) => ({ ...peer, status: "disconnected" })) ?? new Map(m),
+      modifyAndPublishCount((m) =>
+        HashMap.modify(m, peerId, (peer) => ({ ...peer, status: "disconnected" })),
       ).pipe(Effect.withSpan(SPAN.PeerDisconnect, { attributes: { "peer.id": peerId } })),
 
     getBestPeer: Ref.get(peers).pipe(
@@ -168,7 +159,7 @@ export const PeerManagerLive = Effect.gen(function* () {
         // Narrow to peers that (a) have a tip and (b) are eligible for
         // selection. `isActiveWithTip` is a type guard so `peer.tip` reads
         // directly inside the reduce — no `!` assertion needed.
-        const active = [...m.values()].filter(isActiveWithTip);
+        const active = [...HashMap.values(m)].filter(isActiveWithTip);
         const best = active.reduce<PeerWithTip | undefined>(
           (acc, peer) =>
             acc === undefined ||
@@ -181,22 +172,24 @@ export const PeerManagerLive = Effect.gen(function* () {
       }),
     ),
 
-    getPeers: Ref.get(peers).pipe(Effect.map((m) => [...m.values()])),
+    getPeers: Ref.get(peers).pipe(Effect.map((m) => [...HashMap.values(m)])),
 
     detectStalls: Clock.currentTimeMillis.pipe(
       Effect.flatMap((now) => {
         const nowMs = Number(now);
         return Ref.modify(peers, (m) => {
-          // Walk entries once; accumulate the stalled id list + new Map
-          // with status flipped. The for-of is a byte-assembly-adjacent
-          // site (dual accumulator: list + keyed map), so mutation is
-          // local and commented. No external state escapes.
+          // Walk entries once; accumulate the stalled id list + new
+          // HashMap with status flipped. Each `HashMap.set` is an O(log n)
+          // structural-sharing update, so k stalled peers cost O(k log n)
+          // — much cheaper than the prior `new Map(m)` clone-per-stall.
+          // The for-of is a dual-accumulator site (list + keyed map);
+          // mutation is local, no external state escapes.
           const stalled: string[] = [];
-          const next = new Map(m);
-          for (const [id, peer] of m) {
+          let next = m;
+          for (const [id, peer] of HashMap.entries(m)) {
             if (!isEligibleForStall(peer)) continue;
             if (nowMs - peer.lastActivityMs > stallTimeoutMs) {
-              next.set(id, { ...peer, status: "stalled" });
+              next = HashMap.set(next, id, { ...peer, status: "stalled" });
               stalled.push(id);
             }
           }
@@ -219,7 +212,7 @@ export const PeerManagerLive = Effect.gen(function* () {
       // consumers can read any status without `?? 0` guards.
       Effect.map((m) => ({
         ...PEER_STATUS_ZERO_SEED,
-        ...countBy([...m.values()], (p) => p.status),
+        ...countBy([...HashMap.values(m)], (p) => p.status),
       })),
     ),
   };

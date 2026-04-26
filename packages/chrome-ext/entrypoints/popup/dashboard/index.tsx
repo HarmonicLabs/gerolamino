@@ -3,7 +3,9 @@
  *
  * Provides:
  * 1. AtomRegistry (Effect Atoms → SolidJS reactivity bridge)
- * 2. Browser DashboardPrimitives (HTML elements + inline styles)
+ * 2. DOM-host DashboardPrimitives via `createDomPrimitives()` (Tailwind v4 +
+ *    Kobalte + Corvu) — the same factory the apps/tui Bun.WebView host
+ *    consumes, so visual + a11y behavior stays consistent across hosts.
  * 3. Dashboard component from packages/dashboard
  *
  * Bridges sync state from the background service worker into Effect Atoms
@@ -16,14 +18,18 @@ import { Option, Schema } from "effect";
 import {
   PrimitivesProvider,
   Dashboard,
+  createDomPrimitives,
   nodeStateAtom,
   bootstrapAtom,
   peersAtom,
   networkInfoAtom,
+  pushMempoolSnapshot,
+  pushChainEventLog,
 } from "dashboard";
 import type { NodeState, BootstrapProgress, NetworkInfo } from "dashboard";
 import { SyncState } from "../../background/rpc.ts";
-import { browserPrimitives } from "./browser-primitives.tsx";
+
+const domPrimitives = createDomPrimitives();
 
 /** Create a shared AtomRegistry for the popup. */
 const registry = AtomRegistry.make();
@@ -110,6 +116,18 @@ const pushSyncState = (s: SyncState) => {
       ...(s.relayPort !== undefined ? { relayPort: s.relayPort } : {}),
     }));
   }
+
+  // New (dashboard redesign): mempool snapshot + chain event log. Both
+  // are absent until the SW's `DASHBOARD_FEED_ENABLED` flag flips on.
+  // Until then this branch is a no-op and the corresponding atoms stay
+  // at their initial empty arrays — the popup renders empty `MempoolTable`
+  // and `ChainEventLog` panels, which is the documented intermediate UX.
+  if (s.mempoolSnapshot !== undefined) {
+    pushMempoolSnapshot(registry, s.mempoolSnapshot);
+  }
+  if (s.chainEventLog !== undefined) {
+    pushChainEventLog(registry, s.chainEventLog);
+  }
 };
 
 /**
@@ -148,18 +166,13 @@ const StorageBridge = () => {
 /** Top-level browser dashboard for the popup. */
 export const BrowserDashboard = () => (
   <RegistryContext.Provider value={registry}>
-    <PrimitivesProvider value={browserPrimitives}>
+    <PrimitivesProvider value={domPrimitives}>
       <StorageBridge />
-      <div
-        style={{
-          width: "380px",
-          "min-height": "480px",
-          padding: "16px",
-          "background-color": "#0f172a",
-          color: "#e5e7eb",
-          "font-family": "'Inter', system-ui, sans-serif",
-        }}
-      >
+      {/* Width is fixed because Chrome's popup viewport collapses to its
+          content if unconstrained. The `dark` class forces the dark token
+          palette regardless of OS theme; flip to a `prefers-color-scheme`-
+          aware approach when light theme support lands. */}
+      <div class="dark w-[380px] min-h-[480px] p-4 bg-background text-foreground font-sans">
         <Dashboard />
       </div>
     </PrimitivesProvider>

@@ -100,6 +100,26 @@ export class VrfCacheKey extends VrfCacheKeyBase {
 }
 
 // ---------------------------------------------------------------------------
+// TTL constants — hoisted as module-level `Duration` values so neither the
+// `PersistedCache.make` thunk nor the in-memory LRU timer re-constructs them
+// on every cache instantiation. Documented rationale:
+//
+//   Header cache — TTL = 1h covers a full k=2160 rollback window without
+//   prematurely evicting hot headers that the sync loop is about to revisit.
+//   In-memory TTL = 5min matches the typical chain-sync worker's per-peer
+//   batch cadence.
+//
+//   VRF cache — TTL = 24h so an epoch's (~120h on mainnet / ~2.5h on preprod)
+//   leader checks + nonce contributions reuse the same cached outputs.
+//   In-memory TTL = 15min matches the window of active per-slot verifications.
+// ---------------------------------------------------------------------------
+
+const HEADER_CACHE_TTL = Duration.hours(1);
+const HEADER_INMEMORY_TTL = Duration.minutes(5);
+const VRF_CACHE_TTL = Duration.hours(24);
+const VRF_INMEMORY_TTL = Duration.minutes(15);
+
+// ---------------------------------------------------------------------------
 // Services — the cache surfaces consumers yield for
 // `.get(key): Effect<Value, Error, ...>`.
 // ---------------------------------------------------------------------------
@@ -135,11 +155,9 @@ export const headerCacheLayer = (
     PersistedCache.make((key: HeaderCacheKey) => decode(key.headerHash), {
       storeId: "consensus-header-cache",
       // Plan §3b: recent 1000 headers; k=2160 is the security window.
-      // TTL = 1h covers a full k-depth rollback without prematurely
-      // evicting hot headers the sync loop is about to revisit.
-      timeToLive: () => Duration.hours(1),
+      timeToLive: () => HEADER_CACHE_TTL,
       inMemoryCapacity: 1024,
-      inMemoryTTL: () => Duration.minutes(5),
+      inMemoryTTL: () => HEADER_INMEMORY_TTL,
     }),
   );
 
@@ -159,13 +177,9 @@ export const vrfCacheLayer = (
     VrfCache,
     PersistedCache.make((key: VrfCacheKey) => verify(key.publicKey, key.proof, key.message), {
       storeId: "consensus-vrf-cache",
-      // VRF outputs are pure per-epoch; TTL = 24h means an epoch's
-      // leader checks + nonce contributions reuse the same cached
-      // outputs. Post-epoch the cache entries stop being hit by the
-      // fresh epoch's schedule so eviction is benign.
-      timeToLive: () => Duration.hours(24),
+      timeToLive: () => VRF_CACHE_TTL,
       inMemoryCapacity: 4096,
-      inMemoryTTL: () => Duration.minutes(15),
+      inMemoryTTL: () => VRF_INMEMORY_TTL,
     }),
   );
 

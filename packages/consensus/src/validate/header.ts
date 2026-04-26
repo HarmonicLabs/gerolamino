@@ -141,13 +141,36 @@ export const validateHeader = (
   Effect.gen(function* () {
     yield* validateEnvelope(header, prevTip, ledgerView);
     const crypto = yield* Crypto;
-    yield* Effect.all([
-      assertKnownLeaderVrf(crypto, header, ledgerView),
-      assertVrfProof(crypto, header, ledgerView),
-      assertLeaderStake(crypto, header, ledgerView),
-      assertKesSignature(crypto, header, ledgerView),
-      assertOperationalCertificate(crypto, header, ledgerView),
-    ]);
+
+    // Hoist `poolId = blake2b256(issuerVk).toHex()` once. Three of the
+    // five assertions (KnownLeaderVrf, LeaderStake, OperationalCertificate)
+    // need it; computing inline runs the hash three times in parallel.
+    // Skipped in the genesis path where all three would early-exit anyway.
+    const needsPoolId =
+      HashMap.size(ledgerView.poolVrfKeys) > 0 ||
+      ledgerView.totalStake !== 0n ||
+      HashMap.size(ledgerView.ocertCounters) > 0;
+    const poolId: string | undefined = needsPoolId
+      ? (yield* crypto
+          .blake2b256(header.issuerVk)
+          .pipe(Effect.mapError(headerErrFor("AssertKnownLeaderVrf", header)))).toHex()
+      : undefined;
+
+    // The five assertions are independent — VRF proof, KES signature, opcert
+    // Ed25519 verify, and leader-threshold check all hit different crypto
+    // primitives. Run unbounded so a worker-backed `Crypto` layer can spread
+    // them across cores; the default sequential `Effect.all` would serialize
+    // four crypto operations that have no data dependency on each other.
+    yield* Effect.all(
+      [
+        assertKnownLeaderVrf(header, ledgerView, poolId),
+        assertVrfProof(crypto, header, ledgerView),
+        assertLeaderStake(crypto, header, ledgerView, poolId),
+        assertKesSignature(crypto, header, ledgerView),
+        assertOperationalCertificate(crypto, header, ledgerView, poolId),
+      ],
+      { concurrency: "unbounded" },
+    );
   }).pipe(
     Effect.tapError(() => Metric.update(BlockValidationFailed, 1)),
     Effect.withSpan(SPAN.ValidateHeader, {
@@ -219,22 +242,20 @@ const validateEnvelope = (
 
 // 1. VRF key must match the pool's registered VRF key
 // Gracefully skips when pool data is absent (genesis sync without bootstrap).
+// Pure now — receives `poolId` from `validateHeader`'s hoisted blake2b256.
 const assertKnownLeaderVrf = (
-  crypto: Context.Service.Shape<typeof Crypto>,
   header: BlockHeader,
   view: LedgerView,
+  poolId: string | undefined,
 ): Effect.Effect<void, HeaderValidationError> => {
-  if (HashMap.size(view.poolVrfKeys) === 0) return Effect.void;
+  if (HashMap.size(view.poolVrfKeys) === 0 || poolId === undefined) return Effect.void;
   const toErr = headerErrFor("AssertKnownLeaderVrf", header);
-  return Effect.gen(function* () {
-    const poolIdBytes = yield* crypto.blake2b256(header.issuerVk).pipe(Effect.mapError(toErr));
-    const poolId = poolIdBytes.toHex();
-    const registeredVrfVk = HashMap.get(view.poolVrfKeys, poolId);
-    if (Option.isNone(registeredVrfVk))
-      return yield* Effect.fail(toErr(`pool ${poolId} not registered`));
-    if (!Equal.equals(registeredVrfVk.value, header.vrfVk))
-      return yield* Effect.fail(toErr(`VRF key mismatch for pool ${poolId}`));
-  });
+  const registeredVrfVk = HashMap.get(view.poolVrfKeys, poolId);
+  if (Option.isNone(registeredVrfVk))
+    return Effect.fail(toErr(`pool ${poolId} not registered`));
+  if (!Equal.equals(registeredVrfVk.value, header.vrfVk))
+    return Effect.fail(toErr(`VRF key mismatch for pool ${poolId}`));
+  return Effect.void;
 };
 
 // 2. VRF proof valid (ECVRF-ED25519-SHA512-Elligator2 via amaru-vrf-dalek)
@@ -278,16 +299,16 @@ const assertVrfProof = (
 
 // 3. Leader stake threshold — check_vrf_leader via Crypto service
 // Gracefully skips when pool stake data is absent (genesis sync without bootstrap).
+// Receives hoisted `poolId` from `validateHeader`.
 const assertLeaderStake = (
   crypto: Context.Service.Shape<typeof Crypto>,
   header: BlockHeader,
   view: LedgerView,
+  poolId: string | undefined,
 ): Effect.Effect<void, HeaderValidationError> => {
-  if (view.totalStake === 0n) return Effect.void;
+  if (view.totalStake === 0n || poolId === undefined) return Effect.void;
   const toErr = headerErrFor("AssertLeaderStake", header);
   return Effect.gen(function* () {
-    const poolIdBytes = yield* crypto.blake2b256(header.issuerVk).pipe(Effect.mapError(toErr));
-    const poolId = poolIdBytes.toHex();
     const poolStake = HashMap.get(view.poolStake, poolId);
     if (Option.isNone(poolStake))
       return yield* Effect.fail(toErr(`pool ${poolId} has no registered stake`));
@@ -341,10 +362,12 @@ const assertKesSignature = (
 
 // 5. Opcert: cold key must have signed the hot key + counter monotonicity
 // Per Haskell Praos.hs:638-648: DSIGN verify + counter check (m <= n <= m+1)
+// Receives hoisted `poolId` from `validateHeader` for the counter-monotonicity branch.
 const assertOperationalCertificate = (
   crypto: Context.Service.Shape<typeof Crypto>,
   header: BlockHeader,
   view: LedgerView,
+  poolId: string | undefined,
 ): Effect.Effect<void, HeaderValidationError> => {
   const toErr = headerErrFor("AssertOperationalCertificate", header);
   return Effect.gen(function* () {
@@ -360,9 +383,7 @@ const assertOperationalCertificate = (
 
     // Counter monotonicity check (per Haskell Praos.hs:645-648).
     // Gracefully skip when counters are empty (genesis sync without bootstrap).
-    if (HashMap.size(view.ocertCounters) > 0) {
-      const poolIdBytes = yield* crypto.blake2b256(header.issuerVk).pipe(Effect.mapError(toErr));
-      const poolId = poolIdBytes.toHex();
+    if (HashMap.size(view.ocertCounters) > 0 && poolId !== undefined) {
       const lastSeqNo = HashMap.get(view.ocertCounters, poolId).pipe(Option.getOrElse(() => 0));
       if (header.opcertSeqNo < lastSeqNo)
         return yield* Effect.fail(

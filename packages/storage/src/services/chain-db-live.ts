@@ -33,7 +33,17 @@
  * Rollback removes volatile blocks after the rollback point and
  * enqueues a `Rollback` event so the state cursor tracks the tip move.
  */
-import { Config, Effect, Layer, Option, Queue, Schema, Stream, SubscriptionRef } from "effect";
+import {
+  type Cause,
+  Config,
+  Effect,
+  Layer,
+  Option,
+  Queue,
+  Schema,
+  Stream,
+  SubscriptionRef,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { ChainDB, ChainDBError, type ChainDBOperation } from "./chain-db.ts";
@@ -46,7 +56,12 @@ import {
   analyzeBlockCbor,
   type BlockAnalysis,
 } from "../blob-store";
-import { IMMUTABLE_BLOCK_DEFAULTS, timeUnixSeconds } from "../operations/blocks.ts";
+import {
+  BlockRow,
+  IMMUTABLE_BLOCK_DEFAULTS,
+  timeUnixSeconds,
+  toStoredBlock,
+} from "../operations/blocks.ts";
 import { ChainDBEvent, type ChainDBState, initialChainDBState, reduce } from "../machines";
 import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
 
@@ -60,21 +75,10 @@ const withOp =
     Effect.mapError(effect, (cause) => new ChainDBError({ operation, cause }));
 
 // ---------------------------------------------------------------------------
-// Row schemas — type-safe SQL result decoding
+// Row schemas — type-safe SQL result decoding. `BlockRow` is shared with
+// `operations/blocks.ts` (same alias convention: `immutable_blocks.size AS
+// block_size_bytes` across every SELECT) so the two call sites can't drift.
 // ---------------------------------------------------------------------------
-
-/** Both `volatile_blocks` and `immutable_blocks` expose the same logical
- *  shape (hash, slot, prev_hash, block_no, size); the only physical diff is
- *  the size column's name (`block_size_bytes` vs `size`), which we paper
- *  over by aliasing `immutable_blocks.size AS block_size_bytes` in every
- *  SELECT. One schema + one row reader + uniform `streamFrom` merge. */
-const BlockRow = Schema.Struct({
-  hash: Schema.Uint8Array,
-  slot: Schema.Number,
-  prev_hash: Schema.NullOr(Schema.Uint8Array),
-  block_no: Schema.Number,
-  block_size_bytes: Schema.Number,
-});
 
 const PointRow = Schema.Struct({
   slot: Schema.Number,
@@ -90,6 +94,31 @@ const toPoint = (r: typeof PointRow.Type): RealPoint => ({
 /** Default security param (k) — overridable via SECURITY_PARAM env. */
 const securityParamConfig = Config.number("SECURITY_PARAM").pipe(Config.withDefault(2160));
 
+// ---------------------------------------------------------------------------
+// Blob-value encoders — byte layouts paired with their `*Key` constructors
+// in `ffi/keys`. Hoisted so `addBlock`'s byte-assembly reads declaratively.
+// ---------------------------------------------------------------------------
+
+/** `block_index` entry value: 40 bytes = `slot(8B BE) + hash(32B)`. Paired
+ *  with `blockIndexKey(blockNo)` so a blockNo → (slot, hash) lookup resolves
+ *  the block in `blk:` storage without re-querying SQL. */
+const encodeBlockIndexValue = (slot: bigint, hash: Uint8Array): Uint8Array => {
+  const buf = new Uint8Array(40);
+  new DataView(buf.buffer).setBigUint64(0, slot, false);
+  buf.set(hash, 8);
+  return buf;
+};
+
+/** `cbor_offset` entry value: 8 bytes = `offset(u32 BE) + size(u32 BE)`.
+ *  Paired with `cborOffsetKey(slot, txIdx)`. */
+const encodeCborOffsetValue = (offset: number, size: number): Uint8Array => {
+  const buf = new Uint8Array(8);
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(0, offset, false);
+  dv.setUint32(4, size, false);
+  return buf;
+};
+
 export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | SqlClient> =
   Layer.effect(
     ChainDB,
@@ -102,20 +131,13 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
       /** Fetch the block CBOR for a decoded row; zip with row metadata to
        *  produce `Option<StoredBlock>`. Returns `None` when the SQL row
-       *  exists but the BlobStore has no blob (stale index / GC race). */
+       *  exists but the BlobStore has no blob (stale index / GC race).
+       *  `toStoredBlock` is shared with `operations/blocks.ts` so the
+       *  row→domain mapping is the single-source-of-truth. */
       const readBlockFromRow = (r: typeof BlockRow.Type) =>
         Effect.map(
           store.get(blockKey(BigInt(r.slot), r.hash)),
-          Option.map(
-            (blockCbor): StoredBlock => ({
-              slot: BigInt(r.slot),
-              hash: r.hash,
-              blockNo: BigInt(r.block_no),
-              blockSizeBytes: r.block_size_bytes,
-              blockCbor,
-              ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-            }),
-          ),
+          Option.map((blockCbor) => toStoredBlock(r, blockCbor)),
         );
 
       /** Volatile-first lookup: try volatile query, fall back to immutable.
@@ -348,6 +370,21 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         ),
       );
 
+      /** Close the driver loop: run a side-effectful job, then offer either
+       *  a success or a failure event back into the queue so the reducer
+       *  steps `copying → gc → idle`. Shared between promote + gc arms. */
+      const dispatchResult = <A, E>(
+        effect: Effect.Effect<A, E>,
+        onSuccess: (a: A) => ChainDBEvent,
+        onFailure: (cause: Cause.Cause<E>) => ChainDBEvent,
+      ) =>
+        effect.pipe(
+          Effect.matchCauseEffect({
+            onSuccess: (a) => Queue.offer(events, onSuccess(a)),
+            onFailure: (cause) => Queue.offer(events, onFailure(cause)),
+          }),
+        );
+
       /** driverFiber: watch immutability-region transitions; fire the
        * side-effectful work and feed completion events back into the
        * same queue. `Stream.changesWith` keys on the region alone so
@@ -358,24 +395,17 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
           Stream.changesWith((a, b) => a.immutability === b.immutability),
           Stream.runForEach((s) => {
             if (s.immutability === "copying" && s.tip !== undefined) {
-              const tip = s.tip;
-              return promoteBlocksEffect(tip).pipe(
-                Effect.matchCauseEffect({
-                  onSuccess: (promoted) =>
-                    Queue.offer(events, ChainDBEvent.cases.PromoteDone.make({ promoted })),
-                  onFailure: (cause) =>
-                    Queue.offer(events, ChainDBEvent.cases.PromoteFailed.make({ error: cause })),
-                }),
+              return dispatchResult(
+                promoteBlocksEffect(s.tip),
+                (promoted) => ChainDBEvent.cases.PromoteDone.make({ promoted }),
+                (error) => ChainDBEvent.cases.PromoteFailed.make({ error }),
               );
             }
             if (s.immutability === "gc") {
-              const belowSlot = s.immutableTip?.slot ?? 0n;
-              return collectGarbageEffect(belowSlot).pipe(
-                Effect.matchCauseEffect({
-                  onSuccess: () => Queue.offer(events, ChainDBEvent.cases.GcDone.make({})),
-                  onFailure: (cause) =>
-                    Queue.offer(events, ChainDBEvent.cases.GcFailed.make({ error: cause })),
-                }),
+              return dispatchResult(
+                collectGarbageEffect(s.immutableTip?.slot ?? 0n),
+                () => ChainDBEvent.cases.GcDone.make({}),
+                (error) => ChainDBEvent.cases.GcFailed.make({ error }),
               );
             }
             return Effect.void;
@@ -424,12 +454,6 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         // --- Writing ---
         addBlock: (block: StoredBlock) =>
           Effect.gen(function* () {
-            // Build block_index entry: bidx + blockNo(8B BE) → slot(8B BE) + hash(32B)
-            const idxVal = new Uint8Array(40);
-            const idxView = new DataView(idxVal.buffer);
-            idxView.setBigUint64(0, block.slot, false);
-            idxVal.set(block.hash, 8);
-
             // Analyze block CBOR for tx offsets (works on full blocks; no-ops on headers).
             // Malformed blocks surface as `BlockAnalysisParseError`; swallow to empty here
             // — the callers' upstream path (consensus validation) rejects invalid blocks
@@ -438,19 +462,19 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             const analysis = yield* analyzeBlockCbor(block.blockCbor).pipe(
               Effect.orElseSucceed((): BlockAnalysis => ({ blockNo: 0n, txOffsets: [] })),
             );
-            const offsetEntries: ReadonlyArray<BlobEntry> = analysis.txOffsets.map((o, i) => {
-              const val = new Uint8Array(8);
-              const dv = new DataView(val.buffer);
-              dv.setUint32(0, o.offset, false);
-              dv.setUint32(4, o.size, false);
-              return { key: cborOffsetKey(block.slot, i), value: val };
-            });
+            const offsetEntries: ReadonlyArray<BlobEntry> = analysis.txOffsets.map((o, i) => ({
+              key: cborOffsetKey(block.slot, i),
+              value: encodeCborOffsetValue(o.offset, o.size),
+            }));
 
             yield* sql.withTransaction(
               Effect.all(
                 [
                   store.put(blockKey(block.slot, block.hash), block.blockCbor),
-                  store.put(blockIndexKey(block.blockNo), idxVal),
+                  store.put(
+                    blockIndexKey(block.blockNo),
+                    encodeBlockIndexValue(block.slot, block.hash),
+                  ),
                   offsetEntries.length > 0 ? store.putBatch(offsetEntries) : Effect.void,
                   sql`INSERT INTO volatile_blocks ${sql.insert({
                     hash: block.hash,

@@ -39,8 +39,17 @@ export const ImmutableDBLive: Layer.Layer<ImmutableDB, never, BlobStore | SqlCli
   Effect.gen(function* () {
     const store = yield* BlobStore;
     const sql = yield* SqlClient;
-    const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
-      effect.pipe(Effect.provideService(BlobStore, store), Effect.provideService(SqlClient, sql));
+    // Build the `BlobStore | SqlClient` context once; `Effect.provide(ctx)`
+    // then pipes a pre-built context through each operation instead of
+    // threading two `provideService` calls per op per invocation.
+    const ctx = Context.make(BlobStore, store).pipe(Context.add(SqlClient, sql));
+    const provide = Effect.provide(ctx);
+    // Parse the 44-byte block index key (`blk:` prefix + 8-byte slot BE + 32-byte hash).
+    // Shared between `takeWhile` (slot-range gate) and `mapEffect` (row-fetch input).
+    const parseKey = (entry: { readonly key: Uint8Array }) => {
+      const view = new DataView(entry.key.buffer, entry.key.byteOffset);
+      return { slot: view.getBigUint64(4), hash: entry.key.slice(12, 44) };
+    };
     return {
       appendBlock: (block: StoredBlock) => provide(writeImmutableBlock(block)),
       appendBlocks: (blocks: ReadonlyArray<StoredBlock>) => provide(writeImmutableBlocks(blocks)),
@@ -49,16 +58,10 @@ export const ImmutableDBLive: Layer.Layer<ImmutableDB, never, BlobStore | SqlCli
       streamBlocks: (fromSlot: bigint, toSlot: bigint) =>
         store.scan(PREFIX_BLK).pipe(
           Stream.takeWhile((entry) => {
-            const view = new DataView(entry.key.buffer, entry.key.byteOffset);
-            const slot = view.getBigUint64(4);
+            const { slot } = parseKey(entry);
             return slot >= fromSlot && slot <= toSlot;
           }),
-          Stream.mapEffect((entry) => {
-            const view = new DataView(entry.key.buffer, entry.key.byteOffset);
-            const slot = view.getBigUint64(4);
-            const hash = entry.key.slice(12, 44);
-            return provide(readImmutableBlock({ slot, hash }));
-          }),
+          Stream.mapEffect((entry) => provide(readImmutableBlock(parseKey(entry)))),
           Stream.filter(Option.isSome),
           Stream.map((opt) => opt.value),
           Stream.mapError((cause) => new ImmutableDBError({ operation: "streamBlocks", cause })),

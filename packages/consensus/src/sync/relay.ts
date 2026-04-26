@@ -54,6 +54,14 @@ export const MAINNET_MAGIC = 764824073;
  */
 const N2N_VERSIONS: ReadonlyArray<number> = [14, 15, 16];
 
+/**
+ * N2N `RollForward` `eraVariant`: `0` = Byron classic, `1` = Byron EBB,
+ * `>= 2` = Shelley/Babbage/Conway. BlockFetch body shape diverges across
+ * this boundary (Byron blocks need separate decoding), so era-specific
+ * post-processing is gated on `eraVariant >= POST_BYRON_ERA_VARIANT_MIN`.
+ */
+const POST_BYRON_ERA_VARIANT_MIN = 2;
+
 export class RelayError extends Schema.TaggedErrorClass<RelayError>()("RelayError", {
   message: Schema.String,
 }) {}
@@ -248,6 +256,15 @@ const chainSyncLoop = (
     // All mutable state managed via Ref (no mutable `let`)
     const stateRef = yield* Ref.make(initialVolatileState(initialTip, initialNonces));
 
+    // Commit a new VolatileState into both the loop-local `stateRef` and
+    // the optional shared `volatileStateRef` from the caller. Centralizing
+    // the two-Ref mirror means each branch of the loop body reads as a
+    // single `commitState(...)` op rather than a paired `Ref.set` + guard.
+    const commitState = (s: VolatileState): Effect.Effect<void> =>
+      volatileStateRef
+        ? Ref.set(stateRef, s).pipe(Effect.andThen(Ref.set(volatileStateRef, s)))
+        : Ref.set(stateRef, s);
+
     // Deferred commit gate chain — ensures sequential nonce evolution
     // across blocks while allowing validation to proceed in parallel
     const initialGate = yield* Deferred.make<void>();
@@ -289,12 +306,7 @@ const chainSyncLoop = (
             ledgerView,
             msg.byronPrefix?.[0],
           ).pipe(
-            Effect.tap((newState) =>
-              Effect.gen(function* () {
-                yield* Ref.set(stateRef, newState);
-                if (volatileStateRef) yield* Ref.set(volatileStateRef, newState);
-              }),
-            ),
+            Effect.tap(commitState),
             Effect.matchEffect({
               onSuccess: () =>
                 Effect.gen(function* () {
@@ -302,7 +314,7 @@ const chainSyncLoop = (
                   // to write CBOR offsets and update block entry with full CBOR.
                   // Best-effort — skip Byron (era <= 1) and tolerate failures.
                   const currentState = yield* Ref.get(stateRef);
-                  if (currentState.tip && msg.eraVariant > 1) {
+                  if (currentState.tip && msg.eraVariant >= POST_BYRON_ERA_VARIANT_MIN) {
                     yield* fetchAndStoreFullBlock(currentState.tip).pipe(
                       Effect.scoped,
                       Effect.catch((err) => Effect.logWarning(`[sync] BlockFetch skipped: ${err}`)),
@@ -317,11 +329,7 @@ const chainSyncLoop = (
                   // Clear tip to prevent cascading envelope validation failures.
                   // The next block will skip envelope checks, trusting ChainSync ordering.
                   const s = yield* Ref.get(stateRef);
-                  const cleared = { ...s, tip: undefined };
-                  yield* Ref.set(stateRef, cleared);
-                  if (volatileStateRef) {
-                    yield* Ref.set(volatileStateRef, cleared);
-                  }
+                  yield* commitState({ ...s, tip: undefined });
                 }),
             }),
             // Guarantee gate signaling even on failure — prevents downstream deadlock
@@ -350,8 +358,7 @@ const chainSyncLoop = (
 
           const state = yield* Ref.get(stateRef);
           const newState = yield* handleRollBackward(rollbackPoint, serverTip, state, peerId);
-          yield* Ref.set(stateRef, newState);
-          if (volatileStateRef) yield* Ref.set(volatileStateRef, newState);
+          yield* commitState(newState);
 
           // Reset commit gate for new chain after rollback
           const freshGate = yield* Deferred.make<void>();
@@ -400,6 +407,9 @@ export const connectToRelay = (
     yield* findIntersection(intersectionTip);
 
     // 3. Initialize nonces — prefer persisted (LedgerSnapshotStore), then snapshot, then zeros.
+    // `readNonces` returns a plain decoded struct (not a `Nonces` class
+    // instance), so reconstruct via `new Nonces(...)` to surface the
+    // class methods downstream consumers rely on.
     const persistedNonces = yield* ledgerSnapshots.readNonces;
     const nonces = Option.isSome(persistedNonces)
       ? new Nonces({
@@ -409,15 +419,12 @@ export const connectToRelay = (
           epoch: persistedNonces.value.epoch,
         })
       : (snapshotState?.nonces ??
-        (() => {
-          const epoch = intersectionTip ? slotClock.slotToEpoch(intersectionTip.slot) : 0n;
-          return new Nonces({
-            active: new Uint8Array(32),
-            evolving: new Uint8Array(32),
-            candidate: new Uint8Array(32),
-            epoch,
-          });
-        })());
+        new Nonces({
+          active: new Uint8Array(32),
+          evolving: new Uint8Array(32),
+          candidate: new Uint8Array(32),
+          epoch: intersectionTip ? slotClock.slotToEpoch(intersectionTip.slot) : 0n,
+        }));
 
     // 4. Run ChainSync + KeepAlive in parallel.
     // Initial tip is undefined — envelope validation (blockNo/slot/prevHash) is skipped

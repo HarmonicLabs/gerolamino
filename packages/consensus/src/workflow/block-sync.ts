@@ -39,19 +39,22 @@ export const Point = Schema.Struct({
 });
 export type PointT = typeof Point.Type;
 
-/** Failure reasons a BlockSync workflow can terminate with. */
+/** Failure reasons a BlockSync workflow can terminate with. Integer-valued
+ * fields use `Schema.Int` so a float sneaking through workflow journal
+ * serialisation fails at decode time rather than corrupting downstream
+ * integer arithmetic. */
 export const BlockSyncError = Schema.Union([
   Schema.TaggedStruct("NoPeersReachable", {
     chainId: Schema.String,
-    attempts: Schema.Number,
+    attempts: Schema.Int,
   }),
   Schema.TaggedStruct("HeaderValidationFailed", {
     slot: Schema.BigInt,
     reason: Schema.String,
   }),
   Schema.TaggedStruct("RollbackExceededK", {
-    depth: Schema.Number,
-    k: Schema.Number,
+    depth: Schema.Int,
+    k: Schema.Int,
   }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 export type BlockSyncErrorT = typeof BlockSyncError.Type;
@@ -59,7 +62,7 @@ export type BlockSyncErrorT = typeof BlockSyncError.Type;
 export const BlockSyncSuccess = Schema.Struct({
   tipSlot: Schema.BigInt,
   tipHash: Schema.Uint8Array,
-  blocksProcessed: Schema.Number,
+  blocksProcessed: Schema.Int,
 });
 export type BlockSyncSuccessT = typeof BlockSyncSuccess.Type;
 

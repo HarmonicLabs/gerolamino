@@ -111,24 +111,39 @@ export const SlotClockLive = (config: SlotConfig) =>
     const slotToEpoch = (slot: bigint): bigint => slot / config.epochLength;
     const slotWithinEpoch = (slot: bigint): bigint => slot % config.epochLength;
 
+    // `currentSlot` is the foundational time read; `currentEpoch` and
+    // `slotInEpoch` are pure derivations. Deriving via `Effect.map` on one
+    // canonical `currentSlot` avoids re-walking `clock.currentTimeMillis →
+    // msToSlot` three separate times + means a mocked `TestClock` tick only
+    // advances the clock once per observer.
+    const currentSlot = clock.currentTimeMillis.pipe(
+      Effect.map((ms) => msToSlot(Number(ms))),
+    );
+
+    // Praos windows share `4k/f` — the randomness-stabilization distance +
+    // its epoch-relative sibling. Compute once, reuse twice.
     const k = config.securityParam;
     const f = config.activeSlotsCoeff;
+    const randomnessStabilizationWindow = BigInt(Math.ceil((4 * k) / f));
 
     return {
-      currentSlot: clock.currentTimeMillis.pipe(Effect.map((ms) => msToSlot(Number(ms)))),
-      currentEpoch: clock.currentTimeMillis.pipe(
-        Effect.map((ms) => slotToEpoch(msToSlot(Number(ms)))),
-      ),
-      slotInEpoch: clock.currentTimeMillis.pipe(
-        Effect.map((ms) => slotWithinEpoch(msToSlot(Number(ms)))),
-      ),
+      currentSlot,
+      currentEpoch: currentSlot.pipe(Effect.map(slotToEpoch)),
+      slotInEpoch: currentSlot.pipe(Effect.map(slotWithinEpoch)),
       slotToMs,
       msToSlot,
       slotToEpoch,
       slotWithinEpoch,
       stabilityWindow: BigInt(Math.ceil((3 * k) / f)),
-      randomnessStabilizationWindow: BigInt(Math.ceil((4 * k) / f)),
-      candidateCollectionEnd: config.epochLength - BigInt(Math.ceil((4 * k) / f)),
+      randomnessStabilizationWindow,
+      // Defensive: an unusually small `epochLength` or large `4k/f` could
+      // produce a negative bigint here. BigInt subtraction wraps silently
+      // — clamp to 0n so downstream consumers never receive a negative
+      // candidate-window cutoff.
+      candidateCollectionEnd:
+        randomnessStabilizationWindow < config.epochLength
+          ? config.epochLength - randomnessStabilizationWindow
+          : 0n,
       config,
     };
   });

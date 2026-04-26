@@ -15,18 +15,17 @@ import { ImmutableDBError, VolatileDBError } from "../errors";
 import { BlobStore, blockKey } from "../blob-store";
 
 // ---------------------------------------------------------------------------
-// Row schemas — type-safe SQL result decoding (no `as Type` casts)
+// Row schemas — one unified shape for both layers. The physical column name
+// differs (`immutable_blocks.size` vs `volatile_blocks.block_size_bytes`);
+// every immutable SELECT aliases `size AS block_size_bytes` so the decoded
+// row shape matches exactly. One schema + one row-reader covers both tables.
+//
+// Exported because `services/chain-db-live.ts` consumes the same shape (with
+// the same alias convention) across ~8 internal query builders — exporting
+// here keeps the alias invariant documented in one place.
 // ---------------------------------------------------------------------------
 
-const ImmutableBlockRow = Schema.Struct({
-  slot: Schema.Number,
-  hash: Schema.Uint8Array,
-  prev_hash: Schema.NullOr(Schema.Uint8Array),
-  block_no: Schema.Number,
-  size: Schema.Number,
-});
-
-const VolatileBlockRow = Schema.Struct({
+export const BlockRow = Schema.Struct({
   hash: Schema.Uint8Array,
   slot: Schema.Number,
   prev_hash: Schema.NullOr(Schema.Uint8Array),
@@ -59,6 +58,19 @@ export const IMMUTABLE_BLOCK_DEFAULTS = {
 export const timeUnixSeconds: Effect.Effect<number> = Effect.map(Clock.currentTimeMillis, (ms) =>
   Math.floor(Number(ms) / 1000),
 );
+
+/** Lift a decoded `BlockRow` + its freshly-fetched CBOR into a `StoredBlock`.
+ *  Shared between `readImmutableBlock` / `readVolatileBlock` (here) and
+ *  `services/chain-db-live.ts::readBlockFromRow` so the three read paths
+ *  can't drift on field naming / optional-prevHash handling. */
+export const toStoredBlock = (r: typeof BlockRow.Type, blockCbor: Uint8Array): StoredBlock => ({
+  slot: BigInt(r.slot),
+  hash: r.hash,
+  blockNo: BigInt(r.block_no),
+  blockSizeBytes: r.block_size_bytes,
+  blockCbor,
+  ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
+});
 
 // ---------------------------------------------------------------------------
 // Immutable block operations
@@ -106,9 +118,9 @@ export const readImmutableBlock = (point: RealPoint) =>
     const store = yield* BlobStore;
     const findBlock = SqlSchema.findOneOption({
       Request: Schema.Struct({ slot: Schema.Number, hash: Schema.Uint8Array }),
-      Result: ImmutableBlockRow,
+      Result: BlockRow,
       execute: (req) => sql`
-        SELECT slot, hash, prev_hash, block_no, size
+        SELECT slot, hash, prev_hash, block_no, size AS block_size_bytes
         FROM immutable_blocks
         WHERE slot = ${req.slot} AND hash = ${req.hash}
         LIMIT 1
@@ -118,17 +130,7 @@ export const readImmutableBlock = (point: RealPoint) =>
     if (Option.isNone(rowOpt)) return Option.none<StoredBlock>();
     const r = rowOpt.value;
     const cborOpt = yield* store.get(blockKey(point.slot, point.hash));
-    return Option.map(
-      cborOpt,
-      (blockCbor): StoredBlock => ({
-        slot: BigInt(r.slot),
-        hash: r.hash,
-        blockNo: BigInt(r.block_no),
-        blockSizeBytes: r.size,
-        blockCbor,
-        ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-      }),
-    );
+    return Option.map(cborOpt, (blockCbor) => toStoredBlock(r, blockCbor));
   }).pipe(Effect.mapError((cause) => new ImmutableDBError({ operation: "readBlock", cause })));
 
 export const getImmutableTip = Effect.gen(function* () {
@@ -187,7 +189,7 @@ export const readVolatileBlock = (hash: Uint8Array) =>
     const store = yield* BlobStore;
     const findBlock = SqlSchema.findOneOption({
       Request: Schema.Struct({ hash: Schema.Uint8Array }),
-      Result: VolatileBlockRow,
+      Result: BlockRow,
       execute: (req) => sql`
         SELECT hash, slot, prev_hash, block_no, block_size_bytes
         FROM volatile_blocks
@@ -199,17 +201,7 @@ export const readVolatileBlock = (hash: Uint8Array) =>
     if (Option.isNone(rowOpt)) return Option.none<StoredBlock>();
     const r = rowOpt.value;
     const cborOpt = yield* store.get(blockKey(BigInt(r.slot), r.hash));
-    return Option.map(
-      cborOpt,
-      (blockCbor): StoredBlock => ({
-        slot: BigInt(r.slot),
-        hash: r.hash,
-        blockNo: BigInt(r.block_no),
-        blockSizeBytes: r.block_size_bytes,
-        blockCbor,
-        ...(r.prev_hash ? { prevHash: r.prev_hash } : {}),
-      }),
-    );
+    return Option.map(cborOpt, (blockCbor) => toStoredBlock(r, blockCbor));
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "readBlock", cause })));
 
 export const getVolatileSuccessors = (hash: Uint8Array) =>
@@ -250,3 +242,4 @@ export const garbageCollectVolatile = (belowSlot: number) =>
       }),
     );
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "garbageCollect", cause })));
+

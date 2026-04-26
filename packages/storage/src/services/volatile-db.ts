@@ -3,7 +3,7 @@
  *
  * Block CBOR stored in BlobStore, metadata in SQL.
  */
-import { Context, Effect, Layer, Option } from "effect";
+import { Context, Effect, Layer, type Option } from "effect";
 import type { StoredBlock } from "../types/StoredBlock.ts";
 import { VolatileDBError } from "../errors.ts";
 import { BlobStore } from "../blob-store";
@@ -39,8 +39,11 @@ export const VolatileDBLive: Layer.Layer<VolatileDB, never, BlobStore | SqlClien
   Effect.gen(function* () {
     const store = yield* BlobStore;
     const sql = yield* SqlClient;
-    const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
-      effect.pipe(Effect.provideService(BlobStore, store), Effect.provideService(SqlClient, sql));
+    // Build the `BlobStore | SqlClient` context once; `Effect.provide(ctx)`
+    // then pipes a pre-built context through each operation instead of
+    // threading two `provideService` calls per op per invocation.
+    const ctx = Context.make(BlobStore, store).pipe(Context.add(SqlClient, sql));
+    const provide = Effect.provide(ctx);
     return {
       addBlock: (block: StoredBlock) => provide(writeVolatileBlock(block)),
       addBlocks: (blocks: ReadonlyArray<StoredBlock>) => provide(writeVolatileBlocks(blocks)),

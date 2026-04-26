@@ -21,8 +21,10 @@ export const LedgerDBLive: Layer.Layer<LedgerDB, never, BlobStore | SqlClient> =
   Effect.gen(function* () {
     const store = yield* BlobStore;
     const sql = yield* SqlClient;
-    const provide = <A, E>(effect: Effect.Effect<A, E, BlobStore | SqlClient>) =>
-      effect.pipe(Effect.provideService(BlobStore, store), Effect.provideService(SqlClient, sql));
+    // One pre-built `BlobStore | SqlClient` context — `Effect.provide(ctx)`
+    // is a single pipe step per op instead of two `provideService` calls.
+    const ctx = Context.make(BlobStore, store).pipe(Context.add(SqlClient, sql));
+    const provide = Effect.provide(ctx);
     return {
       writeSnapshot: (snapshot: LedgerStateSnapshot) => provide(writeSnapshot(snapshot)),
       readLatestSnapshot: provide(readLatestSnapshot),

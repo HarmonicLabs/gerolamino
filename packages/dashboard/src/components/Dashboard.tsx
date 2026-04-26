@@ -1,46 +1,54 @@
 /**
- * Dashboard — top-level dashboard component with tabbed navigation.
- * Platform-agnostic: renders via DashboardPrimitives context.
+ * Dashboard — top-level dashboard component, host-agnostic.
  *
- * Tabs:
- * 1. Overview — sync status, progress, bootstrap
- * 2. Peers — connected peer table
- * 3. Network — network config and GSM state
+ * Renders the new `Layout` primitive (3-panel resizable on wide hosts,
+ * Tabs fallback on narrow popups via `@solid-primitives/resize-observer`):
+ *
+ *   ┌───────────┬─────────────────────────┬──────────────┐
+ *   │   Sync    │  Peers / Mempool tabs    │ Chain events │
+ *   │ overview  │       (TanStack table)   │  (LogRow)    │
+ *   └───────────┴─────────────────────────┴──────────────┘
+ *
+ * In the chrome-ext popup (~380px) the Tabs fallback always engages, so
+ * users see one panel at a time keyed off three top-level tabs. The
+ * center panel keeps an inner `Tabs` for the Peers ↔ Mempool toggle so
+ * both surfaces stay one click apart regardless of viewport.
  */
-import { createSignal } from "solid-js";
-import { Match, Switch } from "solid-js";
+import { createSignal, Match, Switch } from "solid-js";
 import { usePrimitives } from "../primitives.ts";
 import { SyncOverview } from "./SyncOverview.tsx";
 import { PeerTable } from "./PeerTable.tsx";
-import { NetworkPanel } from "./NetworkPanel.tsx";
+import { MempoolTable } from "./MempoolTable.tsx";
+import { ChainEventLog } from "./ChainEventLog.tsx";
 
-const TABS = [
-  { label: "Overview", value: "overview" },
+const CENTER_TABS = [
   { label: "Peers", value: "peers" },
-  { label: "Network", value: "network" },
+  { label: "Mempool", value: "mempool" },
 ] as const;
 
 export const Dashboard = () => {
-  const { Box, Tabs, ScrollArea } = usePrimitives();
-  const [tab, setTab] = createSignal("overview");
+  const { Layout, Tabs } = usePrimitives();
+  const [centerTab, setCenterTab] = createSignal<string>("peers");
 
   return (
-    <Box direction="column" grow={1}>
-      <Tabs tabs={TABS} selected={tab()} onSelect={setTab}>
-        <ScrollArea>
+    <Layout
+      leftLabel="Sync"
+      centerLabel="Activity"
+      rightLabel="Events"
+      left={<SyncOverview />}
+      center={
+        <Tabs tabs={CENTER_TABS} selected={centerTab()} onSelect={setCenterTab}>
           <Switch>
-            <Match when={tab() === "overview"}>
-              <SyncOverview />
-            </Match>
-            <Match when={tab() === "peers"}>
+            <Match when={centerTab() === "peers"}>
               <PeerTable />
             </Match>
-            <Match when={tab() === "network"}>
-              <NetworkPanel />
+            <Match when={centerTab() === "mempool"}>
+              <MempoolTable />
             </Match>
           </Switch>
-        </ScrollArea>
-      </Tabs>
-    </Box>
+        </Tabs>
+      }
+      right={<ChainEventLog />}
+    />
   );
 };

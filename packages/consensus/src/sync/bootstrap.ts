@@ -51,11 +51,17 @@ export const processBlock = (
     const chainDb = yield* ChainDB;
     const slotClock = yield* SlotClock;
 
-    // 1. Validate block header (envelope + 5 Praos assertions) + body hash integrity (parallel)
-    yield* Effect.all([
-      validateHeader(header, ledgerView, prevTip),
-      verifyBodyHash(block.blockCbor, header.bodyHash),
-    ]);
+    // 1. Validate block header (envelope + 5 Praos assertions) + body hash integrity.
+    // Both are independent and CPU-bound (Crypto worker dispatch internally), so
+    // run unbounded — driver.ts:handleRollForward uses the same pattern for
+    // its parallel header+body verify on the relay path.
+    yield* Effect.all(
+      [
+        validateHeader(header, ledgerView, prevTip),
+        verifyBodyHash(block.blockCbor, header.bodyHash),
+      ],
+      { concurrency: "unbounded" },
+    );
 
     // 2. Store block in ChainDB (volatile)
     yield* chainDb.addBlock(block);

@@ -1,4 +1,5 @@
 export {
+  // Existing atoms
   nodeStateAtom,
   peersAtom,
   bootstrapAtom,
@@ -6,9 +7,24 @@ export {
   isSyncingAtom,
   slotsBehindAtom,
   syncPercentLabelAtom,
+  // New atoms (this wave)
+  mempoolSnapshotAtom,
+  mempoolSizeAtom,
+  mempoolFeeP50Atom,
+  chainEventLogAtom,
+  syncSparklineAtom,
+  // Constants + caps
   INITIAL_NODE_STATE,
   INITIAL_BOOTSTRAP,
   INITIAL_NETWORK,
+  CHAIN_EVENT_LOG_CAP,
+  SYNC_SPARKLINE_CAP,
+  // Push helpers
+  pushMempoolSnapshot,
+  pushChainEventLog,
+  appendChainEvent,
+  pushSyncSparklinePoint,
+  // Schemas + types
   NodeState,
   SyncStatus,
   GsmState,
@@ -18,4 +34,6 @@ export {
   BootstrapPhase,
   NetworkInfo,
   NetworkName,
+  MempoolEntry,
+  ChainEventEntry,
 } from "./node-state.ts";

@@ -45,6 +45,12 @@ const VRF_NONCE_TAG = 0x4e;
 const BYRON_EBB_SUBTAG = 0x00;
 const BYRON_MAIN_SUBTAG = 0x01;
 
+/** Pre-allocated `[0x82, subtag]` 2-byte prefixes for the Byron header-hash
+ *  computation — picked once per block in `decodeByronWrappedHeader`, so a
+ *  single module-level allocation beats `new Uint8Array(2)` per call. */
+const BYRON_EBB_HASH_PREFIX = new Uint8Array([0x82, BYRON_EBB_SUBTAG]);
+const BYRON_MAIN_HASH_PREFIX = new Uint8Array([0x82, BYRON_MAIN_SUBTAG]);
+
 /** Shared "no prev hash" sentinel (genesis block or missing predecessor). */
 const EMPTY_PREV_HASH = new Uint8Array(32);
 
@@ -335,6 +341,12 @@ const commonPraosHeaderFields = (
  *  via domain-tagging (`0x4c`/`0x4e` prefix). Runs both blake2b-256s in
  *  parallel — the two hashes are independent so there's no reason to
  *  serialise them. */
+// Module-level 1-byte tag prefixes — `deriveTaggedVrfOutputs` runs on every
+// Babbage+ block in the sync hot path; pre-allocating these constants
+// avoids two `new Uint8Array(1)` allocations per call.
+const VRF_LEADER_TAG_BYTE = new Uint8Array([VRF_LEADER_TAG]);
+const VRF_NONCE_TAG_BYTE = new Uint8Array([VRF_NONCE_TAG]);
+
 const deriveTaggedVrfOutputs = (
   crypto: Context.Service.Shape<typeof Crypto>,
   rawVrfOutput: Uint8Array,
@@ -344,10 +356,10 @@ const deriveTaggedVrfOutputs = (
   Effect.all(
     {
       vrfOutput: crypto
-        .blake2b256(concat(new Uint8Array([VRF_LEADER_TAG]), rawVrfOutput))
+        .blake2b256(concat(VRF_LEADER_TAG_BYTE, rawVrfOutput))
         .pipe(Effect.mapError(mapCryptoErr(leaderOp))),
       nonceVrfOutput: crypto
-        .blake2b256(concat(new Uint8Array([VRF_NONCE_TAG]), rawVrfOutput))
+        .blake2b256(concat(VRF_NONCE_TAG_BYTE, rawVrfOutput))
         .pipe(Effect.mapError(mapCryptoErr(nonceOp))),
     },
     { concurrency: "unbounded" },
@@ -693,10 +705,12 @@ const decodeByronWrappedHeader = (
       ? decodeByronEbbSlotAndBlockNo(consensusData.items, byronEpochLength)
       : decodeByronMainSlotAndBlockNo(consensusData.items, byronEpochLength);
 
-    // Byron header hash: blake2b-256(0x82 ∥ CBOR(subtag) ∥ rawHeaderBytes)
-    const subtag = isEbb ? BYRON_EBB_SUBTAG : BYRON_MAIN_SUBTAG;
+    // Byron header hash: blake2b-256(0x82 ∥ CBOR(subtag) ∥ rawHeaderBytes).
+    // Hash prefixes are pre-allocated module-level constants (one for EBB,
+    // one for main blocks) to avoid the per-Byron-block `new Uint8Array(2)`.
+    const hashPrefix = isEbb ? BYRON_EBB_HASH_PREFIX : BYRON_MAIN_HASH_PREFIX;
     const hash = yield* crypto
-      .blake2b256(concat(new Uint8Array([0x82, subtag]), headerBytes))
+      .blake2b256(concat(hashPrefix, headerBytes))
       .pipe(Effect.mapError(mapCryptoErr("decodeByronWrappedHeader.hash")));
 
     return ByronHeaderInfo.make({

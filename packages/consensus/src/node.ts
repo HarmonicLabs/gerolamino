@@ -45,7 +45,8 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
     const currentSlot = yield* slotClock.currentSlot;
     const epoch = yield* slotClock.currentEpoch;
     const peers = yield* peerManager.getPeers;
-    const activePeers = peers.filter((p) => p.status !== "disconnected").length;
+    // Count without allocating an intermediate filtered array.
+    const activePeers = peers.reduce((n, p) => n + (p.status !== "disconnected" ? 1 : 0), 0);
 
     const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
     const tipBlock = Option.isSome(tipOpt)

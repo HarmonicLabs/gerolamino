@@ -200,6 +200,11 @@ export const handleRollForward = (
       { concurrency: "unbounded" },
     );
 
+    // Acquire the optional `ConsensusEvents` service once; the two emit
+    // sites below reuse the same `Option<ConsensusEvents>` instead of
+    // re-invoking `Effect.serviceOption`.
+    const eventsOpt = yield* Effect.serviceOption(ConsensusEvents);
+
     // Persist nonces on epoch boundary transitions + emit EpochTransition event
     if (newNonces.epoch > state.nonces.epoch) {
       yield* ledgerSnapshots.writeNonces(
@@ -208,37 +213,25 @@ export const handleRollForward = (
         newNonces.evolving,
         newNonces.candidate,
       );
-      yield* Effect.serviceOption(ConsensusEvents).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.void,
-            onSome: (events) =>
-              events.emit({
-                _tag: ConsensusEventKind.EpochTransition,
-                fromEpoch: state.nonces.epoch,
-                toEpoch: newNonces.epoch,
-              }),
-          }),
-        ),
-      );
+      if (Option.isSome(eventsOpt)) {
+        yield* eventsOpt.value.emit({
+          _tag: ConsensusEventKind.EpochTransition,
+          fromEpoch: state.nonces.epoch,
+          toEpoch: newNonces.epoch,
+        });
+      }
     }
 
     // Emit TipChanged event (best-effort — service is optional)
-    yield* Effect.serviceOption(ConsensusEvents).pipe(
-      Effect.flatMap(
-        Option.match({
-          onNone: () => Effect.void,
-          onSome: (events) =>
-            events.emit({
-              _tag: ConsensusEventKind.TipChanged,
-              slot: header.slot,
-              hash: header.hash,
-              blockNo: header.blockNo,
-              blocksProcessed: state.blocksProcessed + 1,
-            }),
-        }),
-      ),
-    );
+    if (Option.isSome(eventsOpt)) {
+      yield* eventsOpt.value.emit({
+        _tag: ConsensusEventKind.TipChanged,
+        slot: header.slot,
+        hash: header.hash,
+        blockNo: header.blockNo,
+        blocksProcessed: state.blocksProcessed + 1,
+      });
+    }
 
     // Update opcert counter for this pool after successful validation
     const poolIdBytes = yield* crypto

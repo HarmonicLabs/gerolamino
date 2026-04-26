@@ -21,12 +21,8 @@
  * wasm-utils) in the app's layer composition.
  */
 import { Effect, Layer } from "effect";
-import { concat } from "codecs";
-import { MultiEraBlock, decodeMultiEraBlock } from "ledger/lib/block/block.ts";
-import { Era } from "ledger/lib/core/era.ts";
 import { Crypto } from "wasm-utils";
-import { ValidationClient, mapCryptoToValidation } from "./validation-client.ts";
-import { ValidationError } from "./validation-rpc-group.ts";
+import { ValidationClient, makeLocalValidationOps } from "./validation-client.ts";
 
 export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto> = Layer.effect(
   ValidationClient,
@@ -34,45 +30,14 @@ export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto>
     const crypto = yield* Crypto;
 
     return ValidationClient.of({
-      // ───────────── Consensus-level ─────────────
+      // Consensus-level + tagged-blake ops are the same in both Direct and
+      // RPC layers — sourced from the shared `makeLocalValidationOps` so
+      // they can't drift on error-shape conventions.
+      ...makeLocalValidationOps(crypto),
 
-      computeBodyHash: (blockBodyCbor) =>
-        crypto
-          .blake2b256(blockBodyCbor)
-          .pipe(Effect.mapError(mapCryptoToValidation("ComputeBodyHash"))),
-      computeTxId: (txBodyCbor) =>
-        crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
-
-      decodeBlockCbor: (blockCbor) =>
-        decodeMultiEraBlock(blockCbor).pipe(
-          Effect.map((block) =>
-            MultiEraBlock.match(block, {
-              byron: () => ({
-                eraVariant: Era.Byron,
-                slot: 0n,
-                blockNo: 0n,
-                hash: new Uint8Array(32),
-              }),
-              postByron: ({ era, header }) => ({
-                eraVariant: era,
-                slot: header.slot,
-                blockNo: header.blockNo,
-                hash: new Uint8Array(32),
-              }),
-            }),
-          ),
-          Effect.mapError(
-            (issue) =>
-              new ValidationError({
-                operation: "DecodeBlockCbor",
-                message: issue._tag ?? "Decode failed",
-                cause: issue,
-              }),
-          ),
-        ),
-
-      // ───────────── Primitive crypto (delegates to Crypto) ─────────────
-
+      // Primitive crypto — straight delegation to the in-process Crypto
+      // service. The RPC layer's variants forward through `client.X(...)`
+      // + `catchTransport(...)`; this layer skips that boundary.
       ed25519Verify: (message, signature, publicKey) =>
         crypto.ed25519Verify(message, signature, publicKey),
       kesSum6Verify: (signature, period, publicKey, message) =>
@@ -81,11 +46,6 @@ export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto>
       vrfVerify: (vrfVkey, vrfProof, vrfInput) =>
         crypto.vrfVerifyProof(vrfVkey, vrfProof, vrfInput),
       vrfProofToHash: (vrfProof) => crypto.vrfProofToHash(vrfProof),
-      blake2b256Tagged: (tag, data) =>
-        // prepend the tag byte and hash — keeps hashing on the shared
-        // WASM path so the browser build works. `concat` comes from
-        // `codecs` so we don't hand-roll a join.
-        crypto.blake2b256(concat(new Uint8Array([tag & 0xff]), data)),
     });
   }),
 );

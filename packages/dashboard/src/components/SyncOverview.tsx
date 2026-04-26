@@ -9,6 +9,7 @@ import {
   syncPercentLabelAtom,
   slotsBehindAtom,
   bootstrapAtom,
+  syncSparklineAtom,
 } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
 
@@ -68,11 +69,12 @@ const phaseLabel = (phase: string, status: string) => {
 };
 
 export const SyncOverview = () => {
-  const { Box, Text, Badge, Progress, Card, Stat, Separator } = usePrimitives();
+  const { Box, Text, Badge, Progress, Card, Stat, Separator, Sparkline } = usePrimitives();
   const state = useAtomValue(() => nodeStateAtom);
   const syncLabel = useAtomValue(() => syncPercentLabelAtom);
   const slotsBehind = useAtomValue(() => slotsBehindAtom);
   const bootstrap = useAtomValue(() => bootstrapAtom);
+  const sparkline = useAtomValue(() => syncSparklineAtom);
 
   return (
     <Box direction="column" gap={1}>
@@ -105,6 +107,15 @@ export const SyncOverview = () => {
       {/* Sync progress bar (relay sync phase) */}
       <Show when={state().status === "syncing"}>
         <Progress value={state().syncPercent} />
+      </Show>
+
+      {/* Slot-velocity sparkline — derived 1Hz over a 600-sample sliding
+          window; only render once we have at least two points so uPlot
+          has a real range to draw. */}
+      <Show when={sparkline().length >= 2}>
+        <Card title="Slots behind (last 10 min)">
+          <Sparkline data={sparkline()} samplePeriodMs={1000} height={56} />
+        </Card>
       </Show>
 
       {/* Bootstrap progress — show during connecting, bootstrapping, or when phase is active */}

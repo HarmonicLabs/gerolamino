@@ -243,7 +243,7 @@ export class Mempool extends Context.Service<
                           `mempool cleared — rollback depth ${depth} > k=${K_DEEP}`,
                         ),
                       ),
-                      Effect.catch((err: MempoolError) =>
+                      Effect.catchTag("MempoolError", (err) =>
                         Effect.logError(
                           `mempool clear failed (rollback depth ${depth}): ${err.message}`,
                         ),

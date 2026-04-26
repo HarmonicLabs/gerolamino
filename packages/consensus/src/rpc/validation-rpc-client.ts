@@ -15,18 +15,15 @@ import { Context, Effect, Layer } from "effect";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type * as RpcGroup from "effect/unstable/rpc/RpcGroup";
-import { concat } from "codecs";
 import { Crypto } from "wasm-utils";
-import { MultiEraBlock, decodeMultiEraBlock } from "ledger/lib/block/block.ts";
-import { Era } from "ledger/lib/core/era.ts";
 
 import {
   ValidationClient,
-  mapCryptoToValidation,
+  makeLocalValidationOps,
   mapTransportToCrypto,
 } from "./validation-client.ts";
-import { ValidationError, ValidationRpcGroup } from "./validation-rpc-group.ts";
-import type { CryptoOpError } from "wasm-utils";
+import { ValidationRpcGroup } from "./validation-rpc-group.ts";
+import type { CryptoOpError, CryptoOperation } from "wasm-utils";
 
 /**
  * RpcClient service tag for `ValidationRpcGroup`. Resolved from whatever
@@ -53,66 +50,36 @@ export const ValidationFromRpc: Layer.Layer<ValidationClient, never, Crypto | Va
       const client = yield* ValidationRpcClient;
       const crypto = yield* Crypto;
 
+      // Worker-dispatched crypto primitives share an error-channel shape:
+      // `CryptoOpError | RpcClientError`. Domain failures already surface as
+      // `CryptoOpError` from the handler; only `RpcClientError` (transport —
+      // worker crash, framing failure, serialization) needs narrowing.
+      // `catchTransport(method)` is the curried `Effect.catchTag` that maps
+      // the transport error back into a synthetic `CryptoOpError` so every
+      // RPC forwarder reads as `client.X(...).pipe(catchTransport("method"))`.
+      const catchTransport =
+        <A, R>(method: CryptoOperation) =>
+        (effect: Effect.Effect<A, CryptoOpError | RpcClientError, R>): Effect.Effect<A, CryptoOpError, R> =>
+          Effect.catchTag(effect, "RpcClientError", (err) =>
+            Effect.fail<CryptoOpError>(mapTransportToCrypto(method)(err)),
+          );
+
       return ValidationClient.of({
-        computeBodyHash: (blockBodyCbor) =>
-          crypto
-            .blake2b256(blockBodyCbor)
-            .pipe(Effect.mapError(mapCryptoToValidation("ComputeBodyHash"))),
-        computeTxId: (txBodyCbor) =>
-          crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
-        blake2b256Tagged: (tag, data) =>
-          crypto.blake2b256(concat(new Uint8Array([tag & 0xff]), data)),
+        // Consensus-level + tagged-blake ops are the same in both Direct
+        // and RPC layers — sourced from the shared `makeLocalValidationOps`
+        // so they can't drift on error-shape conventions.
+        ...makeLocalValidationOps(crypto),
 
-        decodeBlockCbor: (blockCbor) =>
-          decodeMultiEraBlock(blockCbor).pipe(
-            Effect.map((block) =>
-              MultiEraBlock.match(block, {
-                byron: () => ({
-                  eraVariant: Era.Byron,
-                  slot: 0n,
-                  blockNo: 0n,
-                  hash: new Uint8Array(32),
-                }),
-                postByron: ({ era, header }) => ({
-                  eraVariant: era,
-                  slot: header.slot,
-                  blockNo: header.blockNo,
-                  hash: new Uint8Array(32),
-                }),
-              }),
-            ),
-            Effect.mapError(
-              (issue) =>
-                new ValidationError({
-                  operation: "DecodeBlockCbor",
-                  message: issue._tag ?? "Decode failed",
-                  cause: issue,
-                }),
-            ),
-          ),
-
-        // Worker-dispatched crypto primitives. The RPC error channel is
-        // `CryptoOpError | RpcClientError`: domain failures already surface
-        // as `CryptoOpError` from the handler; only `RpcClientError`
-        // (transport — worker crash, framing failure, serialization) needs
-        // narrowing. `Effect.catchTag("RpcClientError", ...)` maps it to a
-        // synthetic `CryptoOpError` so the service signature stays tight.
+        // Primitive crypto — RPC-forwarded with `catchTransport` mapping
+        // `RpcClientError → CryptoOpError` per method.
         ed25519Verify: (message, signature, publicKey) =>
           client
             .Ed25519Verify({ message, signature, publicKey })
-            .pipe(
-              Effect.catchTag("RpcClientError", (err) =>
-                Effect.fail<CryptoOpError>(mapTransportToCrypto("ed25519Verify")(err)),
-              ),
-            ),
+            .pipe(catchTransport("ed25519Verify")),
         kesSum6Verify: (signature, period, publicKey, message) =>
           client
             .KesSum6Verify({ message, period, publicKey, signature })
-            .pipe(
-              Effect.catchTag("RpcClientError", (err) =>
-                Effect.fail<CryptoOpError>(mapTransportToCrypto("kesSum6Verify")(err)),
-              ),
-            ),
+            .pipe(catchTransport("kesSum6Verify")),
         checkVrfLeader: (
           vrfOutputHex,
           sigmaNumerator,
@@ -128,27 +95,11 @@ export const ValidationFromRpc: Layer.Layer<ValidationClient, never, Crypto | Va
               sigmaNumerator,
               vrfOutputHex,
             })
-            .pipe(
-              Effect.catchTag("RpcClientError", (err) =>
-                Effect.fail<CryptoOpError>(mapTransportToCrypto("checkVrfLeader")(err)),
-              ),
-            ),
+            .pipe(catchTransport("checkVrfLeader")),
         vrfVerify: (vrfVkey, vrfProof, vrfInput) =>
-          client
-            .VrfVerify({ vrfInput, vrfProof, vrfVkey })
-            .pipe(
-              Effect.catchTag("RpcClientError", (err) =>
-                Effect.fail<CryptoOpError>(mapTransportToCrypto("vrfVerifyProof")(err)),
-              ),
-            ),
+          client.VrfVerify({ vrfInput, vrfProof, vrfVkey }).pipe(catchTransport("vrfVerifyProof")),
         vrfProofToHash: (vrfProof) =>
-          client
-            .VrfProofToHash({ vrfProof })
-            .pipe(
-              Effect.catchTag("RpcClientError", (err) =>
-                Effect.fail<CryptoOpError>(mapTransportToCrypto("vrfProofToHash")(err)),
-              ),
-            ),
+          client.VrfProofToHash({ vrfProof }).pipe(catchTransport("vrfProofToHash")),
       });
     }),
   );

@@ -19,11 +19,9 @@
  *     same handlers across a MessagePort boundary
  */
 import { Effect } from "effect";
-import { concat } from "codecs";
-import { MultiEraBlock, decodeMultiEraBlock } from "ledger/lib/block/block.ts";
-import { Era } from "ledger/lib/core/era.ts";
 import { Crypto } from "wasm-utils";
-import { ValidationError, ValidationRpcGroup } from "./validation-rpc-group.ts";
+import { makeLocalValidationOps } from "./validation-client.ts";
+import { ValidationRpcGroup } from "./validation-rpc-group.ts";
 
 /**
  * In-process handler layer. Every Rpc delegates to real backing services;
@@ -33,6 +31,13 @@ import { ValidationError, ValidationRpcGroup } from "./validation-rpc-group.ts";
 export const ValidationHandlersLive = ValidationRpcGroup.toLayer(
   Effect.gen(function* () {
     const crypto = yield* Crypto;
+    // The four "local" ops (blake2b body-hash / tx-id / tagged + block-CBOR
+    // decode) share their full implementation with the `ValidationClient`
+    // direct + RPC layers via the `makeLocalValidationOps` factory — same
+    // error-shape conventions, same Byron-summary fallback in
+    // `decodeBlockCbor`. Bind once + reuse so the RPC handler arms reduce
+    // to a single-line destructure-and-call.
+    const ops = makeLocalValidationOps(crypto);
 
     return ValidationRpcGroup.of({
       // ───────────── Primitive crypto (delegate to wasm-utils Crypto) ─────────────
@@ -59,66 +64,12 @@ export const ValidationHandlersLive = ValidationRpcGroup.toLayer(
         crypto.vrfVerifyProof(vrfVkey, vrfProof, vrfInput),
       VrfProofToHash: ({ vrfProof }) => crypto.vrfProofToHash(vrfProof),
 
-      // ───────────── blake2b-256 (via WASM — browser-compatible) ─────────────
+      // ───────────── Local (consensus-level) ops — shared factory ─────────────
 
-      Blake2b256Tagged: ({ data, tag }) =>
-        crypto.blake2b256(concat(new Uint8Array([tag & 0xff]), data)),
-      ComputeBodyHash: ({ blockBodyCbor }) =>
-        crypto.blake2b256(blockBodyCbor).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ValidationError({
-                operation: "ComputeBodyHash",
-                message: cause.message,
-                cause,
-              }),
-          ),
-        ),
-      ComputeTxId: ({ txBodyCbor }) =>
-        crypto
-          .blake2b256(txBodyCbor)
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ValidationError({ operation: "ComputeTxId", message: cause.message, cause }),
-            ),
-          ),
-
-      // ───────────── CBOR decode ops ─────────────
-
-      DecodeBlockCbor: ({ blockCbor }) =>
-        decodeMultiEraBlock(blockCbor).pipe(
-          // Byron blocks don't carry slot/blockNo in the consensus-level
-          // summary shape; pre-Byron chain is pre-validated into ImmutableDB
-          // from the Mithril snapshot. Phase 3b proper can surface real
-          // values via `MultiEraHeader.match` when needed. For postByron,
-          // `hash` is left empty until Phase 3b wires `computeHeaderHash`
-          // through the RPC.
-          Effect.map(
-            MultiEraBlock.match({
-              byron: () => ({
-                eraVariant: Era.Byron,
-                slot: 0n,
-                blockNo: 0n,
-                hash: new Uint8Array(32),
-              }),
-              postByron: ({ era, header }) => ({
-                eraVariant: era,
-                slot: header.slot,
-                blockNo: header.blockNo,
-                hash: new Uint8Array(32),
-              }),
-            }),
-          ),
-          Effect.mapError(
-            (issue) =>
-              new ValidationError({
-                operation: "DecodeBlockCbor",
-                message: issue._tag ?? "Decode failed",
-                cause: issue,
-              }),
-          ),
-        ),
+      Blake2b256Tagged: ({ data, tag }) => ops.blake2b256Tagged(tag, data),
+      ComputeBodyHash: ({ blockBodyCbor }) => ops.computeBodyHash(blockBodyCbor),
+      ComputeTxId: ({ txBodyCbor }) => ops.computeTxId(txBodyCbor),
+      DecodeBlockCbor: ({ blockCbor }) => ops.decodeBlockCbor(blockCbor),
 
       // `DecodeHeaderCbor`, `ValidateHeader`, `ValidateBlockBody` handlers
       // were removed along with their Rpc declarations — see the group

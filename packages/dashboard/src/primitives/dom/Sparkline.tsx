@@ -141,10 +141,6 @@ export const Sparkline: Component<SparklineProps> = (props) => {
   });
 
   return (
-    <div
-      ref={containerRef}
-      class={cn("w-full", props.class)}
-      style={{ height: `${height()}px` }}
-    />
+    <div ref={containerRef} class={cn("w-full", props.class)} style={{ height: `${height()}px` }} />
   );
 };

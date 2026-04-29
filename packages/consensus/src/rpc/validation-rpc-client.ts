@@ -59,7 +59,9 @@ export const ValidationFromRpc: Layer.Layer<ValidationClient, never, Crypto | Va
       // RPC forwarder reads as `client.X(...).pipe(catchTransport("method"))`.
       const catchTransport =
         <A, R>(method: CryptoOperation) =>
-        (effect: Effect.Effect<A, CryptoOpError | RpcClientError, R>): Effect.Effect<A, CryptoOpError, R> =>
+        (
+          effect: Effect.Effect<A, CryptoOpError | RpcClientError, R>,
+        ): Effect.Effect<A, CryptoOpError, R> =>
           Effect.catchTag(effect, "RpcClientError", (err) =>
             Effect.fail<CryptoOpError>(mapTransportToCrypto(method)(err)),
           );

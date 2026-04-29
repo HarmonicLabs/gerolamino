@@ -72,13 +72,11 @@ export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
               onSome: (point) =>
                 chainDb.getBlockAt(point).pipe(
                   Effect.map(
-                    Option.map(
-                      (block): typeof ChainTipResult.Type => ({
-                        slot: point.slot,
-                        blockNo: block.blockNo,
-                        hash: point.hash,
-                      }),
-                    ),
+                    Option.map((block): typeof ChainTipResult.Type => ({
+                      slot: point.slot,
+                      blockNo: block.blockNo,
+                      hash: point.hash,
+                    })),
                   ),
                 ),
             }),

@@ -249,8 +249,7 @@ const assertKnownLeaderVrf = (
   if (HashMap.size(view.poolVrfKeys) === 0 || poolId === undefined) return Effect.void;
   const toErr = headerErrFor("AssertKnownLeaderVrf", header);
   const registeredVrfVk = HashMap.get(view.poolVrfKeys, poolId);
-  if (Option.isNone(registeredVrfVk))
-    return Effect.fail(toErr(`pool ${poolId} not registered`));
+  if (Option.isNone(registeredVrfVk)) return Effect.fail(toErr(`pool ${poolId} not registered`));
   if (!Equal.equals(registeredVrfVk.value, header.vrfVk))
     return Effect.fail(toErr(`VRF key mismatch for pool ${poolId}`));
   return Effect.void;

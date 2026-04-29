@@ -116,9 +116,7 @@ export const SlotClockLive = (config: SlotConfig) =>
     // canonical `currentSlot` avoids re-walking `clock.currentTimeMillis →
     // msToSlot` three separate times + means a mocked `TestClock` tick only
     // advances the clock once per observer.
-    const currentSlot = clock.currentTimeMillis.pipe(
-      Effect.map((ms) => msToSlot(Number(ms))),
-    );
+    const currentSlot = clock.currentTimeMillis.pipe(Effect.map((ms) => msToSlot(Number(ms))));
 
     // Praos windows share `4k/f` — the randomness-stabilization distance +
     // its epoch-relative sibling. Compute once, reuse twice.

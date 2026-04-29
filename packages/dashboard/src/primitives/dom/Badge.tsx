@@ -25,7 +25,5 @@ const badgeVariants = cva(
 );
 
 export const Badge: Component<BadgeProps> = (props) => (
-  <span class={cn(badgeVariants({ variant: props.variant }), props.class)}>
-    {props.children}
-  </span>
+  <span class={cn(badgeVariants({ variant: props.variant }), props.class)}>{props.children}</span>
 );

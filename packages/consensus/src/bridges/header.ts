@@ -36,10 +36,7 @@ const DEFAULT_BYRON_EPOCH_LENGTH = 21600;
 
 // VRF output tagging constants live in `../praos/constants` — shared with
 // `validate/header.ts` so the wire-format magic bytes can't drift.
-import {
-  VRF_LEADER_TAG_BYTE,
-  VRF_NONCE_TAG_BYTE,
-} from "../praos/constants";
+import { VRF_LEADER_TAG_BYTE, VRF_NONCE_TAG_BYTE } from "../praos/constants";
 
 /** Byron header-hash subtag: 0 = EBB, 1 = main block.
  *  Hash = `blake2b256(0x82 ∥ subtag ∥ rawHeaderBytes)`. */

@@ -144,9 +144,7 @@ export const SyncOverview = () => {
                     number — `0` and `undefined` are both falsy, replacing the
                     `defined && > 0` guard plus two non-null assertions. */}
                 <Show when={bootstrap().totalAccounts} keyed>
-                  {(total) => (
-                    <Progress value={bootstrap().accountsWritten} max={total} />
-                  )}
+                  {(total) => <Progress value={bootstrap().accountsWritten} max={total} />}
                 </Show>
               </Box>
             </Show>

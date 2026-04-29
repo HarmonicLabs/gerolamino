@@ -242,4 +242,3 @@ export const garbageCollectVolatile = (belowSlot: number) =>
       }),
     );
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "garbageCollect", cause })));
-

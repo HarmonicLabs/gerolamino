@@ -16,10 +16,7 @@
 import { test, expect } from "./fixtures.ts";
 
 test.describe("Streaming RPC (BroadcastDeltas)", () => {
-  test("popup connect emits the SW-side `Client connected` log", async ({
-    openPopup,
-    swLogs,
-  }) => {
+  test("popup connect emits the SW-side `Client connected` log", async ({ openPopup, swLogs }) => {
     const popup = await openPopup();
     try {
       await popup.waitForLoadState("domcontentloaded");
@@ -52,9 +49,7 @@ test.describe("Streaming RPC (BroadcastDeltas)", () => {
       .toBe(true);
   });
 
-  test("popup applies the initial-snapshot delta (atoms hydrated)", async ({
-    openPopup,
-  }) => {
+  test("popup applies the initial-snapshot delta (atoms hydrated)", async ({ openPopup }) => {
     const popup = await openPopup();
     try {
       await popup.waitForLoadState("domcontentloaded");
@@ -68,10 +63,7 @@ test.describe("Streaming RPC (BroadcastDeltas)", () => {
     }
   });
 
-  test("two concurrent popups each get their own port", async ({
-    openPopup,
-    swLogs,
-  }) => {
+  test("two concurrent popups each get their own port", async ({ openPopup, swLogs }) => {
     const p1 = await openPopup();
     await p1.waitForLoadState("domcontentloaded");
     const p2 = await openPopup();
@@ -79,10 +71,9 @@ test.describe("Streaming RPC (BroadcastDeltas)", () => {
 
     try {
       await expect
-        .poll(
-          () => swLogs.filter((l) => /Client \d+ connected/.test(l.text)).length,
-          { timeout: 15_000 },
-        )
+        .poll(() => swLogs.filter((l) => /Client \d+ connected/.test(l.text)).length, {
+          timeout: 15_000,
+        })
         .toBeGreaterThanOrEqual(2);
     } finally {
       await p1.close();

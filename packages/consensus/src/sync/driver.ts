@@ -382,8 +382,7 @@ export const handleRollBackward = (
         )
       : 0n;
     const previousBlockNo = state.tip?.blockNo ?? 0n;
-    const depth =
-      previousBlockNo > rollbackBlockNo ? Number(previousBlockNo - rollbackBlockNo) : 0;
+    const depth = previousBlockNo > rollbackBlockNo ? Number(previousBlockNo - rollbackBlockNo) : 0;
 
     // Rollback ChainDB volatile state to the rollback point
     if (rollbackPoint) {

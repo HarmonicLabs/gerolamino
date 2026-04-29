@@ -409,9 +409,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
     // (the 10s monitor loop will update with real tip/status data).
     // Status "connecting" matches the canonical `PeerInfoStatus` enum in
     // `consensus/rpc/node-rpc-group.ts` (pre-first-handshake state).
-    yield* pushPeers([
-      { id: peerId, address: peerId, status: "connecting", tipSlot: 0n },
-    ]);
+    yield* pushPeers([{ id: peerId, address: peerId, status: "connecting", tipSlot: 0n }]);
 
     // Relay sync + monitor loop in parallel (with relay-only retry)
     yield* Effect.log(`[relay] Starting Ouroboros miniprotocol sync over proxy (peerId=${peerId})`);

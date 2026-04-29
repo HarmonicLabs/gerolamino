@@ -15,12 +15,7 @@ import { Effect } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as Socket from "effect/unstable/socket/Socket";
 import { RegistryContext } from "@effect/atom-solid";
-import {
-  Dashboard,
-  PrimitivesProvider,
-  createDomPrimitives,
-  applyDelta,
-} from "./index";
+import { Dashboard, PrimitivesProvider, createDomPrimitives, applyDelta } from "./index";
 
 const registry = AtomRegistry.make();
 const domPrimitives = createDomPrimitives();
@@ -80,9 +75,6 @@ if (location.protocol === "http:" || location.protocol === "https:") {
     ),
   );
   Effect.runFork(
-    oneConnection.pipe(
-      Effect.forever,
-      Effect.provide(Socket.layerWebSocketConstructorGlobal),
-    ),
+    oneConnection.pipe(Effect.forever, Effect.provide(Socket.layerWebSocketConstructorGlobal)),
   );
 }

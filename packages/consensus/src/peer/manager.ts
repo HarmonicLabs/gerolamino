@@ -16,7 +16,18 @@
  *     hot path costs O(log n) instead of O(n).
  *   - Config for tunable timeouts
  */
-import { Clock, Config, Context, Effect, HashMap, Layer, Metric, Option, Ref, Schema } from "effect";
+import {
+  Clock,
+  Config,
+  Context,
+  Effect,
+  HashMap,
+  Layer,
+  Metric,
+  Option,
+  Ref,
+  Schema,
+} from "effect";
 import { countBy } from "es-toolkit";
 import { SlotClock } from "../praos/clock";
 import { ChainTip, preferCandidate } from "../chain/selection";

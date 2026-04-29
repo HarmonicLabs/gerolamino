@@ -243,9 +243,7 @@ export const mempoolFeeP50Atom: Atom.Atom<number> = Atom.make((get) => {
   if (snap.length === 0) return 0;
   const fees = snap.map((e) => e.feePerByte).toSorted((a, b) => a - b);
   const mid = fees.length >> 1;
-  return fees.length % 2 === 0
-    ? ((fees[mid - 1] ?? 0) + (fees[mid] ?? 0)) / 2
-    : (fees[mid] ?? 0);
+  return fees.length % 2 === 0 ? ((fees[mid - 1] ?? 0) + (fees[mid] ?? 0)) / 2 : (fees[mid] ?? 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -333,10 +331,7 @@ export const syncSparklineAtom: Atom.Writable<readonly number[]> = Atom.keepAliv
 type Registry = AtomRegistryModule.AtomRegistry;
 
 /** Replace the mempool snapshot atom with a fresh array. */
-export const pushMempoolSnapshot = (
-  registry: Registry,
-  entries: readonly MempoolEntry[],
-): void => {
+export const pushMempoolSnapshot = (registry: Registry, entries: readonly MempoolEntry[]): void => {
   registry.set(mempoolSnapshotAtom, entries);
 };
 
@@ -344,10 +339,7 @@ export const pushMempoolSnapshot = (
  *  (chrome-ext flow: SW writes the bounded ring to `chrome.storage.session`,
  *  popup reads it on `onChanged` and calls this helper to mirror it locally).
  *  Defensive cap applied even though producers cap at 256. */
-export const pushChainEventLog = (
-  registry: Registry,
-  events: readonly ChainEventEntry[],
-): void => {
+export const pushChainEventLog = (registry: Registry, events: readonly ChainEventEntry[]): void => {
   registry.set(chainEventLogAtom, takeRight(events, CHAIN_EVENT_LOG_CAP));
 };
 
@@ -387,10 +379,8 @@ export const appendChainEvent = (registry: Registry, event: ChainEventEntry): vo
  *  triggers subscriber notifications. Burst-publish paths (e.g. journal
  *  replay on cold-start, batched ChainEventStream pulls) collapse N
  *  notifications into 1. */
-export const appendChainEvents = (
-  registry: Registry,
-  events: readonly ChainEventEntry[],
-): void => appendCappedMany(registry, chainEventLogAtom, events, CHAIN_EVENT_LOG_CAP);
+export const appendChainEvents = (registry: Registry, events: readonly ChainEventEntry[]): void =>
+  appendCappedMany(registry, chainEventLogAtom, events, CHAIN_EVENT_LOG_CAP);
 
 /** Append one slot-distance sample to the sparkline ring. */
 export const pushSyncSparklinePoint = (registry: Registry, slotsBehind: number): void =>

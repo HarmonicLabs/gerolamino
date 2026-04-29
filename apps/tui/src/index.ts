@@ -140,10 +140,7 @@ type BootstrapResult = {
  * Path to the bundled dashboard SPA. Built by
  * `bun packages/dashboard/build.ts` to `packages/dashboard/dist-spa/`.
  */
-const SPA_HTML_PATH = resolve(
-  import.meta.dir,
-  "../../../packages/dashboard/dist-spa/index.html",
-);
+const SPA_HTML_PATH = resolve(import.meta.dir, "../../../packages/dashboard/dist-spa/index.html");
 
 const ensureSpaBundle: Effect.Effect<void, Error> = Effect.tryPromise({
   try: () => access(SPA_HTML_PATH),
@@ -364,10 +361,7 @@ const makeDashboardMonitorLoop = (volatileRef: Ref.Ref<ReturnType<typeof initial
           Atom.batch(() => {
             registry.update(nodeStateAtom, (prev) => ({
               ...prev,
-              status:
-                nodeStatus.syncPercent >= 100
-                  ? ("caught-up" as const)
-                  : ("syncing" as const),
+              status: nodeStatus.syncPercent >= 100 ? ("caught-up" as const) : ("syncing" as const),
               tipSlot: nodeStatus.tipSlot,
               tipBlockNo: nodeStatus.tipBlockNo,
               currentSlot: nodeStatus.currentSlot,
@@ -551,9 +545,7 @@ const start = Command.make(
       // releases on stream completion / interrupt) — no manual
       // `events.subscribe` lifecycle needed.
       const events = yield* ChainEventStream;
-      yield* Effect.forkScoped(
-        Stream.runForEach(events.stream, appendChainEvent),
-      );
+      yield* Effect.forkScoped(Stream.runForEach(events.stream, appendChainEvent));
 
       // Visualization fork — Bun.WebView (default) or headless logger.
       // Both run inside the program's enclosing scope; teardown is
@@ -626,12 +618,12 @@ const makeStorageLayers = (dataDir: string | undefined) =>
       const p = yield* Path.Path;
       const fs = yield* FileSystem.FileSystem;
 
-      const baseDir = yield* (dataDir
+      const baseDir = yield* dataDir
         ? Effect.gen(function* () {
             yield* fs.makeDirectory(dataDir, { recursive: true });
             return dataDir;
           })
-        : fs.makeTempDirectory({ prefix: "gerolamino-" }));
+        : fs.makeTempDirectory({ prefix: "gerolamino-" });
       const lsmDir = p.join(baseDir, "lsm");
       yield* fs.makeDirectory(lsmDir, { recursive: true });
 

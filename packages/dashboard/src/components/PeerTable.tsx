@@ -78,9 +78,7 @@ export const PeerTable = () => {
                           onClick={header.column.getToggleSortingHandler()}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
-                          <span>
-                            {sorted() === "asc" ? " ▲" : sorted() === "desc" ? " ▼" : ""}
-                          </span>
+                          <span>{sorted() === "asc" ? " ▲" : sorted() === "desc" ? " ▼" : ""}</span>
                         </th>
                       );
                     }}

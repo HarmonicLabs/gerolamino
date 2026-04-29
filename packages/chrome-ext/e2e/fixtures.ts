@@ -30,7 +30,13 @@
  * Fail loudly if none resolve — silent fallback to a non-existent
  * binary surfaces as cryptic Playwright launch errors.
  */
-import { test as base, chromium, type BrowserContext, type Worker, type Page } from "@playwright/test";
+import {
+  test as base,
+  chromium,
+  type BrowserContext,
+  type Worker,
+  type Page,
+} from "@playwright/test";
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -64,7 +70,10 @@ const resolveChromium = (): string => {
 
 const tryWhich = (cmd: string): string | undefined => {
   try {
-    return execSync(`which ${cmd}`, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execSync(`which ${cmd}`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
     return undefined;
   }

@@ -68,10 +68,7 @@ test.describe("Popup", () => {
     }
   });
 
-  test("popup boots an Effect-runFork that connects via Port", async ({
-    openPopup,
-    swLogs,
-  }) => {
+  test("popup boots an Effect-runFork that connects via Port", async ({ openPopup, swLogs }) => {
     const popup = await openPopup();
     try {
       await popup.waitForLoadState("domcontentloaded");

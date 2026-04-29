@@ -39,7 +39,5 @@ export default defineConfig({
     video: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [
-    { name: "chrome-extension" },
-  ],
+  projects: [{ name: "chrome-extension" }],
 });

@@ -74,7 +74,9 @@ const TAG_BYTE_CACHE: ReadonlyArray<Uint8Array> = Array.from(
 
 export const makeLocalValidationOps = (crypto: Context.Service.Shape<typeof Crypto>) => ({
   computeBodyHash: (blockBodyCbor: Uint8Array) =>
-    crypto.blake2b256(blockBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeBodyHash"))),
+    crypto
+      .blake2b256(blockBodyCbor)
+      .pipe(Effect.mapError(mapCryptoToValidation("ComputeBodyHash"))),
   computeTxId: (txBodyCbor: Uint8Array) =>
     crypto.blake2b256(txBodyCbor).pipe(Effect.mapError(mapCryptoToValidation("ComputeTxId"))),
   blake2b256Tagged: (tag: number, data: Uint8Array) =>

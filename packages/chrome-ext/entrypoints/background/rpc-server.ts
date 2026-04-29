@@ -38,9 +38,7 @@ export const NodeRpcHandlers = NodeRpcs.toLayer(
           yield* pushNodeState({ status: "connecting" });
           yield* Effect.forkDetach(
             bootstrapSyncPipeline.pipe(
-              Effect.tapError((err) =>
-                pushNodeState({ status: "error", lastError: String(err) }),
-              ),
+              Effect.tapError((err) => pushNodeState({ status: "error", lastError: String(err) })),
             ),
           );
           return { ok: true };

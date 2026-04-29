@@ -22,12 +22,7 @@ import { Effect, Stream } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import { RegistryContext } from "@effect/atom-solid";
-import {
-  PrimitivesProvider,
-  Dashboard,
-  createDomPrimitives,
-  applyDelta,
-} from "dashboard";
+import { PrimitivesProvider, Dashboard, createDomPrimitives, applyDelta } from "dashboard";
 import { NodeRpcs } from "../../background/rpc.ts";
 import { layerClientProtocolChromePort } from "../../background/rpc-transport.ts";
 
@@ -54,12 +49,7 @@ const oneConnection = Effect.gen(function* () {
   ),
 );
 
-Effect.runFork(
-  oneConnection.pipe(
-    Effect.forever,
-    Effect.provide(layerClientProtocolChromePort),
-  ),
-);
+Effect.runFork(oneConnection.pipe(Effect.forever, Effect.provide(layerClientProtocolChromePort)));
 
 /** Top-level browser dashboard for the popup. */
 export const BrowserDashboard = () => (

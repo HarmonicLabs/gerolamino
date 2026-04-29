@@ -30,10 +30,7 @@ const tagBadgeVariants = cva(
 
 export const LogRow: Component<LogRowProps> = (props) => (
   <div
-    class={cn(
-      "flex items-start gap-3 border-b border-border px-3 py-2 last:border-0",
-      props.class,
-    )}
+    class={cn("flex items-start gap-3 border-b border-border px-3 py-2 last:border-0", props.class)}
   >
     <span class={tagBadgeVariants({ tag: props.tag })}>{props.icon}</span>
     <div class="min-w-0 flex-1">

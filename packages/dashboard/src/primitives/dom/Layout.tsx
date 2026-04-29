@@ -84,14 +84,11 @@ export const Layout: Component<LayoutProps> = (props) => {
   // It handles the "read on mount → write on change" lifecycle internally
   // (no redundant initial-mount write) and skips persistence cleanly when
   // localStorage is unavailable (SSR / privacy mode).
-  const [sizes, setSizes] = makePersisted(
-    createSignal<number[]>([...DEFAULT_SIZES]),
-    {
-      name: props.persistKey ?? DEFAULT_STORAGE_KEY,
-      serialize,
-      deserialize,
-    },
-  );
+  const [sizes, setSizes] = makePersisted(createSignal<number[]>([...DEFAULT_SIZES]), {
+    name: props.persistKey ?? DEFAULT_STORAGE_KEY,
+    serialize,
+    deserialize,
+  });
 
   const tabsBelow = (): number => props.tabsBelow ?? 768;
   const width = (): number => size.width ?? 0;

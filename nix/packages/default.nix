@@ -11,5 +11,6 @@
     ./download-mithril-lsm-snapshot.nix
     ./ts-packages.nix
     ./bootstrap-image.nix
+    ./bun.nix
   ];
 }

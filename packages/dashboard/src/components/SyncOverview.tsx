@@ -10,63 +10,41 @@ import {
   slotsBehindAtom,
   bootstrapAtom,
   syncSparklineAtom,
+  type SyncStatus,
+  type BootstrapPhase,
 } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
+import type { BadgeProps } from "../primitives.ts";
 
-const statusVariant = (status: string) => {
-  switch (status) {
-    case "caught-up":
-      return "success" as const;
-    case "syncing":
-    case "bootstrapping":
-    case "connecting":
-      return "warning" as const;
-    case "error":
-      return "error" as const;
-    default:
-      return "default" as const;
-  }
+// Single source of truth for status-derived UI: variant + label live
+// together in one record so they can't drift apart on schema evolution
+// (adding a new SyncStatus variant fails to compile here, not silently
+// at render time). `BadgeProps["variant"]` propagates through.
+const STATUS_CONFIG: Record<SyncStatus, { variant: BadgeProps["variant"]; label: string }> = {
+  idle: { variant: "default", label: "Idle" },
+  connecting: { variant: "warning", label: "Connecting" },
+  bootstrapping: { variant: "warning", label: "Bootstrapping" },
+  syncing: { variant: "warning", label: "Syncing" },
+  "caught-up": { variant: "success", label: "Caught Up" },
+  error: { variant: "error", label: "Error" },
 };
 
-const statusLabel = (status: string) => {
-  switch (status) {
-    case "caught-up":
-      return "Caught Up";
-    case "syncing":
-      return "Syncing";
-    case "bootstrapping":
-      return "Bootstrapping";
-    case "connecting":
-      return "Connecting";
-    case "error":
-      return "Error";
-    default:
-      return "Idle";
-  }
+// `idle` is the only phase with a status-conditional label; every other
+// phase has a single canonical string. Lookup-then-fallback is one branch
+// vs the prior `Exclude` partition.
+const PHASE_LABEL: Partial<Record<BootstrapPhase, string>> = {
+  "awaiting-init": "Awaiting snapshot metadata",
+  "awaiting-ledger-state": "Receiving ledger state",
+  "decoding-ledger-state": "Decoding ledger state (off-thread)",
+  "writing-accounts": "Writing accounts",
+  "receiving-utxos": "Syncing UTxO set",
+  "receiving-blocks": "Syncing blocks",
+  "writing-stake": "Writing stake distribution",
+  complete: "Complete",
 };
 
-const phaseLabel = (phase: string, status: string) => {
-  switch (phase) {
-    case "awaiting-init":
-      return "Awaiting snapshot metadata";
-    case "awaiting-ledger-state":
-      return "Receiving ledger state";
-    case "decoding-ledger-state":
-      return "Decoding ledger state (off-thread)";
-    case "writing-accounts":
-      return "Writing accounts";
-    case "receiving-utxos":
-      return "Syncing UTxO set";
-    case "receiving-blocks":
-      return "Syncing blocks";
-    case "writing-stake":
-      return "Writing stake distribution";
-    case "complete":
-      return "Complete";
-    default:
-      return status === "connecting" ? "Connecting..." : "Starting...";
-  }
-};
+const phaseLabel = (phase: BootstrapPhase, status: SyncStatus): string =>
+  PHASE_LABEL[phase] ?? (status === "connecting" ? "Connecting..." : "Starting...");
 
 export const SyncOverview = () => {
   const { Box, Text, Badge, Progress, Card, Stat, Separator, Sparkline } = usePrimitives();
@@ -83,7 +61,9 @@ export const SyncOverview = () => {
         <Text size="lg" weight="bold">
           Gerolamino
         </Text>
-        <Badge variant={statusVariant(state().status)}>{statusLabel(state().status)}</Badge>
+        <Badge variant={STATUS_CONFIG[state().status].variant}>
+          {STATUS_CONFIG[state().status].label}
+        </Badge>
       </Box>
 
       <Separator />
@@ -155,15 +135,18 @@ export const SyncOverview = () => {
                   </Text>
                   <Text size="sm" color="muted">
                     {bootstrap().accountsWritten.toLocaleString()}
-                    {bootstrap().totalAccounts !== undefined
-                      ? ` / ${bootstrap().totalAccounts!.toLocaleString()}`
-                      : ""}
+                    <Show when={bootstrap().totalAccounts} keyed>
+                      {(total) => ` / ${total.toLocaleString()}`}
+                    </Show>
                   </Text>
                 </Box>
-                <Show
-                  when={bootstrap().totalAccounts !== undefined && bootstrap().totalAccounts! > 0}
-                >
-                  <Progress value={bootstrap().accountsWritten} max={bootstrap().totalAccounts!} />
+                {/* `<Show keyed>` narrows `totalAccounts` to a defined truthy
+                    number — `0` and `undefined` are both falsy, replacing the
+                    `defined && > 0` guard plus two non-null assertions. */}
+                <Show when={bootstrap().totalAccounts} keyed>
+                  {(total) => (
+                    <Progress value={bootstrap().accountsWritten} max={total} />
+                  )}
                 </Show>
               </Box>
             </Show>
@@ -181,9 +164,9 @@ export const SyncOverview = () => {
                   </Text>
                   <Text size="sm" color="muted">
                     {bootstrap().stakeEntriesWritten.toLocaleString()}
-                    {bootstrap().totalStakeEntries !== undefined
-                      ? ` / ${bootstrap().totalStakeEntries!.toLocaleString()}`
-                      : ""}
+                    <Show when={bootstrap().totalStakeEntries} keyed>
+                      {(total) => ` / ${total.toLocaleString()}`}
+                    </Show>
                   </Text>
                 </Box>
               </Box>

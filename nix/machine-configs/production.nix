@@ -79,8 +79,11 @@ let
           # :22; decentralizationmaxi.io VPS allows :2222. Keeping both
           # in the NixOS firewall + sshd config means the same system
           # image works on either host.
-          # 3001 = cardano-node N2N; 8080 = Mithril aggregator REST.
-          allowedTCPPorts = [ 22 2222 3001 8080 ];
+          # 3001 = cardano-node N2N; 3040 = websockify relay
+          # (WS↔TCP proxy → cardano-node:3001 for the chrome-ext SW
+          # whose default `BOOTSTRAP_URL` is `ws://178.156.252.81:3040`);
+          # 8080 = Mithril aggregator REST.
+          allowedTCPPorts = [ 22 2222 3001 3040 8080 ];
         };
       };
 
@@ -150,6 +153,33 @@ let
           Restart = "on-failure";
           RestartSec = 30;
           LimitNOFILE = 65536;
+        };
+      };
+
+      # --- Websockify relay (chrome-ext sync entry point) ---
+      #
+      # Bridges WebSocket on 0.0.0.0:3040 → TCP on 127.0.0.1:3001 (the
+      # cardano-node N2N port). The chrome-ext SW connects to
+      # `ws://178.156.252.81:3040/relay` by default (see
+      # `packages/chrome-ext/entrypoints/background/bootstrap-sync.ts`);
+      # websockify ignores the path, performs the WS upgrade, and proxies
+      # raw bytes to cardano-node — exactly what the relay-only path of
+      # `apps/bootstrap` was already doing. This restores chrome-ext sync
+      # without re-introducing the full Effect-based bootstrap server.
+      systemd.services.websockify-relay = {
+        description = "websockify WS↔TCP proxy for chrome-ext relay sync";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "cardano-node.service" "network-online.target" ];
+        wants = [ "network-online.target" ];
+        serviceConfig = {
+          ExecStart = "${pkgs.python3Packages.websockify}/bin/websockify --heartbeat=30 0.0.0.0:3040 127.0.0.1:3001";
+          Restart = "on-failure";
+          RestartSec = 5;
+          DynamicUser = true;
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          PrivateTmp = true;
+          NoNewPrivileges = true;
         };
       };
 

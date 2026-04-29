@@ -21,7 +21,15 @@ import * as IndexedDbTable from "@effect/platform-browser/IndexedDbTable";
 import * as IndexedDbVersion from "@effect/platform-browser/IndexedDbVersion";
 import * as IndexedDbDatabase from "@effect/platform-browser/IndexedDbDatabase";
 import { layerMemory as sqliteWasmMemoryLayer } from "@effect/sql-sqlite-wasm/SqliteClient";
-import { type BlobEntry, BlobStore, BlobStoreError, prefixEnd, ChainDBLive } from "storage";
+import {
+  type BlobEntry,
+  BlobStore,
+  BlobStoreError,
+  type BlobStoreOperation,
+  prefixEnd,
+  ChainDBLive,
+  LedgerSnapshotStoreLive,
+} from "storage";
 
 // ---------------------------------------------------------------------------
 // IndexedDB table definitions — one per LSM key prefix
@@ -110,7 +118,8 @@ const resolveTableName = (key: Uint8Array): TableName => {
 // IndexedDB BlobStore — separate object stores per prefix
 // ---------------------------------------------------------------------------
 
-const fail = (operation: string, cause: unknown) => new BlobStoreError({ operation, cause });
+const fail = (operation: BlobStoreOperation, cause: unknown) =>
+  new BlobStoreError({ operation, cause });
 
 /**
  * IndexedDB-backed BlobStore with per-prefix object stores.
@@ -237,9 +246,21 @@ const SqliteWasmLayer = sqliteWasmMemoryLayer({}).pipe(Layer.orDie);
 // ---------------------------------------------------------------------------
 
 /**
- * Full browser storage: IndexedDB BlobStore + in-memory SQLite WASM ChainDB.
+ * Full browser storage: IndexedDB BlobStore + in-memory SQLite WASM
+ * ChainDB + LedgerSnapshotStore (the latter required by the consensus
+ * `connectToRelay` driver — without it the SW dies on first sync attempt
+ * with `Service not found: storage/LedgerSnapshotStore`).
+ *
+ * Both stores share the same `BlobStore` + `SqlClient` deps via
+ * `Layer.provideMerge`, mirroring the `apps/tui` composition.
  *
  * Requires IndexedDb service in the environment.
  */
-export const BrowserStorageLayers = () =>
-  ChainDBLive.pipe(Layer.provideMerge(Layer.merge(BlobStoreIndexedDB, SqliteWasmLayer)));
+export const BrowserStorageLayers = () => {
+  const deps = Layer.merge(BlobStoreIndexedDB, SqliteWasmLayer);
+  return Layer.mergeAll(
+    ChainDBLive.pipe(Layer.provide(deps)),
+    LedgerSnapshotStoreLive.pipe(Layer.provide(deps)),
+    deps,
+  );
+};

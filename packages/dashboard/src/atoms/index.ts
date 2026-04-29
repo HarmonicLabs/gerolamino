@@ -4,7 +4,6 @@ export {
   peersAtom,
   bootstrapAtom,
   networkInfoAtom,
-  isSyncingAtom,
   slotsBehindAtom,
   syncPercentLabelAtom,
   // New atoms (this wave)
@@ -23,6 +22,7 @@ export {
   pushMempoolSnapshot,
   pushChainEventLog,
   appendChainEvent,
+  appendChainEvents,
   pushSyncSparklinePoint,
   // Schemas + types
   NodeState,

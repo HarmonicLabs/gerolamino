@@ -53,7 +53,13 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
       ? yield* chainDb.getBlockAt(tipOpt.value)
       : Option.none();
     const tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
-    const syncPercent = currentSlot > 0n ? Number((tipSlot * 100n) / currentSlot) : 0;
+    // Sync ratio as a percentage of historical chain coverage. Computed
+    // in 1000-ths so a sub-1% genesis-mode sync (typical at startup) shows
+    // a non-zero value instead of integer-truncating to 0. Bound on both
+    // sides — `syncPercent < 0` would surface if a clock skew put the
+    // wallclock behind the tip, which is impossible-but-cheap to guard.
+    const syncPermille = currentSlot > 0n ? Number((tipSlot * 100000n) / currentSlot) : 0;
+    const syncPercent = Math.max(0, Math.min(syncPermille / 1000, 100));
 
     const blocksProcessed = volatileStateRef
       ? (yield* Ref.get(volatileStateRef)).blocksProcessed
@@ -67,7 +73,7 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
       gsmState: currentSlot - tipSlot <= slotClock.stabilityWindow ? "CaughtUp" : "Syncing",
       peerCount: activePeers,
       blocksProcessed,
-      syncPercent: Math.min(syncPercent, 100),
+      syncPercent,
     };
     return result;
   });

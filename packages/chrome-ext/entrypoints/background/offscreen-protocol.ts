@@ -4,11 +4,13 @@
  *
  * Rationale:
  *   - Chrome MV3 service workers cannot spawn Web Workers directly.
- *   - Synchronous CBOR decoding of a ~30MB ExtLedgerState blob blocks the SW
- *     main thread for ~2-3s, during which chrome.storage.session.set calls
- *     cannot flush, so the popup UI freezes.
- *   - The offscreen document runs in a separate OS process, so any CPU work
- *     performed there leaves the SW thread free to serve RPC / storage events.
+ *   - Synchronous CBOR decoding of a ~30MB ExtLedgerState blob blocks
+ *     the SW main thread for ~2-3 s; while it's blocked the SW can't
+ *     service `chrome.runtime.onConnect` callbacks, so the
+ *     `BroadcastDeltas` stream stalls and the popup goes blank.
+ *   - The offscreen document runs in a separate OS process, so any CPU
+ *     work performed there leaves the SW thread free to serve the RPC
+ *     transport.
  *
  * Wire format:
  *   - Transport is a BroadcastChannel (structured clone, same-origin).
@@ -21,7 +23,7 @@
  *     keeps the protocol future-proof).
  */
 import { Schema } from "effect";
-import { BootstrapPhase } from "./rpc.ts";
+import { BootstrapPhase } from "dashboard/atoms";
 
 export const OFFSCREEN_CHANNEL = "gerolamino/offscreen";
 

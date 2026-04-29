@@ -10,6 +10,7 @@
 import * as AtomRegistryModule from "effect/unstable/reactivity/AtomRegistry";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Schema from "effect/Schema";
+import { takeRight } from "es-toolkit";
 
 // ---------------------------------------------------------------------------
 // Node status
@@ -54,8 +55,19 @@ export const INITIAL_NODE_STATE: NodeState = {
   lastUpdated: 0,
 };
 
+// All writable atoms below are wrapped in `Atom.keepAlive` so the
+// `AtomRegistry` does NOT auto-dispose their nodes between non-subscribed
+// reads. The TUI delta-push fiber and the headless log fiber both use
+// `registry.get(atom)` (one-shot, no subscription); without keepAlive,
+// node-removal can sweep the value before the next reader sees the latest
+// write. Mirrors `consensus/chain/atoms.ts:55-75` precedent — cf.
+// `effect/unstable/reactivity/Atom.ts:1486-1494` and
+// `AtomRegistry.ts:421` `scheduleAtomRemoval`.
+
 /** Writable atom for the node's sync/consensus state. */
-export const nodeStateAtom: Atom.Writable<NodeState> = Atom.make(INITIAL_NODE_STATE);
+export const nodeStateAtom: Atom.Writable<NodeState> = Atom.keepAlive(
+  Atom.make(INITIAL_NODE_STATE),
+);
 
 // ---------------------------------------------------------------------------
 // Peers
@@ -89,7 +101,9 @@ export const PeerInfo = Schema.Struct({
 export type PeerInfo = typeof PeerInfo.Type;
 
 /** Writable atom for the peer list. */
-export const peersAtom: Atom.Writable<readonly PeerInfo[]> = Atom.make<readonly PeerInfo[]>([]);
+export const peersAtom: Atom.Writable<readonly PeerInfo[]> = Atom.keepAlive(
+  Atom.make<readonly PeerInfo[]>([]),
+);
 
 // ---------------------------------------------------------------------------
 // Bootstrap progress
@@ -140,7 +154,9 @@ export const INITIAL_BOOTSTRAP: BootstrapProgress = {
 };
 
 /** Writable atom for bootstrap progress. */
-export const bootstrapAtom: Atom.Writable<BootstrapProgress> = Atom.make(INITIAL_BOOTSTRAP);
+export const bootstrapAtom: Atom.Writable<BootstrapProgress> = Atom.keepAlive(
+  Atom.make(INITIAL_BOOTSTRAP),
+);
 
 // ---------------------------------------------------------------------------
 // Network info
@@ -165,22 +181,21 @@ export const INITIAL_NETWORK: NetworkInfo = {
 };
 
 /** Writable atom for network configuration. */
-export const networkInfoAtom: Atom.Writable<NetworkInfo> = Atom.make(INITIAL_NETWORK);
+export const networkInfoAtom: Atom.Writable<NetworkInfo> = Atom.keepAlive(
+  Atom.make(INITIAL_NETWORK),
+);
 
 // ---------------------------------------------------------------------------
 // Derived atoms (read-only)
 // ---------------------------------------------------------------------------
 
-/** Derived: is the node actively syncing? */
-export const isSyncingAtom: Atom.Atom<boolean> = Atom.make((get) => {
-  const state = get(nodeStateAtom);
-  return state.status === "syncing" || state.status === "bootstrapping";
-});
-
-/** Derived: slots behind tip. */
+/** Derived: slots behind tip. Clamped to `0n` because during initialization
+ *  `tipSlot` may briefly exceed `currentSlot` before the wallclock catches up,
+ *  and a negative "behind" counter would render incoherently. */
 export const slotsBehindAtom: Atom.Atom<bigint> = Atom.make((get) => {
   const state = get(nodeStateAtom);
-  return state.currentSlot - state.tipSlot;
+  const behind = state.currentSlot - state.tipSlot;
+  return behind < 0n ? 0n : behind;
 });
 
 /** Derived: human-readable sync percentage string. */
@@ -211,23 +226,26 @@ export type MempoolEntry = typeof MempoolEntry.Type;
 
 /** Writable atom for the latest mempool snapshot, ordered as the producer
  *  emitted (consensus emits feePerByte-desc; UI sort can re-key locally). */
-export const mempoolSnapshotAtom: Atom.Writable<readonly MempoolEntry[]> =
-  Atom.make<readonly MempoolEntry[]>([]);
+export const mempoolSnapshotAtom: Atom.Writable<readonly MempoolEntry[]> = Atom.keepAlive(
+  Atom.make<readonly MempoolEntry[]>([]),
+);
 
 /** Derived: pending tx count. */
 export const mempoolSizeAtom: Atom.Atom<number> = Atom.make(
   (get) => get(mempoolSnapshotAtom).length,
 );
 
-/** Derived: median feePerByte across the snapshot, 0 when empty. */
+/** Derived: median feePerByte across the snapshot, 0 when empty. The `?? 0`
+ *  fallbacks below are unreachable (`mid` is computed from `fees.length` so
+ *  both indices are in range) but satisfy `noUncheckedIndexedAccess`. */
 export const mempoolFeeP50Atom: Atom.Atom<number> = Atom.make((get) => {
   const snap = get(mempoolSnapshotAtom);
   if (snap.length === 0) return 0;
   const fees = snap.map((e) => e.feePerByte).toSorted((a, b) => a - b);
   const mid = fees.length >> 1;
   return fees.length % 2 === 0
-    ? (fees[mid - 1]! + fees[mid]!) / 2
-    : fees[mid]!;
+    ? ((fees[mid - 1] ?? 0) + (fees[mid] ?? 0)) / 2
+    : (fees[mid] ?? 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -277,8 +295,9 @@ export const CHAIN_EVENT_LOG_CAP = 1000;
 
 /** Writable atom for the bounded ring of recent chain events. Append
  *  semantics enforced by `appendChainEvent` push helper. */
-export const chainEventLogAtom: Atom.Writable<readonly ChainEventEntry[]> =
-  Atom.make<readonly ChainEventEntry[]>([]);
+export const chainEventLogAtom: Atom.Writable<readonly ChainEventEntry[]> = Atom.keepAlive(
+  Atom.make<readonly ChainEventEntry[]>([]),
+);
 
 // ---------------------------------------------------------------------------
 // Sync sparkline (rolling window of slots-behind-tip)
@@ -296,9 +315,9 @@ export const chainEventLogAtom: Atom.Writable<readonly ChainEventEntry[]> =
  */
 export const SYNC_SPARKLINE_CAP = 600;
 
-export const syncSparklineAtom: Atom.Writable<readonly number[]> = Atom.make<
-  readonly number[]
->([]);
+export const syncSparklineAtom: Atom.Writable<readonly number[]> = Atom.keepAlive(
+  Atom.make<readonly number[]>([]),
+);
 
 // ---------------------------------------------------------------------------
 // Push helpers — consumers (apps/tui, chrome-ext popup StorageBridge) call
@@ -329,29 +348,50 @@ export const pushChainEventLog = (
   registry: Registry,
   events: readonly ChainEventEntry[],
 ): void => {
-  registry.set(
-    chainEventLogAtom,
-    events.length > CHAIN_EVENT_LOG_CAP ? events.slice(-CHAIN_EVENT_LOG_CAP) : events,
-  );
+  registry.set(chainEventLogAtom, takeRight(events, CHAIN_EVENT_LOG_CAP));
+};
+
+/** Generic single-item append-with-cap. Reads the current ring, concatenates
+ *  the new item, and trims to `cap` via `takeRight` — single-write semantics
+ *  so subscribers see one notification per call. */
+const appendCapped = <A>(
+  registry: Registry,
+  atom: Atom.Writable<readonly A[]>,
+  item: A,
+  cap: number,
+): void => {
+  const prev = registry.get(atom);
+  registry.set(atom, takeRight([...prev, item], cap));
+};
+
+/** Bulk append-with-cap. Skips entirely on empty input — degenerate writes
+ *  would still notify subscribers. */
+const appendCappedMany = <A>(
+  registry: Registry,
+  atom: Atom.Writable<readonly A[]>,
+  items: readonly A[],
+  cap: number,
+): void => {
+  if (items.length === 0) return;
+  const prev = registry.get(atom);
+  registry.set(atom, takeRight([...prev, ...items], cap));
 };
 
 /** Append one event to the bounded ring (TUI flow: subscribe to
  *  `ChainEventStream.stream` and call this per-event). */
-export const appendChainEvent = (registry: Registry, event: ChainEventEntry): void => {
-  const prev = registry.get(chainEventLogAtom);
-  const next = [...prev, event];
-  registry.set(
-    chainEventLogAtom,
-    next.length > CHAIN_EVENT_LOG_CAP ? next.slice(-CHAIN_EVENT_LOG_CAP) : next,
-  );
-};
+export const appendChainEvent = (registry: Registry, event: ChainEventEntry): void =>
+  appendCapped(registry, chainEventLogAtom, event, CHAIN_EVENT_LOG_CAP);
+
+/** Append a batch of events in a single registry write — preferred over
+ *  calling `appendChainEvent` in a tight loop, since each individual `set`
+ *  triggers subscriber notifications. Burst-publish paths (e.g. journal
+ *  replay on cold-start, batched ChainEventStream pulls) collapse N
+ *  notifications into 1. */
+export const appendChainEvents = (
+  registry: Registry,
+  events: readonly ChainEventEntry[],
+): void => appendCappedMany(registry, chainEventLogAtom, events, CHAIN_EVENT_LOG_CAP);
 
 /** Append one slot-distance sample to the sparkline ring. */
-export const pushSyncSparklinePoint = (registry: Registry, slotsBehind: number): void => {
-  const prev = registry.get(syncSparklineAtom);
-  const next = [...prev, slotsBehind];
-  registry.set(
-    syncSparklineAtom,
-    next.length > SYNC_SPARKLINE_CAP ? next.slice(-SYNC_SPARKLINE_CAP) : next,
-  );
-};
+export const pushSyncSparklinePoint = (registry: Registry, slotsBehind: number): void =>
+  appendCapped(registry, syncSparklineAtom, slotsBehind, SYNC_SPARKLINE_CAP);

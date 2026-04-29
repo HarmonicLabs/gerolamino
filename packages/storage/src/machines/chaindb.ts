@@ -80,6 +80,22 @@ export const reduce = (state: ChainDBState, event: ChainDBEvent): ChainDBState =
       immutability: "idle",
       lastError: error,
     }),
-    Rollback: ({ point }) => ({ ...state, tip: point }),
+    /**
+     * Reset the immutability region to `idle` regardless of prior state.
+     * If a rollback fires while we were `copying` or `gc`, the in-flight
+     * promotion's tip target is now invalid (we've removed volatile
+     * blocks past the rollback point); the driver fiber needs an
+     * `idle → copying` re-trigger keyed off the new tip rather than
+     * sticking in the orphaned region. Decrement `volatileLength` by
+     * the number of blocks the live `rollback` op deleted from SQL —
+     * keeps the `volatileLength > securityParam` threshold accurate so
+     * we don't spuriously re-fire promotion on the very next block.
+     */
+    Rollback: ({ point, dropped }) => ({
+      ...state,
+      tip: point,
+      volatileLength: Math.max(0, state.volatileLength - dropped),
+      immutability: "idle" as const,
+    }),
     ErrorRaised: ({ error }) => ({ ...state, lastError: error }),
   });

@@ -6,19 +6,38 @@ import * as Transferable from "effect/unstable/workers/Transferable";
 import { CryptoOpError } from "../errors.ts";
 
 /**
- * Zero-copy byte schema. Uses `Transferable.schema` wrapped around the
- * widened `Schema.Uint8Array` (typed `Uint8Array<ArrayBufferLike>`) to
- * match the service signatures and the raw wasm-bindgen return type —
- * `Transferable.Uint8Array` would narrow to `Uint8Array<ArrayBuffer>`
- * and force casts at every call site.
+ * Input bytes for crypto RPC payloads — plain `Schema.Uint8Array`.
+ *
+ * The structured-clone path (no transferList) makes the Worker receive
+ * a fresh copy while the caller's buffer stays intact and live. Wrapping
+ * inputs in `Transferable.schema` is wrong here: the encoder appends
+ * `[u.buffer]` to the postMessage transferList, which detaches the
+ * caller's underlying `ArrayBuffer` on `postMessage`. The caller's
+ * `Uint8Array` view stays the same length but reads as all zeros — a
+ * subtle, painful failure mode where any code that reuses the buffer
+ * after the crypto call (e.g. the header bridge running blake2b256 then
+ * walking the CBOR for `extractFirstArrayItemBytes`) sees garbage.
+ *
+ * We pay one structured-clone copy per call (~µs for typical header /
+ * block-body sizes) and gain durable buffer ownership.
  */
-const Bytes = Transferable.schema(Schema.Uint8Array, (u) => [u.buffer]);
+const BytesIn = Schema.Uint8Array;
+
+/**
+ * Output bytes for crypto RPC payloads — `Transferable.schema`.
+ *
+ * Used only on the success channel: the Worker has just produced fresh
+ * bytes (a hash, a VRF output) and yields ownership to the main thread
+ * via the transferList — zero-copy is safe because the Worker has no
+ * further use for the buffer.
+ */
+const BytesOut = Transferable.schema(Schema.Uint8Array, (u) => [u.buffer]);
 
 export class Ed25519Verify extends Rpc.make("Ed25519Verify", {
   payload: {
-    message: Bytes,
-    signature: Bytes,
-    publicKey: Bytes,
+    message: BytesIn,
+    signature: BytesIn,
+    publicKey: BytesIn,
   },
   success: Schema.Boolean,
   error: CryptoOpError,
@@ -26,10 +45,10 @@ export class Ed25519Verify extends Rpc.make("Ed25519Verify", {
 
 export class KesSum6Verify extends Rpc.make("KesSum6Verify", {
   payload: {
-    signature: Bytes,
+    signature: BytesIn,
     period: Schema.Number,
-    publicKey: Bytes,
-    message: Bytes,
+    publicKey: BytesIn,
+    message: BytesIn,
   },
   success: Schema.Boolean,
   error: CryptoOpError,
@@ -49,23 +68,23 @@ export class CheckVrfLeader extends Rpc.make("CheckVrfLeader", {
 
 export class VrfVerifyProof extends Rpc.make("VrfVerifyProof", {
   payload: {
-    vrfVkey: Bytes,
-    vrfProof: Bytes,
-    vrfInput: Bytes,
+    vrfVkey: BytesIn,
+    vrfProof: BytesIn,
+    vrfInput: BytesIn,
   },
-  success: Bytes,
+  success: BytesOut,
   error: CryptoOpError,
 }) {}
 
 export class VrfProofToHash extends Rpc.make("VrfProofToHash", {
-  payload: { vrfProof: Bytes },
-  success: Bytes,
+  payload: { vrfProof: BytesIn },
+  success: BytesOut,
   error: CryptoOpError,
 }) {}
 
 export class Blake2b256 extends Rpc.make("Blake2b256", {
-  payload: { data: Bytes },
-  success: Bytes,
+  payload: { data: BytesIn },
+  success: BytesOut,
   error: CryptoOpError,
 }) {}
 

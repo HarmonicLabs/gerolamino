@@ -26,9 +26,11 @@ import { Era, EraSchema } from "ledger";
 
 /**
  * A hard-fork boundary: the chain transitioned from `fromEra` to `toEra` at
- * the start of `epoch`, which began at `slot`. Blocks at `slot <= s` are
- * validated under `toEra` rules (post-translation); blocks at `s < slot`
- * are validated under `fromEra` rules.
+ * the start of `epoch`, which began at `slot` (the "boundary slot" `s`).
+ * New-era semantics — blocks `slot >= s` validate under `toEra` rules
+ * (post-translation); blocks `slot < s` validate under `fromEra` rules.
+ * Mirrors Haskell HFC `extendToSlot` tick-time translation
+ * (`HardFork/Combinator/State.hs:222-336`).
  */
 export class EraBoundary extends Schema.Class<EraBoundary>("EraBoundary")({
   fromEra: EraSchema,

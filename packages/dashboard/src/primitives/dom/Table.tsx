@@ -16,12 +16,15 @@ import type { TableProps, TableColumn } from "../../primitives";
 const alignClass = (align: TableColumn<unknown>["align"]): string =>
   align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
+// `<For>` accepts `readonly T[]` directly; the prior `[...props.X]` spreads
+// allocated a fresh array on every render pass, defeating Solid's keyed-diff
+// stability. Pass the readonly arrays through unchanged.
 export const Table = <T,>(props: TableProps<T>): JSX.Element => (
   <div class={cn("relative w-full overflow-auto", props.class)}>
     <table class="w-full caption-bottom text-sm">
       <thead>
         <tr class="border-b">
-          <For each={[...props.columns]}>
+          <For each={props.columns}>
             {(col) => (
               <th
                 class={cn(
@@ -36,10 +39,10 @@ export const Table = <T,>(props: TableProps<T>): JSX.Element => (
         </tr>
       </thead>
       <tbody>
-        <For each={[...props.data]}>
+        <For each={props.data}>
           {(row) => (
             <tr class="border-b transition-colors hover:bg-muted/50">
-              <For each={[...props.columns]}>
+              <For each={props.columns}>
                 {(col) => (
                   <td class={cn("p-2 align-middle", alignClass(col.align))}>
                     {String(col.accessor(row))}

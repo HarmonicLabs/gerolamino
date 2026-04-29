@@ -29,7 +29,13 @@ const workspaceAliases = [
   { find: /^dashboard\/(.*)/, replacement: path.join(pkg("dashboard"), "$1") },
   { find: /^ffi$/, replacement: path.join(pkg("ffi"), "index.ts") },
   { find: /^ffi\/(.*)/, replacement: path.join(pkg("ffi"), "$1") },
-  { find: /^wasm-utils$/, replacement: path.join(root, "packages/wasm-utils/pkg/wasm_utils.js") },
+  // Resolve `wasm-utils` to source so the high-level Crypto service +
+  // CryptoOpError + initWasm are reachable. The source `index.ts`
+  // pulls the wasm-bindgen bundle in as `import init from "../pkg/wasm_utils.js"`,
+  // so the WASM module still ends up in the output — we just go
+  // through the workspace layer instead of bypassing it.
+  { find: /^wasm-utils$/, replacement: path.join(pkg("wasm-utils"), "index.ts") },
+  { find: /^wasm-utils\/(.*)/, replacement: path.join(pkg("wasm-utils"), "$1") },
   {
     find: /^wasm-plexer$/,
     replacement: path.join(root, "packages/wasm-plexer/browser.js"),
@@ -41,7 +47,14 @@ export default defineConfig({
   manifest: {
     name: "Gerolamino",
     description: "In-browser Cardano node",
-    permissions: ["storage", "unlimitedStorage", "alarms", "offscreen"],
+    // `unlimitedStorage` covers our IndexedDB usage (BlobStore quota
+    // bypass); we intentionally do NOT request `storage` because the
+    // chrome.storage.* surface is unused — state flows through the
+    // Effect RPC streaming endpoint, not chrome.storage.session.
+    // `alarms` keeps the SW alive during long bootstrap downloads;
+    // `offscreen` lets us spawn the offscreen document for off-thread
+    // CBOR decoding.
+    permissions: ["unlimitedStorage", "alarms", "offscreen"],
     host_permissions: ["*://178.156.252.81/*", "*://decentralizationmaxi.io/*"],
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",

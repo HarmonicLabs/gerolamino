@@ -34,11 +34,12 @@ const DEFAULT_SLOTS_PER_KES_PERIOD = 129600;
 /** Default Byron epoch length (= 10k blocks); overridable via Config. */
 const DEFAULT_BYRON_EPOCH_LENGTH = 21600;
 
-/** VRF output tagging (Babbage+): `blake2b256(0x4c ∥ proof)` = leader,
- *  `blake2b256(0x4e ∥ proof)` = nonce. ASCII 'L' / 'N' per Haskell
- *  `Praos/VRF.hs:108-109`. */
-const VRF_LEADER_TAG = 0x4c;
-const VRF_NONCE_TAG = 0x4e;
+// VRF output tagging constants live in `../praos/constants` — shared with
+// `validate/header.ts` so the wire-format magic bytes can't drift.
+import {
+  VRF_LEADER_TAG_BYTE,
+  VRF_NONCE_TAG_BYTE,
+} from "../praos/constants";
 
 /** Byron header-hash subtag: 0 = EBB, 1 = main block.
  *  Hash = `blake2b256(0x82 ∥ subtag ∥ rawHeaderBytes)`. */
@@ -341,12 +342,6 @@ const commonPraosHeaderFields = (
  *  via domain-tagging (`0x4c`/`0x4e` prefix). Runs both blake2b-256s in
  *  parallel — the two hashes are independent so there's no reason to
  *  serialise them. */
-// Module-level 1-byte tag prefixes — `deriveTaggedVrfOutputs` runs on every
-// Babbage+ block in the sync hot path; pre-allocating these constants
-// avoids two `new Uint8Array(1)` allocations per call.
-const VRF_LEADER_TAG_BYTE = new Uint8Array([VRF_LEADER_TAG]);
-const VRF_NONCE_TAG_BYTE = new Uint8Array([VRF_NONCE_TAG]);
-
 const deriveTaggedVrfOutputs = (
   crypto: Context.Service.Shape<typeof Crypto>,
   rawVrfOutput: Uint8Array,

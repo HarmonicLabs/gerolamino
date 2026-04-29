@@ -1,190 +1,90 @@
 /**
- * E2E tests for the extension popup UI.
+ * Popup UI tests.
  *
- * Tests the Solid.js popup in a real Chromium instance with the
- * extension loaded. Verifies rendering, state display, and user
- * interactions against the actual background service worker.
+ * The popup loads `chrome-extension://<id>/popup.html`, which mounts
+ * `<BrowserDashboard>` from `entrypoints/popup/dashboard/index.tsx`.
+ *
+ * Each test opens a fresh popup page and explicitly closes it before
+ * exiting. Persistent-context teardown gets stuck if pages are leaked,
+ * which manifests as a 60s "Tearing down context" timeout.
  */
 import { test, expect } from "./fixtures.ts";
 
-test.describe("Popup UI", () => {
-  test("opens and renders the header", async ({ context, extensionId }) => {
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    await expect(popup.locator("h1")).toHaveText("Gerolamino");
-    await expect(popup.locator(".subtitle")).toHaveText("In-browser Cardano node");
+test.describe("Popup", () => {
+  test("popup.html is reachable + Solid renders into #root", async ({ openPopup }) => {
+    const popup = await openPopup();
+    try {
+      await popup.waitForLoadState("domcontentloaded");
+      const rootHtmlLength = await popup.evaluate(
+        () => document.getElementById("root")?.innerHTML.length ?? 0,
+      );
+      expect(rootHtmlLength).toBeGreaterThan(100);
+    } finally {
+      await popup.close();
+    }
   });
 
-  test("shows idle status on initial load", async ({ context, extensionId }) => {
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    await expect(popup.locator(".status-label")).toHaveText("idle");
-  });
-
-  test("displays start button when idle", async ({ context, extensionId }) => {
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    const startBtn = popup.locator(".start-btn");
-    await expect(startBtn).toBeVisible();
-    await expect(startBtn).toHaveText("Start Bootstrap");
-  });
-
-  test("hides stats section when idle", async ({ context, extensionId }) => {
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    await expect(popup.locator(".stats")).not.toBeVisible();
-  });
-
-  test("shows stats when state is not idle", async ({ context, extensionId, serviceWorker }) => {
-    // Patch storage to simulate a non-idle state
-    await serviceWorker.evaluate(async () => {
-      await chrome.storage.session.set({
-        syncState: {
-          status: "bootstrapping",
-          protocolMagic: 1,
-          snapshotSlot: "12345678",
-          totalChunks: 42,
-          blocksReceived: 100,
-          blobEntriesReceived: 5000,
-          ledgerStateReceived: false,
-          bootstrapComplete: false,
-          lastUpdated: Date.now(),
-        },
+  test("dark theme is applied at the document root", async ({ openPopup }) => {
+    const popup = await openPopup();
+    try {
+      await popup.waitForLoadState("domcontentloaded");
+      const hasDarkClass = await popup.evaluate(() => {
+        return document.querySelectorAll<HTMLElement>(".dark").length > 0;
       });
-    });
-
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    // Start button should be hidden
-    await expect(popup.locator(".start-btn")).not.toBeVisible();
-
-    // Stats section should be visible with correct values
-    await expect(popup.locator(".stats")).toBeVisible();
-    await expect(popup.locator(".status-label")).toHaveText("bootstrapping");
-    await expect(popup.locator(".stat-row").filter({ hasText: "Snapshot Slot" })).toBeVisible();
-    await expect(popup.locator(".stat-row").filter({ hasText: "Blocks" })).toBeVisible();
-    await expect(popup.locator(".stat-row").filter({ hasText: "UTxO Entries" })).toBeVisible();
-    await expect(
-      popup.locator(".stat-row").filter({ hasText: "Ledger State" }).locator(".stat-value"),
-    ).toHaveText("pending");
-    await expect(
-      popup.locator(".stat-row").filter({ hasText: "Bootstrap" }).locator(".stat-value"),
-    ).toHaveText("in progress");
+      expect(hasDarkClass).toBe(true);
+    } finally {
+      await popup.close();
+    }
   });
 
-  test("shows preprod badge when protocolMagic is 1", async ({
-    context,
-    extensionId,
-    serviceWorker,
+  test("Tailwind utilities are wired (background + foreground tokens)", async ({ openPopup }) => {
+    const popup = await openPopup();
+    try {
+      await popup.waitForLoadState("domcontentloaded");
+      const tokens = await popup.evaluate(() => ({
+        bg: document.querySelectorAll(".bg-background").length,
+        fg: document.querySelectorAll(".text-foreground").length,
+      }));
+      expect(tokens.bg).toBeGreaterThan(0);
+      expect(tokens.fg).toBeGreaterThan(0);
+    } finally {
+      await popup.close();
+    }
+  });
+
+  test("popup mounts a non-empty dashboard tree", async ({ openPopup }) => {
+    const popup = await openPopup();
+    try {
+      await popup.waitForLoadState("domcontentloaded");
+      // Brief tick for Solid to settle on initial atom defaults.
+      await popup.waitForTimeout(300);
+      const elementCount = await popup.evaluate(
+        () => document.getElementById("root")?.querySelectorAll("*").length ?? 0,
+      );
+      // Sanity floor — the Dashboard layout alone produces 30+ DOM nodes.
+      expect(elementCount).toBeGreaterThan(20);
+    } finally {
+      await popup.close();
+    }
+  });
+
+  test("popup boots an Effect-runFork that connects via Port", async ({
+    openPopup,
+    swLogs,
   }) => {
-    await serviceWorker.evaluate(async () => {
-      await chrome.storage.session.set({
-        syncState: {
-          status: "syncing",
-          protocolMagic: 1,
-          snapshotSlot: "0",
-          totalChunks: 0,
-          blocksReceived: 0,
-          blobEntriesReceived: 0,
-          ledgerStateReceived: false,
-          bootstrapComplete: false,
-          lastUpdated: Date.now(),
-        },
-      });
-    });
-
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    await expect(popup.locator(".network-badge")).toHaveText("preprod");
-  });
-
-  test("shows error box when lastError is set", async ({ context, extensionId, serviceWorker }) => {
-    await serviceWorker.evaluate(async () => {
-      await chrome.storage.session.set({
-        syncState: {
-          status: "error",
-          protocolMagic: 1,
-          snapshotSlot: "0",
-          totalChunks: 0,
-          blocksReceived: 0,
-          blobEntriesReceived: 0,
-          ledgerStateReceived: false,
-          bootstrapComplete: false,
-          lastError: "WebSocket connection failed",
-          lastUpdated: Date.now(),
-        },
-      });
-    });
-
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    await expect(popup.locator(".error-box")).toBeVisible();
-    await expect(popup.locator(".error-box")).toContainText("WebSocket connection failed");
-  });
-
-  test("displays footer with last-updated timestamp", async ({
-    context,
-    extensionId,
-    serviceWorker,
-  }) => {
-    const now = Date.now();
-    await serviceWorker.evaluate(async (ts) => {
-      await chrome.storage.session.set({
-        syncState: {
-          status: "syncing",
-          protocolMagic: 1,
-          snapshotSlot: "0",
-          totalChunks: 0,
-          blocksReceived: 0,
-          blobEntriesReceived: 0,
-          ledgerStateReceived: false,
-          bootstrapComplete: false,
-          lastUpdated: ts,
-        },
-      });
-    }, now);
-
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    const footer = popup.locator(".footer");
-    await expect(footer).toBeVisible();
-    // Should contain a time string (not the placeholder "—")
-    await expect(footer).not.toContainText("—");
-  });
-
-  test("shows completed bootstrap state", async ({ context, extensionId, serviceWorker }) => {
-    await serviceWorker.evaluate(async () => {
-      await chrome.storage.session.set({
-        syncState: {
-          status: "syncing",
-          protocolMagic: 1,
-          snapshotSlot: "65000000",
-          totalChunks: 1500,
-          blocksReceived: 3200,
-          blobEntriesReceived: 42000,
-          ledgerStateReceived: true,
-          bootstrapComplete: true,
-          lastUpdated: Date.now(),
-        },
-      });
-    });
-
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-
-    await expect(
-      popup.locator(".stat-row").filter({ hasText: "Ledger State" }).locator(".stat-value"),
-    ).toHaveText("received");
-    await expect(
-      popup.locator(".stat-row").filter({ hasText: "Bootstrap" }).locator(".stat-value"),
-    ).toHaveText("complete");
+    const popup = await openPopup();
+    try {
+      await popup.waitForLoadState("domcontentloaded");
+      // The SW logs `[rpc-transport] Client N connected (active=…)` per
+      // accepted Port. The popup's `Effect.runFork` should land within
+      // a few hundred ms of mount.
+      await expect
+        .poll(() => swLogs.some((l) => /Client \d+ connected/.test(l.text)), {
+          timeout: 15_000,
+        })
+        .toBe(true);
+    } finally {
+      await popup.close();
+    }
   });
 });

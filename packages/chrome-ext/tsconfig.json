@@ -6,6 +6,12 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "types": ["chrome", "bun"],
+    // `customConditions` lets `package.json#exports` resolve workspace
+    // packages (wasm-utils, wasm-plexer, lsm-ffi) to their `@org/source`
+    // entry (the `./src/index.ts` TS source) instead of any built
+    // artefact that might not carry the full named-export surface.
+    // Mirrors the setting in `tsconfig.base.json`.
+    "customConditions": ["@org/source"],
     "paths": {
       "@": ["./.."],
       "@/*": ["./../*"],

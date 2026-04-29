@@ -15,6 +15,7 @@ import { Config, Effect, Fiber, HashMap, Layer, Queue, Ref, Schedule, Stream } f
 import * as Socket from "effect/unstable/socket/Socket";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import {
+  ChainEventsLive,
   ConsensusEvents,
   PeerManager,
   PeerManagerLayer,
@@ -38,7 +39,18 @@ import {
   runMigrations,
 } from "storage";
 import { CryptoDirect, initWasm } from "wasm-utils";
-import { SyncStateRef } from "./sync-state.ts";
+// `init` from wasm-plexer's browser loader is the chrome-ext analogue
+// of the Bun-side top-level-await initialiser in `src/wasm-init.ts`.
+// MV3 SW registration breaks if a transitive TLA never resolves, so
+// the browser path uses an explicit `init()` we call here once at SW
+// boot — before any miniprotocols code touches `MultiplexerBuffer`.
+import { init as initWasmPlexer } from "wasm-plexer";
+import {
+  pushNodeState,
+  pushBootstrapProgress,
+  pushNetworkInfo,
+  pushPeers,
+} from "./dashboard/atoms.ts";
 import { BrowserStorageLayers } from "./storage-browser.ts";
 import { analyzeBlockCbor } from "./block-walker.ts";
 import { decodeLedgerStateOffscreen } from "./offscreen-client.ts";
@@ -79,6 +91,12 @@ type SnapshotState = {
 export const bootstrapSyncPipeline = Effect.gen(function* () {
   yield* Effect.log("[bootstrap] Initializing WASM...");
   yield* initWasm;
+  // wasm-plexer's bundler-target output needs an explicit init in the
+  // browser host; without it `MultiplexerBuffer.new` resolves against
+  // an undefined wasm reference and consensus dies as soon as it
+  // touches the multiplexer (`Cannot read properties of undefined
+  // (reading 'multiplexerbuffer_new')`).
+  yield* Effect.promise(() => initWasmPlexer());
 
   // In-memory SQLite starts empty — create tables before using ChainDB
   yield* Effect.log("[bootstrap] Running schema migrations...");
@@ -128,7 +146,6 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
     );
 
     const store = yield* BlobStore;
-    const syncState = yield* SyncStateRef;
 
     // --- Phase 1: Bootstrap (optional) ---
     // When enabled, the server streams Mithril snapshot data (Init → LedgerState
@@ -138,7 +155,8 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
     let snapshotState: SnapshotState | undefined;
 
     if (enableBootstrap) {
-      yield* syncState.update({ status: "bootstrapping", bootstrapPhase: "awaiting-init" });
+      yield* pushNodeState({ status: "bootstrapping" });
+      yield* pushBootstrapProgress({ phase: "awaiting-init" });
 
       const blobCountRef = yield* Ref.make(0);
       const blockCountRef = yield* Ref.make(0);
@@ -161,18 +179,21 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                     `${m.totalChunks} chunks, ${m.totalBlobEntries} entries`,
                 );
                 const parsed = new URL(wsUrl);
-                yield* syncState.update({
+                yield* pushBootstrapProgress({
                   protocolMagic: m.protocolMagic,
                   snapshotSlot: m.snapshotSlot.toString(),
                   totalChunks: m.totalChunks,
                   totalBlobEntries: m.totalBlobEntries,
-                  bootstrapPhase: "awaiting-ledger-state",
+                  phase: "awaiting-ledger-state",
+                });
+                yield* pushNetworkInfo({
                   network:
                     m.protocolMagic === 1
                       ? "preprod"
                       : m.protocolMagic === 764824073
                         ? "mainnet"
                         : "preview",
+                  protocolMagic: m.protocolMagic,
                   relayHost: parsed.hostname,
                   relayPort: parseInt(parsed.port, 10) || 3040,
                 });
@@ -182,9 +203,9 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                 yield* Effect.log(
                   `[bootstrap] Ledger state: ${m.payload.length} bytes — dispatching to offscreen worker`,
                 );
-                yield* syncState.update({
+                yield* pushBootstrapProgress({
                   ledgerStateReceived: true,
-                  bootstrapPhase: "decoding-ledger-state",
+                  phase: "decoding-ledger-state",
                 });
                 const fiber = yield* Effect.forkScoped(
                   Effect.gen(function* () {
@@ -199,7 +220,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                       `[bootstrap] Offscreen decode complete — tip ${decoded.tip?.slot ?? "origin"}, ` +
                         `${decoded.accountsWritten} accounts, ${decoded.stakeEntriesWritten} stake`,
                     );
-                    yield* syncState.update({
+                    yield* pushBootstrapProgress({
                       ledgerStateDecoded: true,
                       accountsWritten: decoded.accountsWritten,
                       stakeEntriesWritten: decoded.stakeEntriesWritten,
@@ -225,9 +246,9 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                 );
                 const newBlobCount = yield* Ref.updateAndGet(blobCountRef, (n) => n + m.count);
                 if (newBlobCount % 500 === 0) {
-                  yield* syncState.update({
+                  yield* pushBootstrapProgress({
                     blobEntriesReceived: newBlobCount,
-                    bootstrapPhase: "receiving-utxos",
+                    phase: "receiving-utxos",
                   });
                 }
                 if (newBlobCount % 5000 === 0) {
@@ -260,9 +281,9 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                   yield* store.putBatch(pendingBlockEntries.splice(0));
                 }
                 if (newBlockCount % 100 === 0) {
-                  yield* syncState.update({
+                  yield* pushBootstrapProgress({
                     blocksReceived: newBlockCount,
-                    bootstrapPhase: "receiving-blocks",
+                    phase: "receiving-blocks",
                   });
                 }
                 if (newBlockCount % 1000 === 0) {
@@ -280,10 +301,10 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                 yield* Effect.log(
                   `[bootstrap] Complete: ${finalBlobCount} UTxO entries, ${finalBlockCount} blocks`,
                 );
-                yield* syncState.update({
+                yield* pushBootstrapProgress({
                   blobEntriesReceived: finalBlobCount,
                   blocksReceived: finalBlockCount,
-                  bootstrapComplete: true,
+                  phase: "complete",
                 });
               }),
           }),
@@ -301,7 +322,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
       ledgerView = yield* Ref.get(ledgerViewRef);
       snapshotState = yield* Ref.get(snapshotStateRef);
       if (!ledgerView) {
-        yield* syncState.update({
+        yield* pushNodeState({
           status: "error",
           lastError: "Bootstrap completed without LedgerState",
         });
@@ -332,15 +353,16 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
     // in relay-only mode we derive it from the known config + URL.
     if (!enableBootstrap) {
       const parsed = new URL(wsUrl);
-      yield* syncState.update({
-        protocolMagic: PREPROD_MAGIC,
+      yield* pushNetworkInfo({
         network: "preprod",
+        protocolMagic: PREPROD_MAGIC,
         relayHost: parsed.hostname,
         relayPort: parseInt(parsed.port, 10) || 3040,
       });
     }
 
-    yield* syncState.update({ status: "syncing", bootstrapPhase: "complete" });
+    yield* pushNodeState({ status: "syncing" });
+    yield* pushBootstrapProgress({ phase: "complete" });
 
     // --- Phase 2: Relay sync ---
     // Stream.takeUntil(Complete) stops pulling from byteQueue — any bytes
@@ -387,9 +409,9 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
     // (the 10s monitor loop will update with real tip/status data).
     // Status "connecting" matches the canonical `PeerInfoStatus` enum in
     // `consensus/rpc/node-rpc-group.ts` (pre-first-handshake state).
-    yield* syncState.update({
-      peers: [{ id: peerId, status: "connecting", tipSlot: "0" }],
-    });
+    yield* pushPeers([
+      { id: peerId, address: peerId, status: "connecting", tipSlot: 0n },
+    ]);
 
     // Relay sync + monitor loop in parallel (with relay-only retry)
     yield* Effect.log(`[relay] Starting Ouroboros miniprotocol sync over proxy (peerId=${peerId})`);
@@ -401,7 +423,7 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
             Effect.tapError((e) =>
               Effect.gen(function* () {
                 yield* Effect.logWarning(`[relay] Error: ${e} — will retry`);
-                yield* syncState.update({ status: "error", lastError: String(e) });
+                yield* pushNodeState({ status: "error", lastError: String(e) });
               }),
             ),
           ),
@@ -430,21 +452,23 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
                     `[relay] tip=${tipStr} epoch=${nodeStatus.epochNumber} sync=${nodeStatus.syncPercent}% gsm=${nodeStatus.gsmState} peers=${nodeStatus.peerCount}`,
                   );
                 }
-                yield* syncState.update({
+                yield* pushNodeState({
                   status: nodeStatus.syncPercent >= 100 ? "caught-up" : "syncing",
-                  tipSlot: tipStr,
+                  tipSlot: nodeStatus.tipSlot,
+                  currentSlot: nodeStatus.currentSlot,
+                  epochNumber: nodeStatus.epochNumber,
                   blocksProcessed: nodeStatus.blocksProcessed,
                   syncPercent: nodeStatus.syncPercent,
-                  currentSlot: nodeStatus.currentSlot.toString(),
-                  epochNumber: nodeStatus.epochNumber.toString(),
-                  peerCount: nodeStatus.peerCount,
                   gsmState: nodeStatus.gsmState,
-                  peers: peers.map((p) => ({
-                    id: p.peerId,
-                    status: p.status,
-                    tipSlot: (p.tip?.slot ?? 0n).toString(),
-                  })),
                 });
+                yield* pushPeers(
+                  peers.map((p) => ({
+                    id: p.peerId,
+                    address: p.peerId,
+                    status: p.status,
+                    tipSlot: p.tip?.slot ?? 0n,
+                  })),
+                );
               }).pipe(Effect.catch((e) => Effect.logWarning(`[monitor] Check failed: ${e}`))),
               Schedule.fixed("10 seconds"),
             );
@@ -476,7 +500,11 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
  * - WebSocket constructor (browser global)
  * - Crypto (WASM-based via CryptoDirect)
  * - ConsensusEvents (PubSub for tip changes, epoch transitions)
+ * - ChainEventsLive (in-memory EventLog journal — required by the
+ *   relay-sync driver, otherwise consensus dies with
+ *   `Service not found: effect/eventlog/EventLog`)
  * - ChainDB (IndexedDB BlobStore + SQLite WASM)
+ * - LedgerSnapshotStore (same backing storage)
  * - SlotClock (preprod config)
  * - PeerManager
  * - IndexedDb (browser window)
@@ -504,6 +532,7 @@ function browserLayers() {
   return Layer.mergeAll(
     wsConstructorLayer,
     CryptoDirect,
+    ChainEventsLive,
     ConsensusEvents.Live,
     slotClockLayer,
     peerManagerLayer,
@@ -516,14 +545,14 @@ function browserLayers() {
 // ---------------------------------------------------------------------------
 
 /**
- * Run bootstrap sync with state updates pushed via SyncStateRef.
- * SyncStateRef pushes to both RPC streaming subscribers and chrome.storage.session.
+ * Run bootstrap sync with status updates pushed into the dashboard atom
+ * registry. The broadcast fiber (`./dashboard/broadcast.ts`) picks up the
+ * atom changes on its 100 ms cadence and ships them to every connected
+ * popup over the streaming RPC.
  */
 export const bootstrapSyncWithStateUpdates = Effect.gen(function* () {
-  const syncState = yield* SyncStateRef;
-  yield* syncState.update({ status: "connecting" });
-
+  yield* pushNodeState({ status: "connecting" });
   yield* bootstrapSyncPipeline.pipe(
-    Effect.tapError((err) => syncState.update({ status: "error", lastError: String(err) })),
+    Effect.tapError((err) => pushNodeState({ status: "error", lastError: String(err) })),
   );
 });

@@ -112,14 +112,25 @@ export interface LayoutProps {
   readonly rightLabel: string;
   /** Pixel viewport width below which the layout falls back to Tabs. Default 768. */
   readonly tabsBelow?: number;
+  /** localStorage key for persisting panel sizes. Default
+   *  `"dashboard.layout.sizes"`; pass a network-suffixed key (e.g.
+   *  `"dashboard.layout.sizes.preprod"`) when multiple node instances
+   *  share the same browser origin and could otherwise clobber each
+   *  other's panel proportions. */
+  readonly persistKey?: string;
   readonly class?: string;
 }
 
-/** Hover-card tooltip with delay-on-show. */
+/** Hover-card tooltip with delay-on-show.
+ *  `openDelay` / `closeDelay` thread directly to Kobalte's `TooltipRoot`
+ *  so callers can dial UX timing per-instance. Omitting both inherits
+ *  Kobalte defaults (700ms / 300ms). */
 export interface TooltipProps {
   readonly content: JSX.Element;
   readonly children: JSX.Element;
   readonly side?: "top" | "right" | "bottom" | "left";
+  readonly openDelay?: number;
+  readonly closeDelay?: number;
   readonly class?: string;
 }
 
@@ -148,6 +159,17 @@ export interface SparklineProps {
   /** Optional accent color CSS variable name. Default `--primary`. */
   readonly colorVar?: string;
   readonly class?: string;
+}
+
+/**
+ * Container with a bold heading + body slot. Provides the canonical
+ * "panel header → content" rhythm used by `MempoolTable`, `PeerTable`,
+ * and `ChainEventLog` so all three surfaces share visual hierarchy.
+ */
+export interface SectionProps {
+  readonly title: string;
+  readonly class?: string;
+  readonly children?: JSX.Element;
 }
 
 /**
@@ -190,6 +212,7 @@ export interface DashboardPrimitives {
   readonly IconButton: Component<IconButtonProps>;
   readonly Sparkline: Component<SparklineProps>;
   readonly LogRow: Component<LogRowProps>;
+  readonly Section: ParentComponent<SectionProps>;
 }
 
 const PrimitivesContext = createContext<DashboardPrimitives>();

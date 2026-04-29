@@ -1,77 +1,62 @@
 /**
- * RPC Server — background service worker implements the Node RPC endpoints.
+ * RPC server — chrome-ext background service worker.
  *
- * Handles requests from the popup via Effect RPC over chrome.runtime.Port.
- * StreamSyncState uses a Queue to push state updates as they happen.
+ * `BroadcastDeltas` is the streaming endpoint that ships every popup
+ * connection a `Stream.concat(initial, fromPubSub(broadcast))` — the
+ * exact shape of `apps/tui/src/dashboard/serve.ts:54-67`'s WS handler,
+ * just routed over `chrome.runtime.Port` instead of an upgraded
+ * WebSocket. The PubSub itself is fed by the broadcast fiber in
+ * `./dashboard/broadcast.ts`.
  *
- * State is managed via SyncStateRef — a shared Effect Service used by both
- * the RPC handlers and the bootstrap/genesis sync pipelines.
+ * `StartSync` forks the bootstrap pipeline. The SW also auto-starts the
+ * pipeline on boot (`./index.ts`), so this endpoint is mostly a hook for
+ * a future user-driven retry; the side effect is a fork + atom update.
  */
 import { Effect, Layer, Stream } from "effect";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
+import { buildDeltaJson } from "dashboard/delta";
 import { NodeRpcs } from "./rpc.ts";
-import { SyncStateRef } from "./sync-state.ts";
+import { registry, pushNodeState } from "./dashboard/atoms.ts";
+import { DashboardBroadcast } from "./dashboard/broadcast.ts";
 import { bootstrapSyncPipeline } from "./bootstrap-sync.ts";
 import { layerServerProtocolChromePort } from "./rpc-transport.ts";
 
-// Re-export for consumers
-export { SyncStateRef } from "./sync-state.ts";
-
-// ---------------------------------------------------------------------------
-// RPC handler layer for NodeRpcs.
-// ---------------------------------------------------------------------------
-
 export const NodeRpcHandlers = NodeRpcs.toLayer(
   Effect.gen(function* () {
-    const syncState = yield* SyncStateRef;
+    const broadcast = yield* DashboardBroadcast;
 
     return NodeRpcs.of({
-      GetSyncState: () =>
-        Effect.gen(function* () {
-          yield* Effect.log("[rpc] GetSyncState");
-          return yield* syncState.get;
-        }),
+      BroadcastDeltas: () =>
+        Stream.concat(
+          Stream.sync(() => buildDeltaJson(registry)),
+          Stream.fromPubSub(broadcast),
+        ),
 
       StartSync: () =>
         Effect.gen(function* () {
           yield* Effect.log("[rpc] StartSync — forking bootstrap pipeline");
-          yield* syncState.update({ status: "connecting" });
-
-          // Fork the sync pipeline — runs in background
+          yield* pushNodeState({ status: "connecting" });
           yield* Effect.forkDetach(
             bootstrapSyncPipeline.pipe(
               Effect.tapError((err) =>
-                syncState.update({ status: "error", lastError: String(err) }),
+                pushNodeState({ status: "error", lastError: String(err) }),
               ),
             ),
           );
-
           return { ok: true };
         }),
-
-      StreamSyncState: () =>
-        syncState.subscribe.pipe(
-          Stream.tap((s) =>
-            Effect.logDebug(
-              `[rpc] StreamSyncState → ${s.status} (utxo=${s.blobEntriesReceived} blocks=${s.blocksReceived})`,
-            ),
-          ),
-        ),
     });
   }),
 );
 
-// ---------------------------------------------------------------------------
-// Full RPC server layer for the background service worker.
-// ---------------------------------------------------------------------------
-
 /**
  * Composes:
- * - NodeRpcHandlers (GetSyncState, StartSync, StreamSyncState)
- * - Chrome runtime Port protocol (popup ↔ background)
+ *   - NodeRpcHandlers (BroadcastDeltas, StartSync)
+ *   - chrome.runtime.Port server protocol
  *
- * NOTE: Does NOT include SyncStateRef.Live — the caller must provide it
- * so the same instance is shared with the sync pipeline.
+ * Caller must provide `DashboardBroadcast.Live` so the same PubSub is
+ * shared with whatever else publishes to it (currently only the
+ * broadcast fiber forked inside `DashboardBroadcast.Live`).
  */
 export const RpcServerLive = RpcServer.layer(NodeRpcs, {
   disableFatalDefects: true,

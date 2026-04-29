@@ -56,13 +56,11 @@ const headerErrFor =
   (cause: unknown): HeaderValidationError =>
     headerValidationError(assertion, String(cause), header);
 
-/** Babbage+ leader-VRF output = `blake2b256(0x4c ∥ proofHash)` (ASCII 'L',
- *  per Haskell `Praos/VRF.hs:108`). Shared with `bridges/header.ts`. */
-const VRF_LEADER_TAG_BYTE = new Uint8Array([0x4c]);
-
-/** Praos fraction denominator for `activeSlotsCoeff` — f is always
- *  expressed as `coeffNum / 100` in Cardano configs. */
-const COEFF_DENOMINATOR = 100;
+// Praos constants (VRF leader-tag byte, COEFF_DENOMINATOR) live in
+// `../praos/constants` — shared with `bridges/header.ts` and
+// `praos/nonce.ts` so the wire-format magic bytes and the
+// activeSlotsCoeff fraction precision stay consistent.
+import { VRF_LEADER_TAG_BYTE, COEFF_DENOMINATOR } from "../praos/constants";
 
 /** All-zero byte array sentinel — `view.epochNonce` and stub VRF proof
  *  hashes use this to signal "no real data", in which case the affected

@@ -29,6 +29,7 @@ import { Tooltip } from "./Tooltip";
 import { IconButton } from "./IconButton";
 import { Sparkline } from "./Sparkline";
 import { LogRow } from "./LogRow";
+import { Section } from "./Section";
 
 export const createDomPrimitives = (): DashboardPrimitives => ({
   Box,
@@ -46,4 +47,5 @@ export const createDomPrimitives = (): DashboardPrimitives => ({
   IconButton,
   Sparkline,
   LogRow,
+  Section,
 });

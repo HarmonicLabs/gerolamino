@@ -20,6 +20,21 @@
  * host having to remember to import the asset itself. */
 @import "uplot/dist/uPlot.min.css";
 
+/* Tailwind v4 auto-scans the directory containing the entry CSS, but
+ * when this package is consumed from a sibling (apps/tui's dist-spa
+ * build, packages/chrome-ext's WXT/Vite popup bundle), the consumer's
+ * scan only sees its own source — none of the `bg-background`,
+ * `text-foreground`, `dark:*`, etc. classes used in the dashboard's
+ * own components get generated and the popup ships an empty palette.
+ * The `@source` directives below let the dashboard self-declare its
+ * scan surface; every consumer that imports `dashboard/styles.css`
+ * gets the right utilities without mirroring the paths in its own
+ * config. */
+@source "./components";
+@source "./primitives";
+@source "./atoms";
+@source "./page.tsx";
+
 @custom-variant dark (&:where(.dark, .dark *, [data-kb-theme=dark], [data-kb-theme=dark] *));
 
 :root {
@@ -37,8 +52,6 @@
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
 
   --info: oklch(0.95 0.024 236.81);
   --info-foreground: oklch(0.68 0.148143 238.1044);
@@ -52,15 +65,6 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark,
@@ -79,8 +83,6 @@
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
 
   --info: oklch(0.28 0.0875 267.91);
   --info-foreground: oklch(0.68 0.148143 238.1044);
@@ -94,15 +96,6 @@
   --border: oklch(0.269 0 0);
   --input: oklch(0.269 0 0);
   --ring: oklch(0.439 0 0);
-
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
 }
 
 @theme inline {
@@ -120,8 +113,6 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
 
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
@@ -135,15 +126,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 
   --radius: 0.5rem;
   --radius-sm: calc(var(--radius) - 4px);

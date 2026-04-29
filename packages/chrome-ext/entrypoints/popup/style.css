@@ -1,9 +1,24 @@
+/*
+ * Popup base — locks the html/body to the dashboard's dark token
+ * palette. Without these the Chrome popup briefly flashes the
+ * browser-default white-on-white before the Solid render lands, and
+ * any DOM that escapes the dashboard's `<div class="dark …">` wrapper
+ * (e.g. Kobalte/Corvu portals) would inherit the system background.
+ *
+ * The `dark` class on `<html>` propagates the dark variable values to
+ * any descendant — see `@custom-variant dark` in
+ * `packages/dashboard/src/styles.css`.
+ */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-body {
-  background: #1a1a2e;
+html.dark,
+html.dark body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  color-scheme: dark;
 }

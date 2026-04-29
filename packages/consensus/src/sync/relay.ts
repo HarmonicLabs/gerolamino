@@ -36,6 +36,7 @@ import {
 } from "storage";
 import { Crypto, type CryptoOpError } from "wasm-utils";
 import { applyBlock } from "../validate/apply";
+import { verifyBodyHash } from "../validate/block";
 import { PeerManager } from "../peer/manager";
 import { SlotClock } from "../praos/clock";
 import { Nonces } from "../praos/nonce";
@@ -160,7 +161,12 @@ const findIntersection = (tip: { slot: bigint; hash: Uint8Array } | undefined) =
  * (full block CBOR overwriting header-only entry + CBOR offset index).
  * Best-effort — failures are logged, do not affect consensus or chain state.
  */
-const fetchAndStoreFullBlock = (tip: { slot: bigint; blockNo: bigint; hash: Uint8Array }) =>
+const fetchAndStoreFullBlock = (tip: {
+  slot: bigint;
+  blockNo: bigint;
+  hash: Uint8Array;
+  bodyHash?: Uint8Array;
+}) =>
   Effect.gen(function* () {
     const blockFetch = yield* BlockFetchClient;
     const chainDb = yield* ChainDB;
@@ -176,6 +182,26 @@ const fetchAndStoreFullBlock = (tip: { slot: bigint; blockNo: bigint; hash: Uint
     if (Option.isNone(maybeBlock)) return;
 
     const fullBlockCbor = maybeBlock.value;
+
+    // Body-hash integrity check — recomputes `blake2b-256` over the
+    // segwit segments and compares against the header's declared
+    // `bodyHash`. Without this, a relay sending crafted CBOR with a
+    // mismatched body hash would silently land in BlobStore as a
+    // canonical block. `verifyBodyHash` skips Byron (era ≤ 1) by
+    // construction. We log + abort on mismatch — `BlockFetch` failures
+    // are best-effort in this code path (the outer caller wraps in
+    // `Effect.catch → logWarning`), so a returned error here surfaces
+    // the malformed block without stalling sync.
+    if (tip.bodyHash) {
+      yield* verifyBodyHash(fullBlockCbor, tip.bodyHash).pipe(
+        Effect.mapError(
+          (cause) =>
+            new RelayError({
+              message: `body-hash mismatch at slot ${tip.slot}: ${String(cause)}`,
+            }),
+        ),
+      );
+    }
 
     // Derive CBOR offset entries from full block. Parse failures surface as
     // a typed `BlockAnalysisParseError`; we map them into the relay's error

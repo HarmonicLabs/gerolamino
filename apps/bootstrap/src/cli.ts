@@ -11,7 +11,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { readSnapshotMeta, preloadLedgerFiles } from "./loader.ts";
 import { readNodeDbMeta } from "bootstrap";
 import { startServer } from "./server.ts";
-import { layerLsm, layerLsmFromSnapshot } from "lsm-ffi";
+import { layerLsm, layerLsmFromSnapshot } from "lsm-ffi/lsm";
 
 const serve = Command.make(
   "serve",

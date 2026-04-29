@@ -9,45 +9,45 @@
  *   - EpochBoundary → Calendar / info
  *
  * Renders newest-first by reversing the atom's natural order (tail =
- * latest). Auto-scroll-pin (don't yank the viewport when the user has
- * scrolled up to read older events) is left for a follow-up — the
- * primitive ScrollArea is plain native overflow, so the basic UX is
- * "newest-on-top, manual scroll".
+ * latest). With a newest-on-top layout, prepended rows naturally remain
+ * visible when the user is at scrollTop=0 (live tail), and shifted
+ * scroll-position (when reading older events) is preferred over a
+ * forced auto-scroll, so no scroll-pin logic is needed here.
  */
-import { For, Show, type Component } from "solid-js";
+import { For, Show, createMemo, type Component } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { useAtomValue } from "@effect/atom-solid";
 import Check from "lucide-solid/icons/check";
 import Undo2 from "lucide-solid/icons/undo-2";
 import Calendar from "lucide-solid/icons/calendar";
 import ArrowRight from "lucide-solid/icons/arrow-right";
+import type { LucideIcon } from "lucide-solid";
 import { chainEventLogAtom, type ChainEventEntry } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
 import type { LogRowProps } from "../primitives.ts";
 
-const tagFor = (e: ChainEventEntry): LogRowProps["tag"] => {
-  switch (e._tag) {
-    case "BlockAccepted":
-      return "success";
-    case "RolledBack":
-      return "warning";
-    case "TipAdvanced":
-      return "neutral";
-    case "EpochBoundary":
-      return "info";
-  }
+// Icon glyph size matches the LogRow tag-badge container (`size-6` = 24px)
+// minus an internal 2px ring of padding — keeps the visual weight uniform
+// across the four event tags. lucide-solid defaults to 24/strokeWidth 2.
+const ICON_SIZE = 16;
+const ICON_STROKE = 2.25;
+
+// Discriminator-keyed lookup tables. Typed as `LucideIcon` (not bare
+// `Component`) so `<Dynamic>` knows the forwarded props (`size`,
+// `strokeWidth`) match the icon contract — surfaces typos at compile
+// time instead of as runtime "undefined attribute" warnings.
+const TAG_FOR: Record<ChainEventEntry["_tag"], LogRowProps["tag"]> = {
+  BlockAccepted: "success",
+  RolledBack: "warning",
+  TipAdvanced: "neutral",
+  EpochBoundary: "info",
 };
 
-const IconFor: Component<{ event: ChainEventEntry }> = (props) => {
-  switch (props.event._tag) {
-    case "BlockAccepted":
-      return <Check />;
-    case "RolledBack":
-      return <Undo2 />;
-    case "TipAdvanced":
-      return <ArrowRight />;
-    case "EpochBoundary":
-      return <Calendar />;
-  }
+const ICON_FOR: Record<ChainEventEntry["_tag"], LucideIcon> = {
+  BlockAccepted: Check,
+  RolledBack: Undo2,
+  TipAdvanced: ArrowRight,
+  EpochBoundary: Calendar,
 };
 
 const titleFor = (e: ChainEventEntry): string => {
@@ -63,16 +63,22 @@ const titleFor = (e: ChainEventEntry): string => {
   }
 };
 
-export const ChainEventLog = () => {
-  const { Box, Text, ScrollArea, LogRow } = usePrimitives();
+export interface ChainEventLogProps {
+  /** Pixel max-height of the inner scroll area. Defaults to 400. */
+  readonly height?: number;
+}
+
+export const ChainEventLog: Component<ChainEventLogProps> = (props) => {
+  const { Section, Text, ScrollArea, LogRow } = usePrimitives();
   const events = useAtomValue(() => chainEventLogAtom);
+  // `toReversed()` allocates a new array; wrapping in `createMemo` keeps
+  // it bound to atom updates only, instead of re-allocating on every
+  // unrelated reactive read in the surrounding tracking scope.
+  const reversedEvents = createMemo(() => events().toReversed());
 
   return (
-    <Box direction="column" gap={1}>
-      <Text size="md" weight="bold">
-        {`Chain events (${events().length})`}
-      </Text>
-      <ScrollArea maxHeight={400}>
+    <Section title={`Chain events (${events().length})`}>
+      <ScrollArea maxHeight={props.height ?? 400}>
         <Show
           when={events().length > 0}
           fallback={
@@ -81,17 +87,23 @@ export const ChainEventLog = () => {
             </Text>
           }
         >
-          <For each={events().toReversed()}>
+          <For each={reversedEvents()}>
             {(e) => (
               <LogRow
-                tag={tagFor(e)}
-                icon={<IconFor event={e} />}
+                tag={TAG_FOR[e._tag]}
+                icon={
+                  <Dynamic
+                    component={ICON_FOR[e._tag]}
+                    size={ICON_SIZE}
+                    strokeWidth={ICON_STROKE}
+                  />
+                }
                 title={<span>{titleFor(e)}</span>}
               />
             )}
           </For>
         </Show>
       </ScrollArea>
-    </Box>
+    </Section>
   );
 };

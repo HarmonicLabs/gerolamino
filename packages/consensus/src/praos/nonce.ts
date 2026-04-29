@@ -52,12 +52,22 @@ export const deriveEpochNonce = (
     return yield* crypto.blake2b256(concat(candidateNonce, parentHash));
   });
 
+// COEFF_DENOMINATOR lives in `./constants` — shared with `validate/header.ts`
+// so the activeSlotsCoeff fraction precision stays consistent.
+import { COEFF_DENOMINATOR } from "./constants";
+
 /**
  * Check if a slot is past the randomness stabilization window.
  *
- * Per Amaru/Haskell: randomness_stabilization_window = 4k/f slots.
- * The candidate nonce freezes at (epochLength - 4k/f) slots into the epoch.
- * Before that point, candidate = evolving. After, candidate is frozen.
+ * Per Haskell `Praos.hs` `randomnessStabilisationWindow = 4k/f` slots.
+ * The candidate nonce freezes at `epochLength - 4k/f` slots into the
+ * epoch; before that, candidate = evolving; after, candidate is frozen.
+ *
+ * Computed via integer arithmetic to avoid float-rounding drift across
+ * platforms / JS-engine versions: `4·k·1000/round(f·1000)`. With
+ * `(k=2160, f=0.05)`, `coeffNum=50`, the formula gives
+ * `4·2160·1000/50 = 172800` exactly — same answer as the prior
+ * `Math.ceil((4*k)/f)` but with no float in the data path.
  *
  * For standard params (k=2160, f=0.05): freezes at slot 259,200 of 432,000.
  */
@@ -67,6 +77,12 @@ export const isPastStabilizationWindow = (
   activeSlotsCoeff: number,
   epochLength: bigint,
 ): boolean => {
-  const stabilizationWindow = Math.ceil((4 * securityParam) / activeSlotsCoeff);
+  const coeffNum = Math.round(activeSlotsCoeff * COEFF_DENOMINATOR);
+  // Guard against a configuration where `f` rounds to zero — would otherwise
+  // divide by zero and return a window of `Infinity`. Practical parameters
+  // never hit this, but the explicit fallback keeps the pure helper safe to
+  // call from unit tests with synthetic values.
+  if (coeffNum <= 0) return false;
+  const stabilizationWindow = Math.floor((4 * securityParam * COEFF_DENOMINATOR) / coeffNum);
   return slotInEpoch >= epochLength - BigInt(stabilizationWindow);
 };

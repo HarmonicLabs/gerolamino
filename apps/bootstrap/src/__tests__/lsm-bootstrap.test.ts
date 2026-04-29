@@ -19,7 +19,7 @@ import { Effect, Layer, Stream } from "effect";
 import { BunFileSystem, BunPath } from "@effect/platform-bun";
 import { bootstrapStream, preloadLedgerFiles } from "../loader";
 import { readSnapshotMeta, readNodeDbMeta, BootstrapMessageKind, decodeFrame } from "bootstrap";
-import { layerLsm, layerLsmFromSnapshot } from "lsm-ffi";
+import { layerLsm, layerLsmFromSnapshot } from "lsm-ffi/lsm";
 
 const SNAPSHOT_PATH = process.env["SNAPSHOT_PATH"];
 const NODE_DB_PATH = process.env["NODE_DB_PATH"];

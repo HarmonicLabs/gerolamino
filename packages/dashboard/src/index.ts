@@ -16,7 +16,6 @@ export {
   peersAtom,
   bootstrapAtom,
   networkInfoAtom,
-  isSyncingAtom,
   slotsBehindAtom,
   syncPercentLabelAtom,
   // New (this wave)
@@ -35,6 +34,7 @@ export {
   pushMempoolSnapshot,
   pushChainEventLog,
   appendChainEvent,
+  appendChainEvents,
   pushSyncSparklinePoint,
   // Schemas / types
   NodeState,
@@ -71,6 +71,7 @@ export type {
   IconButtonProps,
   SparklineProps,
   LogRowProps,
+  SectionProps,
 } from "./primitives.ts";
 
 // DOM-host primitive factory — shared between apps/tui Bun.WebView host
@@ -87,3 +88,8 @@ export {
   MempoolTable,
   ChainEventLog,
 } from "./components";
+
+// Delta wire format — shared encoder/decoder used by every host
+// (apps/tui's HTTP+WS server, chrome-ext's RPC-over-Port broadcast).
+export { replacer, reviver, buildDeltaJson, applyDelta } from "./delta.ts";
+export type { Delta } from "./delta.ts";

@@ -1,10 +1,13 @@
 import { Context, Effect, Layer, Schema } from "effect";
 
+// Imports go through `./wasm-init.ts` (not the broken bundler-target
+// `wasm_plexer.js`) so the WASM instance is fully initialized by the
+// time any class constructor or function call runs.
 import {
   MultiplexerBuffer as WasmMultiplexerBuffer,
   unwrap_multiplexer_message,
   wrap_multiplexer_message,
-} from "../result/wasm_plexer.js";
+} from "./wasm-init.ts";
 
 import { FramingOpError, type FramingOperation, fromWasmError } from "./errors.ts";
 import { WrappedFrame, WrappedFrameArray } from "./schemas.ts";

@@ -11,7 +11,13 @@ import { RealPoint } from "../types/StoredBlock.ts";
 
 export const ChainDBEvent = Schema.Union([
   Schema.TaggedStruct("BlockAdded", { tip: RealPoint }),
-  Schema.TaggedStruct("Rollback", { point: RealPoint }),
+  /** `dropped` is the number of volatile blocks the rollback removed from
+   *  SQL. The reducer decrements `volatileLength` by this so the
+   *  threshold check in `BlockAdded` resumes from the correct baseline.
+   *  Without it, a rollback past the volatile-window boundary would
+   *  leave `volatileLength` permanently inflated and incorrectly
+   *  re-trigger promotion on every subsequent block. */
+  Schema.TaggedStruct("Rollback", { point: RealPoint, dropped: Schema.Int }),
   Schema.TaggedStruct("ErrorRaised", { error: Schema.Defect }),
   Schema.TaggedStruct("PromoteDone", { promoted: Schema.Number }),
   Schema.TaggedStruct("PromoteFailed", { error: Schema.Defect }),

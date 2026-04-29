@@ -1,11 +1,21 @@
 /**
  * Chain selection — Ouroboros Praos rules.
  *
- * Per spec (Section 3.4) + Amaru/Dingo implementations:
- *   1. Higher blockNo wins (longer chain)
- *   2. At equal blockNo, lower slot wins (denser chain)
- *   3. At equal slot, lower VRF output wins (anti-grinding tiebreaker)
- *   4. Reject forks deeper than k blocks
+ * Per Haskell `comparePraos` (`Praos/Common.hs:126-169`):
+ *   1. Higher blockNo wins (longer chain). The primary `SelectView` for
+ *      vanilla Praos is BlockNo only — everything below is a tiebreaker.
+ *   2. At equal blockNo, lower VRF tiebreak value wins (anti-grinding).
+ *      OCert-issue-no comparison only applies when slots AND issuers
+ *      coincide (a degenerate case for cross-pool comparisons), so for
+ *      the peer-tip selection use here it collapses to the VRF rule.
+ *   3. Reject forks deeper than `k` blocks (security parameter).
+ *
+ * The previous "lower slot wins (denser chain)" rule was a Genesis-mode
+ * heuristic — Praos itself does NOT use slot-density as a tiebreaker.
+ * Two blocks at the same blockNo from different issuers are settled by
+ * VRF only; their slot delta is irrelevant to the choice (Haskell's
+ * `RestrictedVRFTiebreaker` uses slot distance only as a *gate* on
+ * whether VRF applies, not as a comparison).
  */
 import { Schema } from "effect";
 import { compareBytes } from "codecs";
@@ -14,7 +24,7 @@ export class ChainTip extends Schema.TaggedClass<ChainTip>()("ChainTip", {
   slot: Schema.BigInt,
   blockNo: Schema.BigInt,
   hash: Schema.Uint8Array,
-  /** VRF output for tiebreaking (optional — absent for genesis). */
+  /** VRF output for tiebreaking (optional — absent for genesis / Byron). */
   vrfOutput: Schema.optional(Schema.Uint8Array),
 }) {}
 
@@ -33,23 +43,23 @@ export const preferCandidate = (
   forkDepth: number,
   securityParam: number,
 ): boolean => {
-  // Rule 0: reject forks deeper than k blocks
+  // Rule 0: reject forks deeper than k blocks (consensus-stability gate)
   if (forkDepth > securityParam) return false;
 
   // Rule 1: higher blockNo wins (longer chain)
   if (candidate.blockNo > ours.blockNo) return true;
   if (candidate.blockNo < ours.blockNo) return false;
 
-  // Rule 2: at equal blockNo, lower slot wins (denser chain)
-  if (candidate.slot < ours.slot) return true;
-  if (candidate.slot > ours.slot) return false;
-
-  // Rule 3: at equal slot, lower VRF output wins (anti-grinding)
+  // Rule 2 (tiebreak): equal blockNo → lower VRF output wins.
+  // Both VRFs must be present for the comparison to be defined; if either
+  // is absent (Byron tip, or pre-validation peer state) we cannot form an
+  // ordering and stick with the current tip — matches Haskell's
+  // `vrfArmed = False ⇒ ShouldNotSwitch EQ` branch.
   if (candidate.vrfOutput && ours.vrfOutput) {
     return compareBytes(candidate.vrfOutput, ours.vrfOutput) < 0;
   }
 
-  // No preference — stick with current
+  // Tiebreak unavailable — no preference.
   return false;
 };
 

@@ -219,6 +219,13 @@
                 pkgs.poppler-utils
                 pkgs.wasm-pack
                 pkgs.binaryen
+                # Standalone Tailwind v4 CLI (nixpkgs-built, RPATH-patched).
+                # Used by `packages/dashboard/build.ts` instead of
+                # `bunx @tailwindcss/cli` — that path's `.node` bindings
+                # `dlopen()` `libstdc++.so.6` from the FHS, which fails on
+                # NixOS. The standalone binary has no `@parcel/watcher`
+                # native dep and resolves its libstdc++ via RPATH.
+                pkgs.tailwindcss_4
                 # pkgs.chromium
                 (inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: { doCheck = false; }))
                 # snapshot-converter
@@ -245,7 +252,7 @@
                   # npm.enable = true;
                   bun = {
                     enable = true;
-                    package = pkgs.bun;
+                    package = inputs'.bun-overlay.packages.bun;
                   };
                 };
                 haskell = {
@@ -263,6 +270,17 @@
               env = {
                 BOOTSTRAP_SERVER_URL = "http://decentralizationmaxi.io:3040";
                 LIBLSM_BRIDGE_PATH = "${config.packages.lsm-bridge}/lib/liblsm-bridge.so";
+                # Bun.WebView's Linux backend (`backend: "chrome"`) spawns
+                # Chrome over `--remote-debugging-pipe`. Bun's auto-detect
+                # walks `$PATH` (`google-chrome`, `chromium`, ...) and a
+                # hardcoded `/usr/bin` / `/snap/bin` list — none of which
+                # exist on NixOS. Pinning `BUN_CHROME_PATH` to the
+                # nixpkgs-built chromium short-circuits the lookup.
+                # Cached on cache.nixos.org, so this is a download (not a
+                # local build). Source: bun's `ChromeProcess.zig` (search
+                # precedence: `backend.path` > `BUN_CHROME_PATH` > `$PATH`
+                # > hardcoded > playwright cache).
+                BUN_CHROME_PATH = "${pkgs.chromium}/bin/chromium";
               };
 
               # --- Tasks ---

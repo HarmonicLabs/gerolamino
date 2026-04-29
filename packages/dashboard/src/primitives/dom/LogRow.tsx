@@ -4,27 +4,29 @@
  * Visual: a colored badge circle on the left holds the icon, with the
  * row title + optional subtitle in the middle and an optional timestamp
  * pinned to the right. The `tag` discriminator drives the badge color
- * via the foreground/background pair in `styles.css`'s token palette.
+ * via CVA `compoundVariants` — one tag → one (bg + fg) pair, which keeps
+ * the bg/fg from drifting out of sync if the palette evolves.
  */
 import { Show, type Component } from "solid-js";
+import { cva } from "class-variance-authority";
 import { cn } from "../../lib/cn";
 import type { LogRowProps } from "../../primitives";
 
-const tagBg = {
-  success: "bg-success",
-  warning: "bg-warning",
-  info: "bg-info",
-  neutral: "bg-muted",
-  error: "bg-error",
-} as const;
-
-const tagFg = {
-  success: "text-success-foreground",
-  warning: "text-warning-foreground",
-  info: "text-info-foreground",
-  neutral: "text-muted-foreground",
-  error: "text-error-foreground",
-} as const;
+const tagBadgeVariants = cva(
+  "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
+  {
+    variants: {
+      tag: {
+        success: "bg-success text-success-foreground",
+        warning: "bg-warning text-warning-foreground",
+        info: "bg-info text-info-foreground",
+        neutral: "bg-muted text-muted-foreground",
+        error: "bg-error text-error-foreground",
+      },
+    },
+    defaultVariants: { tag: "neutral" },
+  },
+);
 
 export const LogRow: Component<LogRowProps> = (props) => (
   <div
@@ -33,15 +35,7 @@ export const LogRow: Component<LogRowProps> = (props) => (
       props.class,
     )}
   >
-    <span
-      class={cn(
-        "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
-        tagBg[props.tag],
-        tagFg[props.tag],
-      )}
-    >
-      {props.icon}
-    </span>
+    <span class={tagBadgeVariants({ tag: props.tag })}>{props.icon}</span>
     <div class="min-w-0 flex-1">
       <div class="text-sm">{props.title}</div>
       <Show when={props.subtitle}>

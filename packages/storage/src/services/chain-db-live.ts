@@ -94,6 +94,14 @@ const toPoint = (r: typeof PointRow.Type): RealPoint => ({
 /** Default security param (k) — overridable via SECURITY_PARAM env. */
 const securityParamConfig = Config.number("SECURITY_PARAM").pipe(Config.withDefault(2160));
 
+/** Upper-bound on `cborOffsetKey(slot, txIdx)` indices to clear when
+ *  rolling back a volatile block. Set well above the practical Conway
+ *  per-block tx count (median ~50, p99 ~150 on mainnet/preprod) so
+ *  rollback cleanup catches every offset key without a per-block lookup
+ *  query. BlobStore deletes for missing keys are no-ops, so over-deleting
+ *  is cheap; under-deleting would leave orphaned offset entries. */
+const ROLLBACK_TX_OFFSET_CLEANUP_RANGE = 1024;
+
 // ---------------------------------------------------------------------------
 // Blob-value encoders — byte layouts paired with their `*Key` constructors
 // in `ffi/keys`. Hoisted so `addBlock`'s byte-assembly reads declaratively.
@@ -274,8 +282,20 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
               const rows = yield* findToPromote({ slot: Number(tip.slot) });
               if (rows.length > 0) {
                 // Single multi-VALUES insert using `sql.insert` (Effect
-                // `Statement.ts:368`) + SQLite ON CONFLICT DO UPDATE with
-                // `excluded.hash` to reuse the row being inserted.
+                // `Statement.ts:368`) + SQLite `ON CONFLICT(slot) DO
+                // NOTHING`.
+                //
+                // `DO NOTHING` mirrors Haskell `ImmutableDB`'s append-only
+                // contract: once a slot is finalized, its (slot, hash)
+                // pair is immutable. The earlier `DO UPDATE SET hash =
+                // excluded.hash` would silently overwrite a finalized
+                // (slot, hash) with a different fork's hash if a stray
+                // promotion attempt arrived later — a soundness bug
+                // dressed up as idempotency. With `DO NOTHING`, a
+                // re-run of `promoteBlocksEffect` on already-promoted
+                // rows is a no-op for matching keys and a silent skip
+                // for divergent ones; the volatile DELETE below then
+                // clears the stale row regardless.
                 yield* sql`INSERT INTO immutable_blocks ${sql.insert(
                   rows.map((r) => ({
                     slot: r.slot,
@@ -287,7 +307,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                     ...IMMUTABLE_BLOCK_DEFAULTS,
                   })),
                 )}
-                  ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`;
+                  ON CONFLICT(slot) DO NOTHING`;
               }
               yield* sql`DELETE FROM volatile_blocks WHERE slot <= ${Number(tip.slot)}`;
               return rows.length;
@@ -512,17 +532,45 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
         // --- Fork handling ---
         rollback: (point: RealPoint) =>
           Effect.gen(function* () {
-            yield* sql.withTransaction(
+            // Delete every BlobStore entry tied to the rolled-back
+            // volatile blocks, then return the count so the reducer can
+            // decrement `volatileLength`. `cborOffsetKey(slot, txIdx)`
+            // entries are written by `applyBlock` per-tx in the relay
+            // path (`sync/relay.ts:217-219`); without explicit cleanup
+            // they survive the rollback as orphaned BlobStore keys that
+            // future `getTxByOffset` lookups would dereference to stale
+            // bytes. We don't know the tx count per block here, so we
+            // walk a small range of `cborOffsetKey(slot, i)` for
+            // `i = 0..MAX_TXS_PER_BLOCK_FOR_CLEANUP`; trailing keys
+            // either don't exist (BlobStore.delete is a no-op for
+            // missing keys) or are stale already.
+            const droppedCount = yield* sql.withTransaction(
               Effect.gen(function* () {
                 const rows = yield* findVolatileAboveSlot({ slot: Number(point.slot) });
                 if (rows.length > 0) {
-                  yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
+                  const blockKeys = rows.map((r) => blockKey(BigInt(r.slot), r.hash));
+                  // Generate offset cleanup keys: `cborOffsetKey(slot, i)`
+                  // for every `i` in `[0, ROLLBACK_TX_OFFSET_CLEANUP_RANGE)`.
+                  // The range is intentionally generous (most blocks have
+                  // far fewer txs); the BlobStore delete for non-existent
+                  // keys is a constant-time no-op so the over-deletion is
+                  // cheap.
+                  const offsetKeys = rows.flatMap((r) =>
+                    Array.from({ length: ROLLBACK_TX_OFFSET_CLEANUP_RANGE }, (_, i) =>
+                      cborOffsetKey(BigInt(r.slot), i),
+                    ),
+                  );
+                  yield* store.deleteBatch([...blockKeys, ...offsetKeys]);
                 }
                 yield* sql`DELETE FROM volatile_blocks WHERE slot > ${Number(point.slot)}`;
+                return rows.length;
               }),
             );
 
-            yield* Queue.offer(events, ChainDBEvent.cases.Rollback.make({ point }));
+            yield* Queue.offer(
+              events,
+              ChainDBEvent.cases.Rollback.make({ point, dropped: droppedCount }),
+            );
           }).pipe(withOp("rollback")),
 
         getSuccessors: (hash: Uint8Array) =>

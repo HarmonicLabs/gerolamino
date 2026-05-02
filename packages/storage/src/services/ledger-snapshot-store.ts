@@ -19,8 +19,11 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import { desc, sql as sqlExpr } from "drizzle-orm";
 import { BlobStore, snapshotKey } from "../blob-store";
 import type { RealPoint } from "../types/StoredBlock.ts";
+import { ledgerSnapshots, nonces } from "../schema/index.ts";
+import { compile, db } from "./drizzle.ts";
 
 /** Error surface — separate from `ChainDBError` so callers that only need
  * snapshot/nonce ops don't have to handle chain-DB failure modes. */
@@ -113,17 +116,17 @@ export const LedgerSnapshotStoreLive: Layer.Layer<
     const findLatestSnapshot = SqlSchema.findOneOption({
       Request: Schema.Void,
       Result: SnapshotRow,
-      execute: () => sql`
-        SELECT slot, hash, epoch FROM ledger_snapshots ORDER BY slot DESC LIMIT 1
-      `,
+      execute: () =>
+        compile(
+          sql,
+          db.select().from(ledgerSnapshots).orderBy(desc(ledgerSnapshots.slot)).limit(1),
+        ),
     });
 
     const findLatestNonces = SqlSchema.findOneOption({
       Request: Schema.Void,
       Result: NoncesRow,
-      execute: () => sql`
-        SELECT epoch, active, evolving, candidate FROM nonces ORDER BY epoch DESC LIMIT 1
-      `,
+      execute: () => compile(sql, db.select().from(nonces).orderBy(desc(nonces.epoch)).limit(1)),
     });
 
     return {
@@ -133,11 +136,16 @@ export const LedgerSnapshotStoreLive: Layer.Layer<
             Effect.all(
               [
                 store.put(snapshotKey(slot), stateBytes),
-                sql`INSERT INTO ledger_snapshots ${sql.insert({
-                  slot: Number(slot),
-                  hash,
-                  epoch: Number(epoch),
-                })} ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`,
+                compile(
+                  sql,
+                  db
+                    .insert(ledgerSnapshots)
+                    .values({ slot: Number(slot), hash, epoch: Number(epoch) })
+                    .onConflictDoUpdate({
+                      target: ledgerSnapshots.slot,
+                      set: { hash: sqlExpr`excluded.hash` },
+                    }),
+                ),
               ],
               { concurrency: "unbounded" },
             ),
@@ -163,15 +171,20 @@ export const LedgerSnapshotStoreLive: Layer.Layer<
       }).pipe(withOp("readLatestLedgerSnapshot")),
 
       writeNonces: (epoch, active, evolving, candidate) =>
-        sql`INSERT INTO nonces ${sql.insert({
-          epoch: Number(epoch),
-          active,
-          evolving,
-          candidate,
-        })} ON CONFLICT(epoch) DO UPDATE SET
-            active = excluded.active,
-            evolving = excluded.evolving,
-            candidate = excluded.candidate`.pipe(withOp("writeNonces")),
+        compile(
+          sql,
+          db
+            .insert(nonces)
+            .values({ epoch: Number(epoch), active, evolving, candidate })
+            .onConflictDoUpdate({
+              target: nonces.epoch,
+              set: {
+                active: sqlExpr`excluded.active`,
+                evolving: sqlExpr`excluded.evolving`,
+                candidate: sqlExpr`excluded.candidate`,
+              },
+            }),
+        ).pipe(withOp("writeNonces")),
 
       readNonces: findLatestNonces(undefined).pipe(
         Effect.map(

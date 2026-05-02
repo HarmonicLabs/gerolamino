@@ -2,12 +2,13 @@
  * Stake-pool + delegation tables — defined for shape parity with
  * cardano-db-sync. Currently never written to.
  */
-import { blob, index, integer, real, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 import { tx, stakeAddress, redeemer } from "./tx.ts";
+import { bytes } from "./columns.ts";
 
 export const pool = sqliteTable("pool", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  hashRaw: blob("hash_raw", { mode: "buffer" }).notNull().unique(),
+  hashRaw: bytes("hash_raw").notNull().unique(),
   view: text("view").notNull(),
 });
 
@@ -17,7 +18,7 @@ export const poolMetadataRef = sqliteTable("pool_metadata_ref", {
     .notNull()
     .references(() => pool.id),
   url: text("url").notNull(),
-  hash: blob("hash", { mode: "buffer" }).notNull(),
+  hash: bytes("hash").notNull(),
   registeredTxId: integer("registered_tx_id")
     .notNull()
     .references(() => tx.id),
@@ -31,9 +32,9 @@ export const poolUpdate = sqliteTable(
       .notNull()
       .references(() => pool.id),
     certIndex: integer("cert_index").notNull(),
-    vrfKeyHash: blob("vrf_key_hash", { mode: "buffer" }).notNull(),
+    vrfKeyHash: bytes("vrf_key_hash").notNull(),
     pledge: integer("pledge").notNull(),
-    rewardAddr: blob("reward_addr", { mode: "buffer" }).notNull(),
+    rewardAddr: bytes("reward_addr").notNull(),
     activeEpochNo: integer("active_epoch_no").notNull(),
     metaId: integer("meta_id").references(() => poolMetadataRef.id),
     margin: real("margin").notNull(),

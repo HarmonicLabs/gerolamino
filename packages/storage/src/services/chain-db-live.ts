@@ -46,6 +46,7 @@ import {
 } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import { and, asc, count, desc, eq, gt, lt, lte, sql as sqlExpr } from "drizzle-orm";
 import { ChainDB, ChainDBError, type ChainDBOperation } from "./chain-db.ts";
 import {
   type BlobEntry,
@@ -64,6 +65,18 @@ import {
 } from "../operations/blocks.ts";
 import { ChainDBEvent, type ChainDBState, initialChainDBState, reduce } from "../machines";
 import { StoredBlock, RealPoint } from "../types/StoredBlock.ts";
+import { immutableBlocks, volatileBlocks } from "../schema/index.ts";
+import { compile, db } from "./drizzle.ts";
+
+// `immutable_blocks.size` and `volatile_blocks.block_size_bytes` are the
+// same logical column with different SQL names; every immutable SELECT
+// aliases via `sqlExpr<number>\`${immutableBlocks.size}\`.as(...)` so the
+// decoded `BlockRow` shape matches across both halves and `toStoredBlock`
+// stays single-source-of-truth. Defining the aliased SQL fragment once
+// keeps the alias name in sync with `BlockRow.block_size_bytes`.
+const immutableBlockSizeAsBlockSizeBytes = sqlExpr<number>`${immutableBlocks.size}`.as(
+  "block_size_bytes",
+);
 
 /** Tag an effect's failures as a `ChainDBError` with the given operation name.
  * `operation` is typed to the `ChainDBOperation` union so typos fail at
@@ -169,109 +182,189 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
 
       // --- SqlSchema query builders (created once, reused) ---
 
+      // BlockRow column-set helpers — built once so each query reuses
+      // the identical projection. The volatile flavour uses native
+      // column names; the immutable flavour aliases `size →
+      // block_size_bytes` via the shared `sqlExpr` fragment defined
+      // above.
+      const volatileBlockColumns = {
+        hash: volatileBlocks.hash,
+        slot: volatileBlocks.slot,
+        prev_hash: volatileBlocks.prevHash,
+        block_no: volatileBlocks.blockNo,
+        block_size_bytes: volatileBlocks.blockSizeBytes,
+      };
+      const immutableBlockColumns = {
+        slot: immutableBlocks.slot,
+        hash: immutableBlocks.hash,
+        prev_hash: immutableBlocks.prevHash,
+        block_no: immutableBlocks.blockNo,
+        block_size_bytes: immutableBlockSizeAsBlockSizeBytes,
+      };
+
       const findVolatileByHash = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array }),
         Result: BlockRow,
-        execute: (req) => sql`
-          SELECT hash, slot, prev_hash, block_no, block_size_bytes
-          FROM volatile_blocks WHERE hash = ${req.hash} LIMIT 1
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select(volatileBlockColumns)
+              .from(volatileBlocks)
+              .where(eq(volatileBlocks.hash, req.hash))
+              .limit(1),
+          ),
       });
 
       const findImmutableByHash = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array }),
         Result: BlockRow,
-        execute: (req) => sql`
-          SELECT hash, slot, prev_hash, block_no, size AS block_size_bytes
-          FROM immutable_blocks WHERE hash = ${req.hash} LIMIT 1
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select(immutableBlockColumns)
+              .from(immutableBlocks)
+              .where(eq(immutableBlocks.hash, req.hash))
+              .limit(1),
+          ),
       });
 
       const findVolatileByPoint = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array, slot: Schema.Number }),
         Result: BlockRow,
-        execute: (req) => sql`
-          SELECT hash, slot, prev_hash, block_no, block_size_bytes
-          FROM volatile_blocks
-          WHERE hash = ${req.hash} AND slot = ${req.slot} LIMIT 1
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select(volatileBlockColumns)
+              .from(volatileBlocks)
+              .where(and(eq(volatileBlocks.hash, req.hash), eq(volatileBlocks.slot, req.slot)))
+              .limit(1),
+          ),
       });
 
       const findImmutableByPoint = SqlSchema.findOneOption({
         Request: Schema.Struct({ hash: Schema.Uint8Array, slot: Schema.Number }),
         Result: BlockRow,
-        execute: (req) => sql`
-          SELECT hash, slot, prev_hash, block_no, size AS block_size_bytes
-          FROM immutable_blocks
-          WHERE hash = ${req.hash} AND slot = ${req.slot} LIMIT 1
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select(immutableBlockColumns)
+              .from(immutableBlocks)
+              .where(and(eq(immutableBlocks.hash, req.hash), eq(immutableBlocks.slot, req.slot)))
+              .limit(1),
+          ),
       });
 
       const findTipPoint = SqlSchema.findOneOption({
         Request: Schema.Void,
         Result: PointRow,
-        execute: () => sql`
-          SELECT slot, hash FROM volatile_blocks ORDER BY slot DESC LIMIT 1
-        `,
+        execute: () =>
+          compile(
+            sql,
+            db
+              .select({ slot: volatileBlocks.slot, hash: volatileBlocks.hash })
+              .from(volatileBlocks)
+              .orderBy(desc(volatileBlocks.slot))
+              .limit(1),
+          ),
       });
 
       const findImmutableTipPoint = SqlSchema.findOneOption({
         Request: Schema.Void,
         Result: PointRow,
-        execute: () => sql`
-          SELECT slot, hash FROM immutable_blocks ORDER BY slot DESC LIMIT 1
-        `,
+        execute: () =>
+          compile(
+            sql,
+            db
+              .select({ slot: immutableBlocks.slot, hash: immutableBlocks.hash })
+              .from(immutableBlocks)
+              .orderBy(desc(immutableBlocks.slot))
+              .limit(1),
+          ),
       });
 
       const findVolatileSuccessors = SqlSchema.findAll({
         Request: Schema.Struct({ hash: Schema.Uint8Array }),
         Result: Schema.Struct({ hash: Schema.Uint8Array }),
-        execute: (req) => sql`
-          SELECT hash FROM volatile_blocks WHERE prev_hash = ${req.hash}
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select({ hash: volatileBlocks.hash })
+              .from(volatileBlocks)
+              .where(eq(volatileBlocks.prevHash, req.hash)),
+          ),
       });
 
       const findVolatileBelowSlot = SqlSchema.findAll({
         Request: Schema.Struct({ belowSlot: Schema.Number }),
         Result: PointRow,
-        execute: (req) => sql`
-          SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select({ slot: volatileBlocks.slot, hash: volatileBlocks.hash })
+              .from(volatileBlocks)
+              .where(lt(volatileBlocks.slot, req.belowSlot)),
+          ),
       });
 
       const findVolatileAboveSlot = SqlSchema.findAll({
         Request: Schema.Struct({ slot: Schema.Number }),
         Result: PointRow,
-        execute: (req) => sql`
-          SELECT slot, hash FROM volatile_blocks WHERE slot > ${req.slot}
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select({ slot: volatileBlocks.slot, hash: volatileBlocks.hash })
+              .from(volatileBlocks)
+              .where(gt(volatileBlocks.slot, req.slot)),
+          ),
       });
 
       const findImmutableFrom = SqlSchema.findAll({
         Request: Schema.Struct({ slot: Schema.Number }),
         Result: BlockRow,
-        execute: (req) => sql`
-          SELECT slot, hash, prev_hash, block_no, size AS block_size_bytes
-          FROM immutable_blocks WHERE slot > ${req.slot} ORDER BY slot ASC
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select(immutableBlockColumns)
+              .from(immutableBlocks)
+              .where(gt(immutableBlocks.slot, req.slot))
+              .orderBy(asc(immutableBlocks.slot)),
+          ),
       });
 
       const findVolatileFrom = SqlSchema.findAll({
         Request: Schema.Struct({ slot: Schema.Number }),
         Result: BlockRow,
-        execute: (req) => sql`
-          SELECT hash, slot, prev_hash, block_no, block_size_bytes
-          FROM volatile_blocks WHERE slot > ${req.slot} ORDER BY slot ASC
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select(volatileBlockColumns)
+              .from(volatileBlocks)
+              .where(gt(volatileBlocks.slot, req.slot))
+              .orderBy(asc(volatileBlocks.slot)),
+          ),
       });
 
       const findToPromote = SqlSchema.findAll({
         Request: Schema.Struct({ slot: Schema.Number }),
         Result: BlockRow,
-        execute: (req) => sql`
-          SELECT hash, slot, prev_hash, block_no, block_size_bytes
-          FROM volatile_blocks WHERE slot <= ${req.slot} ORDER BY slot ASC
-        `,
+        execute: (req) =>
+          compile(
+            sql,
+            db
+              .select(volatileBlockColumns)
+              .from(volatileBlocks)
+              .where(lte(volatileBlocks.slot, req.slot))
+              .orderBy(asc(volatileBlocks.slot)),
+          ),
       });
 
       const promoteBlocksEffect = (tip: RealPoint) =>
@@ -281,9 +374,8 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             Effect.gen(function* () {
               const rows = yield* findToPromote({ slot: Number(tip.slot) });
               if (rows.length > 0) {
-                // Single multi-VALUES insert using `sql.insert` (Effect
-                // `Statement.ts:368`) + SQLite `ON CONFLICT(slot) DO
-                // NOTHING`.
+                // Single multi-VALUES insert via Drizzle's bulk-insert
+                // builder + SQLite `ON CONFLICT(slot) DO NOTHING`.
                 //
                 // `DO NOTHING` mirrors Haskell `ImmutableDB`'s append-only
                 // contract: once a slot is finalized, its (slot, hash)
@@ -296,20 +388,28 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                 // rows is a no-op for matching keys and a silent skip
                 // for divergent ones; the volatile DELETE below then
                 // clears the stale row regardless.
-                yield* sql`INSERT INTO immutable_blocks ${sql.insert(
-                  rows.map((r) => ({
-                    slot: r.slot,
-                    hash: r.hash,
-                    prev_hash: r.prev_hash,
-                    block_no: r.block_no,
-                    size: r.block_size_bytes,
-                    time,
-                    ...IMMUTABLE_BLOCK_DEFAULTS,
-                  })),
-                )}
-                  ON CONFLICT(slot) DO NOTHING`;
+                yield* compile(
+                  sql,
+                  db
+                    .insert(immutableBlocks)
+                    .values(
+                      rows.map((r) => ({
+                        slot: r.slot,
+                        hash: r.hash,
+                        prevHash: r.prev_hash,
+                        blockNo: r.block_no,
+                        size: r.block_size_bytes,
+                        time,
+                        ...IMMUTABLE_BLOCK_DEFAULTS,
+                      })),
+                    )
+                    .onConflictDoNothing({ target: immutableBlocks.slot }),
+                );
               }
-              yield* sql`DELETE FROM volatile_blocks WHERE slot <= ${Number(tip.slot)}`;
+              yield* compile(
+                sql,
+                db.delete(volatileBlocks).where(lte(volatileBlocks.slot, Number(tip.slot))),
+              );
               return rows.length;
             }),
           );
@@ -322,7 +422,10 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
             if (rows.length > 0) {
               yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
             }
-            yield* sql`DELETE FROM volatile_blocks WHERE slot < ${Number(belowSlot)}`;
+            yield* compile(
+              sql,
+              db.delete(volatileBlocks).where(lt(volatileBlocks.slot, Number(belowSlot))),
+            );
           }),
         );
 
@@ -349,7 +452,8 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
       const findVolatileCount = SqlSchema.findOne({
         Request: Schema.Void,
         Result: Schema.Struct({ n: Schema.Number }),
-        execute: () => sql`SELECT COUNT(*) AS n FROM volatile_blocks`,
+        execute: () =>
+          compile(sql, db.select({ n: count().as("n") }).from(volatileBlocks)),
       });
       // `SubscriptionRef.updateEffect` runs the updater under the ref's
       // semaphore → the three SQL queries + the state mutation are one
@@ -496,13 +600,19 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                     encodeBlockIndexValue(block.slot, block.hash),
                   ),
                   offsetEntries.length > 0 ? store.putBatch(offsetEntries) : Effect.void,
-                  sql`INSERT INTO volatile_blocks ${sql.insert({
-                    hash: block.hash,
-                    slot: Number(block.slot),
-                    prev_hash: block.prevHash ?? null,
-                    block_no: Number(block.blockNo),
-                    block_size_bytes: block.blockSizeBytes,
-                  })} ON CONFLICT(hash) DO NOTHING`,
+                  compile(
+                    sql,
+                    db
+                      .insert(volatileBlocks)
+                      .values({
+                        hash: block.hash,
+                        slot: Number(block.slot),
+                        prevHash: block.prevHash ?? null,
+                        blockNo: Number(block.blockNo),
+                        blockSizeBytes: block.blockSizeBytes,
+                      })
+                      .onConflictDoNothing({ target: volatileBlocks.hash }),
+                  ),
                 ],
                 { concurrency: "unbounded" },
               ),
@@ -562,7 +672,10 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
                   );
                   yield* store.deleteBatch([...blockKeys, ...offsetKeys]);
                 }
-                yield* sql`DELETE FROM volatile_blocks WHERE slot > ${Number(point.slot)}`;
+                yield* compile(
+                  sql,
+                  db.delete(volatileBlocks).where(gt(volatileBlocks.slot, Number(point.slot))),
+                );
                 return rows.length;
               }),
             );

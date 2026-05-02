@@ -2,14 +2,15 @@
  * Transaction-related tables — defined for shape parity with cardano-db-sync.
  * Currently never written to; full-node mode will exercise them.
  */
-import { blob, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 import { immutableBlocks } from "./chain.ts";
+import { bytes } from "./columns.ts";
 
 export const tx = sqliteTable(
   "tx",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    hash: blob("hash", { mode: "buffer" }).notNull().unique(),
+    hash: bytes("hash").notNull().unique(),
     blockSlot: integer("block_slot")
       .notNull()
       .references(() => immutableBlocks.slot),
@@ -32,14 +33,14 @@ export const txCbor = sqliteTable("tx_cbor", {
   txId: integer("tx_id")
     .notNull()
     .references(() => tx.id),
-  bytes: blob("bytes", { mode: "buffer" }).notNull(),
+  bytes: bytes("bytes").notNull(),
 });
 
 export const stakeAddress = sqliteTable("stake_address", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  hashRaw: blob("hash_raw", { mode: "buffer" }).notNull().unique(),
+  hashRaw: bytes("hash_raw").notNull().unique(),
   view: text("view").notNull(),
-  scriptHash: blob("script_hash", { mode: "buffer" }),
+  scriptHash: bytes("script_hash"),
   registeredTxId: integer("registered_tx_id")
     .notNull()
     .references(() => tx.id),
@@ -50,21 +51,21 @@ export const script = sqliteTable("script", {
   txId: integer("tx_id")
     .notNull()
     .references(() => tx.id),
-  hash: blob("hash", { mode: "buffer" }).notNull().unique(),
+  hash: bytes("hash").notNull().unique(),
   type: text("type").notNull(),
   json: text("json"),
-  bytes: blob("bytes", { mode: "buffer" }),
+  bytes: bytes("bytes"),
   serialisedSize: integer("serialised_size"),
 });
 
 export const datum = sqliteTable("datum", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  hash: blob("hash", { mode: "buffer" }).notNull().unique(),
+  hash: bytes("hash").notNull().unique(),
   txId: integer("tx_id")
     .notNull()
     .references(() => tx.id),
   value: text("value"),
-  bytes: blob("bytes", { mode: "buffer" }),
+  bytes: bytes("bytes"),
 });
 
 export const txOut = sqliteTable(
@@ -76,12 +77,12 @@ export const txOut = sqliteTable(
       .references(() => tx.id),
     index: integer("index").notNull(),
     address: text("address").notNull(),
-    addressRaw: blob("address_raw", { mode: "buffer" }).notNull(),
+    addressRaw: bytes("address_raw").notNull(),
     addressHasScript: integer("address_has_script").notNull(),
-    paymentCred: blob("payment_cred", { mode: "buffer" }),
+    paymentCred: bytes("payment_cred"),
     stakeAddressId: integer("stake_address_id").references(() => stakeAddress.id),
     value: integer("value").notNull(),
-    dataHash: blob("data_hash", { mode: "buffer" }),
+    dataHash: bytes("data_hash"),
     inlineDatumId: integer("inline_datum_id").references(() => datum.id),
     referenceScriptId: integer("reference_script_id").references(() => script.id),
     consumedByTxId: integer("consumed_by_tx_id").references(() => tx.id),
@@ -106,7 +107,7 @@ export const redeemer = sqliteTable(
     fee: integer("fee").notNull(),
     purpose: text("purpose").notNull(),
     index: integer("index").notNull(),
-    scriptHash: blob("script_hash", { mode: "buffer" }),
+    scriptHash: bytes("script_hash"),
     datumId: integer("datum_id")
       .notNull()
       .references(() => datum.id),
@@ -152,12 +153,12 @@ export const collateralTxOut = sqliteTable("collateral_tx_out", {
     .references(() => tx.id),
   index: integer("index").notNull(),
   address: text("address").notNull(),
-  addressRaw: blob("address_raw", { mode: "buffer" }).notNull(),
+  addressRaw: bytes("address_raw").notNull(),
   addressHasScript: integer("address_has_script").notNull(),
-  paymentCred: blob("payment_cred", { mode: "buffer" }),
+  paymentCred: bytes("payment_cred"),
   stakeAddressId: integer("stake_address_id").references(() => stakeAddress.id),
   value: integer("value").notNull(),
-  dataHash: blob("data_hash", { mode: "buffer" }),
+  dataHash: bytes("data_hash"),
   multiAssetsDescr: text("multi_assets_descr").notNull(),
   inlineDatumId: integer("inline_datum_id").references(() => datum.id),
   referenceScriptId: integer("reference_script_id").references(() => script.id),
@@ -178,8 +179,8 @@ export const multiAsset = sqliteTable(
   "multi_asset",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    policy: blob("policy", { mode: "buffer" }).notNull(),
-    name: blob("name", { mode: "buffer" }).notNull(),
+    policy: bytes("policy").notNull(),
+    name: bytes("name").notNull(),
     fingerprint: text("fingerprint").notNull(),
   },
   (t) => [unique().on(t.policy, t.name)],
@@ -221,7 +222,7 @@ export const txMetadata = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     key: integer("key").notNull(),
     json: text("json"),
-    bytes: blob("bytes", { mode: "buffer" }).notNull(),
+    bytes: bytes("bytes").notNull(),
     txId: integer("tx_id")
       .notNull()
       .references(() => tx.id),

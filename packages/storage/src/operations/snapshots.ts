@@ -1,18 +1,24 @@
 /**
  * Ledger state snapshot operations — dual-layer architecture.
  *
- * Metadata (slot, hash, epoch) stays in SQL (Effect SqlClient).
- * State bytes (large CBOR blob) move to BlobStore with a deterministic key.
+ * Metadata (slot, hash, epoch) stays in SQL via Drizzle's query builder
+ * over the abstract `SqlClient`. State bytes (large CBOR blob) move to
+ * BlobStore with a deterministic key.
  */
 import { Effect, Option, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import { desc, sql as sqlExpr } from "drizzle-orm";
 import { LedgerStateSnapshot } from "../types/LedgerState.ts";
 import { LedgerDBError } from "../errors.ts";
 import { BlobStore, snapshotKey } from "../blob-store";
+import { ledgerSnapshots } from "../schema/index.ts";
+import { compile, db } from "../services/drizzle.ts";
 
 // ---------------------------------------------------------------------------
-// Row schema
+// Row schema — kept for runtime decoding alongside Drizzle's
+// `$inferSelect` typing. Runtime validation catches DB drift that the
+// type system cannot.
 // ---------------------------------------------------------------------------
 
 const SnapshotRow = Schema.Struct({
@@ -34,11 +40,20 @@ export const writeSnapshot = (snapshot: LedgerStateSnapshot) =>
       Effect.all(
         [
           store.put(snapshotKey(snapshot.slot), snapshot.stateBytes),
-          sql`INSERT INTO ledger_snapshots ${sql.insert({
-            slot: Number(snapshot.slot),
-            hash: snapshot.point.hash,
-            epoch: Number(snapshot.epoch),
-          })} ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`,
+          compile(
+            sql,
+            db
+              .insert(ledgerSnapshots)
+              .values({
+                slot: Number(snapshot.slot),
+                hash: snapshot.point.hash,
+                epoch: Number(snapshot.epoch),
+              })
+              .onConflictDoUpdate({
+                target: ledgerSnapshots.slot,
+                set: { hash: sqlExpr`excluded.hash` },
+              }),
+          ),
         ],
         { concurrency: "unbounded" },
       ),
@@ -51,10 +66,11 @@ export const readLatestSnapshot = Effect.gen(function* () {
   const findLatest = SqlSchema.findOneOption({
     Request: Schema.Void,
     Result: SnapshotRow,
-    execute: () => sql`
-      SELECT slot, hash, epoch FROM ledger_snapshots
-      ORDER BY slot DESC LIMIT 1
-    `,
+    execute: () =>
+      compile(
+        sql,
+        db.select().from(ledgerSnapshots).orderBy(desc(ledgerSnapshots.slot)).limit(1),
+      ),
   });
   const rowOpt = yield* findLatest(undefined);
   if (Option.isNone(rowOpt)) return Option.none<LedgerStateSnapshot>();

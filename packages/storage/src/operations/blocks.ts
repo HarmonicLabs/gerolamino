@@ -1,8 +1,9 @@
 /**
  * Block storage operations — dual-layer architecture.
  *
- * Metadata (slot, hash, blockNo, epoch, size) stays in SQL (Effect SqlClient).
- * Block CBOR blobs move to BlobStore (LSM in Bun, IndexedDB in browser).
+ * Metadata (slot, hash, blockNo, epoch, size) stays in SQL via Drizzle's
+ * query builder over the abstract `SqlClient`. Block CBOR blobs move to
+ * BlobStore (LSM in Bun, IndexedDB in browser).
  *
  * Both layers are accessed via Effect services — consumer code never
  * imports platform-specific modules.
@@ -10,9 +11,12 @@
 import { Clock, Effect, Option, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import { and, desc, eq, lt, sql as sqlExpr } from "drizzle-orm";
 import { StoredBlock, RealPoint } from "../types/StoredBlock";
 import { ImmutableDBError, VolatileDBError } from "../errors";
 import { BlobStore, blockKey } from "../blob-store";
+import { immutableBlocks, volatileBlocks } from "../schema/index.ts";
+import { compile, db } from "../services/drizzle.ts";
 
 // ---------------------------------------------------------------------------
 // Row schemas — one unified shape for both layers. The physical column name
@@ -48,10 +52,10 @@ const PointRow = Schema.Struct({
 // ---------------------------------------------------------------------------
 
 export const IMMUTABLE_BLOCK_DEFAULTS = {
-  epoch_no: 0,
-  slot_leader_id: 0,
-  proto_major: 0,
-  proto_minor: 0,
+  epochNo: 0,
+  slotLeaderId: 0,
+  protoMajor: 0,
+  protoMinor: 0,
 } as const;
 
 /** Unix-seconds wall clock — shared by every `time`-stamped write. */
@@ -87,8 +91,8 @@ export const writeImmutableBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
     const rows = blocks.map((b) => ({
       slot: Number(b.slot),
       hash: b.hash,
-      prev_hash: b.prevHash ?? null,
-      block_no: Number(b.blockNo),
+      prevHash: b.prevHash ?? null,
+      blockNo: Number(b.blockNo),
       size: b.blockSizeBytes,
       time,
       ...IMMUTABLE_BLOCK_DEFAULTS,
@@ -102,10 +106,18 @@ export const writeImmutableBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
             concurrency: "unbounded",
             discard: true,
           }),
-          // Single multi-row INSERT via `sql.insert` (Effect Statement.ts:368)
-          // collapses N round-trips into 1. UPSERT on slot conflict.
-          sql`INSERT INTO immutable_blocks ${sql.insert(rows)}
-              ON CONFLICT(slot) DO UPDATE SET hash = excluded.hash`,
+          // Single multi-row INSERT via Drizzle's bulk-insert builder.
+          // UPSERT on slot conflict.
+          compile(
+            sql,
+            db
+              .insert(immutableBlocks)
+              .values(rows)
+              .onConflictDoUpdate({
+                target: immutableBlocks.slot,
+                set: { hash: sqlExpr`excluded.hash` },
+              }),
+          ),
         ],
         { concurrency: "unbounded" },
       ),
@@ -119,12 +131,27 @@ export const readImmutableBlock = (point: RealPoint) =>
     const findBlock = SqlSchema.findOneOption({
       Request: Schema.Struct({ slot: Schema.Number, hash: Schema.Uint8Array }),
       Result: BlockRow,
-      execute: (req) => sql`
-        SELECT slot, hash, prev_hash, block_no, size AS block_size_bytes
-        FROM immutable_blocks
-        WHERE slot = ${req.slot} AND hash = ${req.hash}
-        LIMIT 1
-      `,
+      // We bypass Drizzle's session-side result re-mapping (since we
+      // execute via Effect's `SqlClient.unsafe`), so the rows that come
+      // back use the *SQL* column names. The selection therefore needs
+      // explicit `AS` aliases via `sqlExpr` for any column whose JS
+      // schema name differs from its SQL name (here: `size` →
+      // `block_size_bytes`, matching the unified volatile-blocks shape).
+      execute: (req) =>
+        compile(
+          sql,
+          db
+            .select({
+              slot: immutableBlocks.slot,
+              hash: immutableBlocks.hash,
+              prev_hash: immutableBlocks.prevHash,
+              block_no: immutableBlocks.blockNo,
+              block_size_bytes: sqlExpr<number>`${immutableBlocks.size}`.as("block_size_bytes"),
+            })
+            .from(immutableBlocks)
+            .where(and(eq(immutableBlocks.slot, req.slot), eq(immutableBlocks.hash, req.hash)))
+            .limit(1),
+        ),
     });
     const rowOpt = yield* findBlock({ slot: Number(point.slot), hash: point.hash });
     if (Option.isNone(rowOpt)) return Option.none<StoredBlock>();
@@ -139,10 +166,15 @@ export const getImmutableTip = Effect.gen(function* () {
   const findTip = SqlSchema.findOneOption({
     Request: Schema.Void,
     Result: PointRow,
-    execute: () => sql`
-      SELECT slot, hash FROM immutable_blocks
-      ORDER BY slot DESC LIMIT 1
-    `,
+    execute: () =>
+      compile(
+        sql,
+        db
+          .select({ slot: immutableBlocks.slot, hash: immutableBlocks.hash })
+          .from(immutableBlocks)
+          .orderBy(desc(immutableBlocks.slot))
+          .limit(1),
+      ),
   });
 
   const row = yield* findTip(undefined);
@@ -163,9 +195,9 @@ export const writeVolatileBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
     const rows = blocks.map((b) => ({
       hash: b.hash,
       slot: Number(b.slot),
-      prev_hash: b.prevHash ?? null,
-      block_no: Number(b.blockNo),
-      block_size_bytes: b.blockSizeBytes,
+      prevHash: b.prevHash ?? null,
+      blockNo: Number(b.blockNo),
+      blockSizeBytes: b.blockSizeBytes,
     }));
 
     yield* sql.withTransaction(
@@ -175,8 +207,13 @@ export const writeVolatileBlocks = (blocks: ReadonlyArray<StoredBlock>) =>
             concurrency: "unbounded",
             discard: true,
           }),
-          sql`INSERT INTO volatile_blocks ${sql.insert(rows)}
-              ON CONFLICT(hash) DO NOTHING`,
+          compile(
+            sql,
+            db
+              .insert(volatileBlocks)
+              .values(rows)
+              .onConflictDoNothing({ target: volatileBlocks.hash }),
+          ),
         ],
         { concurrency: "unbounded" },
       ),
@@ -190,12 +227,21 @@ export const readVolatileBlock = (hash: Uint8Array) =>
     const findBlock = SqlSchema.findOneOption({
       Request: Schema.Struct({ hash: Schema.Uint8Array }),
       Result: BlockRow,
-      execute: (req) => sql`
-        SELECT hash, slot, prev_hash, block_no, block_size_bytes
-        FROM volatile_blocks
-        WHERE hash = ${req.hash}
-        LIMIT 1
-      `,
+      execute: (req) =>
+        compile(
+          sql,
+          db
+            .select({
+              hash: volatileBlocks.hash,
+              slot: volatileBlocks.slot,
+              prev_hash: volatileBlocks.prevHash,
+              block_no: volatileBlocks.blockNo,
+              block_size_bytes: volatileBlocks.blockSizeBytes,
+            })
+            .from(volatileBlocks)
+            .where(eq(volatileBlocks.hash, req.hash))
+            .limit(1),
+        ),
     });
     const rowOpt = yield* findBlock({ hash });
     if (Option.isNone(rowOpt)) return Option.none<StoredBlock>();
@@ -211,9 +257,14 @@ export const getVolatileSuccessors = (hash: Uint8Array) =>
     const findSuccessors = SqlSchema.findAll({
       Request: Schema.Struct({ hash: Schema.Uint8Array }),
       Result: Schema.Struct({ hash: Schema.Uint8Array }),
-      execute: (req) => sql`
-        SELECT hash FROM volatile_blocks WHERE prev_hash = ${req.hash}
-      `,
+      execute: (req) =>
+        compile(
+          sql,
+          db
+            .select({ hash: volatileBlocks.hash })
+            .from(volatileBlocks)
+            .where(eq(volatileBlocks.prevHash, req.hash)),
+        ),
     });
 
     const rows = yield* findSuccessors({ hash });
@@ -228,9 +279,14 @@ export const garbageCollectVolatile = (belowSlot: number) =>
     const findToDelete = SqlSchema.findAll({
       Request: Schema.Struct({ belowSlot: Schema.Number }),
       Result: PointRow,
-      execute: (req) => sql`
-        SELECT slot, hash FROM volatile_blocks WHERE slot < ${req.belowSlot}
-      `,
+      execute: (req) =>
+        compile(
+          sql,
+          db
+            .select({ slot: volatileBlocks.slot, hash: volatileBlocks.hash })
+            .from(volatileBlocks)
+            .where(lt(volatileBlocks.slot, req.belowSlot)),
+        ),
     });
     yield* sql.withTransaction(
       Effect.gen(function* () {
@@ -238,7 +294,7 @@ export const garbageCollectVolatile = (belowSlot: number) =>
         if (rows.length > 0) {
           yield* store.deleteBatch(rows.map((r) => blockKey(BigInt(r.slot), r.hash)));
         }
-        yield* sql`DELETE FROM volatile_blocks WHERE slot < ${belowSlot}`;
+        yield* compile(sql, db.delete(volatileBlocks).where(lt(volatileBlocks.slot, belowSlot)));
       }),
     );
   }).pipe(Effect.mapError((cause) => new VolatileDBError({ operation: "garbageCollect", cause })));

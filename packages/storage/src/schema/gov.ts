@@ -2,16 +2,17 @@
  * Conway governance tables — defined for shape parity with cardano-db-sync.
  * Currently never written to.
  */
-import { blob, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 import { immutableBlocks } from "./chain.ts";
 import { tx, stakeAddress } from "./tx.ts";
 import { pool } from "./pool.ts";
+import { bytes } from "./columns.ts";
 
 export const drepHash = sqliteTable(
   "drep_hash",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    raw: blob("raw", { mode: "buffer" }),
+    raw: bytes("raw"),
     view: text("view").notNull(),
     hasScript: integer("has_script").notNull(),
   },
@@ -23,7 +24,7 @@ export const votingAnchor = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     url: text("url").notNull(),
-    dataHash: blob("data_hash", { mode: "buffer" }).notNull(),
+    dataHash: bytes("data_hash").notNull(),
     type: text("type").notNull(),
     blockId: integer("block_id")
       .notNull()
@@ -58,7 +59,7 @@ export const committeeHash = sqliteTable(
   "committee_hash",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    raw: blob("raw", { mode: "buffer" }).notNull(),
+    raw: bytes("raw").notNull(),
     hasScript: integer("has_script").notNull(),
   },
   (t) => [unique().on(t.raw, t.hasScript)],
@@ -91,5 +92,5 @@ export const constitution = sqliteTable("constitution", {
   votingAnchorId: integer("voting_anchor_id")
     .notNull()
     .references(() => votingAnchor.id),
-  scriptHash: blob("script_hash", { mode: "buffer" }),
+  scriptHash: bytes("script_hash"),
 });

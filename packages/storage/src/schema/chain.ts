@@ -10,11 +10,12 @@
  * defined in their own files for completeness but never written to —
  * they'll be exercised once full-node mode lands.
  */
-import { blob, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { bytes } from "./columns.ts";
 
 export const slotLeader = sqliteTable("slot_leader", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  hash: blob("hash", { mode: "buffer" }).notNull().unique(),
+  hash: bytes("hash").notNull().unique(),
   poolHashId: integer("pool_hash_id"),
   description: text("description").notNull(),
 });
@@ -23,8 +24,8 @@ export const immutableBlocks = sqliteTable(
   "immutable_blocks",
   {
     slot: integer("slot").primaryKey(),
-    hash: blob("hash", { mode: "buffer" }).notNull().unique(),
-    prevHash: blob("prev_hash", { mode: "buffer" }),
+    hash: bytes("hash").notNull().unique(),
+    prevHash: bytes("prev_hash"),
     blockNo: integer("block_no").notNull(),
     epochNo: integer("epoch_no"),
     epochSlotNo: integer("epoch_slot_no"),
@@ -37,7 +38,7 @@ export const immutableBlocks = sqliteTable(
     protoMajor: integer("proto_major").notNull(),
     protoMinor: integer("proto_minor").notNull(),
     vrfKey: text("vrf_key"),
-    opCert: blob("op_cert", { mode: "buffer" }),
+    opCert: bytes("op_cert"),
     opCertCounter: integer("op_cert_counter"),
     crc32: integer("crc32"),
   },
@@ -50,9 +51,9 @@ export const immutableBlocks = sqliteTable(
 export const volatileBlocks = sqliteTable(
   "volatile_blocks",
   {
-    hash: blob("hash", { mode: "buffer" }).primaryKey(),
+    hash: bytes("hash").primaryKey(),
     slot: integer("slot").notNull(),
-    prevHash: blob("prev_hash", { mode: "buffer" }),
+    prevHash: bytes("prev_hash"),
     blockNo: integer("block_no").notNull(),
     blockSizeBytes: integer("block_size_bytes").notNull(),
   },
@@ -64,13 +65,13 @@ export const volatileBlocks = sqliteTable(
 
 export const ledgerSnapshots = sqliteTable("ledger_snapshots", {
   slot: integer("slot").primaryKey(),
-  hash: blob("hash", { mode: "buffer" }).notNull(),
+  hash: bytes("hash").notNull(),
   epoch: integer("epoch").notNull(),
 });
 
 export const nonces = sqliteTable("nonces", {
   epoch: integer("epoch").primaryKey(),
-  active: blob("active", { mode: "buffer" }).notNull(),
-  evolving: blob("evolving", { mode: "buffer" }).notNull(),
-  candidate: blob("candidate", { mode: "buffer" }).notNull(),
+  active: bytes("active").notNull(),
+  evolving: bytes("evolving").notNull(),
+  candidate: bytes("candidate").notNull(),
 });

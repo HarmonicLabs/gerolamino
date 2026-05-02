@@ -74,4 +74,59 @@ test.describe("Service worker", () => {
     }
     expect(unexpected).toHaveLength(0);
   });
+
+  // Capability probe: which storage primitives are reachable from the
+  // MV3 SW context? `FileSystemSyncAccessHandle.createSyncAccessHandle`
+  // is documented as dedicated-worker-only and Chrome enforces that
+  // restriction in MV3 SWs even though they ARE worker contexts. The
+  // Worker constructor is also unavailable in MV3 SWs. We assert the
+  // *shape* of what's reachable so that if Chrome relaxes either
+  // restriction, this test trips and we can re-attempt the OPFS-backed
+  // SqlClient migration (currently filed under Phase 1 follow-up).
+  test("storage capability probe reflects current MV3 SW restrictions", async ({
+    serviceWorker,
+  }) => {
+    const probe = await serviceWorker.evaluate(async () => {
+      const dir = await navigator.storage.getDirectory();
+      const file = await dir.getFileHandle("__sw-probe", { create: true });
+      let syncHandleOk = false;
+      try {
+        const handle = await (
+          file as FileSystemFileHandle & {
+            createSyncAccessHandle: () => Promise<FileSystemSyncAccessHandle>;
+          }
+        ).createSyncAccessHandle();
+        handle.close();
+        syncHandleOk = true;
+      } catch {
+        syncHandleOk = false;
+      }
+      let writableOk = false;
+      try {
+        const ws = await file.createWritable();
+        await ws.close();
+        writableOk = true;
+      } catch {
+        writableOk = false;
+      }
+      await dir.removeEntry("__sw-probe");
+      return {
+        hasOPFS: typeof navigator.storage?.getDirectory === "function",
+        hasIndexedDB: typeof globalThis.indexedDB === "object",
+        hasMessageChannel: typeof MessageChannel === "function",
+        hasWorker: typeof Worker === "function",
+        syncHandleOk,
+        writableOk,
+      } as const;
+    });
+    // Hard expectations — regressions in any of these would break the
+    // SW before they break this assertion.
+    expect(probe.hasOPFS).toBe(true);
+    expect(probe.hasIndexedDB).toBe(true);
+    expect(probe.hasMessageChannel).toBe(true);
+    // Soft tracking — these stay false today; if they flip, we want to
+    // know so Phase 1 can finally land.
+    expect(probe.syncHandleOk).toBe(false);
+    expect(probe.hasWorker).toBe(false);
+  });
 });

@@ -1,5 +1,6 @@
 /**
- * Browser storage layers — IndexedDB BlobStore + SQLite WASM (OPFS) ChainDB.
+ * Browser storage layers — IndexedDB BlobStore + in-memory SQLite WASM
+ * ChainDB.
  *
  * BlobStore: Effect v4 IndexedDbTable + IndexedDbQueryBuilder for typed,
  *   schema-driven key-value storage in IndexedDB. Uses separate object stores
@@ -11,7 +12,16 @@
  *     accounts    — Account metadata (PREFIX_ACCT)
  *     offsets     — CBOR offset index (PREFIX_COFF)
  *
- * SqlClient: @effect/sql-sqlite-wasm with in-memory mode.
+ * SqlClient: `@effect/sql-sqlite-wasm` `layerMemory` (RAM-only).
+ *   The intended path was an OPFS-backed VFS via
+ *   `AccessHandlePoolVFS` so chain metadata survives MV3 SW evictions,
+ *   but that VFS calls `FileSystemFileHandle.createSyncAccessHandle()`,
+ *   which Chrome restricts to dedicated-worker contexts. MV3 service
+ *   workers don't qualify, and they can't construct a `Worker` either,
+ *   so the standard "spawn an OpfsWorker" pattern is also unreachable.
+ *   `service-worker.spec.ts` keeps a capability probe that will trip
+ *   if either restriction is ever lifted; until then chain metadata
+ *   re-derives from the IndexedDB BlobStore on every cold start.
  * ChainDB: standard ChainDBLive from storage package, consuming both.
  */
 import { Effect, Layer, Option, Schema, Stream } from "effect";
@@ -229,16 +239,9 @@ export const BlobStoreIndexedDB: Layer.Layer<
 ).pipe(Layer.provide(BlobDbSchema.layer("gerolamino-chain-store")));
 
 // ---------------------------------------------------------------------------
-// SQLite WASM (in-memory) SqlClient — for ChainDB relational storage
+// SQLite WASM (in-memory) SqlClient — chain metadata
 // ---------------------------------------------------------------------------
 
-/**
- * In-memory SQLite WASM — provides SqlClient for migrations and ChainDB.
- *
- * MV3 service workers cannot create Web Workers, so we use in-memory mode.
- * Metadata is ephemeral — blocks and UTxO persist in IndexedDB via BlobStore.
- * Callers must run migrations before use (in-memory DB starts empty).
- */
 const SqliteWasmLayer = sqliteWasmMemoryLayer({}).pipe(Layer.orDie);
 
 // ---------------------------------------------------------------------------

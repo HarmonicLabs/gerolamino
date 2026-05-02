@@ -2,7 +2,14 @@
  * Database migrations using Effect's Migrator.
  *
  * Uses Migrator.fromRecord for tracked, idempotent schema creation.
- * Migrations define the canonical schema. Types in `../types/` are the reference.
+ * The DDL here is the runtime source of truth and must stay byte-equivalent
+ * with the Drizzle schema definitions in `src/schema/*.ts`. Both forms
+ * describe the same physical tables; the schema files exist for query-builder
+ * use and `$inferSelect`-driven row typing.
+ *
+ * Verifying parity: `bun run drizzle:generate` emits the Drizzle DDL into
+ * `src/migrations/<stamp>/migration.sql`; diff against the strings below.
+ *
  * PRAGMAs are runtime config, not schema — applied before migrations.
  */
 import { Effect } from "effect";

@@ -32,3 +32,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Drizzle Kit `generate` output — parity-check artefact, not runtime
+# input. Re-emit on demand via `bun run drizzle:generate`.
+src/migrations/

@@ -57,10 +57,7 @@ export const volatileBlocks = sqliteTable(
     blockNo: integer("block_no").notNull(),
     blockSizeBytes: integer("block_size_bytes").notNull(),
   },
-  (t) => [
-    index("idx_volatile_prev_hash").on(t.prevHash),
-    index("idx_volatile_slot").on(t.slot),
-  ],
+  (t) => [index("idx_volatile_prev_hash").on(t.prevHash), index("idx_volatile_slot").on(t.slot)],
 );
 
 export const ledgerSnapshots = sqliteTable("ledger_snapshots", {

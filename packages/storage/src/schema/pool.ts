@@ -111,8 +111,5 @@ export const delegation = sqliteTable(
     slotNo: integer("slot_no").notNull(),
     redeemerId: integer("redeemer_id").references(() => redeemer.id),
   },
-  (t) => [
-    index("idx_delegation_addr").on(t.addrId),
-    index("idx_delegation_pool").on(t.poolHashId),
-  ],
+  (t) => [index("idx_delegation_addr").on(t.addrId), index("idx_delegation_pool").on(t.poolHashId)],
 );

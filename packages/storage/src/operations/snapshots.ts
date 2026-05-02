@@ -67,10 +67,7 @@ export const readLatestSnapshot = Effect.gen(function* () {
     Request: Schema.Void,
     Result: SnapshotRow,
     execute: () =>
-      compile(
-        sql,
-        db.select().from(ledgerSnapshots).orderBy(desc(ledgerSnapshots.slot)).limit(1),
-      ),
+      compile(sql, db.select().from(ledgerSnapshots).orderBy(desc(ledgerSnapshots.slot)).limit(1)),
   });
   const rowOpt = yield* findLatest(undefined);
   if (Option.isNone(rowOpt)) return Option.none<LedgerStateSnapshot>();

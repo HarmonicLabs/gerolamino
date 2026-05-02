@@ -31,10 +31,7 @@ export const epochStake = sqliteTable(
     amount: integer("amount").notNull(),
     epochNo: integer("epoch_no").notNull(),
   },
-  (t) => [
-    index("idx_epoch_stake_epoch").on(t.epochNo),
-    index("idx_epoch_stake_pool").on(t.poolId),
-  ],
+  (t) => [index("idx_epoch_stake_epoch").on(t.epochNo), index("idx_epoch_stake_pool").on(t.poolId)],
 );
 
 export const reward = sqliteTable(

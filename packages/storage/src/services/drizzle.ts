@@ -22,11 +22,7 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { Statement } from "effect/unstable/sql/Statement";
-import {
-  BaseSQLiteDatabase,
-  SQLiteSession,
-  SQLiteSyncDialect,
-} from "drizzle-orm/sqlite-core";
+import { BaseSQLiteDatabase, SQLiteSession, SQLiteSyncDialect } from "drizzle-orm/sqlite-core";
 
 const fail = (): never => {
   throw new Error(

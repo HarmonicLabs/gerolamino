@@ -452,8 +452,7 @@ export const ChainDBLive: Layer.Layer<ChainDB, Config.ConfigError, BlobStore | S
       const findVolatileCount = SqlSchema.findOne({
         Request: Schema.Void,
         Result: Schema.Struct({ n: Schema.Number }),
-        execute: () =>
-          compile(sql, db.select({ n: count().as("n") }).from(volatileBlocks)),
+        execute: () => compile(sql, db.select({ n: count().as("n") }).from(volatileBlocks)),
       });
       // `SubscriptionRef.updateEffect` runs the updater under the ref's
       // semaphore → the three SQL queries + the state mutation are one

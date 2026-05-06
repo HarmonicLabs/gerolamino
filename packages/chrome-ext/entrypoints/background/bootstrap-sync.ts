@@ -11,7 +11,7 @@
  * The bootstrap server (apps/bootstrap) streams snapshot data, then transparently
  * bridges the WebSocket to an upstream Cardano relay for miniprotocol traffic.
  */
-import { Config, Effect, Fiber, HashMap, Layer, Queue, Ref, Schedule, Stream } from "effect";
+import { Effect, Fiber, HashMap, Layer, Queue, Ref, Schedule, Stream } from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import {
@@ -58,19 +58,16 @@ import { decodeLedgerStateOffscreen } from "./offscreen-client.ts";
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
-
-/** Bootstrap server URL — configurable via BOOTSTRAP_URL env var. */
-const ServerBaseUrl = Config.string("BOOTSTRAP_URL").pipe(
-  Config.withDefault("ws://178.156.252.81:3040"),
-);
-
-/**
- * Enable bootstrap phase (Mithril snapshot download).
- * Disabled by default — bootstrapping requires a frozen Mithril snapshot on
- * the server; using a live relay node's LMDB causes TOCTOU issues (count scan
- * and data scan return different results).
- */
-const EnableBootstrap = Config.boolean("ENABLE_BOOTSTRAP").pipe(Config.withDefault(false));
+//
+// `__BOOTSTRAP_URL__` and `__ENABLE_BOOTSTRAP__` are rewritten to literals
+// at build time by Vite's `define` block in `wxt.config.ts`. We avoid
+// `Config.string` because chrome-ext bundles have no runtime
+// `process.env` — `Effect.ConfigProvider.fromEnv` returns nothing, the
+// program defaults silently, and tests have no way to override the URL
+// per-build. The build-time injection makes the override path
+// `BOOTSTRAP_URL=ws://… ENABLE_BOOTSTRAP=true wxt build …`.
+declare const __BOOTSTRAP_URL__: string;
+declare const __ENABLE_BOOTSTRAP__: boolean;
 
 // ---------------------------------------------------------------------------
 // Two-phase pipeline: Bootstrap → Relay
@@ -102,8 +99,8 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   yield* Effect.log("[bootstrap] Running schema migrations...");
   yield* runMigrations;
 
-  const serverBase = yield* ServerBaseUrl;
-  const enableBootstrap = yield* EnableBootstrap;
+  const serverBase: string = __BOOTSTRAP_URL__;
+  const enableBootstrap: boolean = __ENABLE_BOOTSTRAP__;
   const wsUrl = enableBootstrap ? `${serverBase}/bootstrap` : `${serverBase}/relay`;
   yield* Effect.log(
     enableBootstrap

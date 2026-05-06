@@ -55,14 +55,32 @@ export default defineConfig({
     // `offscreen` lets us spawn the offscreen document for off-thread
     // CBOR decoding.
     permissions: ["unlimitedStorage", "alarms", "offscreen"],
-    host_permissions: ["*://178.156.252.81/*", "*://decentralizationmaxi.io/*"],
+    // The bootstrap server runs locally on the same host as the
+    // browser (override at build time via `BOOTSTRAP_URL` env var; see
+    // the `define` block below). Browser requires explicit
+    // host_permissions for WS connections to a different origin from a
+    // service worker.
+    host_permissions: ["*://localhost/*", "*://127.0.0.1/*"],
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
     },
   },
+  // `__BOOTSTRAP_URL__` and `__ENABLE_BOOTSTRAP__` are global identifiers
+  // declared in `entrypoints/background/bootstrap-sync.ts` and rewritten
+  // to literals here at build time. `Config.string` / `Config.boolean`
+  // would require a runtime `process.env`, which doesn't exist in the
+  // browser bundle. Override at build time via env vars on `wxt build`:
+  //   BOOTSTRAP_URL=ws://localhost:3040 ENABLE_BOOTSTRAP=true \
+  //     bunx --bun wxt build --mode development
   vite: () => ({
     resolve: {
       alias: workspaceAliases,
+    },
+    define: {
+      __BOOTSTRAP_URL__: JSON.stringify(
+        process.env.BOOTSTRAP_URL ?? "ws://localhost:3040",
+      ),
+      __ENABLE_BOOTSTRAP__: JSON.stringify(process.env.ENABLE_BOOTSTRAP === "true"),
     },
   }),
 });

@@ -12,5 +12,6 @@
     ./ts-packages.nix
     ./bootstrap-image.nix
     ./bun.nix
+    ./run-apps.nix
   ];
 }

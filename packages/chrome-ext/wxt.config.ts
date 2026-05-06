@@ -65,13 +65,15 @@ export default defineConfig({
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
     },
   },
-  // `__BOOTSTRAP_URL__` and `__ENABLE_BOOTSTRAP__` are global identifiers
-  // declared in `entrypoints/background/bootstrap-sync.ts` and rewritten
-  // to literals here at build time. `Config.string` / `Config.boolean`
-  // would require a runtime `process.env`, which doesn't exist in the
-  // browser bundle. Override at build time via env vars on `wxt build`:
+  // `__BOOTSTRAP_URL__`, `__ENABLE_BOOTSTRAP__`, and `__BLOCK_BATCH__` are
+  // global identifiers declared in
+  // `entrypoints/background/bootstrap-sync.ts` and rewritten to literals
+  // here at build time. `Config.string` / `Config.boolean` /
+  // `Config.integer` would require a runtime `process.env`, which doesn't
+  // exist in the browser bundle. Override at build time via env vars on
+  // `wxt build`:
   //   BOOTSTRAP_URL=ws://localhost:3040 ENABLE_BOOTSTRAP=true \
-  //     bunx --bun wxt build --mode development
+  //     BLOCK_BATCH=500 bunx --bun wxt build --mode development
   vite: () => ({
     resolve: {
       alias: workspaceAliases,
@@ -81,6 +83,7 @@ export default defineConfig({
         process.env.BOOTSTRAP_URL ?? "ws://localhost:3040",
       ),
       __ENABLE_BOOTSTRAP__: JSON.stringify(process.env.ENABLE_BOOTSTRAP === "true"),
+      __BLOCK_BATCH__: JSON.stringify(parseInt(process.env.BLOCK_BATCH ?? "500", 10)),
     },
   }),
 });

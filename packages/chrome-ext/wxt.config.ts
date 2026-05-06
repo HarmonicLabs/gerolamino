@@ -54,7 +54,10 @@ export default defineConfig({
     // `alarms` keeps the SW alive during long bootstrap downloads;
     // `offscreen` lets us spawn the offscreen document for off-thread
     // CBOR decoding.
-    permissions: ["unlimitedStorage", "alarms", "offscreen"],
+    // `storage` covers `chrome.storage.local` (used by the popup setup
+    // form to persist the chosen `BootstrapMode` + serverUrl); the SW
+    // reads the same key on startup before opening any WebSocket.
+    permissions: ["unlimitedStorage", "alarms", "offscreen", "storage"],
     // The bootstrap server runs locally on the same host as the
     // browser (override at build time via `BOOTSTRAP_URL` env var; see
     // the `define` block below). Browser requires explicit

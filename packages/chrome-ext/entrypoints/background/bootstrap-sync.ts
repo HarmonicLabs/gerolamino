@@ -45,6 +45,7 @@ import {
 } from "./dashboard/atoms.ts";
 import { BrowserStorageLayers } from "./storage-browser.ts";
 import { decodeLedgerStateOffscreen } from "./offscreen-client.ts";
+import { loadSettings } from "../shared/bootstrap-settings.ts";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -92,8 +93,30 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   yield* Effect.log("[bootstrap] Running schema migrations...");
   yield* runMigrations;
 
-  const serverBase: string = __BOOTSTRAP_URL__;
-  const enableBootstrap: boolean = __ENABLE_BOOTSTRAP__;
+  // User-picked settings from `chrome.storage.local` (set by the popup
+  // setup form) override the build-time defaults. The `mode` field
+  // decides whether we hit `/bootstrap` (full Mithril snapshot stream),
+  // `/relay` (chain-sync only — `genesis` mode), or read from a local
+  // `FileSystemDirectoryHandle` (`local` mode — deferred; falls back
+  // to genesis-from-relay until the SW-side disk reader lands).
+  const persisted = yield* loadSettings;
+  const settings = persisted ?? {
+    mode: __ENABLE_BOOTSTRAP__ ? ("remote" as const) : ("genesis" as const),
+    serverUrl: __BOOTSTRAP_URL__,
+  };
+  yield* Effect.log(
+    `[bootstrap] Settings: mode=${settings.mode}, serverUrl=${settings.serverUrl} ` +
+      `(${persisted ? "from chrome.storage.local" : "build-time defaults"})`,
+  );
+
+  const serverBase = settings.serverUrl;
+  const enableBootstrap = settings.mode === "remote";
+  if (settings.mode === "local") {
+    yield* Effect.logWarning(
+      "[bootstrap] Local-snapshot mode is configured but not yet wired SW-side; " +
+        "falling back to genesis sync from upstream relay.",
+    );
+  }
   const wsUrl = enableBootstrap ? `${serverBase}/bootstrap` : `${serverBase}/relay`;
   yield* Effect.log(
     enableBootstrap

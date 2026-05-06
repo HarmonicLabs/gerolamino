@@ -84,3 +84,4 @@ packages/chrome-ext/.output/
 # Dashboard SPA build (consumed by apps/tui's Bun.WebView path)
 packages/dashboard/dist-spa/
 packages/dashboard/dist/
+db

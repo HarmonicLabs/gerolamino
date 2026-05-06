@@ -44,15 +44,23 @@ export const readSnapshotMeta = (snapshotPath: string) =>
     const ledgerBase = p.join(snapshotPath, "ledger");
     const ledgerEntries = yield* fs.readDirectory(ledgerBase);
 
-    // Find the primary snapshot slot directory. A cardano-node V2LSM dump
-    // has `ledger/<slot>` (primary) plus optional sibling directories
-    // `ledger/<slot>_lsm` / `<slot>_tables`. The old filter
-    // `!e.includes("_")` was too permissive — any oddly-named dir like
-    // `foo_bar_baz` also slipped through. Match exact numeric-only names
-    // so the slot parser below always receives a valid BigInt input.
-    const SLOT_DIR = /^\d+$/;
-    const snapshotSlotStr = ledgerEntries.find((e) => SLOT_DIR.test(e));
-    if (!snapshotSlotStr) {
+    // Find the primary snapshot slot directory. Two shapes appear in the
+    // wild:
+    //   1. Native cardano-node V2LSM dump — `ledger/<slot>` (plain digits)
+    //      plus optional sibling `ledger/<slot>_lsm` / `<slot>_tables`.
+    //   2. Mithril-converted snapshot via `mithril-client tools utxo-hd
+    //      snapshot-converter --utxo-hd-flavor LSM` — `ledger/<slot>_lsm`
+    //      only, no plain `<slot>` sibling.
+    // Prefer the plain-digit form when present (native node DBs); fall
+    // back to the `_lsm` form for Mithril-converted snapshots.
+    const SLOT_DIR = /^(\d+)(?:_lsm)?$/;
+    const slotMatches = ledgerEntries
+      .map((e) => ({ entry: e, match: SLOT_DIR.exec(e) }))
+      .filter((x): x is { entry: string; match: RegExpExecArray } => x.match !== null);
+    // Prefer plain-digit (no `_lsm` suffix) when both forms exist.
+    const primary =
+      slotMatches.find((x) => x.entry === x.match[1]) ?? slotMatches[0];
+    if (!primary) {
       return yield* Effect.fail(
         new SnapshotReadError({
           message: "No snapshot slot directory found in ledger/",
@@ -60,9 +68,9 @@ export const readSnapshotMeta = (snapshotPath: string) =>
         }),
       );
     }
-    const snapshotSlot = BigInt(snapshotSlotStr);
+    const snapshotSlot = BigInt(primary.match[1]!);
 
-    const ledgerDir = p.join(ledgerBase, snapshotSlotStr);
+    const ledgerDir = p.join(ledgerBase, primary.entry);
     const immutableDir = p.join(snapshotPath, "immutable");
     const lsmDir = p.join(snapshotPath, "lsm");
 

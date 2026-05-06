@@ -25,7 +25,7 @@
  * instead of silently retrying every tick on a dead view.
  */
 import { Effect, Ref, Schedule, Schema, type Scope } from "effect";
-import { buildDeltaJson } from "dashboard";
+import { buildDeltaJson } from "dashboard/delta.ts";
 import { registry } from "./atoms.ts";
 import {
   WEBVIEW_DEFAULT_WIDTH,

@@ -36,7 +36,7 @@ import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpStaticServer from "effect/unstable/http/HttpStaticServer";
 import { BunHttpServer } from "@effect/platform-bun";
 import { resolve } from "node:path";
-import { buildDeltaJson } from "dashboard";
+import { buildDeltaJson } from "dashboard/delta.ts";
 import { registry } from "./atoms.ts";
 import { DELTA_PUSH_INTERVAL_MS, DASHBOARD_PORT } from "../constants.ts";
 

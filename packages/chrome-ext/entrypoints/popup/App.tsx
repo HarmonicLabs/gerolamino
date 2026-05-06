@@ -19,22 +19,9 @@ import { SetupForm } from "./SetupForm.tsx";
 import { type BootstrapSettings, loadSettings } from "../shared/bootstrap-settings.ts";
 
 const App: Component = () => {
-  // eslint-disable-next-line no-console
-  console.log("[popup] App component evaluating");
   const [overrideSettings, setOverrideSettings] = createSignal<BootstrapSettings | undefined>();
   const [stored] = createResource(() =>
-    Effect.runPromise(loadSettings).then(
-      (v) => {
-        // eslint-disable-next-line no-console
-        console.log("[popup] loadSettings resolved:", v);
-        return v;
-      },
-      (e) => {
-        // eslint-disable-next-line no-console
-        console.log("[popup] loadSettings rejected:", String(e));
-        return undefined;
-      },
-    ),
+    Effect.runPromise(loadSettings).catch(() => undefined),
   );
 
   const settings = () => overrideSettings() ?? stored();

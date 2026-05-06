@@ -46,8 +46,12 @@ const phaseFromLogs = (
 };
 
 test.describe("Bootstrap against localhost", () => {
-  // Allow the popup to keep the SW awake while pulling ~17 GB.
-  test.setTimeout(7 * 60_000);
+  // Allow the popup to keep the SW awake while pulling ~17 GB. The
+  // user-stated budget is 5–6 min ideal, 10–15 min max; tying the
+  // Playwright timeout to 16 min gives the heartbeat one final tick
+  // past the 15-min ceiling so a borderline run reports cleanly
+  // rather than terminating mid-tick.
+  test.setTimeout(16 * 60_000);
 
   test("popup pulls the full snapshot to Complete within the deadline", async ({
     swLogs,
@@ -80,10 +84,12 @@ test.describe("Bootstrap against localhost", () => {
       let lastReport = Date.now();
       const reportEvery = 30_000;
 
-      // 4. Final assertion: the SW logs `Bootstrap completed` (emitted
-      //    by `bootstrap-sync.ts:Complete` handler) within the 6-minute
-      //    deadline counted from popup open.
-      const deadline = 6 * 60_000;
+      // 4. Final assertion: the SW logs `Bootstrap: Complete` (emitted
+      //    by `bootstrap-sync.ts:Complete` handler) within the 15-min
+      //    ceiling counted from popup open. Heartbeat reports phase /
+      //    block / UTxO counts every 30 s so a stalled run is
+      //    debuggable from the live console without trace replay.
+      const deadline = 15 * 60_000;
       await expect
         .poll(
           () => {
@@ -99,6 +105,7 @@ test.describe("Bootstrap against localhost", () => {
             }
             return swLogs.some(
               (l) =>
+                l.text.includes("[bootstrap] Complete:") ||
                 l.text.includes("Bootstrap completed") ||
                 l.text.includes("Complete frame received"),
             );

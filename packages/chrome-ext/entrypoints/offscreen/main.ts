@@ -15,7 +15,7 @@
  *
  * Note: this page has no UI — it just runs JS logic.
  */
-import { Effect, HashMap, Layer, Schema } from "effect";
+import { Effect, HashMap, Layer, Schema, Stream } from "effect";
 import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import { extractLedgerView, extractNonces, extractSnapshotTip, SlotClockPreprod } from "consensus";
 import { decodeExtLedgerState } from "ledger";
@@ -69,7 +69,21 @@ const serializeLedgerView = (lv: {
 // Decode pipeline
 // ---------------------------------------------------------------------------
 
-const ACCOUNT_CHUNK = 5000;
+// 50 k-row IndexedDB transactions are well within Chromium's per-tx
+// limits (~50 GB / ~250 k objects in practice on a single object store)
+// and reduce the per-transaction overhead 10× vs. the previous 5 k. The
+// transaction-overhead × N pattern dominated the offscreen-decode wall
+// clock when contending with the SW's concurrent block-batch writes:
+// the SW issued ~9 k 500-row block transactions while the offscreen
+// issued ~800 5 k-row account transactions on the same IDB, so the
+// scheduler interleaved them; bigger account batches cut that
+// interleaving rate without raising peak memory meaningfully (50 k
+// accounts × ~200 B encoded ≈ 10 MB peak per-batch, vs. the working set
+// of 4 M accounts already in heap from the decode step). Bumped further
+// to 100 k after the streaming-encode rewrite removed the 4 M-entry
+// pre-materialised array — peak working set per chunk is now ~20 MB,
+// not 1.5 GB.
+const ACCOUNT_CHUNK = 100_000;
 
 const handleDecode = (requestId: string, payload: Uint8Array) =>
   Effect.gen(function* () {
@@ -95,6 +109,17 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
     const tip = extractSnapshotTip(extState);
 
     // --- Accounts ---
+    //
+    // Streaming pipeline replaces the old `materialise → 4 M-entry Array
+    // → slice loop`. The previous shape allocated ~1.5 GB of `BlobEntry`
+    // objects up front before the first IDB write started, which (a)
+    // delayed the IDB-write phase by the full encode wall-clock and
+    // (b) competed with the SW's concurrent block writes for heap +
+    // GC time. Now we lazily pull `(credential, acct)` pairs out of
+    // the HashMap, encode each into a `BlobEntry`, batch them in
+    // `ACCOUNT_CHUNK`-sized groups, and `putBatch` per group — peak
+    // working set is one chunk (~20 MB), not the full account set,
+    // and IDB writes start within microseconds of the first encode.
     const accounts = extState.newEpochState.epochState.ledgerState.certState.dState.accounts;
     const totalAccounts = HashMap.size(accounts);
     yield* Effect.log(`[offscreen] Writing ${totalAccounts} accounts (chunks of ${ACCOUNT_CHUNK})`);
@@ -107,27 +132,35 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
       stakeEntriesWritten: 0,
     });
 
-    const accountEntries: Array<BlobEntry> = [];
-    for (const [credential, acct] of HashMap.entries(accounts)) {
-      accountEntries.push({
-        key: accountKey(credential.hash),
-        value: encodeAccountValue(acct),
-      });
-    }
-    for (let i = 0; i < accountEntries.length; i += ACCOUNT_CHUNK) {
-      const slice = accountEntries.slice(i, i + ACCOUNT_CHUNK);
-      yield* store.putBatch(slice);
-      const written = Math.min(i + slice.length, accountEntries.length);
-      post({
-        tag: "decode-progress",
-        requestId,
-        phase: "writing-accounts",
-        accountsWritten: written,
-        totalAccounts,
-        stakeEntriesWritten: 0,
-      });
-    }
-    yield* Effect.log(`[offscreen] Accounts written (${accountEntries.length})`);
+    let accountsWritten = 0;
+    yield* Stream.fromIterable(HashMap.entries(accounts)).pipe(
+      Stream.map(
+        ([credential, acct]): BlobEntry => ({
+          key: accountKey(credential.hash),
+          value: encodeAccountValue(acct),
+        }),
+      ),
+      Stream.grouped(ACCOUNT_CHUNK),
+      Stream.mapEffect(
+        (chunk) =>
+          Effect.gen(function* () {
+            const slice = Array.from(chunk);
+            yield* store.putBatch(slice);
+            accountsWritten += slice.length;
+            post({
+              tag: "decode-progress",
+              requestId,
+              phase: "writing-accounts",
+              accountsWritten,
+              totalAccounts,
+              stakeEntriesWritten: 0,
+            });
+          }),
+        { concurrency: 1 },
+      ),
+      Stream.runDrain,
+    );
+    yield* Effect.log(`[offscreen] Accounts written (${accountsWritten})`);
 
     // --- Stake distribution ---
     const stakeEntries: Array<BlobEntry> = [];
@@ -142,7 +175,7 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
       tag: "decode-progress",
       requestId,
       phase: "writing-stake",
-      accountsWritten: accountEntries.length,
+      accountsWritten: accountsWritten,
       totalAccounts,
       stakeEntriesWritten: 0,
       totalStakeEntries,
@@ -154,7 +187,7 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
       tag: "decode-progress",
       requestId,
       phase: "writing-stake",
-      accountsWritten: accountEntries.length,
+      accountsWritten: accountsWritten,
       totalAccounts,
       stakeEntriesWritten: totalStakeEntries,
       totalStakeEntries,
@@ -172,7 +205,7 @@ const handleDecode = (requestId: string, payload: Uint8Array) =>
         epoch: nonces.epoch,
       },
       tip,
-      accountsWritten: accountEntries.length,
+      accountsWritten: accountsWritten,
       stakeEntriesWritten: totalStakeEntries,
     });
   });

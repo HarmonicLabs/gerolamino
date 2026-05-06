@@ -85,3 +85,4 @@ packages/chrome-ext/.output/
 packages/dashboard/dist-spa/
 packages/dashboard/dist/
 db
+test-results/

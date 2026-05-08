@@ -10,7 +10,7 @@
  *
  * The driver is an Effect program that runs in a Scope (for resource cleanup).
  */
-import { Deferred, Effect, HashMap, Option, Ref, Schema } from "effect";
+import { Deferred, Duration, Effect, HashMap, Metric, Option, Ref, Schema } from "effect";
 import { Crypto, type CryptoOpError } from "wasm-utils";
 import { SlotClock } from "../praos/clock";
 import { validateHeader } from "../validate/header";
@@ -23,6 +23,7 @@ import { writeChainEvent } from "../chain/event-log";
 import { ChainDB, LedgerSnapshotStore } from "storage";
 import { PrevTip } from "../validate/header";
 import type { BlockHeader, LedgerView } from "../validate/header";
+import { RollForwardLatencyMs } from "../observability.ts";
 
 // `writeChainEvent` failures are observability infra issues (event-journal
 // write rejected; encryption layer error). They MUST NOT block block
@@ -334,7 +335,22 @@ export const handleRollForward = (
       caughtUp: false,
     };
     return result;
-  });
+  }).pipe(
+    // Per-block latency histogram + OTLP span. The driver path is the
+    // primary per-block hot-path; without the histogram we can't tell
+    // whether crypto dispatch, storage I/O, or event emission dominates
+    // the wallclock cost. `Effect.timed` only fires on success — failure
+    // latency lands implicitly through the parent span and the
+    // `BlockValidationFailed` counter, so we don't double-count.
+    Effect.timed,
+    Effect.tap(([dur]) =>
+      Metric.update(RollForwardLatencyMs, Duration.toMillis(dur)),
+    ),
+    Effect.map(([, value]) => value),
+    Effect.withSpan("consensus.sync.roll_forward", {
+      attributes: { "peer.id": peerId },
+    }),
+  );
 
 /**
  * Process a RollBackward message from ChainSync.
@@ -402,6 +418,10 @@ export const handleRollBackward = (
       depth,
     });
 
+    // (rollback path doesn't update the RollForward histogram — distinct
+    // operation, distinct latency profile; deserves its own metric if it
+    // becomes a measured concern.)
+
     // Mutable state revert — must mirror the ChainDB rollback. Two pieces
     // of volatile state are NOT covered by `chainDb.rollback`:
     //
@@ -454,4 +474,8 @@ export const handleRollBackward = (
       caughtUp: false,
     };
     return result;
-  });
+  }).pipe(
+    Effect.withSpan("consensus.sync.roll_backward", {
+      attributes: { "peer.id": peerId },
+    }),
+  );

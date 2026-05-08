@@ -81,11 +81,18 @@ const isActiveWithTip = (p: PeerState): p is PeerWithTip =>
 const activePeerCount = (m: HashMap.HashMap<string, PeerState>): number =>
   HashMap.reduce(m, 0, (acc, peer) => acc + (isConnected(peer) ? 1 : 0));
 
-/** Zero-seed for `getStatusCounts` derived directly from the Schema
- *  literal list so adding a new status constant can't leave a gap. */
-const PEER_STATUS_ZERO_SEED: Record<PeerStatus, number> = Object.fromEntries(
-  PeerStatus.literals.map((s) => [s, 0]),
-) as Record<PeerStatus, number>;
+/** Zero-seed for `getStatusCounts`. Listing each literal explicitly lets
+ *  TypeScript prove exhaustiveness against `Record<PeerStatus, number>` —
+ *  adding a new `PeerStatus` literal causes a type error here, replacing
+ *  the prior `Object.fromEntries(...) as Record<...>` cast that the
+ *  CLAUDE.md "no `as Type`" rule forbids. */
+const PEER_STATUS_ZERO_SEED: Record<PeerStatus, number> = {
+  connecting: 0,
+  syncing: 0,
+  synced: 0,
+  stalled: 0,
+  disconnected: 0,
+};
 
 export class PeerManager extends Context.Service<
   PeerManager,
@@ -189,22 +196,22 @@ export const PeerManagerLive = Effect.gen(function* () {
       Effect.flatMap((now) => {
         const nowMs = Number(now);
         return Ref.modify(peers, (m) => {
-          // Walk entries once; accumulate the stalled id list + new
-          // HashMap with status flipped. Each `HashMap.set` is an O(log n)
-          // structural-sharing update, so k stalled peers cost O(k log n)
-          // — much cheaper than the prior `new Map(m)` clone-per-stall.
-          // The for-of is a dual-accumulator site (list + keyed map);
-          // mutation is local, no external state escapes.
-          const stalled: string[] = [];
-          let next = m;
-          for (const [id, peer] of HashMap.entries(m)) {
-            if (!isEligibleForStall(peer)) continue;
-            if (nowMs - peer.lastActivityMs > stallTimeoutMs) {
-              next = HashMap.set(next, id, { ...peer, status: "stalled" });
-              stalled.push(id);
-            }
-          }
-          return [stalled as ReadonlyArray<string>, next] as const;
+          // Filter eligible-and-past-timeout entries once, then reduce them
+          // into the new HashMap. Each `HashMap.set` is an O(log n)
+          // structural-sharing update, so k stalled peers cost O(k log n).
+          // Stalls are rare (typically 0 per tick) so the filter result
+          // stays tiny; replaces the prior `let next = m` accumulator that
+          // the CLAUDE.md `.reduce` / `Array.from` rule discourages.
+          const stalledEntries = [...HashMap.entries(m)].filter(
+            ([, peer]) =>
+              isEligibleForStall(peer) && nowMs - peer.lastActivityMs > stallTimeoutMs,
+          );
+          const next = stalledEntries.reduce(
+            (acc, [id, peer]) => HashMap.set(acc, id, { ...peer, status: "stalled" }),
+            m,
+          );
+          const stalled: ReadonlyArray<string> = stalledEntries.map(([id]) => id);
+          return [stalled, next] as const;
         });
       }),
       Effect.tap((stalled) =>

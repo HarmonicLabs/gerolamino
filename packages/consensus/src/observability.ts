@@ -56,6 +56,18 @@ export const BlockValidationFailed = Metric.counter("consensus_block_validation_
 /** Cumulative peers evicted for stall (past stall timeout). */
 export const PeerStalledCount = Metric.counter("consensus_peer_stalled", { incremental: true });
 
+/**
+ * Per-block RollForward end-to-end latency (ms). Captures the full
+ * driver path: header decode → 5-bucket Praos validation → block storage
+ * → nonce evolution → chain-event emission. Bucket boundaries cover the
+ * realistic spectrum (1 ms typical for Byron stub blocks, 10–100 ms for
+ * Shelley+ on a worker-backed Crypto layer, 500+ ms only on a degraded
+ * path). Histogram lets us alert on tail latency without per-block
+ * stdout noise. */
+export const RollForwardLatencyMs = Metric.histogram("consensus_roll_forward_latency_ms", {
+  boundaries: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000],
+});
+
 // ---------------------------------------------------------------------------
 // Span name helpers
 // ---------------------------------------------------------------------------

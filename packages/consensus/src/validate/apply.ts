@@ -476,18 +476,26 @@ const applyBlockCore = (
       //   utxo' = (utxo ⊳ collateral^c) ∪l colReturnUTxO
       collectInputDeletes(mapGet(entries, 13), utxoDeletes); // key 13: collateral inputs
 
-      // Collateral return (Babbage+, key 16): indexed at len(txOuts)
-      const collReturn = mapGet(entries, 16);
-      if (collReturn !== undefined) {
-        const outputsNode = mapGet(entries, 1);
-        const outputCount =
-          outputsNode !== undefined && CborValue.guards[CborKinds.Array](outputsNode)
-            ? outputsNode.items.length
-            : 0;
-        utxoInserts.push({
-          key: utxoKey(buildTxInBytes(txId, outputCount)),
-          value: encodeSync(collReturn),
-        });
+      // Collateral return (Babbage+, key 16): indexed at len(txOuts).
+      // Era-gated to >= Babbage (era=6) — Alonzo (era=5) introduced
+      // collateral inputs but NOT collateral return; pre-Alonzo (era<5)
+      // has neither. A relay handing us malformed Alonzo CBOR with key 16
+      // present would otherwise silently grow the UTxO with phantom
+      // collateral-return outputs. Matches Haskell's CDDL-driven decode
+      // which rejects key 16 outside Babbage+ at the parse stage.
+      if (eraTag.num >= 6n) {
+        const collReturn = mapGet(entries, 16);
+        if (collReturn !== undefined) {
+          const outputsNode = mapGet(entries, 1);
+          const outputCount =
+            outputsNode !== undefined && CborValue.guards[CborKinds.Array](outputsNode)
+              ? outputsNode.items.length
+              : 0;
+          utxoInserts.push({
+            key: utxoKey(buildTxInBytes(txId, outputCount)),
+            value: encodeSync(collReturn),
+          });
+        }
       }
     }
   }

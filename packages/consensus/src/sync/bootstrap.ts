@@ -63,50 +63,61 @@ export const processBlock = (
       { concurrency: "unbounded" },
     );
 
-    // 2. Store block in ChainDB (volatile)
-    yield* chainDb.addBlock(block);
+    // 2 + 3. Storage and nonce evolution are independent — run in parallel.
+    // Storage writes to ChainDB; nonce computation reads only header fields.
+    // Same pattern as `driver.ts:handleRollForward:188-244` for the relay path
+    // — bootstrap was previously sequential, leaving an easy parallel win on
+    // the per-block hot path on the genesis-sync path.
+    const [, newNonces] = yield* Effect.all(
+      [
+        chainDb.addBlock(block),
+        Effect.gen(function* () {
+          // Epoch transition — derive new epoch nonce at boundary.
+          // η_{e+1} = blake2b(candidate_e ∥ prevHash); ticked into a fresh
+          // `Nonces` when the block crosses into a new epoch, else the
+          // current triple is reused.
+          const blockEpoch = slotClock.slotToEpoch(header.slot);
+          const nonces =
+            blockEpoch > currentNonces.epoch
+              ? yield* deriveEpochNonce(currentNonces.candidate, header.prevHash).pipe(
+                  Effect.map(
+                    (newEpochNonce) =>
+                      new Nonces({
+                        active: newEpochNonce,
+                        evolving: newEpochNonce,
+                        candidate: newEpochNonce,
+                        epoch: blockEpoch,
+                      }),
+                  ),
+                )
+              : currentNonces;
 
-    // 3. Epoch transition — derive new epoch nonce at boundary.
-    // η_{e+1} = blake2b(candidate_e ∥ prevHash); ticked into a fresh
-    // `Nonces` when the block crosses into a new epoch, else the current
-    // triple is reused.
-    const blockEpoch = slotClock.slotToEpoch(header.slot);
-    const nonces =
-      blockEpoch > currentNonces.epoch
-        ? yield* deriveEpochNonce(currentNonces.candidate, header.prevHash).pipe(
-            Effect.map(
-              (newEpochNonce) =>
-                new Nonces({
-                  active: newEpochNonce,
-                  evolving: newEpochNonce,
-                  candidate: newEpochNonce,
-                  epoch: blockEpoch,
-                }),
-            ),
-          )
-        : currentNonces;
+          // Evolve nonces using nonce-tagged VRF output (not leader VRF output).
+          const newEvolving = yield* evolveNonce(nonces.evolving, header.nonceVrfOutput);
 
-    // 4. Evolve nonces using nonce-tagged VRF output (not leader VRF output)
-    const newEvolving = yield* evolveNonce(nonces.evolving, header.nonceVrfOutput);
+          // Candidate nonce freezes past `epochLength - 4k/f` — only updated
+          // while still in the active-collection window.
+          const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
+          const pastCollection = isPastStabilizationWindow(
+            slotInEpoch,
+            slotClock.config.securityParam,
+            slotClock.config.activeSlotsCoeff,
+            slotClock.config.epochLength,
+          );
+          const newCandidate = pastCollection ? nonces.candidate : newEvolving;
 
-    // 5. Check if past candidate collection period (epochLength - 4k/f)
-    const slotInEpoch = slotClock.slotWithinEpoch(header.slot);
-    const pastCollection = isPastStabilizationWindow(
-      slotInEpoch,
-      slotClock.config.securityParam,
-      slotClock.config.activeSlotsCoeff,
-      slotClock.config.epochLength,
+          return new Nonces({
+            active: nonces.active,
+            evolving: newEvolving,
+            candidate: newCandidate,
+            epoch: blockEpoch,
+          });
+        }),
+      ],
+      { concurrency: "unbounded" },
     );
 
-    // Candidate nonce freezes at (epochLength - 4k/f) — only update if still collecting
-    const newCandidate = pastCollection ? nonces.candidate : newEvolving;
-
-    return new Nonces({
-      active: nonces.active,
-      evolving: newEvolving,
-      candidate: newCandidate,
-      epoch: blockEpoch,
-    });
+    return newNonces;
   });
 
 /**

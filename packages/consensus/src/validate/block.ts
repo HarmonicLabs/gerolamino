@@ -80,30 +80,27 @@ export const verifyBodyHash = (
       );
 
     // Body = [header, txBodies, witnesses, auxData, invalidTxs?]
-    // Merkle-like double-hash: hash each segment individually, then hash the concatenation of hashes.
-    // Per Haskell hashShelleySegWits / hashAlonzoSegWits (cardano-ledger BlockBody/Internal.hs).
-    const txBodiesHash = yield* crypto
-      .blake2b256(encodeSync(blockBody.items[1]!))
-      .pipe(Effect.mapError(verifyBodyHashErr));
-    const witnessesHash = yield* crypto
-      .blake2b256(encodeSync(blockBody.items[2]!))
-      .pipe(Effect.mapError(verifyBodyHashErr));
-    const auxDataHash = yield* crypto
-      .blake2b256(encodeSync(blockBody.items[3]!))
-      .pipe(Effect.mapError(verifyBodyHashErr));
-
-    // Alonzo+ (era >= 4) includes invalidTxs as 5th element
-    const hashConcat =
+    // Merkle-like double-hash: hash each segment individually, then hash the
+    // concatenation of hashes. Per Haskell `hashShelleySegWits` /
+    // `hashAlonzoSegWits` (cardano-ledger BlockBody/Internal.hs).
+    //
+    // The 3-4 segment hashes are independent CPU work — `concurrency:
+    // "unbounded"` lets a worker-backed `Crypto` layer spread them across
+    // cores. Result ordering is preserved by `Effect.all`, so the final
+    // `concat(...)` produces the same byte sequence the prior sequential
+    // `yield*` chain would have. Per-segment latency is now `max(t_i)`
+    // instead of `sum(t_i)` — a meaningful win on the per-block hot path.
+    const segmentNodes =
       blockBody.items.length >= 5
-        ? concat(
-            txBodiesHash,
-            witnessesHash,
-            auxDataHash,
-            yield* crypto
-              .blake2b256(encodeSync(blockBody.items[4]!))
-              .pipe(Effect.mapError(verifyBodyHashErr)),
-          )
-        : concat(txBodiesHash, witnessesHash, auxDataHash);
+        ? [blockBody.items[1]!, blockBody.items[2]!, blockBody.items[3]!, blockBody.items[4]!]
+        : [blockBody.items[1]!, blockBody.items[2]!, blockBody.items[3]!];
+    const segmentHashes = yield* Effect.all(
+      segmentNodes.map((node) =>
+        crypto.blake2b256(encodeSync(node)).pipe(Effect.mapError(verifyBodyHashErr)),
+      ),
+      { concurrency: "unbounded" },
+    );
+    const hashConcat = concat(...segmentHashes);
 
     const computedHash = yield* crypto
       .blake2b256(hashConcat)

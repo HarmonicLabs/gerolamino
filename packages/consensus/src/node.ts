@@ -127,6 +127,11 @@ export const monitorLoop = Effect.gen(function* () {
       // Individual monitor iterations are non-fatal — log and continue
       Effect.catch((e) => Effect.logWarning(`Monitor check failed: ${e}`)),
     ),
-    Schedule.fixed("10 seconds"),
+    // `spaced` over `fixed`: we want 10 s of idle time *between* checks, not
+    // a fixed 10 s wallclock period. If a status read takes 8 s (slow chainDB
+    // tip read on a cold start), `fixed` would only give the next iteration
+    // 2 s of breathing room before kicking off again; `spaced` always sleeps
+    // a full 10 s after completion. This is the canonical monitor-loop idiom.
+    Schedule.spaced("10 seconds"),
   );
 });

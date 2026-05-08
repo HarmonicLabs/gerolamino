@@ -11,6 +11,12 @@ import {
 import { countBy } from "es-toolkit";
 import { CborDerivationError } from "../CborError";
 import { CborKinds, type CborValue, CborValue as CborValueSchema } from "../CborValue";
+import { encode as encodeCborBytes, parse as parseCborBytes } from "../codec";
+import "./annotations";
+// `invalid` + `failOthers` are defined once in `./match-helpers.ts` — every
+// composite Link's case-set spreads `failOthers(expected)` then overrides
+// the kinds it actually accepts.
+import { failOthers, invalid } from "./match-helpers.ts";
 
 /** Build a `CborDerivationError` for a walker-time schema bug. */
 const derivationError = (
@@ -19,8 +25,6 @@ const derivationError = (
   message: string,
   cause?: unknown,
 ) => new CborDerivationError({ link, astTag, message, cause });
-import { encode as encodeCborBytes, parse as parseCborBytes } from "../codec";
-import "./annotations";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Cardano-flavoured composite CBOR Links.
@@ -45,21 +49,6 @@ import "./annotations";
 
 /** A factory that builds a Link from a walked AST (children already walked). */
 export type CborLinkFactory = (walkedAst: AST.AST) => AST.Link;
-
-const invalid = <T>(value: T, message: string): Effect.Effect<never, SchemaIssue.InvalidValue> =>
-  Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message }));
-
-const failOthers = (expected: string) =>
-  ({
-    [CborKinds.UInt]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got UInt`),
-    [CborKinds.NegInt]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got NegInt`),
-    [CborKinds.Bytes]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Bytes`),
-    [CborKinds.Text]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Text`),
-    [CborKinds.Array]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Array`),
-    [CborKinds.Map]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Map`),
-    [CborKinds.Tag]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Tag`),
-    [CborKinds.Simple]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Simple`),
-  }) as const;
 
 /**
  * Schema for an `AST.Link | undefined` result. Used to type `lastLink`'s

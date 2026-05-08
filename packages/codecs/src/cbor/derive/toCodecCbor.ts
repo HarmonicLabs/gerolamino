@@ -1,10 +1,8 @@
 import {
   Effect,
-  Option,
   Predicate,
   Schema,
   SchemaAST as AST,
-  SchemaIssue,
   SchemaTransformation,
 } from "effect";
 import { CborDerivationError } from "../CborError";
@@ -22,6 +20,10 @@ import {
   stringLink,
   undefinedLink,
 } from "./links";
+// `invalid` and `failOthers` come from the shared `match-helpers` module —
+// every Link's case-set is the same shape, so the boilerplate lives in one
+// place. See `match-helpers.ts` for the contract.
+import { failOthers, invalid } from "./match-helpers.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Walker — mirrors Effect's toCodecJson (see
@@ -33,26 +35,6 @@ import {
 // utilities on CborValueSchema (`.match`/`.guards`/`.isAnyOf`) — never manual
 // `_tag === CborKinds.X` comparisons. See `./links.ts` for the shared idiom.
 // ────────────────────────────────────────────────────────────────────────────
-
-const invalid = <T>(value: T, message: string): Effect.Effect<never, SchemaIssue.Issue> =>
-  Effect.fail(new SchemaIssue.InvalidValue(Option.some(value), { message }));
-
-/**
- * Build a case-set for `CborValueSchema.match` where every kind except those
- * overridden by the caller fails with a descriptive error. Callers spread
- * this into their match and override the accepted kinds.
- */
-const failOthers = (expected: string) =>
-  ({
-    [CborKinds.UInt]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got UInt`),
-    [CborKinds.NegInt]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got NegInt`),
-    [CborKinds.Bytes]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Bytes`),
-    [CborKinds.Text]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Text`),
-    [CborKinds.Array]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Array`),
-    [CborKinds.Map]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Map`),
-    [CborKinds.Tag]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Tag`),
-    [CborKinds.Simple]: (v: CborValue) => invalid(v, `Expected CBOR ${expected}, got Simple`),
-  }) as const;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Composite Link — Objects (Struct) ↔ CborValue(Map) with Text keys.

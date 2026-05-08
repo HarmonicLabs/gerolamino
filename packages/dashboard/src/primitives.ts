@@ -45,6 +45,13 @@ export interface BadgeProps {
 export interface ProgressProps {
   readonly value: number;
   readonly max?: number;
+  /** Accessible label for screen readers — Kobalte's `<Progress>` only
+   *  emits `aria-valuenow` / `aria-valuemax`, so without a label SR
+   *  users hear "progress 45 of 100" with no context on which metric. */
+  readonly ariaLabel?: string;
+  /** Optional id of an element that describes the progress in more
+   *  detail (e.g., a label saying "Bootstrap accounts written"). */
+  readonly ariaDescribedBy?: string;
   readonly class?: string;
 }
 
@@ -168,6 +175,11 @@ export interface SparklineProps {
  */
 export interface SectionProps {
   readonly title: string;
+  /** Heading element to render. Defaults to `3` (`<h3>`); override when
+   *  the surrounding outline demands a different nesting level so the
+   *  document heading hierarchy doesn't skip levels (which screen-reader
+   *  navigation flags as a structural defect). */
+  readonly level?: 2 | 3 | 4 | 5 | 6;
   readonly class?: string;
   readonly children?: JSX.Element;
 }

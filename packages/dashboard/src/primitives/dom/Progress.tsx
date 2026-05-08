@@ -13,6 +13,8 @@ export const Progress: Component<ProgressProps> = (props) => (
     value={props.value}
     maxValue={props.max ?? 100}
     class={cn("w-full", props.class)}
+    aria-label={props.ariaLabel}
+    aria-describedby={props.ariaDescribedBy}
   >
     <ProgressPrimitive.Track class="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
       <ProgressPrimitive.Fill class="h-full w-[var(--kb-progress-fill-width)] flex-1 bg-primary transition-all" />

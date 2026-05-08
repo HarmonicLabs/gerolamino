@@ -86,7 +86,7 @@ export const SyncOverview = () => {
 
       {/* Sync progress bar (relay sync phase) */}
       <Show when={state().status === "syncing"}>
-        <Progress value={state().syncPercent} />
+        <Progress value={state().syncPercent} ariaLabel="Chain sync progress" />
       </Show>
 
       {/* Slot-velocity sparkline — derived 1Hz over a 600-sample sliding
@@ -144,7 +144,13 @@ export const SyncOverview = () => {
                     number — `0` and `undefined` are both falsy, replacing the
                     `defined && > 0` guard plus two non-null assertions. */}
                 <Show when={bootstrap().totalAccounts} keyed>
-                  {(total) => <Progress value={bootstrap().accountsWritten} max={total} />}
+                  {(total) => (
+                    <Progress
+                      value={bootstrap().accountsWritten}
+                      max={total}
+                      ariaLabel="Bootstrap accounts written"
+                    />
+                  )}
                 </Show>
               </Box>
             </Show>
@@ -188,6 +194,7 @@ export const SyncOverview = () => {
                   <Progress
                     value={bootstrap().blobEntriesReceived}
                     max={bootstrap().totalBlobEntries}
+                    ariaLabel="Bootstrap UTxO entries received"
                   />
                 </Show>
               </Box>

@@ -24,6 +24,10 @@ import {
 } from "@tanstack/solid-table";
 import { peersAtom, type PeerInfo } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
+// `peers` from `useAtomValue` is already a Solid signal accessor backed
+// by the AtomRegistry — it tracks identity changes natively, so wrapping
+// it in `createMemo(() => peers())` was a redundant layer of indirection
+// that re-ran on every parent reactivity tick without filtering anything.
 
 const columnHelper = createColumnHelper<PeerInfo>();
 
@@ -48,11 +52,10 @@ const columns = [
 export const PeerTable = () => {
   const { Section } = usePrimitives();
   const peers = useAtomValue(() => peersAtom);
-  const memoPeers = createMemo(() => peers());
 
   const table = createSolidTable({
     get data() {
-      return [...memoPeers()];
+      return [...peers()];
     },
     columns,
     getCoreRowModel: getCoreRowModel(),
@@ -62,7 +65,7 @@ export const PeerTable = () => {
   });
 
   return (
-    <Section title={`Peers (${memoPeers().length})`}>
+    <Section title={`Peers (${peers().length})`}>
       <div class="relative w-full overflow-auto rounded-md border">
         <table class="w-full caption-bottom text-sm">
           <thead>

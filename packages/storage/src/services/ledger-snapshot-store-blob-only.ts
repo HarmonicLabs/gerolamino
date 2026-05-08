@@ -25,7 +25,7 @@
  *   transaction; LSM (on Bun) wraps it in a write batch. Both are
  *   all-or-nothing.
  */
-import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 import { BlobStore, snapshotKey } from "../blob-store";
 import {
   decodeNoncesEpoch,
@@ -39,61 +39,12 @@ import {
   PREFIX_SMET,
   snapshotMetaKey,
 } from "../blob-store/chain-keys.ts";
+// Reuse the canonical Service tag + error class from the SQL-backed
+// sibling so consumers can swap Layers transparently — `Effect.gen(function*()
+// { const store = yield* LedgerSnapshotStore; ... })` resolves to whichever
+// Layer the app provided.
+import { LedgerSnapshotError, LedgerSnapshotStore } from "./ledger-snapshot-store.ts";
 import type { RealPoint } from "../types/StoredBlock.ts";
-
-// ────────────────────────────────────────────────────────────────────────────
-// Service tag + error — both must match the SQL-backed sibling so a
-// downstream consumer (e.g., consensus engine) can't tell which Layer
-// is wired in. The error class is identical; the operation literals
-// match the four entry points.
-// ────────────────────────────────────────────────────────────────────────────
-
-export class LedgerSnapshotError extends Schema.TaggedErrorClass<LedgerSnapshotError>()(
-  "LedgerSnapshotError",
-  {
-    operation: Schema.Literals([
-      "writeLedgerSnapshot",
-      "readLatestLedgerSnapshot",
-      "writeNonces",
-      "readNonces",
-    ]),
-    cause: Schema.Defect,
-  },
-) {}
-
-export class LedgerSnapshotStore extends Context.Service<
-  LedgerSnapshotStore,
-  {
-    readonly writeLedgerSnapshot: (
-      slot: bigint,
-      hash: Uint8Array,
-      epoch: bigint,
-      stateBytes: Uint8Array,
-    ) => Effect.Effect<void, LedgerSnapshotError>;
-
-    readonly readLatestLedgerSnapshot: Effect.Effect<
-      Option.Option<{ point: RealPoint; stateBytes: Uint8Array; epoch: bigint }>,
-      LedgerSnapshotError
-    >;
-
-    readonly writeNonces: (
-      epoch: bigint,
-      active: Uint8Array,
-      evolving: Uint8Array,
-      candidate: Uint8Array,
-    ) => Effect.Effect<void, LedgerSnapshotError>;
-
-    readonly readNonces: Effect.Effect<
-      Option.Option<{
-        epoch: bigint;
-        active: Uint8Array;
-        evolving: Uint8Array;
-        candidate: Uint8Array;
-      }>,
-      LedgerSnapshotError
-    >;
-  }
->()("storage/LedgerSnapshotStore") {}
 
 type SnapshotOp = "writeLedgerSnapshot" | "readLatestLedgerSnapshot" | "writeNonces" | "readNonces";
 

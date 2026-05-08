@@ -1,28 +1,28 @@
 /**
- * Browser storage layers — IndexedDB BlobStore + in-memory SQLite WASM
- * ChainDB.
+ * Browser storage layers — IndexedDB BlobStore + BlobStore-only ChainDB.
  *
  * BlobStore: Effect v4 IndexedDbTable + IndexedDbQueryBuilder for typed,
- *   schema-driven key-value storage in IndexedDB. Uses separate object stores
- *   per key prefix, matching the LSM tree table structure:
- *     utxo        — UTxO entries (PREFIX_UTXO)
- *     blocks      — Block CBOR (PREFIX_BLK)
- *     block_index — Block number index (PREFIX_BIDX)
- *     stake       — Stake distribution (PREFIX_STAK)
- *     accounts    — Account metadata (PREFIX_ACCT)
- *     offsets     — CBOR offset index (PREFIX_COFF)
+ *   schema-driven key-value storage in IndexedDB. Uses separate object
+ *   stores per key prefix to match the LSM tree's multi-table structure
+ *   on the Bun side:
+ *     utxo, blocks, block_index, stake, accounts, offsets
  *
- * SqlClient: `@effect/sql-sqlite-wasm` `layerMemory` (RAM-only).
- *   The intended path was an OPFS-backed VFS via
- *   `AccessHandlePoolVFS` so chain metadata survives MV3 SW evictions,
- *   but that VFS calls `FileSystemFileHandle.createSyncAccessHandle()`,
- *   which Chrome restricts to dedicated-worker contexts. MV3 service
- *   workers don't qualify, and they can't construct a `Worker` either,
- *   so the standard "spawn an OpfsWorker" pattern is also unreachable.
- *   `service-worker.spec.ts` keeps a capability probe that will trip
- *   if either restriction is ever lifted; until then chain metadata
- *   re-derives from the IndexedDB BlobStore on every cold start.
- * ChainDB: standard ChainDBLive from storage package, consuming both.
+ * ChainDB: `ChainDBBlobOnlyLive` — drop-in for `ChainDBLive` that
+ *   serves every chain-state operation from BlobStore key-value
+ *   primitives plus a `Ref<Summary>` cache for fast tip queries. No
+ *   SQL, no Drizzle, no SQLite-WASM dependency. Per the storage-
+ *   architecture research wave: PgLite uses IDBv1 with material perf
+ *   risk; SQLite-WASM in MV3 SW is `:memory:`-only with a ~350 ms
+ *   cold-start tax on every SW eviction; all 35 chrome-ext queries
+ *   are pure key-value patterns with no SQL features actually used.
+ *   The capability probe in `service-worker.spec.ts` still asserts
+ *   `FileSystemSyncAccessHandle` is unreachable; if Chrome relaxes
+ *   that we can re-evaluate.
+ *
+ * LedgerSnapshotStore: `LedgerSnapshotStoreBlobOnlyLive` — same
+ *   pattern (BlobStore-only). Required by the consensus
+ *   `connectToRelay` driver — without it the SW dies on first sync
+ *   attempt with `Service not found: storage/LedgerSnapshotStore`.
  */
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { groupBy } from "es-toolkit";
@@ -30,15 +30,14 @@ import * as IndexedDb from "@effect/platform-browser/IndexedDb";
 import * as IndexedDbTable from "@effect/platform-browser/IndexedDbTable";
 import * as IndexedDbVersion from "@effect/platform-browser/IndexedDbVersion";
 import * as IndexedDbDatabase from "@effect/platform-browser/IndexedDbDatabase";
-import { layerMemory as sqliteWasmMemoryLayer } from "@effect/sql-sqlite-wasm/SqliteClient";
 import {
   type BlobEntry,
   BlobStore,
   BlobStoreError,
   type BlobStoreOperation,
   prefixEnd,
-  ChainDBLive,
-  LedgerSnapshotStoreLive,
+  ChainDBBlobOnlyLive,
+  LedgerSnapshotStoreBlobOnlyLive,
 } from "storage";
 
 // ---------------------------------------------------------------------------
@@ -239,31 +238,18 @@ export const BlobStoreIndexedDB: Layer.Layer<
 ).pipe(Layer.provide(BlobDbSchema.layer("gerolamino-chain-store")));
 
 // ---------------------------------------------------------------------------
-// SQLite WASM (in-memory) SqlClient — chain metadata
-// ---------------------------------------------------------------------------
-
-const SqliteWasmLayer = sqliteWasmMemoryLayer({}).pipe(Layer.orDie);
-
-// ---------------------------------------------------------------------------
-// Composite storage layer
+// Composite storage layer — BlobStore-only, no SQL.
 // ---------------------------------------------------------------------------
 
 /**
- * Full browser storage: IndexedDB BlobStore + in-memory SQLite WASM
- * ChainDB + LedgerSnapshotStore (the latter required by the consensus
- * `connectToRelay` driver — without it the SW dies on first sync attempt
- * with `Service not found: storage/LedgerSnapshotStore`).
- *
- * Both stores share the same `BlobStore` + `SqlClient` deps via
- * `Layer.provideMerge`, mirroring the `apps/tui` composition.
- *
- * Requires IndexedDb service in the environment.
+ * Full browser storage: IndexedDB BlobStore + BlobStore-only ChainDB
+ * + BlobStore-only LedgerSnapshotStore. Both consensus services share
+ * the same `BlobStore` dep via `Layer.provide`. Requires `IndexedDb`
+ * in the environment.
  */
-export const BrowserStorageLayers = () => {
-  const deps = Layer.merge(BlobStoreIndexedDB, SqliteWasmLayer);
-  return Layer.mergeAll(
-    ChainDBLive.pipe(Layer.provide(deps)),
-    LedgerSnapshotStoreLive.pipe(Layer.provide(deps)),
-    deps,
+export const BrowserStorageLayers = () =>
+  Layer.mergeAll(
+    ChainDBBlobOnlyLive.pipe(Layer.provide(BlobStoreIndexedDB)),
+    LedgerSnapshotStoreBlobOnlyLive.pipe(Layer.provide(BlobStoreIndexedDB)),
+    BlobStoreIndexedDB,
   );
-};

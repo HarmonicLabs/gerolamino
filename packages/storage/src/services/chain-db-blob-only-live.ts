@@ -46,8 +46,20 @@
  *   garbageCollect(below):    1 scan + N batch deletes (N = blocks < below)
  */
 import { Effect, Layer, Option, Ref, Stream } from "effect";
-import { compareBytes } from "codecs";
 import { ChainDB, ChainDBError, type ChainDBOperation } from "./chain-db.ts";
+
+/** Lex byte comparison — used as `streamFrom`'s tiebreaker when two
+ *  blocks share a slot. Matches `codecs.compareBytes` semantics
+ *  (returns -1/0/+1) but inlined to keep this module dep-free at
+ *  runtime — `storage`'s package.json doesn't list `codecs`. */
+const compareBytes = (a: Uint8Array, b: Uint8Array): number => {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    if (a[i]! < b[i]!) return -1;
+    if (a[i]! > b[i]!) return 1;
+  }
+  return a.length - b.length;
+};
 import {
   type BlobEntry,
   BlobStore,

@@ -1,4 +1,4 @@
-export { BlobStore, BlobStoreError, BlobEntry } from "./service";
+export { BlobStore, BlobStoreError, BlobStoreOperation, BlobEntry } from "./service";
 export { layerInMemory as BlobStoreInMemory } from "./in-memory";
 export {
   utxoKey,

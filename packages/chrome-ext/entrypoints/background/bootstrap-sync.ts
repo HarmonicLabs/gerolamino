@@ -29,7 +29,7 @@ import {
 } from "consensus";
 import type { LedgerView } from "consensus";
 import { BootstrapMessage, decodeStream } from "bootstrap";
-import { type BlobEntry, BlobStore, PREFIX_UTXO, blockKey, runMigrations } from "storage";
+import { type BlobEntry, BlobStore, PREFIX_UTXO, blockKey } from "storage";
 import { CryptoDirect, initWasm } from "wasm-utils";
 // `init` from wasm-plexer's browser loader is the chrome-ext analogue
 // of the Bun-side top-level-await initialiser in `src/wasm-init.ts`.
@@ -89,9 +89,11 @@ export const bootstrapSyncPipeline = Effect.gen(function* () {
   // (reading 'multiplexerbuffer_new')`).
   yield* Effect.promise(() => initWasmPlexer());
 
-  // In-memory SQLite starts empty — create tables before using ChainDB
-  yield* Effect.log("[bootstrap] Running schema migrations...");
-  yield* runMigrations;
+  // No SQL migrations — `ChainDBBlobOnlyLive` derives its summary state
+  // from a one-shot `BlobStore.scan(PREFIX_VMET)` on layer init, so a
+  // cold SW start replays the volatile region without touching SQL.
+  // The `runMigrations` call that lived here was the
+  // SQLite-WASM-`:memory:` schema bring-up; that path is gone.
 
   // User-picked settings from `chrome.storage.local` (set by the popup
   // setup form) override the build-time defaults. The `mode` field

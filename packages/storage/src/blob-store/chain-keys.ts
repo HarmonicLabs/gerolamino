@@ -38,7 +38,33 @@
  *   genesis block (or nothing if none exists yet) — semantically
  *   correct.
  */
-import { be32, be64, concat } from "codecs";
+// Byte primitives are inlined here rather than imported from `codecs`
+// because `storage` doesn't list `codecs` as a workspace dep — the
+// existing `chain-db-live.ts` follows the same hand-rolled pattern (see
+// its `encodeBlockIndexValue` / `encodeCborOffsetValue` helpers).
+const concat = (...parts: ReadonlyArray<Uint8Array>): Uint8Array => {
+  let total = 0;
+  for (const p of parts) total += p.byteLength;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.byteLength;
+  }
+  return out;
+};
+
+const be64 = (n: bigint): Uint8Array => {
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setBigUint64(0, n, false);
+  return buf;
+};
+
+const be32 = (n: number): Uint8Array => {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setUint32(0, n, false);
+  return buf;
+};
 
 const TEXT_ENCODER = new TextEncoder();
 

@@ -229,7 +229,15 @@ export const parseSync = (input: Uint8Array): CborValue => {
           while (!skipBreak()) items.push(parseCborItem());
           return { _tag: CborKinds.Array, items, addInfos };
         }
-        const items = Array.from({ length: Number(length) }, () => parseCborItem());
+        // Hot-path: per-block decode runs through Array nodes for tx
+        // bodies, witnesses, and certificate sets. Pre-allocate +
+        // assign-by-index avoids the closure capture `Array.from(...,
+        // () => parseCborItem())` would force on V8 — measurable on a
+        // large mainnet block decode where Array depth × length quickly
+        // hits 10^4 calls.
+        const arrLen = Number(length);
+        const items = new Array<CborValue>(arrLen);
+        for (let i = 0; i < arrLen; i++) items[i] = parseCborItem();
         return { _tag: CborKinds.Array, items, addInfos };
       }
 
@@ -243,10 +251,16 @@ export const parseSync = (input: Uint8Array): CborValue => {
           }
           return { _tag: CborKinds.Map, entries, addInfos };
         }
-        const entries = Array.from({ length: Number(length) }, () => ({
-          k: parseCborItem(),
-          v: parseCborItem(),
-        }));
+        // Same hoist as Array: pre-allocate + assign-by-index. Map
+        // decode is also hot — Conway tx bodies are CBOR Maps with up
+        // to 20 keys each, called ~300× per mainnet block.
+        const mapLen = Number(length);
+        const entries = new Array<{ k: CborValue; v: CborValue }>(mapLen);
+        for (let i = 0; i < mapLen; i++) {
+          const k = parseCborItem();
+          const v = parseCborItem();
+          entries[i] = { k, v };
+        }
         return { _tag: CborKinds.Map, entries, addInfos };
       }
 

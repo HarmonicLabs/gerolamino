@@ -171,6 +171,7 @@
     "packages/storage": {
       "name": "storage",
       "dependencies": {
+        "codecs": "workspace:*",
         "drizzle-orm": "1.0.0-rc.1",
         "lsm-ffi": "workspace:*",
       },

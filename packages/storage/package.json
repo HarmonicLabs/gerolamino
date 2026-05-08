@@ -12,6 +12,7 @@
     "drizzle:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "codecs": "workspace:*",
     "drizzle-orm": "1.0.0-rc.1",
     "lsm-ffi": "workspace:*"
   },

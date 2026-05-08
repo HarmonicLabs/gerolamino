@@ -46,6 +46,14 @@ const PHASE_LABEL: Partial<Record<BootstrapPhase, string>> = {
 const phaseLabel = (phase: BootstrapPhase, status: SyncStatus): string =>
   PHASE_LABEL[phase] ?? (status === "connecting" ? "Connecting..." : "Starting...");
 
+// Hoisted formatter — `Number.prototype.toLocaleString()` instantiates a
+// fresh `Intl.NumberFormat` per call. A SyncOverview render fires 5+
+// formatted numbers (blocks processed, accounts written, stake entries,
+// UTxO entries, blocks received) per atom delta from the SW; reusing a
+// single cached formatter saves ~5 allocations per delta.
+const FMT = new Intl.NumberFormat("en-US");
+const formatCount = (n: number): string => FMT.format(n);
+
 export const SyncOverview = () => {
   const { Box, Text, Badge, Progress, Card, Stat, Separator, Sparkline } = usePrimitives();
   const state = useAtomValue(() => nodeStateAtom);
@@ -80,7 +88,7 @@ export const SyncOverview = () => {
           value={syncLabel()}
           trend={state().syncPercent >= 99 ? "up" : "neutral"}
         />
-        <Stat label="Blocks" value={state().blocksProcessed.toLocaleString()} />
+        <Stat label="Blocks" value={formatCount(state().blocksProcessed)} />
         <Stat label="Behind" value={slotsBehind().toString()} description="slots" />
       </Box>
 
@@ -134,9 +142,9 @@ export const SyncOverview = () => {
                     Accounts
                   </Text>
                   <Text size="sm" color="muted">
-                    {bootstrap().accountsWritten.toLocaleString()}
+                    {formatCount(bootstrap().accountsWritten)}
                     <Show when={bootstrap().totalAccounts} keyed>
-                      {(total) => ` / ${total.toLocaleString()}`}
+                      {(total) => ` / ${formatCount(total)}`}
                     </Show>
                   </Text>
                 </Box>
@@ -167,9 +175,9 @@ export const SyncOverview = () => {
                     Stake entries
                   </Text>
                   <Text size="sm" color="muted">
-                    {bootstrap().stakeEntriesWritten.toLocaleString()}
+                    {formatCount(bootstrap().stakeEntriesWritten)}
                     <Show when={bootstrap().totalStakeEntries} keyed>
-                      {(total) => ` / ${total.toLocaleString()}`}
+                      {(total) => ` / ${formatCount(total)}`}
                     </Show>
                   </Text>
                 </Box>
@@ -184,9 +192,9 @@ export const SyncOverview = () => {
                     UTxO entries
                   </Text>
                   <Text size="sm" color="muted">
-                    {bootstrap().blobEntriesReceived.toLocaleString()}
+                    {formatCount(bootstrap().blobEntriesReceived)}
                     {bootstrap().totalBlobEntries > 0
-                      ? ` / ${bootstrap().totalBlobEntries.toLocaleString()}`
+                      ? ` / ${formatCount(bootstrap().totalBlobEntries)}`
                       : ""}
                   </Text>
                 </Box>
@@ -208,7 +216,7 @@ export const SyncOverview = () => {
                     Blocks
                   </Text>
                   <Text size="sm" color="muted">
-                    {bootstrap().blocksReceived.toLocaleString()}
+                    {formatCount(bootstrap().blocksReceived)}
                   </Text>
                 </Box>
               </Box>

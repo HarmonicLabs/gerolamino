@@ -15,6 +15,7 @@
  * both surfaces stay one click apart regardless of viewport.
  */
 import { createSignal, Match, Switch } from "solid-js";
+import { makePersisted } from "@solid-primitives/storage";
 import { usePrimitives } from "../primitives.ts";
 import { SyncOverview } from "./SyncOverview.tsx";
 import { PeerTable } from "./PeerTable.tsx";
@@ -27,9 +28,24 @@ const CENTER_TABS = [
   { label: "Mempool", value: "mempool" },
 ] as const;
 
+type CenterTab = (typeof CENTER_TABS)[number]["value"];
+
+const isCenterTab = (v: unknown): v is CenterTab => v === "peers" || v === "mempool";
+
 export const Dashboard = () => {
   const { Layout, Tabs, Box } = usePrimitives();
-  const [centerTab, setCenterTab] = createSignal<"peers" | "mempool">("peers");
+  // `makePersisted` round-trips through localStorage so the user's panel
+  // choice survives popup close (chrome-ext) + Bun.WebView restart (TUI).
+  // The deserializer rejects anything that isn't a valid CenterTab so a
+  // corrupted entry (older build, hand-edited storage) falls back to the
+  // initial "peers" signal value.
+  const [centerTab, setCenterTab] = makePersisted(
+    createSignal<CenterTab>("peers"),
+    {
+      name: "dashboard.centerTab",
+      deserialize: (raw) => (isCenterTab(raw) ? raw : "peers"),
+    },
+  );
 
   return (
     <Layout

@@ -7,17 +7,22 @@
  *   - **Fork-depth cap**: when `forkDepth > securityParam`, candidate is
  *     rejected regardless of block-number / slot / VRF.
  *   - **Length dominance**: higher `blockNo` wins at shallow fork depth.
- *   - **Density tiebreak**: at equal `blockNo`, lower `slot` (denser) wins.
+ *   - **VRF tiebreak**: at equal `blockNo`, lexicographically-smaller VRF
+ *     output wins (the *only* tiebreak in vanilla Praos).
  *
  * Vanilla Praos is length-first + VRF-tiebreak per Haskell `comparePraos`
- * (`ouroboros-consensus-protocol/.../Praos/Common.hs:126-169`). Density
- * belongs to GSM state, NOT to `preferCandidate` — see `gsmState` in
- * `chain-selection.ts` for the GSM split.
+ * (`ouroboros-consensus-protocol/.../Praos/Common.hs:126-169`). Slot
+ * density is a Genesis-mode heuristic and explicitly NOT part of
+ * `preferCandidate`; the `gsmState` helper in `chain-selection.ts`
+ * tracks the GSM split for that.
  */
 import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
 import { ChainTip, preferCandidate } from "../chain/selection.ts";
+import { compareBytes } from "codecs";
+
+const compareBytesLT = (a: Uint8Array, b: Uint8Array): boolean => compareBytes(a, b) < 0;
 
 const NUM_RUNS = 1_000;
 
@@ -70,23 +75,35 @@ describe("chain-selection (Praos)", () => {
     );
   });
 
-  it("density tiebreak: at equal blockNo, lower slot wins", () => {
+  it("VRF tiebreak: at equal blockNo, lexicographically-smaller VRF wins", () => {
+    // Per `chain/selection.ts` and Haskell `comparePraos`
+    // (`Praos/Common.hs:126-169`), vanilla Praos uses VRF-lowest as the
+    // *only* tiebreak at equal blockNo — slot-density is a Genesis-mode
+    // heuristic and explicitly NOT part of vanilla Praos chain selection.
+    // Generate two distinct VRF outputs, sort lexicographically, assert
+    // the smaller one beats the larger.
+    const vrfArb = FastCheck.uint8Array({ minLength: 32, maxLength: 32 });
     FastCheck.assert(
-      FastCheck.property(
-        tipArb,
-        FastCheck.bigInt({ min: 1n, max: 1_000_000n }),
-        (ours, slotDelta) => {
-          const denser = new ChainTip({
-            slot: ours.slot - slotDelta,
-            blockNo: ours.blockNo,
-            hash: ours.hash,
-            ...(ours.vrfOutput !== undefined ? { vrfOutput: ours.vrfOutput } : {}),
-          });
-          // Meaningful only when slot actually reduced (no BigInt underflow)
-          if (denser.slot >= ours.slot) return true;
-          return preferCandidate(ours, denser, 1, 2160) === true;
-        },
-      ),
+      FastCheck.property(tipArb, vrfArb, vrfArb, (base, vrfA, vrfB) => {
+        // Drop self-pairs — fast-check can produce identical bytes.
+        if (vrfA.every((b, i) => b === vrfB[i])) return true;
+        const lower = compareBytesLT(vrfA, vrfB) ? vrfA : vrfB;
+        const higher = lower === vrfA ? vrfB : vrfA;
+        const tipLower = new ChainTip({
+          slot: base.slot,
+          blockNo: base.blockNo,
+          hash: base.hash,
+          vrfOutput: lower,
+        });
+        const tipHigher = new ChainTip({
+          slot: base.slot,
+          blockNo: base.blockNo,
+          hash: base.hash,
+          vrfOutput: higher,
+        });
+        // ours = tipHigher (loser), candidate = tipLower (winner) → true
+        return preferCandidate(tipHigher, tipLower, 1, 2160) === true;
+      }),
       { numRuns: NUM_RUNS },
     );
   });

@@ -8,6 +8,12 @@ import { SlotClock, SlotClockLive, SlotConfig } from "../praos/clock";
 import { ChainDB, LedgerSnapshotStore } from "storage";
 import { Nonces } from "../praos/nonce";
 import type { LedgerView } from "../validate/header";
+// `handleRollForward` / `handleRollBackward` emit durable chain events via
+// `writeChainEvent` (BlockAccepted / TipAdvanced / RolledBack / EpochBoundary),
+// so the test harness must provide an `EventLog` instance — `ChainEventsLive`
+// is the canonical memory-journal-backed composition (same one used by
+// `stage-eventlog-integration.test.ts`).
+import { ChainEventsLive } from "../chain/event-log";
 
 const testConfig = new SlotConfig({
   systemStartMs: 0,
@@ -63,6 +69,7 @@ const testLayers = Layer.mergeAll(
   slotClockLayer,
   peerManagerLayer,
   stubChainDb,
+  ChainEventsLive,
 );
 
 /**

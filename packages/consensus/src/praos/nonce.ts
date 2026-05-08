@@ -52,24 +52,24 @@ export const deriveEpochNonce = (
     return yield* crypto.blake2b256(concat(candidateNonce, parentHash));
   });
 
-// COEFF_DENOMINATOR lives in `./constants` — shared with `validate/header.ts`
-// so the activeSlotsCoeff fraction precision stays consistent.
-import { COEFF_DENOMINATOR } from "./constants";
-
 /**
  * Check if a slot is past the randomness stabilization window.
  *
- * Per Haskell `Praos.hs` `randomnessStabilisationWindow = 4k/f` slots.
- * The candidate nonce freezes at `epochLength - 4k/f` slots into the
+ * Per Haskell `Cardano.Ledger.Shelley.StabilityWindow.computeRandomnessStabilisationWindow`:
+ *   `randomnessStabilisationWindow = ⌈4k / f⌉`
+ * The candidate nonce freezes at `epochLength - ⌈4k/f⌉` slots into the
  * epoch; before that, candidate = evolving; after, candidate is frozen.
  *
- * Computed via integer arithmetic to avoid float-rounding drift across
- * platforms / JS-engine versions: `4·k·1000/round(f·1000)`. With
- * `(k=2160, f=0.05)`, `coeffNum=50`, the formula gives
- * `4·2160·1000/50 = 172800` exactly — same answer as the prior
- * `Math.ceil((4*k)/f)` but with no float in the data path.
+ * Direct float division + `Math.ceil` matches the Haskell `ceiling`
+ * exactly. The previous `4·k·1000/round(f·1000)` formulation lost
+ * precision when `f · 1000` happened to round (e.g., `f =
+ * 0.001000250...` rounded to `1`, inflating the window 1000×); both
+ * mainnet (k=2160, f=0.05) and synthetic property-test parameters are
+ * within `Number.MAX_SAFE_INTEGER`, so float arithmetic is the
+ * spec-faithful path.
  *
- * For standard params (k=2160, f=0.05): freezes at slot 259,200 of 432,000.
+ * For standard mainnet params (k=2160, f=0.05): `⌈4·2160 / 0.05⌉ =
+ * 172800` exactly; freezes at slot 259,200 of the 432,000-slot epoch.
  */
 export const isPastStabilizationWindow = (
   slotInEpoch: bigint,
@@ -77,12 +77,11 @@ export const isPastStabilizationWindow = (
   activeSlotsCoeff: number,
   epochLength: bigint,
 ): boolean => {
-  const coeffNum = Math.round(activeSlotsCoeff * COEFF_DENOMINATOR);
-  // Guard against a configuration where `f` rounds to zero — would otherwise
-  // divide by zero and return a window of `Infinity`. Practical parameters
-  // never hit this, but the explicit fallback keeps the pure helper safe to
+  // Guard against a configuration where `f ≤ 0` — would otherwise divide
+  // by zero / negative and return a nonsense window. Practical parameters
+  // never hit this; the explicit fallback keeps the pure helper safe to
   // call from unit tests with synthetic values.
-  if (coeffNum <= 0) return false;
-  const stabilizationWindow = Math.floor((4 * securityParam * COEFF_DENOMINATOR) / coeffNum);
+  if (activeSlotsCoeff <= 0) return false;
+  const stabilizationWindow = Math.ceil((4 * securityParam) / activeSlotsCoeff);
   return slotInEpoch >= epochLength - BigInt(stabilizationWindow);
 };

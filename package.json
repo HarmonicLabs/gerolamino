@@ -16,9 +16,6 @@
     "@effect/opentelemetry": "^4.0.0-beta.59",
     "@effect/platform-browser": "^4.0.0-beta.59",
     "@effect/platform-bun": "^4.0.0-beta.59",
-    "@effect/sql-sqlite-bun": "^4.0.0-beta.59",
-    "@effect/sql-sqlite-wasm": "^4.0.0-beta.59",
-    "@effect/wa-sqlite": "^0.2.1",
     "effect": "^4.0.0-beta.59"
   },
   "devDependencies": {
@@ -30,5 +27,26 @@
     "tslib": "^2.8.1",
     "vite-plugin-wasm": "^3.6.0",
     "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "//": "Defense-in-depth against the Shai-Hulud (2025-09-16), Shai-Hulud 2.0 (2025-11-24), and Mini Shai-Hulud (2026-05-12) npm supply-chain waves. Each pin floors at the first SAFE version following the corresponding compromise. Audit verified clean — none of these packages was resolved to a bad version, but pinning prevents a future indirect dep from re-introducing one. Update only when the upstream releases a new patch >= these floors.",
+    "chalk": ">=5.6.2",
+    "debug": ">=4.3.7",
+    "ansi-styles": ">=6.2.3",
+    "ansi-regex": ">=6.2.2",
+    "strip-ansi": ">=7.1.2",
+    "wrap-ansi": ">=9.0.2",
+    "slice-ansi": ">=7.1.2",
+    "color-convert": ">=2.0.1 <3.0.0",
+    "color-name": ">=1.1.4 <2.0.0",
+    "color-string": ">=2.1.2",
+    "color": ">=5.0.2",
+    "supports-color": ">=10.2.2",
+    "simple-swizzle": ">=0.2.4",
+    "supports-hyperlinks": ">=4.1.2",
+    "has-ansi": ">=6.0.2",
+    "chalk-template": ">=1.1.2",
+    "is-arrayish": ">=0.2.1 <0.3.0",
+    "backslash": ">=0.2.2"
   }
 }

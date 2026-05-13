@@ -38,7 +38,17 @@ export interface SetupFormProps {
 }
 
 export const SetupForm: Component<SetupFormProps> = (props) => {
-  const [mode, setMode] = createSignal<BootstrapMode>(DEFAULT_SETTINGS.mode);
+  // Honor `?mode=local|genesis` from the URL so the "Open setup in a
+  // dedicated tab" link from `SnapshotUpload` can pre-select the
+  // mode the user had picked in the (closed) popup. Defaults to
+  // `DEFAULT_SETTINGS.mode` otherwise.
+  const initialMode = ((): BootstrapMode => {
+    const q = typeof globalThis.window !== "undefined"
+      ? new URLSearchParams(globalThis.window.location.search).get("mode")
+      : null;
+    return q === "local" || q === "genesis" ? q : DEFAULT_SETTINGS.mode;
+  })();
+  const [mode, setMode] = createSignal<BootstrapMode>(initialMode);
   const [snapshotUploaded, setSnapshotUploaded] = createSignal(false);
   const [error, setError] = createSignal<string | undefined>();
   const [busy, setBusy] = createSignal(false);

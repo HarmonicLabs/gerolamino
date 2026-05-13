@@ -261,7 +261,9 @@ export const SnapshotUpload: Component<SnapshotUploadProps> = (props) => {
     globalThis.window.location.search !== "?fullpage=1";
 
   const openInTab = () => {
-    const url = globalThis.chrome.runtime.getURL("popup.html") + "?fullpage=1";
+    // Pre-select `mode=local` in the tab so the user doesn't have to
+    // re-click the radio. SetupForm reads `?mode=` on mount.
+    const url = globalThis.chrome.runtime.getURL("popup.html") + "?fullpage=1&mode=local";
     void globalThis.chrome.tabs.create({ url });
     // Close the popup so the user only has one window open. The
     // close call needs to happen on a microtask boundary so the tab

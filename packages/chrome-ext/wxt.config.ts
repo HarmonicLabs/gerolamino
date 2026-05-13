@@ -105,5 +105,30 @@ export default defineConfig({
         process.env.BOOTSTRAP_URL ?? "ws://localhost:3040",
       ),
     },
+    // Worker bundling — emit each `new Worker(new URL("./workers/X.ts",
+    // import.meta.url), { type: "module" })` as a separate ES-module
+    // chunk under `chunks/` rather than inlining the raw `.ts` source
+    // as a `data:video/mp2t;base64,…` URL. The data-URL form fails in
+    // MV3 extensions on two counts:
+    //   1. CSP `script-src 'self' 'wasm-unsafe-eval'` rejects `data:`
+    //      workers (worker-src falls back to script-src; data: isn't
+    //      in the allow-list).
+    //   2. The `.ts` extension serializes as `video/mp2t` (MPEG-2
+    //      Transport Stream), so Chrome's "Strict MIME type checking
+    //      for module scripts" rejects it as non-JavaScript.
+    // `format: "es"` makes Vite emit module workers (matches the
+    // `{ type: "module" }` option in the `new Worker(...)` calls).
+    worker: {
+      format: "es",
+    },
+    // Disable inline-asset emission entirely for the extension build.
+    // The Vite default (4 KiB threshold) inlines small assets as
+    // data: URLs which collides with the MV3 CSP — and since every
+    // referenced file under `entrypoints/` resolves to a relative
+    // path the extension can serve directly, there's no benefit to
+    // inlining.
+    build: {
+      assetsInlineLimit: 0,
+    },
   }),
 });

@@ -150,6 +150,10 @@ export const SlotClockLive = (config: SlotConfig) =>
  * SlotClock layer from environment Config.
  * Reads CARDANO_SYSTEM_START_MS etc. from the environment.
  * Falls back to preprod defaults for optional params.
+ *
+ * `SlotConfigFromEnv` is a `Config<SlotConfig>`, not an `Effect<...>`,
+ * so we yield it inside `Effect.gen` (Configs only behave as
+ * effects after they're yielded into an Effect runtime context).
  */
 export const SlotClockLayerFromConfig = Effect.gen(function* () {
   const config = yield* SlotConfigFromEnv;

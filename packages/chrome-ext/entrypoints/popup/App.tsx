@@ -20,8 +20,18 @@ import { type BootstrapSettings, loadSettings } from "../shared/bootstrap-settin
 
 const App: Component = () => {
   const [overrideSettings, setOverrideSettings] = createSignal<BootstrapSettings | undefined>();
+  // 500 ms cap on the chrome.storage.local round-trip — under normal
+  // operation this returns within ~5 ms, but a corrupted store entry
+  // or a stalled-hung extension state can hang the popup indefinitely.
+  // The timeout + catch-all collapse both "no settings yet" and
+  // "storage hung" into the same `undefined` result, so the SetupForm
+  // path renders deterministically.
   const [stored] = createResource(() =>
-    Effect.runPromise(loadSettings).catch(() => undefined),
+    loadSettings.pipe(
+      Effect.timeout("500 millis"),
+      Effect.catch(() => Effect.succeed<BootstrapSettings | undefined>(undefined)),
+      Effect.runPromise,
+    ),
   );
 
   const settings = () => overrideSettings() ?? stored();

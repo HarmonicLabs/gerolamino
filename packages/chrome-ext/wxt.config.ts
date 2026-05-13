@@ -27,8 +27,23 @@ const workspaceAliases = [
   { find: /^consensus\/(.*)/, replacement: path.join(pkg("consensus"), "$1") },
   { find: /^dashboard$/, replacement: path.join(pkg("dashboard"), "index.ts") },
   { find: /^dashboard\/(.*)/, replacement: path.join(pkg("dashboard"), "$1") },
+  // The package's directory is `packages/ffi/` but its npm name is
+  // `lsm-ffi` (per `packages/ffi/package.json#name`). Map both
+  // bare-name forms — `from "ffi"` for legacy paths still in tree
+  // and `from "lsm-ffi"` (the canonical name) — to the same source.
+  // Without `lsm-ffi`'s alias Vite walks node_modules to find the
+  // package and that walk surprises Rolldown's chunker with a stray
+  // solid-js import attempt from `lsm-wasm/blob-store.ts` (which is
+  // not solid-js related — the JSX-runtime injection from
+  // `jsxImportSource: solid-js` leaks the symbol onto every
+  // transpiled .ts file in the workspace). The companion `solid-js`
+  // dep on the root `package.json` ensures Bun hoists it to the
+  // top-level `node_modules/` so any workspace package's walk-up
+  // resolves it.
   { find: /^ffi$/, replacement: path.join(pkg("ffi"), "index.ts") },
   { find: /^ffi\/(.*)/, replacement: path.join(pkg("ffi"), "$1") },
+  { find: /^lsm-ffi$/, replacement: path.join(pkg("ffi"), "index.ts") },
+  { find: /^lsm-ffi\/(.*)/, replacement: path.join(pkg("ffi"), "$1") },
   // Resolve `wasm-utils` to source so the high-level Crypto service +
   // CryptoOpError + initWasm are reachable. The source `index.ts`
   // pulls the wasm-bindgen bundle in as `import init from "../pkg/wasm_utils.js"`,
@@ -47,6 +62,13 @@ export default defineConfig({
   manifest: {
     name: "Gerolamino",
     description: "In-browser Cardano node",
+    // Chrome 124+ ships the WORKERS offscreen Reason (indefinite
+    // lifetime), Chrome 116+ ships `runtime.getContexts()` for race-free
+    // offscreen lifecycle introspection, and Chrome 126+ fixes the
+    // bad-URL-on-createDocument ghost-document issue. 124 covers the
+    // floor we depend on; older Chromes would hit the AUDIO_PLAYBACK
+    // 30-second timeout on our daemon and silently corrupt the manager.
+    minimum_chrome_version: "124",
     // `unlimitedStorage` covers our IndexedDB usage (BlobStore quota
     // bypass); we intentionally do NOT request `storage` because the
     // chrome.storage.* surface is unused — state flows through the
@@ -58,25 +80,22 @@ export default defineConfig({
     // form to persist the chosen `BootstrapMode` + serverUrl); the SW
     // reads the same key on startup before opening any WebSocket.
     permissions: ["unlimitedStorage", "alarms", "offscreen", "storage"],
-    // The bootstrap server runs locally on the same host as the
-    // browser (override at build time via `BOOTSTRAP_URL` env var; see
-    // the `define` block below). Browser requires explicit
-    // host_permissions for WS connections to a different origin from a
-    // service worker.
+    // The relay-proxy WS endpoint runs on the same host as the browser
+    // (override at build time via `BOOTSTRAP_URL` env var; see the
+    // `define` block below). Browsers require explicit
+    // `host_permissions` for WS connections to a different origin
+    // from a service worker.
     host_permissions: ["*://localhost/*", "*://127.0.0.1/*"],
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
     },
   },
-  // `__BOOTSTRAP_URL__`, `__ENABLE_BOOTSTRAP__`, and `__BLOCK_BATCH__` are
-  // global identifiers declared in
-  // `entrypoints/background/bootstrap-sync.ts` and rewritten to literals
-  // here at build time. `Config.string` / `Config.boolean` /
-  // `Config.integer` would require a runtime `process.env`, which doesn't
-  // exist in the browser bundle. Override at build time via env vars on
-  // `wxt build`:
-  //   BOOTSTRAP_URL=ws://localhost:3040 ENABLE_BOOTSTRAP=true \
-  //     BLOCK_BATCH=500 bunx --bun wxt build --mode development
+  // `__BOOTSTRAP_URL__` is the relay-proxy base URL — declared in
+  // `entrypoints/offscreen/bootstrap-sync.ts` and rewritten to a
+  // literal here at build time. `Config.string` would require a
+  // runtime `process.env`, which doesn't exist in the browser
+  // bundle. Override at build time via:
+  //   BOOTSTRAP_URL=ws://localhost:3040 bunx --bun wxt build --mode development
   vite: () => ({
     resolve: {
       alias: workspaceAliases,
@@ -85,8 +104,6 @@ export default defineConfig({
       __BOOTSTRAP_URL__: JSON.stringify(
         process.env.BOOTSTRAP_URL ?? "ws://localhost:3040",
       ),
-      __ENABLE_BOOTSTRAP__: JSON.stringify(process.env.ENABLE_BOOTSTRAP === "true"),
-      __BLOCK_BATCH__: JSON.stringify(parseInt(process.env.BLOCK_BATCH ?? "500", 10)),
     },
   }),
 });

@@ -29,14 +29,21 @@
  * visible-window mode — so the only way to actually *see* the
  * dashboard is from an external browser pointed at this server.
  */
-import { Effect, Layer, PubSub, Ref, Schedule, Stream } from "effect";
+import { Effect, Layer, PubSub, Stream } from "effect";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpStaticServer from "effect/unstable/http/HttpStaticServer";
 import { BunHttpServer } from "@effect/platform-bun";
 import { resolve } from "node:path";
+// Pull the delta + broadcast helpers from the leaf sub-paths rather
+// than the `dashboard` barrel. The barrel re-exports the Solid DOM
+// primitives (`Tabs.tsx` etc.); Bun's JSX-runtime resolution for
+// those `.tsx` files trips on `react/jsx-dev-runtime` at module-init
+// time even though the headless TUI never renders them. Sub-path
+// imports keep the Bun-side import graph host-agnostic.
 import { buildDeltaJson } from "dashboard/delta.ts";
+import { makeBroadcastFiber } from "dashboard/broadcast.ts";
 import { registry } from "./atoms.ts";
 import { DELTA_PUSH_INTERVAL_MS, DASHBOARD_PORT } from "../constants.ts";
 
@@ -74,32 +81,12 @@ const wsRouteLayer = (broadcast: PubSub.PubSub<string>) =>
   );
 
 /**
- * Forever-fiber: poll the dashboard atom registry on the configured
- * cadence, build a JSON delta, dedup against the last published
- * string, and publish via PubSub. Fan-out to N subscribers is the
- * PubSub's job — one stringify per tick regardless of client count.
- */
-const broadcastFiber = (broadcast: PubSub.PubSub<string>) =>
-  Effect.gen(function* () {
-    const lastJsonRef = yield* Ref.make("");
-    yield* Effect.repeat(
-      Effect.gen(function* () {
-        const json = buildDeltaJson(registry);
-        const last = yield* Ref.get(lastJsonRef);
-        if (json === last) return;
-        yield* Ref.set(lastJsonRef, json);
-        yield* PubSub.publish(broadcast, json);
-      }),
-      Schedule.fixed(`${DELTA_PUSH_INTERVAL_MS} millis`),
-    );
-  });
-
-/**
- * Run the dashboard HTTP+WS server forever. Forks the broadcast fiber,
- * composes static + WS route layers, launches the Bun-backed HTTP
- * server. Blocks the calling fiber until scope close (Ctrl-C, defect,
- * scope error). Callers should `Effect.forkScoped(startDashboardServer)`
- * to run it as a daemon alongside the consensus stack.
+ * Run the dashboard HTTP+WS server forever. Forks the shared broadcast
+ * fiber (`dashboard/broadcast.ts:makeBroadcastFiber`), composes static
+ * + WS route layers, launches the Bun-backed HTTP server. Blocks the
+ * calling fiber until scope close (Ctrl-C, defect, scope error).
+ * Callers should `Effect.forkScoped(startDashboardServer)` to run it
+ * as a daemon alongside the consensus stack.
  *
  * Listens on `127.0.0.1:DASHBOARD_PORT` — local-only by default. Open
  * to LAN by changing `hostname` to `"0.0.0.0"` once auth lands.
@@ -107,7 +94,7 @@ const broadcastFiber = (broadcast: PubSub.PubSub<string>) =>
 export const startDashboardServer = Effect.gen(function* () {
   const broadcast = yield* PubSub.unbounded<string>();
 
-  yield* Effect.forkScoped(broadcastFiber(broadcast));
+  yield* Effect.forkScoped(makeBroadcastFiber(registry, broadcast, DELTA_PUSH_INTERVAL_MS));
 
   const routerLayer = Layer.mergeAll(
     HttpStaticServer.layer({ root: SPA_DIST_DIR, index: "index.html" }),

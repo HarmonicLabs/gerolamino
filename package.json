@@ -16,7 +16,8 @@
     "@effect/opentelemetry": "^4.0.0-beta.59",
     "@effect/platform-browser": "^4.0.0-beta.59",
     "@effect/platform-bun": "^4.0.0-beta.59",
-    "effect": "^4.0.0-beta.59"
+    "effect": "^4.0.0-beta.59",
+    "solid-js": "^1.9.12"
   },
   "devDependencies": {
     "@effect/language-service": "^0.85.1",

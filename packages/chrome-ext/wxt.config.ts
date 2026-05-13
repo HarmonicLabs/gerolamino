@@ -79,7 +79,7 @@ export default defineConfig({
     // `storage` covers `chrome.storage.local` (used by the popup setup
     // form to persist the chosen `BootstrapMode` + serverUrl); the SW
     // reads the same key on startup before opening any WebSocket.
-    permissions: ["unlimitedStorage", "alarms", "offscreen", "storage"],
+    permissions: ["unlimitedStorage", "alarms", "offscreen", "storage", "tabs"],
     // The relay-proxy WS endpoint runs on the same host as the browser
     // (override at build time via `BOOTSTRAP_URL` env var; see the
     // `define` block below). Browsers require explicit

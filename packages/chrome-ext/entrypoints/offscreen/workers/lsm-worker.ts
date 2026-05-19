@@ -82,6 +82,12 @@ const lsmLog = (message: string): void => {
   logChannel.postMessage(stamped);
 };
 
+// Fires once per Worker module-load. If multiple lines appear in the
+// offscreen page log, Effect's Pool has spawned > 1 worker instance —
+// each gets its own JS module + its own workerStartMs. Critical
+// diagnostic for the synthetic-spec May-2026 release-loop debugging.
+lsmLog(`module loaded (startMs=${workerStartMs}, channel=${LSM_WORKER_LOG_CHANNEL})`);
+
 // ───────────────────────────────────────────────────────────────────
 // OPFS-backed WASI filesystem.
 //
@@ -270,9 +276,17 @@ const requireTable = (state: WorkerState): Effect.Effect<number, BlobStoreError>
 interface UploadSink {
   /** Path → open sync handle for in-progress uploads. */
   readonly open: Map<string, FileSystemSyncAccessHandle>;
+  /** Path → tail-of-queue Promise. Concurrent `writeChunk` calls for
+   *  the same path chain off this promise so the OPFS sync-handle is
+   *  acquired exactly once. Worker pool / RPC retry cascades can cause
+   *  the same chunk to dispatch 3+ times concurrently; without this
+   *  serialisation each dispatch races `createSyncAccessHandle` and
+   *  deadlocks. The May-2026 release loop's `upload-synthetic.spec.ts`
+   *  worker-side log capture surfaced this. */
+  readonly queue: Map<string, Promise<void>>;
 }
 
-const newUploadSink = (): UploadSink => ({ open: new Map() });
+const newUploadSink = (): UploadSink => ({ open: new Map(), queue: new Map() });
 
 const wrapBlobError = (cause: unknown) =>
   new BlobStoreError({ operation: "lsm", cause });
@@ -287,43 +301,71 @@ const writeChunk = (
   Effect.tryPromise({
     try: async () => {
       lsmLog(`writeChunk enter path=${path} offset=${offset} bytes=${bytes.length} final=${final}`);
-      let handle = sink.open.get(path);
-      if (handle === undefined) {
-        // Resolve parent path + create directory chain. OPFS API only
-        // creates one level at a time, so we walk the split path.
-        lsmLog(`writeChunk[${path}]: getDirectory ...`);
-        const root = await navigator.storage.getDirectory();
-        lsmLog(`writeChunk[${path}]: getDirectory done`);
-        const segments = path.split("/").filter((s) => s.length > 0);
-        const filename = segments.pop();
-        if (filename === undefined) {
-          throw new BlobStoreError({
-            operation: "lsm",
-            cause: `LsmUploadChunk: empty path "${path}" — at least one segment required`,
-          });
+      // Per-path serialisation gate. Chain off the previous in-flight
+      // promise for this path so concurrent dispatches process one at
+      // a time. Resolves the "3 concurrent createSyncAccessHandle for
+      // the same OPFS file" race observed under upload-spec retries
+      // (Effect Worker pool / RPC layers can re-dispatch the same
+      // request 2-3× concurrently; without this gate each dispatch
+      // races `createSyncAccessHandle` and deadlocks).
+      const previous = sink.queue.get(path) ?? Promise.resolve();
+      const work = previous.then(() => writeChunkImpl(sink, path, offset, bytes, final));
+      const wrapped = work.catch(() => undefined);
+      sink.queue.set(path, wrapped);
+      try {
+        await work;
+      } finally {
+        if (final && sink.queue.get(path) === wrapped) {
+          sink.queue.delete(path);
         }
-        let dir = root;
-        for (const seg of segments) {
-          lsmLog(`writeChunk[${path}]: getDirectoryHandle("${seg}") ...`);
-          dir = await dir.getDirectoryHandle(seg, { create: true });
-        }
-        lsmLog(`writeChunk[${path}]: getFileHandle("${filename}") ...`);
-        const file = await dir.getFileHandle(filename, { create: true });
-        lsmLog(`writeChunk[${path}]: createSyncAccessHandle ...`);
-        handle = await file.createSyncAccessHandle();
-        lsmLog(`writeChunk[${path}]: createSyncAccessHandle done`);
-        sink.open.set(path, handle);
-      }
-      handle.write(bytes, { at: offset });
-      if (final) {
-        handle.flush();
-        handle.close();
-        sink.open.delete(path);
       }
       lsmLog(`writeChunk exit path=${path}`);
     },
     catch: wrapBlobError,
   });
+
+/** Inner write — runs serially per path via `writeChunk`'s queue. */
+const writeChunkImpl = async (
+  sink: UploadSink,
+  path: string,
+  offset: number,
+  bytes: Uint8Array,
+  final: boolean,
+): Promise<void> => {
+  let handle = sink.open.get(path);
+  if (handle === undefined) {
+    // Resolve parent path + create directory chain. OPFS API only
+    // creates one level at a time, so we walk the split path.
+    lsmLog(`writeChunk[${path}]: getDirectory ...`);
+    const root = await navigator.storage.getDirectory();
+    lsmLog(`writeChunk[${path}]: getDirectory done`);
+    const segments = path.split("/").filter((s) => s.length > 0);
+    const filename = segments.pop();
+    if (filename === undefined) {
+      throw new BlobStoreError({
+        operation: "lsm",
+        cause: `LsmUploadChunk: empty path "${path}" — at least one segment required`,
+      });
+    }
+    let dir = root;
+    for (const seg of segments) {
+      lsmLog(`writeChunk[${path}]: getDirectoryHandle("${seg}") ...`);
+      dir = await dir.getDirectoryHandle(seg, { create: true });
+    }
+    lsmLog(`writeChunk[${path}]: getFileHandle("${filename}") ...`);
+    const file = await dir.getFileHandle(filename, { create: true });
+    lsmLog(`writeChunk[${path}]: createSyncAccessHandle ...`);
+    handle = await file.createSyncAccessHandle();
+    lsmLog(`writeChunk[${path}]: createSyncAccessHandle done`);
+    sink.open.set(path, handle);
+  }
+  handle.write(bytes, { at: offset });
+  if (final) {
+    handle.flush();
+    handle.close();
+    sink.open.delete(path);
+  }
+};
 
 // ───────────────────────────────────────────────────────────────────
 // RPC handlers. Each method maps an RPC payload onto the

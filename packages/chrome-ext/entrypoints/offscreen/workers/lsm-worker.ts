@@ -54,6 +54,35 @@ const wasmUrl = lsmTreeWasmUrl;
 const jsffiUrl = lsmTreeJsffiUrl;
 
 // ───────────────────────────────────────────────────────────────────
+// Log relay. The Worker can't `Effect.log` to its parent offscreen
+// page — `BrowserWorkerRunner` owns the postMessage channel for RPC.
+// Workers' own `console.log` lands in Chrome DevTools' Web Worker
+// inspector but does NOT propagate to Playwright's
+// `page.on("console", ...)` listener on the parent.
+//
+// To get diagnostic visibility (e.g. while debugging the
+// `upload-synthetic.spec.ts` hang), broadcast log lines over a
+// dedicated `BroadcastChannel`. The offscreen page subscribes via
+// `entrypoints/offscreen/main.ts` and forks each message into
+// `Effect.logInfo` — Playwright then captures them as offscreen logs.
+//
+// BroadcastChannel is same-origin pub-sub; the channel name is fixed
+// per-worker because there's only one lsm-worker at a time (pool
+// `maxSize: 1` invariant).
+// ───────────────────────────────────────────────────────────────────
+
+const LSM_WORKER_LOG_CHANNEL = "gerolamino/lsm-worker-log";
+const logChannel = new BroadcastChannel(LSM_WORKER_LOG_CHANNEL);
+const workerStartMs = Date.now();
+const lsmLog = (message: string): void => {
+  const t = (Date.now() - workerStartMs).toString().padStart(5, " ");
+  const stamped = `+${t}ms ${message}`;
+  // Also emit to the Worker's own console for live DevTools inspection.
+  console.log(`[lsm-worker] ${stamped}`);
+  logChannel.postMessage(stamped);
+};
+
+// ───────────────────────────────────────────────────────────────────
 // OPFS-backed WASI filesystem.
 //
 // `@bjorn3/browser_wasi_shim`'s `PreopenDirectory` builds an
@@ -257,11 +286,14 @@ const writeChunk = (
 ): Effect.Effect<void, BlobStoreError> =>
   Effect.tryPromise({
     try: async () => {
+      lsmLog(`writeChunk enter path=${path} offset=${offset} bytes=${bytes.length} final=${final}`);
       let handle = sink.open.get(path);
       if (handle === undefined) {
         // Resolve parent path + create directory chain. OPFS API only
         // creates one level at a time, so we walk the split path.
+        lsmLog(`writeChunk[${path}]: getDirectory ...`);
         const root = await navigator.storage.getDirectory();
+        lsmLog(`writeChunk[${path}]: getDirectory done`);
         const segments = path.split("/").filter((s) => s.length > 0);
         const filename = segments.pop();
         if (filename === undefined) {
@@ -272,10 +304,14 @@ const writeChunk = (
         }
         let dir = root;
         for (const seg of segments) {
+          lsmLog(`writeChunk[${path}]: getDirectoryHandle("${seg}") ...`);
           dir = await dir.getDirectoryHandle(seg, { create: true });
         }
+        lsmLog(`writeChunk[${path}]: getFileHandle("${filename}") ...`);
         const file = await dir.getFileHandle(filename, { create: true });
+        lsmLog(`writeChunk[${path}]: createSyncAccessHandle ...`);
         handle = await file.createSyncAccessHandle();
+        lsmLog(`writeChunk[${path}]: createSyncAccessHandle done`);
         sink.open.set(path, handle);
       }
       handle.write(bytes, { at: offset });
@@ -284,6 +320,7 @@ const writeChunk = (
         handle.close();
         sink.open.delete(path);
       }
+      lsmLog(`writeChunk exit path=${path}`);
     },
     catch: wrapBlobError,
   });

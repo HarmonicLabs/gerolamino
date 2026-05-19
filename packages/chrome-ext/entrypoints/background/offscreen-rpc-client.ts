@@ -60,6 +60,16 @@ export const OffscreenClientLive = Layer.effect(
  *  lands once the offscreen RpcServer is listening. Total budget:
  *  60 attempts × ~3.5 s ≈ 3.5 min before giving up.
  *
+ *  Use this for FAST operations where the only legitimate latency is
+ *  the offscreen's cold-start (Ping, RequestRestart, InspectOpfsSnapshot).
+ *  For slow operations like snapshot upload or lsm-tree session reopen,
+ *  use `relayLong` — those can take 10-30 s under load and a 3-second
+ *  per-attempt timeout creates RPC retry cascades where the offscreen
+ *  dispatches the same request multiple times to the lsm-worker, all
+ *  racing for the same exclusive OPFS sync handle and deadlocking the
+ *  upload pipeline (the May-2026 release-loop diagnostic surfaced this
+ *  via `e2e/upload-synthetic.spec.ts`'s worker-side log relay).
+ *
  *  `Effect.timeoutOrElse` substitutes a typed `RpcClientError` rather
  *  than widening the error channel with `TimeoutException` — keeps
  *  the caller's `E` channel stable so handlers downstream don't have
@@ -83,5 +93,38 @@ export const relayRetry = <A, E, R>(
     Effect.retry({
       schedule: Schedule.spaced("500 millis"),
       times: 60,
+    }),
+  );
+
+/** Variant of `relayRetry` for slow operations: snapshot upload chunks
+ *  + lsm-tree session reopen. These can take 10-30 s under load — a
+ *  3-second per-attempt timeout would create RPC retry cascades where
+ *  the offscreen dispatches concurrent requests racing for the same
+ *  exclusive OPFS sync handle, deadlocking the upload pipeline.
+ *
+ *  Per-attempt 60 s × 5 attempts = 5-minute budget. Covers the slowest
+ *  legitimate OPFS write path while still bounding total wait if the
+ *  offscreen is genuinely dead. NO retries on success (Effect.retry
+ *  only fires on failure); if the operation completes in 30 s, we
+ *  return immediately. */
+export const relayLong = <A, E, R>(
+  self: Effect.Effect<A, E | RpcClientError, R>,
+): Effect.Effect<A, E | RpcClientError, R> =>
+  self.pipe(
+    Effect.timeoutOrElse({
+      duration: "60 seconds",
+      orElse: () =>
+        Effect.fail(
+          new RpcClientError({
+            reason: new RpcClientDefect({
+              message: "relayLong: per-attempt timeout after 60s",
+              cause: new Error("relayLong timeout"),
+            }),
+          }),
+        ),
+    }),
+    Effect.retry({
+      schedule: Schedule.spaced("1 second"),
+      times: 4,
     }),
   );

@@ -178,8 +178,24 @@ const OffscreenRpcServerLive = RpcServer.layer(OffscreenRpcs, {
 // Worker is spawned exactly once and shared between consumers.
 // ---------------------------------------------------------------------------
 
+/** Subscribe to the lsm-worker's BroadcastChannel log relay so the
+ *  Worker's diagnostic logs land in the offscreen page's console (and
+ *  by extension Playwright's `page.on("console", ...)` capture). The
+ *  Worker is spawned via Vite `?worker` import, so Web Workers spawned
+ *  there don't get their `console.log` propagated to the parent —
+ *  hence the dedicated channel. See `workers/lsm-worker.ts:lsmLog`. */
+const subscribeToLsmWorkerLog = Effect.sync(() => {
+  const channel = new BroadcastChannel("gerolamino/lsm-worker-log");
+  channel.addEventListener("message", (event) => {
+    if (typeof event.data === "string") {
+      console.log(`[lsm-worker] ${event.data}`);
+    }
+  });
+});
+
 const program = Effect.gen(function* () {
   yield* Effect.logInfo("[offscreen] Offscreen daemon booting");
+  yield* subscribeToLsmWorkerLog;
   yield* Effect.logInfo("[offscreen] Launching OffscreenRpcs server");
   // `Effect.forkScoped` ties these daemons to `program`'s scope. We
   // DON'T `Effect.scoped` the outer pipe — the scope below stays open

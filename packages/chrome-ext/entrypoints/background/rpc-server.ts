@@ -11,7 +11,7 @@
 import { Effect, Layer, Stream } from "effect";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
 import { NodeRpcs } from "./rpc.ts";
-import { OffscreenClient, OffscreenClientLive, relayRetry } from "./offscreen-rpc-client.ts";
+import { OffscreenClient, OffscreenClientLive, relayLong, relayRetry } from "./offscreen-rpc-client.ts";
 import { layerServerProtocolChromePort } from "./rpc-transport.ts";
 
 export const NodeRpcHandlers = NodeRpcs.toLayer(
@@ -26,11 +26,15 @@ export const NodeRpcHandlers = NodeRpcs.toLayer(
           return { ok: !result.alreadyRunning };
         }).pipe(Effect.orDie),
 
+      // Upload chunks + reopen use `relayLong` (60 s per-attempt timeout)
+      // because OPFS sync handles can take seconds to create under load;
+      // the older 3 s `relayRetry` caused RPC retry cascades that race
+      // for the same exclusive handle and deadlock the pipeline.
       UploadSnapshotChunk: (payload) =>
-        relayRetry(offscreen.UploadSnapshotChunk(payload)).pipe(Effect.orDie),
+        relayLong(offscreen.UploadSnapshotChunk(payload)).pipe(Effect.orDie),
 
       ReopenAfterSnapshot: () =>
-        relayRetry(offscreen.ReopenAfterSnapshot()).pipe(Effect.orDie),
+        relayLong(offscreen.ReopenAfterSnapshot()).pipe(Effect.orDie),
 
       InspectOpfsSnapshot: () =>
         relayRetry(offscreen.InspectOpfsSnapshot()).pipe(Effect.orDie),

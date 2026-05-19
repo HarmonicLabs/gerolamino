@@ -131,7 +131,13 @@ const OffscreenRpcHandlers = OffscreenRpcs.toLayer(
       UploadSnapshotChunk: ({ path, offset, bytes, final }) =>
         Effect.logInfo(
           `[offscreen-handler] UploadSnapshotChunk path=${path} offset=${offset} bytes=${bytes.length} final=${final}`,
-        ).pipe(Effect.andThen(lsm.LsmUploadChunk({ path, offset, bytes, final })), Effect.orDie),
+        ).pipe(
+          Effect.andThen(lsm.LsmUploadChunk({ path, offset, bytes, final })),
+          Effect.tap(() =>
+            Effect.logInfo(`[offscreen-handler] UploadSnapshotChunk DONE path=${path}`),
+          ),
+          Effect.orDie,
+        ),
       ReopenAfterSnapshot: () =>
         Effect.logInfo("[offscreen-handler] ReopenAfterSnapshot").pipe(
           Effect.andThen(lsm.LsmReopenAfterUpload({})),

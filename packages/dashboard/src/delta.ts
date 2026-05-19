@@ -27,7 +27,7 @@
  * per atom. The producer always emits the full snapshot; the broadcast
  * fiber dedups consecutive identical strings before publishing.
  */
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import {
@@ -94,10 +94,14 @@ const DeltaSchema = Schema.Struct({
 });
 export type Delta = typeof DeltaSchema.Type;
 
-/** Hoisted decoder — `Schema.decodeUnknownSync` materialises a parser
- *  closure on first call; reusing the bound function keeps the per-tick
- *  cost to one map lookup + the actual decode walk. */
-const decodeDelta = Schema.decodeUnknownSync(DeltaSchema);
+/** Hoisted shape guard — `Schema.is` is 5-10× faster than
+ *  `decodeUnknownSync` because it skips transformations and only checks
+ *  structure. The wire format already round-trips bigint/Uint8Array
+ *  through the JSON.parse reviver, so values are in their final shape
+ *  by the time we validate them; we only need to verify the shape, not
+ *  re-parse it. Throwing on shape mismatch surfaces wire drift the same
+ *  way the prior `decodeUnknownSync` did. */
+const isDelta = Schema.is(DeltaSchema);
 
 /**
  * Snapshot every atom the renderer needs into a JSON string. Always emits
@@ -124,32 +128,51 @@ export const buildDeltaJson = (registry: AtomRegistry.AtomRegistry): string => {
  * ring (the host is authoritative); chain-event log + mempool go through
  * their bounded push helpers so the renderer-side caps stay enforced.
  *
- * `Schema.decodeUnknownSync` throws `SchemaError` on wire-format drift —
- * caller is expected to wrap in a try/catch (typically a host-side
- * `Effect.try` or a `try { applyDelta(...) } catch` in the
- * StorageBridge). Surfacing the failure is preferable to the prior
- * `as never` cast that silently absorbed corrupted state into the
- * registry.
+ * Returns `Effect<void, Error>`: the Effect channel surfaces wire-format
+ * drift (shape check fail) AND any throw inside the `Atom.batch`
+ * callback. Callers compose via `Stream.runForEach(stream, applyDelta)`
+ * etc.; the outer `Effect.catch` then routes errors to `Effect.logWarning`
+ * + reconnect rather than silently corrupting registry state.
  *
  * `Atom.batch` defers derived-atom recomputation until every `set`
  * lands, so the seven possible writes incur a single dependency-flush
  * per delta — `slotsBehindAtom`, `mempoolFeeP50Atom`, etc. each recompute
  * at most once, regardless of which atoms changed.
  */
-export const applyDelta = (registry: AtomRegistry.AtomRegistry, raw: string): void => {
-  const parsed: unknown = JSON.parse(raw, reviver);
-  const delta = decodeDelta(parsed);
-  Atom.batch(() => {
-    if (delta.nodeState !== undefined) registry.set(nodeStateAtom, delta.nodeState);
-    if (delta.peers !== undefined) registry.set(peersAtom, delta.peers);
-    if (delta.bootstrap !== undefined) registry.set(bootstrapAtom, delta.bootstrap);
-    if (delta.networkInfo !== undefined) registry.set(networkInfoAtom, delta.networkInfo);
-    if (delta.chainEventLog !== undefined) pushChainEventLog(registry, delta.chainEventLog);
-    if (delta.mempoolSnapshot !== undefined) {
-      pushMempoolSnapshot(registry, delta.mempoolSnapshot);
-    }
-    if (delta.syncSparkline !== undefined) {
-      registry.set(syncSparklineAtom, delta.syncSparkline);
-    }
+export const applyDelta = (
+  registry: AtomRegistry.AtomRegistry,
+  raw: string,
+): Effect.Effect<void, Error> =>
+  // Both `JSON.parse(raw, reviver)` and any `registry.set(...)` inside the
+  // `Atom.batch` callback can throw — the former on malformed wire bytes,
+  // the latter if a setter rejects the schema-narrowed value. Wrap the
+  // whole pipeline in a single `Effect.try` so the failure surfaces as a
+  // typed `Error` (with cause-chain) on the Effect channel instead of
+  // bubbling synchronously through an `Effect.sync` boundary in the
+  // caller.
+  Effect.try({
+    try: () => {
+      const parsed: unknown = JSON.parse(raw, reviver);
+      if (!isDelta(parsed)) {
+        throw new Error(
+          "[delta.ts] applyDelta: wire-format drift — payload failed Delta shape check",
+        );
+      }
+      const delta = parsed;
+      Atom.batch(() => {
+        if (delta.nodeState !== undefined) registry.set(nodeStateAtom, delta.nodeState);
+        if (delta.peers !== undefined) registry.set(peersAtom, delta.peers);
+        if (delta.bootstrap !== undefined) registry.set(bootstrapAtom, delta.bootstrap);
+        if (delta.networkInfo !== undefined) registry.set(networkInfoAtom, delta.networkInfo);
+        if (delta.chainEventLog !== undefined) pushChainEventLog(registry, delta.chainEventLog);
+        if (delta.mempoolSnapshot !== undefined) {
+          pushMempoolSnapshot(registry, delta.mempoolSnapshot);
+        }
+        if (delta.syncSparkline !== undefined) {
+          registry.set(syncSparklineAtom, delta.syncSparkline);
+        }
+      });
+    },
+    catch: (cause) =>
+      new Error("[delta.ts] applyDelta: failed (registry may be partially updated)", { cause }),
   });
-};

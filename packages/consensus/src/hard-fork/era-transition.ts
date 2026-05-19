@@ -18,6 +18,7 @@
  * a `translate` callback passed into `tickToSlot` (see `dispatch.ts`).
  */
 import { Schema } from "effect";
+import { windowed } from "es-toolkit";
 import { Era, EraSchema } from "ledger";
 
 // ---------------------------------------------------------------------------
@@ -154,11 +155,18 @@ const validateAdjacentPair = (
 export const validateEraHistory = (history: EraHistory): EraHistoryOrderError | null => {
   const bs = history.boundaries;
 
-  // `.slice(1).map(...)` pairs index i with boundary at i (prev) and i+1
-  // (cur); `.find` with a type-guard narrows the result to the error type.
-  const pairError = bs
-    .slice(1)
-    .map((cur, i) => validateAdjacentPair(bs[i]!, cur, i + 1))
+  // `windowed(arr, 2)` is the canonical pairwise-iteration primitive —
+  // each window is `[prev, cur]`, so we drop the manual `.slice(1) +
+  // bs[i]!` index dance plus the non-null assertion. `windowed`'s
+  // inferred chunk type is `(T | undefined)[]` even though the runtime
+  // shape is `[T, T]`; filter via a guard so the validator sees the
+  // narrowed `EraBoundary` pair.
+  const pairError = windowed(bs, 2)
+    .map(([prev, cur], i): EraHistoryOrderError | null =>
+      prev !== undefined && cur !== undefined
+        ? validateAdjacentPair(prev, cur, i + 1)
+        : null,
+    )
     .find((e): e is EraHistoryOrderError => e !== null);
   if (pairError !== undefined) return pairError;
 

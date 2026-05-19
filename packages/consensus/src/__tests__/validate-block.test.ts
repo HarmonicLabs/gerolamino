@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Exit } from "effect";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 import { verifyBodyHash, validateBlock, BlockValidationError } from "../validate/block";
 import { encodeSync, CborKinds } from "codecs";
 import type { CborSchemaType } from "codecs";

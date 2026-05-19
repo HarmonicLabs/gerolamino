@@ -61,6 +61,10 @@
       flake = false;
     };
 
+    # Required by devenv's `containers` feature even though our nix/ tree
+    # doesn't consume `inputs.nix2container` directly — devenv reads it
+    # off the flake's input set at module evaluation. Same for
+    # `mk-shell-bin`.
     mk-shell-bin.url = "github:rrbutani/nix-mk-shell-bin";
 
     nix2container = {
@@ -83,13 +87,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Hardware-scan-based NixOS module — consumed by Phase 0g-iii/v for
-    # `hardware.facter.reportPath = ./facter.json;` auto-population of
-    # microcode + firmware + non-obvious kernel modules. Report is generated
-    # on-host via `nixos-facter` (shipped in nixpkgs) during kexec; this
-    # module reads the JSON and wires it into the NixOS evaluation.
-    nixos-facter-modules.url = "github:numtide/nixos-facter-modules";
-
     # Curated hardware-specific NixOS modules. Used for `common-cpu-intel-cpu-only`
     # (microcode updates without pulling the Intel GPU stack) + `common-pc-ssd`
     # (fstrim for disks that pass through the hypervisor's discard signal).
@@ -103,11 +100,6 @@
     };
 
     flake-root.url = "github:srid/flake-root";
-
-    determinate = {
-      url = "https://flakehub.com/f/DeterminateSystems/determinate/3";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
 
     bun-overlay = {
       url = "github:0xbigboss/bun-overlay";
@@ -158,32 +150,20 @@
       ];
 
       # Project root as a Nix path — available in all modules via `config._module.args.root`
-      _module.args.root = ./.;
+      _module.args = {
+        root = ./.;
+      };
       systems = [ "x86_64-linux" ];
-      perSystem = { pkgs, system, config, inputs', ... }:
-        # let
-        # Mithril client + verification keys (for snapshot download task)
-        # Tests skipped: upstream reqwest HTTP tests fail in Nix sandbox (no CA certs)
-        # mithril-client = inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: {
-        #   doCheck = false;
-        # });
-        # mithrilSrc = inputs.mithril;
-        # mithrilEnv = {
-        #   AGGREGATOR_ENDPOINT = "https://aggregator.release-preprod.api.mithril.network/aggregator";
-        #   GENESIS_VERIFICATION_KEY = builtins.readFile
-        #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/genesis.vkey";
-        #   ANCILLARY_VERIFICATION_KEY = builtins.readFile
-        #     "${mithrilSrc}/mithril-infra/configuration/release-preprod/ancillary.vkey";
-        # };
-
-        # Ouroboros consensus snapshot-converter (LMDB → V2LSM)
-        # snapshot-converter = inputs'.ouroboros-consensus.packages.snapshot-converter;
-
-        # Preprod Cardano config files (for snapshot-converter --config)
-        # preprodConfigDir = "${inputs.mithril}/mithril-infra/assets/docker/cardano/config/10.6/preprod/cardano-node";
-
-        # in
+      perSystem = { pkgs, config, inputs', system, ... }:
         {
+          # Apply the overlays at perSystem scope. The previous setup
+          # placed `_module.args.pkgs` at the flake-top scope which
+          # flake-parts doesn't propagate to perSystem (perSystem gets
+          # its own `pkgs` from `nixpkgs.legacyPackages.${system}`).
+          # Moving the construction here means `treefmt`'s
+          # `rustfmt.package = pkgs.rust-bin.selectLatestNightlyWith ...`
+          # — and every other consumer of `pkgs.rust-bin` /
+          # `pkgs.bun-overlay` — actually resolves.
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             overlays = with inputs; [
@@ -191,7 +171,6 @@
               bun-overlay.overlays.default
             ];
           };
-
           flake-root.projectRootFile = "flake.nix";
           treefmt = {
             projectRootFile = "flake.nix";
@@ -437,19 +416,11 @@
               #   };
               # };
 
-              # --- Containers (OCI images with full devenv shell) ---
-              # Build:  devenv container build bootstrap
-              # Push:   devenv container copy bootstrap
-              # Run:    devenv container run bootstrap
-
-              containers.bootstrap = {
-                name = "gerolamino-bootstrap";
-                version = "latest";
-                startupCommand = "bun run apps/bootstrap/src/cli.ts serve --snapshot-path /data";
-                registry = "docker://ghcr.io/harmoniclabs/";
-                maxLayers = 20;
-                enableLayerDeduplication = true;
-              };
+              # --- Containers ---
+              # `containers.bootstrap` was deleted along with `apps/bootstrap/`
+              # — chrome-ext drag-drop now handles snapshot delivery directly.
+              # If a future workload needs a serverside Bun container, add it
+              # here.
             };
           };
         };

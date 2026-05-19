@@ -35,7 +35,6 @@ import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpStaticServer from "effect/unstable/http/HttpStaticServer";
 import { BunHttpServer } from "@effect/platform-bun";
-import { resolve } from "node:path";
 // Pull the delta + broadcast helpers from the leaf sub-paths rather
 // than the `dashboard` barrel. The barrel re-exports the Solid DOM
 // primitives (`Tabs.tsx` etc.); Bun's JSX-runtime resolution for
@@ -47,7 +46,13 @@ import { makeBroadcastFiber } from "dashboard/broadcast.ts";
 import { registry } from "./atoms.ts";
 import { DELTA_PUSH_INTERVAL_MS, DASHBOARD_PORT } from "../constants.ts";
 
-const SPA_DIST_DIR = resolve(import.meta.dir, "../../../../packages/dashboard/dist-spa");
+// Bun-native path resolution — `import.meta.dir` is the current module's
+// directory; `new URL(rel, base).pathname` resolves the relative bit
+// without pulling in `node:path`'s `resolve`.
+const SPA_DIST_DIR = new URL(
+  "../../../../packages/dashboard/dist-spa",
+  `file://${import.meta.dir}/`,
+).pathname;
 
 /**
  * Per-connection WebSocket handler. Upgrades the request, then runs a

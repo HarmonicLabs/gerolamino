@@ -29,6 +29,12 @@
  *
  * Fail loudly if none resolve — silent fallback to a non-existent
  * binary surfaces as cryptic Playwright launch errors.
+ *
+ * Module-load uses Bun-native APIs (`Bun.spawnSync`, `Bun.file().size`)
+ * instead of `node:child_process` / `node:fs` so the test rig stays
+ * `node:*`-free. Effect's FileSystem/Path services aren't usable here
+ * because Playwright loads this file synchronously during test discovery,
+ * before any Effect runtime exists.
  */
 import {
   test as base,
@@ -37,9 +43,30 @@ import {
   type Worker,
   type Page,
 } from "@playwright/test";
-import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import path from "node:path";
+import { invariant, isNotNil } from "es-toolkit";
+
+/** Sync existence check that doesn't import `node:fs`. */
+const fileExistsSync = (p: string): boolean => Bun.file(p).size > 0;
+const dirExistsSync = (p: string): boolean => {
+  // `Bun.file().size` returns 0 for directories on POSIX; probe with a
+  // known dir-marker file instead. We canonicalise `p` by appending the
+  // OS-agnostic separator and a sentinel — `manifest.json` is always
+  // present at the WXT-built extension root.
+  return Bun.file(`${p}/manifest.json`).size > 0;
+};
+
+/** Sync command-runner that doesn't import `node:child_process`. */
+const tryExecSync = (cmd: ReadonlyArray<string>, timeoutMs?: number): string | undefined => {
+  const result = Bun.spawnSync({
+    cmd: [...cmd],
+    stdout: "pipe",
+    stderr: "ignore",
+    ...(timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
+  });
+  if (result.exitCode !== 0) return undefined;
+  const out = result.stdout.toString().trim();
+  return out.length > 0 ? out : undefined;
+};
 
 /**
  * Built extension directory. WXT outputs to `chrome-mv3-dev` for
@@ -47,53 +74,32 @@ import path from "node:path";
  * builds; tests work against either.
  */
 const candidatePaths = [
-  path.join(import.meta.dirname, "../.output/chrome-mv3-dev"),
-  path.join(import.meta.dirname, "../.output/chrome-mv3"),
+  `${import.meta.dirname}/../.output/chrome-mv3-dev`,
+  `${import.meta.dirname}/../.output/chrome-mv3`,
 ];
-const EXTENSION_PATH = candidatePaths.find((p) => existsSync(p)) ?? candidatePaths[0]!;
+const EXTENSION_PATH = candidatePaths.find(dirExistsSync) ?? candidatePaths[0]!;
 
 const resolveChromium = (): string => {
   const candidates = [
-    process.env.CHROMIUM_PATH,
-    process.env.BUN_CHROME_PATH,
-    tryWhich("chromium"),
-    tryWhich("chromium-browser"),
-    tryNixShell(),
-  ].filter((p): p is string => typeof p === "string" && p.length > 0);
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  throw new Error(
+    process.env["CHROMIUM_PATH"],
+    process.env["BUN_CHROME_PATH"],
+    tryExecSync(["which", "chromium"]),
+    tryExecSync(["which", "chromium-browser"]),
+    tryExecSync(["nix", "shell", "nixpkgs#chromium", "-c", "which", "chromium"], 15_000),
+  ]
+    .filter(isNotNil)
+    .filter((p) => p.length > 0);
+  const resolved = candidates.find(fileExistsSync);
+  invariant(
+    resolved !== undefined,
     "Chromium not found. Set CHROMIUM_PATH, install chromium on PATH, or run inside `nix develop`.",
   );
-};
-
-const tryWhich = (cmd: string): string | undefined => {
-  try {
-    return execSync(`which ${cmd}`, {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return undefined;
-  }
-};
-
-const tryNixShell = (): string | undefined => {
-  try {
-    return execSync("nix shell nixpkgs#chromium -c which chromium", {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 15_000,
-    }).trim();
-  } catch {
-    return undefined;
-  }
+  return resolved;
 };
 
 const CHROMIUM_PATH = resolveChromium();
 
-if (!existsSync(EXTENSION_PATH)) {
+if (!dirExistsSync(EXTENSION_PATH)) {
   throw new Error(
     `Extension build missing at ${EXTENSION_PATH}. Run \`bunx --bun wxt build --mode development\` first.`,
   );
@@ -105,6 +111,9 @@ if (!existsSync(EXTENSION_PATH)) {
  * the SW boot sequence.
  */
 type SwLog = { type: string; text: string; ts: number };
+
+/** Per-context SW-log buffer, attached via WeakMap to avoid `as` casts. */
+const swLogsByContext = new WeakMap<BrowserContext, SwLog[]>();
 
 /**
  * Shared per-context SW-log buffer. Attaching the listener at context
@@ -143,7 +152,7 @@ export const test = base.extend<{
       ],
     });
     const logs: SwLog[] = [];
-    (context as BrowserContext & { __swLogs?: SwLog[] }).__swLogs = logs;
+    swLogsByContext.set(context, logs);
     captureWorkerLogs(context, logs);
     await use(context);
     await context.close();
@@ -161,8 +170,8 @@ export const test = base.extend<{
   },
 
   swLogs: async ({ context }, use) => {
-    const logs = (context as BrowserContext & { __swLogs?: SwLog[] }).__swLogs;
-    if (!logs) throw new Error("swLogs not initialised by context fixture");
+    const logs = swLogsByContext.get(context);
+    invariant(logs !== undefined, "swLogs not initialised by context fixture");
     await use(logs);
   },
 

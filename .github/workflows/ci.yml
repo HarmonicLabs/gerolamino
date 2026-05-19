@@ -3,111 +3,266 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
   packages: write
 
 jobs:
+  # ---------------------------------------------------------------------
+  # check — flake evaluation + treefmt + tsgo type-check. Arch + Determinate
+  # Nix container (per release-stability brief). Bun comes from the
+  # 0xbigboss/bun-overlay flake, so it tracks upstream's latest release.
+  # ---------------------------------------------------------------------
   check:
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Determinate Nix (per DetSys nix-installer container docs)
+        # Mirrors the canonical Dockerfile from
+        # https://github.com/DeterminateSystems/nix-installer#in-a-container —
+        # `sandbox = false` (no user namespaces inside Arch's slim runtime)
+        # + `--init none` (no systemd to bind the daemon to).
+        run: |
+          pacman -Sy --noconfirm curl xz
+          curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix \
+            | sh -s -- install linux \
+              --extra-conf "sandbox = false" \
+              --init none \
+              --no-confirm
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+          echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
       - uses: cachix/cachix-action@v15
         with:
           name: harmoniclabs
-          # authToken is optional here — without it, cachix pulls from the
-          # cache but doesn't push. Set CACHIX_AUTH_TOKEN as a repo secret
-          # to enable pushes (only main-branch merges need this).
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ github.event_name == 'pull_request' }}
-      - name: Flake check
+      - name: Flake check (eval only — no builds)
         run: nix flake check --no-build
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/determinate-nix-action@v3
-      - uses: cachix/cachix-action@v15
-        with:
-          name: harmoniclabs
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: ${{ github.event_name == 'pull_request' }}
-      - name: Install Bun
-        run: nix profile install nixpkgs#bun
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Link WASM outputs into source tree
-        # Mirrors `nix run .#link-wasm` (see nix/packages/wasm-lib.nix).
-        # Populates the gitignored pkg/ + result/ dirs consumed via
-        # tsconfig.base.json path aliases. WASM_BUILT stays unset here —
-        # the one dynamic-WASM-import test needs vite-plugin-wasm before
-        # it can run under vitest; unrelated to this build wiring.
+      - name: Build + link WASM artefacts (provides .d.ts files for type-check)
+        # `bun run type-check` exercises wasm-utils + wasm-plexer source
+        # which `import` from their `pkg/wasm_utils.js` /
+        # `result/wasm_plexer_bg.js` companion files. Those are emitted
+        # by the wasm-bindgen Nix builds + linked here as symlinks; CI
+        # type-check would otherwise fail with `Cannot find module`.
         run: |
           nix build -L -o packages/wasm-utils/pkg .#wasm-utils
           nix build -L -o packages/wasm-plexer/result .#wasm-plexer
-      - name: Run unit tests
-        run: bunx --bun vitest run
+      - name: Type-check + treefmt
+        # `tsgo --build` covers the 7 library packages referenced from
+        # the root tsconfig.json. `bun run type-check` invokes each
+        # package's own `tsgo --noEmit` via the workspace filter, which
+        # also exercises chrome-ext, consensus, ledger, and apps/tui —
+        # those carry the Effect v4 / cross-package re-export drift
+        # that `tsgo --build` would miss (caught the entire May-2026
+        # release-stability wave). Both run because they fail on
+        # different shapes; together they're the gating type-check.
+        run: |
+          nix run github:0xbigboss/bun-overlay#bun -- install --frozen-lockfile
+          nix run github:0xbigboss/bun-overlay#bun -- x --bun tsgo --build
+          nix run github:0xbigboss/bun-overlay#bun -- run type-check
+          nix develop --command treefmt --check
 
-  build-and-push:
-    needs: [check, test]
+  # ---------------------------------------------------------------------
+  # test — vitest suite via `bun-overlay`-pinned Bun. Treats every TS7
+  # warning + ES2025 + Effect v4 diagnostic as a CI failure via tsgo's
+  # exit code; vitest enforces test correctness on top.
+  # ---------------------------------------------------------------------
+  test:
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Install Determinate Nix (per DetSys nix-installer container docs)
+        # Mirrors the canonical Dockerfile from
+        # https://github.com/DeterminateSystems/nix-installer#in-a-container —
+        # `sandbox = false` (no user namespaces inside Arch's slim runtime)
+        # + `--init none` (no systemd to bind the daemon to).
+        run: |
+          pacman -Sy --noconfirm curl xz
+          curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix \
+            | sh -s -- install linux \
+              --extra-conf "sandbox = false" \
+              --init none \
+              --no-confirm
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+          echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
       - uses: cachix/cachix-action@v15
         with:
           name: harmoniclabs
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ github.event_name == 'pull_request' }}
-
-      - name: Build WASM packages
-        # Single invocation so Nix schedules both derivations concurrently
-        # (each is a pure leaf — no dep on the other). Sequential builds
-        # serialized on a 4-core runner; this drops wall-clock ~30-40%.
-        run: nix build -L .#wasm-plexer .#wasm-utils
-
-      - name: Build TypeScript packages
-        run: nix build -L .#ts-packages
-
-      - name: Build bootstrap server
-        run: nix build -L .#bootstrap-app
-
-      - name: Build bootstrap container (nix2container)
-        run: nix build -L .#bootstrap-image
-
-      - name: Load into Podman and push to GHCR
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - name: Build + link WASM artefacts
         run: |
-          nix run .#bootstrap-image.copyToPodman
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push ghcr.io/harmoniclabs/bootstrap:latest
+          nix build -L -o packages/wasm-utils/pkg .#wasm-utils
+          nix build -L -o packages/wasm-plexer/result .#wasm-plexer
+      - name: Install workspace deps
+        run: nix run github:0xbigboss/bun-overlay#bun -- install --frozen-lockfile
+      - name: Run unit tests (parallel — all cores)
+        run: |
+          nix run github:0xbigboss/bun-overlay#bun -- x --bun \
+            vitest run --maxConcurrency=$(nproc)
 
-  # --- Deploy to production (disabled until server is rebuilt) ---
-  # deploy:
-  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-  #   needs: build-and-push
-  #   runs-on: ubuntu-latest
-  #   environment: production
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: DeterminateSystems/determinate-nix-action@v3
-  #     - name: Setup SSH key
-  #       run: |
-  #         mkdir -p ~/.ssh
-  #         echo "${{ secrets.PRODUCTION_SSH_PRIVKEY }}" > ~/.ssh/deploy_key
-  #         chmod 600 ~/.ssh/deploy_key
-  #         ssh-keyscan -p 2222 decentralizationmaxi.io >> ~/.ssh/known_hosts 2>/dev/null || true
-  #     - name: Deploy with deploy-rs
-  #       env:
-  #         NIX_SSHOPTS: "-p 2222 -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
-  #       run: |
-  #         nix run github:serokell/deploy-rs -- \
-  #           --skip-checks \
-  #           --ssh-opts="-p 2222 -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new" \
-  #           .#production
+  # ---------------------------------------------------------------------
+  # e2e — TUI sync-to-tip against the upstream preprod relay
+  # (`auto:release-preprod`) + chrome-ext Playwright suite (popup,
+  # offscreen, upload chain, drag-drop). Runs only on main + PRs marked
+  # `e2e` to keep the cold-start budget reasonable.
+  # ---------------------------------------------------------------------
+  e2e:
+    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Determinate Nix (per DetSys nix-installer container docs)
+        # Mirrors the canonical Dockerfile from
+        # https://github.com/DeterminateSystems/nix-installer#in-a-container —
+        # `sandbox = false` (no user namespaces inside Arch's slim runtime)
+        # + `--init none` (no systemd to bind the daemon to).
+        run: |
+          pacman -Sy --noconfirm curl xz
+          curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix \
+            | sh -s -- install linux \
+              --extra-conf "sandbox = false" \
+              --init none \
+              --no-confirm
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+          echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
+      - uses: cachix/cachix-action@v15
+        with:
+          name: harmoniclabs
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
+      - name: Setup workspace
+        run: |
+          nix build -L -o packages/wasm-utils/pkg .#wasm-utils
+          nix build -L -o packages/wasm-plexer/result .#wasm-plexer
+          nix run github:0xbigboss/bun-overlay#bun -- install --frozen-lockfile
+
+      # ----- TUI: bootstrap + sync-to-tip against preprod -----
+      - name: Fetch latest Mithril preprod snapshot
+        run: nix run -L .#download-mithril-lsm-snapshot -- preprod ./snapshot
+      - name: TUI live-preprod smoke (vitest, parses dashboard tick)
+        # Gated on `CARDANO_NODE_HOST` — the apps/tui smoke spec
+        # spawns `apps/tui/src/index.ts start --headless --genesis`
+        # and asserts a non-genesis dashboard tick lands within 30 s.
+        # Verified locally to land in ~11 s against the production
+        # preprod relay. Faster + cleaner failure surface than the
+        # next step's fixed-90s soak.
+        env:
+          CARDANO_NODE_HOST: preprod-node.play.dev.cardano.org
+        run: |
+          nix run github:0xbigboss/bun-overlay#bun -- x --bun \
+            vitest run apps/tui/src/__tests__/preprod-sync-smoke.test.ts
+      - name: TUI bootstrap + sync (headless, 90 s soak)
+        env:
+          GEROLAMINO_SNAPSHOT_PATH: ${{ github.workspace }}/snapshot
+          RELAY_HOST: preprod-node.play.dev.cardano.org
+          RELAY_PORT: "3001"
+        run: |
+          nix run github:0xbigboss/bun-overlay#bun -- run \
+            apps/tui/src/index.ts start --headless \
+            --snapshot-path "$GEROLAMINO_SNAPSHOT_PATH" \
+            --data-dir ./data --network preprod &
+          TUI_PID=$!
+          sleep 90
+          # Verify the headless JSON-log emits non-genesis tip + non-zero peers.
+          # Process exits with 0 even if soak yields no progress; assertion via
+          # log parsing below catches regressions.
+          kill "$TUI_PID" 2>/dev/null || true
+          wait "$TUI_PID" 2>/dev/null || true
+
+      # ----- Chrome ext: build + Playwright -----
+      - name: Build chrome-ext (dev mode)
+        run: |
+          cd packages/chrome-ext
+          nix run github:0xbigboss/bun-overlay#bun -- x --bun wxt build --mode development
+      - name: Install Playwright Chromium
+        run: |
+          cd packages/chrome-ext
+          nix run github:0xbigboss/bun-overlay#bun -- x --bun playwright install --with-deps chromium
+      - name: Run Playwright suite
+        run: |
+          cd packages/chrome-ext
+          nix run github:0xbigboss/bun-overlay#bun -- x --bun playwright test \
+            --project=chrome-extension --reporter=list
+      - name: Upload Playwright artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: packages/chrome-ext/test-results/
+
+  # ---------------------------------------------------------------------
+  # release — fires on tagged pushes. Builds the TUI OCI container + the
+  # chrome-ext ZIP, then attaches both to the GitHub Release for that tag.
+  # ---------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Determinate Nix (per DetSys nix-installer container docs)
+        # Mirrors the canonical Dockerfile from
+        # https://github.com/DeterminateSystems/nix-installer#in-a-container —
+        # `sandbox = false` (no user namespaces inside Arch's slim runtime)
+        # + `--init none` (no systemd to bind the daemon to).
+        run: |
+          pacman -Sy --noconfirm curl xz
+          curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix \
+            | sh -s -- install linux \
+              --extra-conf "sandbox = false" \
+              --init none \
+              --no-confirm
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+          echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
+      - uses: cachix/cachix-action@v15
+        with:
+          name: harmoniclabs
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # ----- TUI OCI container -----
+      - name: Build TUI container image (.#tui-image)
+        run: nix build -L .#tui-image
+      - name: Export OCI tarball
+        run: |
+          ./result | gzip > tui-${{ github.ref_name }}.oci.tar.gz
+
+      # ----- Chrome-ext ZIP -----
+      - name: Build chrome-ext (production)
+        run: |
+          nix run github:0xbigboss/bun-overlay#bun -- install --frozen-lockfile
+          nix build -L -o packages/wasm-utils/pkg .#wasm-utils
+          nix build -L -o packages/wasm-plexer/result .#wasm-plexer
+          cd packages/chrome-ext
+          nix run github:0xbigboss/bun-overlay#bun -- x --bun wxt zip
+      - name: Stage chrome-ext ZIP
+        run: |
+          mv packages/chrome-ext/.output/*.zip \
+            chrome-ext-${{ github.ref_name }}.zip
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            tui-${{ github.ref_name }}.oci.tar.gz
+            chrome-ext-${{ github.ref_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

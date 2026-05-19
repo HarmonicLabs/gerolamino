@@ -9,7 +9,7 @@
  *   5. AssertOperationalCertificate — opcert ed25519 verify + sequence check
  */
 import { Effect, Equal, HashMap, Metric, Option, Schema } from "effect";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 import { concat, be64 } from "../util";
 import { BlockValidationFailed, SPAN } from "../observability.ts";
 import type { Context } from "effect";

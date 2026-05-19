@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "codecs": "workspace:*",
-    "es-toolkit": "^1.46.0",
+    "es-toolkit": "^1.46.1",
     "ledger": "workspace:*",
     "miniprotocols": "workspace:*",
     "storage": "workspace:*",

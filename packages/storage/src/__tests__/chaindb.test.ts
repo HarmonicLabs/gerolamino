@@ -81,7 +81,7 @@ describe("ChainDB reducer", () => {
 
   it("Rollback updates tip without touching immutability", () => {
     const point = mkTip(5, 5);
-    const s = reduce(initialChainDBState(10), { _tag: "Rollback", point });
+    const s = reduce(initialChainDBState(10), { _tag: "Rollback", point, dropped: 0 });
     expect(s.tip).toEqual(point);
     expect(s.immutability).toBe("idle");
   });

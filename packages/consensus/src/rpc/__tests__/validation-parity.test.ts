@@ -16,12 +16,12 @@
 import { describe, expect, layer } from "@effect/vitest";
 import { Context, Effect, Equal, Layer } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
+import { CryptoDirect } from "wasm-utils/service.ts";
 import {
-  CryptoDirect,
   ed25519_public_key,
   ed25519_secret_key_from_seed,
   ed25519_sign,
-} from "wasm-utils";
+} from "wasm-utils/pkg/wasm_utils.js";
 
 import { ValidationClient } from "../validation-client.ts";
 import { ValidationDirectLayer } from "../validation-direct-layer.ts";

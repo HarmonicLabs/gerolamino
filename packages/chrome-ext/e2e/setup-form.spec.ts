@@ -25,128 +25,172 @@
  * Reachability of the bootstrap server isn't asserted — that's
  * `bootstrap-localhost.spec.ts`'s job. This spec proves the
  * popup-side wiring and the storage round-trip, in isolation.
+ *
+ * Test bodies are Effect programs.
  */
+import { Effect, Schema } from "effect";
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures.ts";
+import {
+  BootstrapSettings,
+  runE,
+  sleep,
+  waitForLoadState,
+  withPage,
+} from "./effect-helpers.ts";
 
 const STORAGE_KEY = "gerolamino:bootstrap-settings";
 
-const readStoredSettings = (page: import("@playwright/test").Page) =>
-  page.evaluate(
-    (key) =>
-      new Promise<unknown>((resolve) => {
-        globalThis.chrome.storage.local.get(key, (result) => resolve(result[key]));
-      }),
-    STORAGE_KEY,
+/**
+ * Read + structurally-validate the persisted bootstrap settings. The
+ * production code now persists via `Schema.fromJsonString(BootstrapSettings)`,
+ * so chrome.storage holds the JSON-string form, not the native object form;
+ * tests decode through the same codec instead of hand-parsing.
+ */
+const decodeStoredJson = Schema.decodeUnknownEffect(Schema.fromJsonString(BootstrapSettings));
+
+const readStoredSettings = (page: Page): Effect.Effect<BootstrapSettings | undefined> =>
+  Effect.promise(() =>
+    page.evaluate(
+      (key) =>
+        new Promise<unknown>((resolve) => {
+          globalThis.chrome.storage.local.get(key, (result) => resolve(result[key]));
+        }),
+      STORAGE_KEY,
+    ),
+  ).pipe(
+    Effect.flatMap((raw) =>
+      typeof raw !== "string"
+        ? Effect.succeed<BootstrapSettings | undefined>(undefined)
+        : decodeStoredJson(raw).pipe(Effect.orElseSucceed(() => undefined)),
+    ),
   );
 
-const clearStoredSettings = (page: import("@playwright/test").Page) =>
-  page.evaluate(
-    (key) =>
-      new Promise<void>((resolve) => {
-        globalThis.chrome.storage.local.remove(key, () => resolve());
-      }),
-    STORAGE_KEY,
+const clearStoredSettings = (page: Page): Effect.Effect<void> =>
+  Effect.promise(() =>
+    page.evaluate(
+      (key) =>
+        new Promise<void>((resolve) => {
+          globalThis.chrome.storage.local.remove(key, () => resolve());
+        }),
+      STORAGE_KEY,
+    ),
   );
+
+/**
+ * Open the popup, clear `chrome.storage.local`, close, then re-open with the
+ * cleared state and run the test body. Two scoped `withPage` calls; no manual
+ * `popupRef` + try/finally — Effect.scope handles the lifecycle.
+ */
+const withFreshlyClearedPopup = (
+  openPopup: () => Promise<Page>,
+  body: (popup: Page) => Effect.Effect<void>,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    yield* withPage(openPopup, (popup) =>
+      Effect.gen(function* () {
+        yield* waitForLoadState(popup);
+        yield* clearStoredSettings(popup);
+      }),
+    );
+    yield* withPage(openPopup, (popup) =>
+      Effect.gen(function* () {
+        yield* waitForLoadState(popup);
+        yield* body(popup);
+      }),
+    );
+  });
+
+/** Promise-returning thunk for `expect.poll(...)`. */
+const pollSettings = (page: Page) => () =>
+  readStoredSettings(page).pipe(Effect.runPromise);
 
 test.describe("Popup setup form", () => {
-  test("first open renders the form (no persisted settings yet)", async ({ openPopup }) => {
-    const popup = await openPopup();
-    try {
-      await popup.waitForLoadState("domcontentloaded");
-      // Storage starts empty in a fresh persistent context, so the form
-      // must mount.
-      await expect(popup.getByTestId("mode-remote")).toBeVisible({ timeout: 10_000 });
-      await expect(popup.getByTestId("mode-local")).toBeVisible();
-      await expect(popup.getByTestId("mode-genesis")).toBeVisible();
-      await expect(popup.getByTestId("submit")).toBeVisible();
-    } finally {
-      await popup.close();
-    }
-  });
+  test("first open renders the form (no persisted settings yet)", async ({ openPopup }) =>
+    runE(
+      withPage(openPopup, (popup) =>
+        Effect.gen(function* () {
+          yield* waitForLoadState(popup);
+          // Storage starts empty in a fresh persistent context, so the form
+          // must mount. Only `local` + `genesis` remain post-apps/bootstrap deletion.
+          yield* Effect.promise(() =>
+            expect(popup.getByTestId("mode-local")).toBeVisible({ timeout: 10_000 }),
+          );
+          yield* Effect.promise(() => expect(popup.getByTestId("mode-genesis")).toBeVisible());
+          yield* Effect.promise(() => expect(popup.getByTestId("submit")).toBeVisible());
+        }),
+      ),
+    ));
 
   test("picking genesis persists `{ mode: 'genesis' }` and dismisses the form", async ({
     openPopup,
-  }) => {
-    let popup = await openPopup();
-    try {
-      await popup.waitForLoadState("domcontentloaded");
-      await clearStoredSettings(popup);
-      // The popup mounted before we cleared storage, so it may have
-      // captured a stale `loadSettings` result. Close + re-open to
-      // pick up the cleared state. (`popup.reload()` was flaky on
-      // chrome-extension:// URLs — extension contexts can capture the
-      // wrong serviceWorker handle.)
-      await popup.close();
-      popup = await openPopup();
-      await popup.waitForLoadState("domcontentloaded");
-      await expect(popup.getByTestId("mode-genesis")).toBeVisible({ timeout: 10_000 });
+  }) =>
+    runE(
+      Effect.gen(function* () {
+        yield* withFreshlyClearedPopup(openPopup, (popup) =>
+          Effect.gen(function* () {
+            yield* Effect.promise(() =>
+              expect(popup.getByTestId("mode-genesis")).toBeVisible({ timeout: 10_000 }),
+            );
+            yield* Effect.promise(() => popup.getByTestId("mode-genesis").click());
+            yield* Effect.promise(() => popup.getByTestId("submit").click());
 
-      await popup.getByTestId("mode-genesis").click();
-      await popup.getByTestId("submit").click();
+            yield* Effect.promise(() =>
+              expect
+                .poll(pollSettings(popup), { timeout: 5_000 })
+                .toMatchObject({ mode: "genesis" }),
+            );
+          }),
+        );
 
-      await expect
-        .poll(() => readStoredSettings(popup), { timeout: 5_000 })
-        .toMatchObject({ mode: "genesis" });
-    } finally {
-      await popup.close();
-    }
+        // Re-open the popup; the form should NOT mount because the choice
+        // is now persisted.
+        yield* withPage(openPopup, (popup) =>
+          Effect.gen(function* () {
+            yield* waitForLoadState(popup);
+            // Wait long enough for the loadSettings promise to resolve.
+            yield* sleep(500);
+            yield* Effect.promise(() => expect(popup.getByTestId("submit")).toHaveCount(0));
+          }),
+        );
+      }),
+    ));
 
-    // Re-open the popup; the form should NOT mount because the choice
-    // is now persisted.
-    popup = await openPopup();
-    try {
-      await popup.waitForLoadState("domcontentloaded");
-      // Wait long enough for the loadSettings promise to resolve.
-      await popup.waitForTimeout(500);
-      await expect(popup.getByTestId("submit")).toHaveCount(0);
-    } finally {
-      await popup.close();
-    }
-  });
+  test("local mode shows the snapshot dropzone (drag-drop ingest path)", async ({ openPopup }) =>
+    runE(
+      withFreshlyClearedPopup(openPopup, (popup) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            expect(popup.getByTestId("mode-local")).toBeVisible({ timeout: 10_000 }),
+          );
+          yield* Effect.promise(() => popup.getByTestId("mode-local").click());
+          yield* Effect.promise(() =>
+            expect(popup.getByTestId("snapshot-dropzone")).toBeVisible(),
+          );
+        }),
+      ),
+    ));
 
-  test("picking remote persists the URL", async ({ openPopup }) => {
-    let popup = await openPopup();
-    try {
-      await popup.waitForLoadState("domcontentloaded");
-      await clearStoredSettings(popup);
-      await popup.close();
-      popup = await openPopup();
-      await popup.waitForLoadState("domcontentloaded");
-      await expect(popup.getByTestId("mode-remote")).toBeVisible({ timeout: 10_000 });
+  test("local mode without upload errors at submit (gate on snapshotUploaded)", async ({
+    openPopup,
+  }) =>
+    runE(
+      withFreshlyClearedPopup(openPopup, (popup) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() => popup.getByTestId("mode-local").click());
+          yield* Effect.promise(() => popup.getByTestId("submit").click());
 
-      await popup.getByTestId("mode-remote").click();
-      const url = popup.getByTestId("server-url");
-      await url.fill("ws://localhost:3040");
-      await popup.getByTestId("submit").click();
-
-      await expect
-        .poll(() => readStoredSettings(popup), { timeout: 5_000 })
-        .toMatchObject({ mode: "remote", serverUrl: "ws://localhost:3040" });
-    } finally {
-      await popup.close();
-    }
-  });
-
-  test("rejects a malformed remote URL with an error", async ({ openPopup }) => {
-    let popup = await openPopup();
-    try {
-      await popup.waitForLoadState("domcontentloaded");
-      await clearStoredSettings(popup);
-      await popup.close();
-      popup = await openPopup();
-      await popup.waitForLoadState("domcontentloaded");
-      await expect(popup.getByTestId("mode-remote")).toBeVisible({ timeout: 10_000 });
-
-      await popup.getByTestId("mode-remote").click();
-      await popup.getByTestId("server-url").fill("not-a-url");
-      await popup.getByTestId("submit").click();
-
-      await expect(popup.getByTestId("error")).toBeVisible({ timeout: 2_000 });
-      await expect(popup.getByTestId("error")).toContainText(/ws:\/\/|wss:\/\//);
-      // Storage stays untouched.
-      await expect.poll(() => readStoredSettings(popup), { timeout: 1_000 }).toBeUndefined();
-    } finally {
-      await popup.close();
-    }
-  });
+          yield* Effect.promise(() =>
+            expect(popup.getByTestId("error")).toBeVisible({ timeout: 2_000 }),
+          );
+          yield* Effect.promise(() =>
+            expect(popup.getByTestId("error")).toContainText(/Upload a snapshot first/),
+          );
+          // Storage stays untouched.
+          yield* Effect.promise(() =>
+            expect.poll(pollSettings(popup), { timeout: 1_000 }).toBeUndefined(),
+          );
+        }),
+      ),
+    ));
 });

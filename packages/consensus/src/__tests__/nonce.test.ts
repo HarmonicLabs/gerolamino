@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { CryptoDirect } from "wasm-utils";
+import { CryptoDirect } from "wasm-utils/service.ts";
 import { evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "../praos/nonce";
 import { concat } from "../util";
 
@@ -140,5 +140,56 @@ describe("isPastStabilizationWindow", () => {
 
   it("returns true well past the window", () => {
     expect(isPastStabilizationWindow(400000n, k, f, epochLength)).toBe(true);
+  });
+
+  // Test-coverage gap #5 — regression guard against re-introducing the
+  // `8k/f` formulation that was fixed in wave-4 (the spec-correct value
+  // is `4k/f` per Haskell `computeRandomnessStabilisationWindow`).
+  //
+  // The two formulae diverge by a factor of 2:
+  //   4k/f (correct): for k=2160, f=0.05 ⇒ window = 172800, freeze at slot 259200
+  //   8k/f (bug)    : same params       ⇒ window = 345600, freeze at slot  86400
+  //
+  // A slot strictly between the two freeze points (e.g. 100000) is the
+  // discriminator — it returns FALSE with the correct 4k/f formula and
+  // TRUE with the buggy 8k/f formula.
+  describe("4k/f regression guard (wave-4 fix)", () => {
+    it("slot 100000 (between 8k/f freeze and 4k/f freeze) — must be false", () => {
+      // If this flips to true, someone re-introduced 8k/f. The
+      // `100_000` value is the canonical bug-discriminator under
+      // mainnet (k=2160, f=0.05) — well inside the 4k/f safe zone
+      // (0..259199) but well past the 8k/f freeze (86400+).
+      expect(isPastStabilizationWindow(100_000n, k, f, epochLength)).toBe(false);
+    });
+
+    it("computed window size matches Haskell ceiling(4k/f) = 172800 exactly", () => {
+      // The boundary slot is `epochLength - ceiling(4k/f)`. Pin both
+      // sides of the boundary to detect any algebraic drift — if the
+      // formula becomes `2k/f`, `3k/f`, `8k/f`, etc., one of these
+      // assertions flips.
+      const expectedWindow = 172_800n; // ceiling(4 * 2160 / 0.05)
+      const expectedFreezeSlot = epochLength - expectedWindow; // 259200n
+      expect(isPastStabilizationWindow(expectedFreezeSlot - 1n, k, f, epochLength)).toBe(false);
+      expect(isPastStabilizationWindow(expectedFreezeSlot, k, f, epochLength)).toBe(true);
+    });
+
+    it("preprod (same k/f as mainnet) — same 172800-slot window", () => {
+      // Preprod inherits k=2160, f=0.05 from mainnet. epochLength
+      // also matches at 432000. Same expected freeze.
+      expect(isPastStabilizationWindow(259_199n, 2160, 0.05, 432_000n)).toBe(false);
+      expect(isPastStabilizationWindow(259_200n, 2160, 0.05, 432_000n)).toBe(true);
+    });
+
+    it("alternative params (k=500, f=0.1) — formula generalises to 4·500/0.1 = 20000", () => {
+      // Synthetic params chosen so 4k/f = 20000 differs cleanly from
+      // 8k/f = 40000. epochLength = 100000 leaves room for both.
+      const kAlt = 500;
+      const fAlt = 0.1;
+      const epochAlt = 100_000n;
+      // 4k/f freeze at 80000; 8k/f freeze at 60000.
+      // Slot 70000 is the discriminator (false for 4k/f, true for 8k/f).
+      expect(isPastStabilizationWindow(70_000n, kAlt, fAlt, epochAlt)).toBe(false);
+      expect(isPastStabilizationWindow(80_000n, kAlt, fAlt, epochAlt)).toBe(true);
+    });
   });
 });

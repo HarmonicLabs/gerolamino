@@ -238,6 +238,19 @@ describe("parseSync", () => {
         expect(result.entries[1]!.v._tag).toBe(CborKinds.Array);
       }
     });
+
+    it("indefinite map", () => {
+      // bf = indefinite-length map; entries: 1 -> 2, 3 -> 4; ff = break.
+      const result = parseSync(Uint8Array.fromHex("bf01020304ff"));
+      expect(result._tag).toBe(CborKinds.Map);
+      if (result._tag === CborKinds.Map) {
+        expect(result.entries).toHaveLength(2);
+        expect(result.entries[0]!.k).toMatchObject({ _tag: CborKinds.UInt, num: 1n });
+        expect(result.entries[0]!.v).toMatchObject({ _tag: CborKinds.UInt, num: 2n });
+        expect(result.entries[1]!.k).toMatchObject({ _tag: CborKinds.UInt, num: 3n });
+        expect(result.entries[1]!.v).toMatchObject({ _tag: CborKinds.UInt, num: 4n });
+      }
+    });
   });
 
   describe("tags", () => {
@@ -308,6 +321,17 @@ describe("parseSync", () => {
       if (result._tag === CborKinds.Simple && BigDecimal.isBigDecimal(result.value)) {
         expect(BigDecimal.toNumberUnsafe(result.value)).toBe(5.5);
         expect(result.addInfos).toBe(25);
+      }
+    });
+
+    it("float32: 100000.0", () => {
+      // RFC 8949 §A: 0xfa is float32 (major 7, addInfo 26). 100000.0 →
+      // IEEE 754 binary32 = 0x47c35000.
+      const result = parseSync(Uint8Array.fromHex("fa47c35000"));
+      expect(result._tag).toBe(CborKinds.Simple);
+      if (result._tag === CborKinds.Simple && BigDecimal.isBigDecimal(result.value)) {
+        expect(BigDecimal.toNumberUnsafe(result.value)).toBe(100000.0);
+        expect(result.addInfos).toBe(26);
       }
     });
   });

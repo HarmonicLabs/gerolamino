@@ -30,7 +30,12 @@ import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
 import * as BrowserWorker from "@effect/platform-browser/BrowserWorker";
 import type { WorkerError } from "effect/unstable/workers/WorkerError";
-import type { Crypto } from "wasm-utils";
+// Subpath import — tsgo's cross-package re-export resolution
+// silently drops re-exports from `wasm-utils/src/index.ts` even when
+// declared as explicit named re-exports. The `wasm-utils/*` path
+// alias in `chrome-ext/tsconfig.json` resolves the inner module
+// directly; Rolldown handles both forms identically at runtime.
+import type { Crypto } from "wasm-utils/service.ts";
 import { CryptoFromRpc, CryptoRpcClient } from "wasm-utils/rpc";
 
 // Vite's `?worker` import suffix — bundles the file as a Web Worker
@@ -88,6 +93,6 @@ const POOL_OPTIONS = {
 export const CryptoWorkerBrowser: Layer.Layer<Crypto, WorkerError> = CryptoFromRpc.pipe(
   Layer.provide(CryptoRpcClient.layer),
   Layer.provide(RpcClient.layerProtocolWorker(POOL_OPTIONS)),
-  Layer.provide(RpcSerialization.layerMsgPack),
+  Layer.provide(RpcSerialization.layerNdjson),
   Layer.provide(BrowserWorker.layer(() => new CryptoWorker())),
 );

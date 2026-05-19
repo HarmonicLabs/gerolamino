@@ -1,7 +1,7 @@
 # Gerolamino
 
 In-browser Cardano node. A Bun workspaces monorepo with reproducible Nix
-builds, Effect v4 throughout, and a Rust/WASM crypto layer.
+builds and a Rust/WASM crypto layer.
 
 ## Quick start
 
@@ -42,18 +42,19 @@ nix build .#bootstrap-image
 `nix flake check --allow-import-from-derivation` runs the full validation
 matrix including treefmt + deploy-rs schema checks.
 
-## Bootstrap server
+## Mithril V2LSM snapshot
 
-Serves Mithril V2LSM snapshot data to browser clients over WebSocket, then
-proxies miniprotocol traffic to an upstream Cardano relay. HTTP endpoints
-follow an HttpApi contract with auto-generated OpenAPI at `/openapi.json`
-and a Swagger UI at `/docs`.
+Both apps consume a Mithril V2LSM snapshot in the canonical
+`<dir>/{protocolMagicId, ledger/{slot}/state, immutable/*.chunk,
+lsm/{active,metadata,snapshots}}` layout.
 
-Required at runtime:
+Required at runtime for the TUI:
 
 - `LIBLSM_BRIDGE_PATH=/path/to/liblsm-bridge.so` (from `nix build .#lsm-bridge`)
 - A V2LSM-format snapshot (Mithril distribution 2537.0+, or a local
   cardano-node 10.7.x database).
+
+Acquire a snapshot:
 
 ```bash
 # --- Option A (dev default): rsync the live V2LSM db from production ---
@@ -63,21 +64,9 @@ rsync -aP --info=progress2 \
   .devenv/state/prod-snapshot/
 ssh root@178.156.252.81 'zfs destroy zroot/data@dev-<ts>'
 
-LIBLSM_BRIDGE_PATH=$(nix build .#lsm-bridge --print-out-paths)/lib/liblsm-bridge.so \
-  bun run apps/bootstrap/src/cli.ts serve \
-  -d .devenv/state/prod-snapshot -n preprod
-
 # --- Option B: download a Mithril snapshot + LSM-convert (requires prod ---
 # --- aggregator to have produced a signed snapshot) ---
 nix run .#download-mithril-lsm-snapshot -- preprod /tmp/snapshot
-LIBLSM_BRIDGE_PATH=$(nix build .#lsm-bridge --print-out-paths)/lib/liblsm-bridge.so \
-  bun run apps/bootstrap/src/cli.ts serve -s /tmp/snapshot -n preprod
-
-# --- Container run (baked liblsm-bridge.so) ---
-nix build .#bootstrap-image
-./result | podman load
-podman run --rm -p 3040:3040 -v .devenv/state/prod-snapshot:/data:ro \
-  ghcr.io/harmoniclabs/bootstrap:latest
 ```
 
 **Why the rsync path**: upstream Mithril aggregator still signs cardano-node
@@ -93,10 +82,14 @@ signer is registered (see `docs/deployment.md`).
 
 ```bash
 bun run apps/tui/src/index.ts start \
-  --bootstrap-url ws://localhost:3040/bootstrap \
+  --snapshot-path .devenv/state/prod-snapshot \
   --relay-host preprod-node.play.dev.cardano.org --relay-port 3001 \
   --network preprod
 ```
+
+Pass `--genesis` (or no `--snapshot-path`) to skip the on-disk
+snapshot and sync from origin. The chrome extension consumes the
+same V2LSM snapshot layout via drag-drop in its popup.
 
 ## Deployment
 
@@ -131,9 +124,6 @@ bunx --bun vitest run packages/consensus
 # Integration tests against a live preprod relay
 VITE_INTEGRATION=1 bunx --bun vitest run packages/miniprotocols
 ```
-
-Test discipline: `@effect/vitest` `it.effect` / `it.layer` / `it.prop`.
-`Effect.runPromise` only at `apps/*/src/{index,cli,main}.ts` entrypoints.
 
 ## Project structure
 

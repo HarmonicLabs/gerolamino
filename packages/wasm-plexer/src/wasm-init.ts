@@ -27,17 +27,20 @@
  * Browser hosts (chrome-ext) use `packages/wasm-plexer/browser.js` —
  * the `fetch()`-based parallel loader.
  */
-// wasm-bindgen's `_bg.js` shim doesn't ship its own `.d.ts` (only the
-// public `wasm_plexer.d.ts` covers the bundle's user-facing surface).
-// TypeScript can't augment a relative-path import via `declare module`,
-// so we suppress the `implicitly has 'any'` warning explicitly here.
-// The runtime contract is exercised by the round-trip tests in
-// `src/__tests__/`, and the `@ts-self-types` directive at the top of
-// this file gives downstream consumers the precise typings from
-// `wasm_plexer.d.ts` regardless of the suppression below.
-// @ts-expect-error — wasm-bindgen `_bg.js` shim has no .d.ts.
+// wasm-bindgen's `_bg.js` shim doesn't ship its own `.d.ts` (the
+// public `wasm_plexer.d.ts` covers the bundle's user-facing surface
+// but the shim file itself is bare). TypeScript can't augment a
+// relative-path import via `declare module`, so we suppress the
+// `implicitly has 'any'` warning explicitly here. Standalone tsgo
+// on `packages/wasm-plexer` finds the `.d.ts` via the local
+// `include` and would flag this directive as unused; cross-package
+// tsgo (e.g., from miniprotocols importing wasm-plexer's source)
+// loses the local include scope and DOES need the suppression. The
+// runtime contract is exercised by the round-trip tests in
+// `src/__tests__/`.
+// @ts-ignore — wasm-bindgen `_bg.js` shim has no .d.ts visible cross-package; the standalone tsgo run resolves it via the local include scope and would flag `@ts-expect-error` as unused.
 import * as bg from "../result/wasm_plexer_bg.js";
-// @ts-expect-error — same shim, named import for the wasm-wiring helper.
+// @ts-ignore — same shim, named import for the wasm-wiring helper.
 import { __wbg_set_wasm } from "../result/wasm_plexer_bg.js";
 
 const wasmPath = new URL("../result/wasm_plexer_bg.wasm", import.meta.url).pathname;
@@ -65,5 +68,5 @@ export {
   MultiplexerBuffer,
   unwrap_multiplexer_message,
   wrap_multiplexer_message,
-  // @ts-expect-error — wasm-bindgen `_bg.js` shim has no .d.ts.
+  // @ts-ignore — wasm-bindgen `_bg.js` shim has no .d.ts visible cross-package; the standalone tsgo run resolves it via the local include scope and would flag `@ts-expect-error` as unused.
 } from "../result/wasm_plexer_bg.js";

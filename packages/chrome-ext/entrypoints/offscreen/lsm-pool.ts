@@ -153,6 +153,6 @@ export const LsmWorkerBrowser: Layer.Layer<BlobStore | LsmRpcClient, WorkerError
   BlobStoreFromWorker.pipe(
     Layer.provideMerge(LsmRpcClient.layer),
     Layer.provide(RpcClient.layerProtocolWorker(POOL_OPTIONS)),
-    Layer.provide(RpcSerialization.layerMsgPack),
+    Layer.provide(RpcSerialization.layerNdjson),
     Layer.provide(BrowserWorker.layer(() => new LsmWorker())),
   );

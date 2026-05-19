@@ -116,9 +116,9 @@ export const SyncOverview = () => {
       >
         <Card title={`Bootstrap — ${phaseLabel(bootstrap().phase, state().status)}`}>
           <Box direction="column" gap={1}>
-            <Show when={bootstrap().snapshotSlot !== "0"}>
+            <Show when={bootstrap().snapshotSlot !== 0n}>
               <Text size="sm" color="muted">
-                Snapshot slot: {bootstrap().snapshotSlot}
+                Snapshot slot: {bootstrap().snapshotSlot.toString()}
               </Text>
             </Show>
 

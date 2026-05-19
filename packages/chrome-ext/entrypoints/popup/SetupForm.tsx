@@ -25,13 +25,22 @@ import {
   DEFAULT_SETTINGS,
   saveSettings,
 } from "../shared/bootstrap-settings.ts";
+import { ChromeLocalKeyValueStoreLayer } from "../shared/chrome-key-value-store.ts";
 import { SnapshotUpload } from "./SnapshotUpload.tsx";
+
+/** `globalThis.showDirectoryPicker` declared once for cast-free feature
+ *  detection. The FS Access API is browser-environment optional;
+ *  `declare global` types the symbol without forcing it to exist. */
+declare global {
+  // eslint-disable-next-line no-var
+  var showDirectoryPicker: ((options?: object) => Promise<unknown>) | undefined;
+}
 
 /** Whether the host browser exposes the File System Access API
  *  surface our snapshot uploader needs. Falsy → disable the local
  *  mode radio. */
 const supportsDirectoryPicker = (): boolean =>
-  typeof (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker === "function";
+  typeof globalThis.showDirectoryPicker === "function";
 
 export interface SetupFormProps {
   onSubmit: (settings: BootstrapSettings) => void;
@@ -72,6 +81,7 @@ export const SetupForm: Component<SetupFormProps> = (props) => {
           }),
         ),
         Effect.tap(() => Effect.sync(() => props.onSubmit(settings))),
+        Effect.provide(ChromeLocalKeyValueStoreLayer),
       ),
     );
   };

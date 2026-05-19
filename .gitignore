@@ -44,6 +44,7 @@ Thumbs.db
 
 .claude/worktrees
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Nix / devenv
 .direnv/
@@ -86,3 +87,13 @@ packages/dashboard/dist-spa/
 packages/dashboard/dist/
 db
 test-results/
+
+# Stray root-level .wxt cache (the canonical one lives under packages/chrome-ext/.wxt/)
+.wxt/
+
+# Haskell/Cabal build outputs (lsm-tree-wasm-shim is built via nix shell + cabal)
+**/dist-newstyle/
+
+# Stray scratch test files from past debugging sessions (gitignored — keep on
+# disk but don't track them; delete by hand when they become irrelevant).
+/test_calc.ts

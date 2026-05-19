@@ -15,7 +15,7 @@ import * as BunWorkerRunner from "@effect/platform-bun/BunWorkerRunner";
 import { Effect, Layer } from "effect";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
-import { CryptoDirect } from "wasm-utils";
+import { CryptoDirect } from "wasm-utils/service.ts";
 
 import { ValidationHandlersLive } from "./validation-handlers.ts";
 import { ValidationRpcGroup } from "./validation-rpc-group.ts";

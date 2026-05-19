@@ -1145,7 +1145,6 @@
     hash = "sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==";
   };
   "bootstrap" = copyPathToStore ./packages/bootstrap;
-  "bootstrap-server" = copyPathToStore ./apps/bootstrap;
   "boxen@8.0.1" = fetchurl {
     url = "https://registry.npmjs.org/boxen/-/boxen-8.0.1.tgz";
     hash = "sha512-F3PH5k5juxom4xktynS7MoFY+NUWH5LC4CnH11YB8NPew+HLpmBLCybSAEyb2F+4pRXhuhWqFesoQd6DAyc2hw==";
@@ -1967,7 +1966,6 @@
     url = "https://registry.npmjs.org/lru-cache/-/lru-cache-5.1.1.tgz";
     hash = "sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==";
   };
-  "lsm-ffi" = copyPathToStore ./packages/ffi;
   "lucide-solid@1.11.0" = fetchurl {
     url = "https://registry.npmjs.org/lucide-solid/-/lucide-solid-1.11.0.tgz";
     hash = "sha512-Au1WoosgAIUeagnJeMNsIl/OVF6W6n9Jit06Z2UhjswxBGmREPeAqXgpQBk5ARSG9+bhDpo39t7imX6bgmSN9g==";

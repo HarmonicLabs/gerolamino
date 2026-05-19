@@ -3,15 +3,12 @@ import { Effect, FileSystem, HashMap, Layer, Option, Path } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
 import { decodeExtLedgerState, type ExtLedgerState, Era } from "..";
 import { CborKinds } from "codecs";
-import pathNode from "path";
-import { fileURLToPath } from "url";
 
-const __dir = pathNode.dirname(fileURLToPath(import.meta.url));
-const STATE_PATH = pathNode.resolve(
-  __dir,
-  "../../../..",
-  "apps/bootstrap/db/ledger/119401006/state",
-);
+const __dir = import.meta.dirname;
+const STATE_PATH = new URL(
+  "../../../../apps/bootstrap/db/ledger/119401006/state",
+  `file://${__dir}/`,
+).pathname;
 
 const FsLayer = BunFileSystem.layer;
 

@@ -15,54 +15,64 @@
  * Output is `file://`-loadable directly by Bun.WebView; no dev server needed.
  */
 import { SolidPlugin } from "bun-plugin-solid";
-import { existsSync, mkdirSync, copyFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { Console, Effect, FileSystem, Path } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { BunFileSystem } from "@effect/platform-bun";
 
 const root = import.meta.dir; // packages/dashboard/
-const outDir = resolve(root, "dist-spa");
-const isProd = process.env.NODE_ENV === "production";
 
-if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+const program = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const outDir = path.resolve(root, "dist-spa");
+  const isProd = process.env["NODE_ENV"] === "production";
 
-console.log("[dashboard/build] Compiling Tailwind v4 styles...");
-const tw = Bun.spawn({
-  cmd: [
-    "tailwindcss",
-    "-i",
-    resolve(root, "src/styles.css"),
-    "-o",
-    resolve(outDir, "styles.css"),
-    ...(isProd ? ["--minify"] : []),
-  ],
-  stdout: "inherit",
-  stderr: "inherit",
+  yield* fs.makeDirectory(outDir, { recursive: true });
+
+  yield* Console.log("[dashboard/build] Compiling Tailwind v4 styles...");
+  const tw = Bun.spawn({
+    cmd: [
+      "tailwindcss",
+      "-i",
+      path.resolve(root, "src/styles.css"),
+      "-o",
+      path.resolve(outDir, "styles.css"),
+      ...(isProd ? ["--minify"] : []),
+    ],
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const twExit = yield* Effect.promise(() => tw.exited);
+  if (twExit !== 0) {
+    yield* Console.error("[dashboard/build] Tailwind compile failed");
+    return yield* Effect.fail(new Error(`tailwindcss exited with code ${twExit}`));
+  }
+
+  yield* Console.log("[dashboard/build] Bundling page.tsx with Solid plugin...");
+  const result = yield* Effect.promise(() =>
+    Bun.build({
+      entrypoints: [path.resolve(root, "src/page.tsx")],
+      outdir: outDir,
+      target: "browser",
+      format: "esm",
+      splitting: false,
+      minify: isProd,
+      sourcemap: isProd ? "none" : "external",
+      naming: "page.[ext]",
+      plugins: [SolidPlugin({ generate: "dom" })],
+    }),
+  );
+
+  if (!result.success) {
+    yield* Console.error("[dashboard/build] Bun.build failed:");
+    for (const log of result.logs) yield* Console.error(log);
+    return yield* Effect.fail(new Error("Bun.build failed"));
+  }
+
+  yield* Console.log("[dashboard/build] Copying page.html → dist-spa/index.html...");
+  yield* fs.copyFile(path.resolve(root, "page.html"), path.resolve(outDir, "index.html"));
+
+  yield* Console.log(`[dashboard/build] Done. Open file://${outDir}/index.html`);
 });
-const twExit = await tw.exited;
-if (twExit !== 0) {
-  console.error("[dashboard/build] Tailwind compile failed");
-  process.exit(twExit);
-}
 
-console.log("[dashboard/build] Bundling page.tsx with Solid plugin...");
-const result = await Bun.build({
-  entrypoints: [resolve(root, "src/page.tsx")],
-  outdir: outDir,
-  target: "browser",
-  format: "esm",
-  splitting: false,
-  minify: isProd,
-  sourcemap: isProd ? "none" : "external",
-  naming: "page.[ext]",
-  plugins: [SolidPlugin({ generate: "dom" })],
-});
-
-if (!result.success) {
-  console.error("[dashboard/build] Bun.build failed:");
-  for (const log of result.logs) console.error(log);
-  process.exit(1);
-}
-
-console.log("[dashboard/build] Copying page.html → dist-spa/index.html...");
-copyFileSync(resolve(root, "page.html"), resolve(outDir, "index.html"));
-
-console.log(`[dashboard/build] Done. Open file://${outDir}/index.html`);
+BunRuntime.runMain(program.pipe(Effect.provide(BunFileSystem.layer), Effect.provide(Path.layer)));

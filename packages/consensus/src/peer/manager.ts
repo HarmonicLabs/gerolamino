@@ -75,11 +75,30 @@ const isEligibleForStall = (p: PeerState): boolean =>
 const isActiveWithTip = (p: PeerState): p is PeerWithTip =>
   p.tip !== undefined && p.status !== "disconnected" && p.status !== "stalled";
 
-/** Count of peers not yet disconnected — published to `PeerCount` after
- *  every add / remove. `HashMap.reduce` walks the spine in-place so the
- *  count stays O(n) without materializing an intermediate array. */
-const activePeerCount = (m: HashMap.HashMap<string, PeerState>): number =>
-  HashMap.reduce(m, 0, (acc, peer) => acc + (isConnected(peer) ? 1 : 0));
+/** Active-status delta for an add / replace — `removePeer` flips a peer
+ *  to "disconnected" so `addPeer` is the only path that can flip the
+ *  other way (and only when the peerId is fresh). Reads the prior entry
+ *  via `HashMap.get` (O(log n)) so the delta is O(1) regardless of map
+ *  size.
+ *
+ *  Replaces the prior `HashMap.reduce` full-walk that ran on every
+ *  add/remove — at full relay density (≥ 500 peers) the walk dominated
+ *  the addPeer hot path. The active-count is now maintained as a
+ *  separate `Ref<number>`; `getStatusCounts` still does the O(n)
+ *  histogram (called rarely, on a poll), but the high-frequency
+ *  PeerCount metric update reads from the cached counter. */
+const activeCountDelta = (
+  prev: HashMap.HashMap<string, PeerState>,
+  peerId: string,
+  nextStatus: PeerStatus,
+): -1 | 0 | 1 => {
+  const before = HashMap.get(prev, peerId).pipe(
+    Option.map((p) => (isConnected(p) ? 1 : 0)),
+    Option.getOrElse(() => 0),
+  );
+  const after = nextStatus === "disconnected" ? 0 : 1;
+  return (after - before) as -1 | 0 | 1;
+};
 
 /** Zero-seed for `getStatusCounts`. Listing each literal explicitly lets
  *  TypeScript prove exhaustiveness against `Record<PeerStatus, number>` —
@@ -111,6 +130,11 @@ export class PeerManager extends Context.Service<
     readonly detectStalls: Effect.Effect<ReadonlyArray<string>>;
     /** Get peer count by status. */
     readonly getStatusCounts: Effect.Effect<Record<PeerStatus, number>>;
+    /** Get the cached active-peer count (peers with status !== "disconnected").
+     *  O(1) read of an internal `Ref<number>` maintained atomically by
+     *  `addPeer` / `removePeer`; consumers that want a hot status snapshot
+     *  use this instead of `getPeers.pipe(Effect.map(filter…length))`. */
+    readonly getActiveCount: Effect.Effect<number>;
   }
 >()("consensus/PeerManager") {}
 
@@ -119,31 +143,31 @@ export const PeerManagerLive = Effect.gen(function* () {
   const slotClock = yield* SlotClock;
   const stallTimeoutMs = yield* StallTimeoutMs;
   const peers = yield* Ref.make(HashMap.empty<string, PeerState>());
-
-  /** Atomic "replace entry + publish PeerCount" — used by add + remove.
-   *  `Ref.modify` returns the new active count from the same read, so the
-   *  metric update doesn't need a second `Ref.get`. */
-  const modifyAndPublishCount = (
-    f: (m: HashMap.HashMap<string, PeerState>) => HashMap.HashMap<string, PeerState>,
-  ) =>
-    Ref.modify(peers, (m) => {
-      const next = f(m);
-      return [activePeerCount(next), next] as const;
-    }).pipe(Effect.flatMap((count) => Metric.update(PeerCount, count)));
+  // Cached active-count, updated atomically with `peers` on add/remove.
+  // Avoids the O(n) `HashMap.reduce` walk that the prior implementation
+  // ran on every PeerCount metric update.
+  const activeCount = yield* Ref.make(0);
 
   return {
     addPeer: (peerId: string, address?: string) =>
       Clock.currentTimeMillis.pipe(
         Effect.flatMap((now) =>
-          modifyAndPublishCount((m) =>
-            HashMap.set(m, peerId, {
+          Ref.modify(peers, (m) => {
+            const delta = activeCountDelta(m, peerId, "connecting");
+            const next = HashMap.set(m, peerId, {
               peerId,
               address: address ?? peerId,
               status: "connecting",
               tip: undefined,
               lastActivityMs: Number(now),
               headersReceived: 0,
-            }),
+            });
+            return [delta, next] as const;
+          }),
+        ),
+        Effect.flatMap((delta) =>
+          Ref.updateAndGet(activeCount, (c) => c + delta).pipe(
+            Effect.flatMap((c) => Metric.update(PeerCount, c)),
           ),
         ),
         Effect.withSpan(SPAN.PeerConnect, { attributes: { "peer.id": peerId } }),
@@ -154,7 +178,9 @@ export const PeerManagerLive = Effect.gen(function* () {
         Effect.flatMap((now) =>
           // `HashMap.modify` is a no-op when the peer isn't tracked, so
           // unregistered tip notifications drop silently — same semantics
-          // as the previous `mapUpdate(...) ?? m` guard.
+          // as the previous `mapUpdate(...) ?? m` guard. Status moves
+          // "connecting" → "syncing" (both active), so `activeCount`
+          // doesn't change.
           Ref.update(peers, (m) =>
             HashMap.modify(m, peerId, (peer) => ({
               ...peer,
@@ -168,9 +194,21 @@ export const PeerManagerLive = Effect.gen(function* () {
       ),
 
     removePeer: (peerId: string) =>
-      modifyAndPublishCount((m) =>
-        HashMap.modify(m, peerId, (peer) => ({ ...peer, status: "disconnected" })),
-      ).pipe(Effect.withSpan(SPAN.PeerDisconnect, { attributes: { "peer.id": peerId } })),
+      Ref.modify(peers, (m) => {
+        const delta = activeCountDelta(m, peerId, "disconnected");
+        const next = HashMap.modify(m, peerId, (peer) => ({
+          ...peer,
+          status: "disconnected" as const,
+        }));
+        return [delta, next] as const;
+      }).pipe(
+        Effect.flatMap((delta) =>
+          Ref.updateAndGet(activeCount, (c) => c + delta).pipe(
+            Effect.flatMap((c) => Metric.update(PeerCount, c)),
+          ),
+        ),
+        Effect.withSpan(SPAN.PeerDisconnect, { attributes: { "peer.id": peerId } }),
+      ),
 
     getBestPeer: Ref.get(peers).pipe(
       Effect.map((m) => {
@@ -233,6 +271,8 @@ export const PeerManagerLive = Effect.gen(function* () {
         ...countBy([...HashMap.values(m)], (p) => p.status),
       })),
     ),
+
+    getActiveCount: Ref.get(activeCount),
   };
 });
 

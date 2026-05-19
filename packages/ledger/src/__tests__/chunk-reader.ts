@@ -4,12 +4,9 @@
  * Reads Ouroboros ImmutableDB triplets (.primary, .secondary, .chunk)
  * and extracts individual block byte arrays.
  */
-import pathNode from "path";
-import { fileURLToPath } from "url";
-
-const __dir = pathNode.dirname(fileURLToPath(import.meta.url));
-export const WORKSPACE = pathNode.resolve(__dir, "../../../..");
-export const IMMUTABLE_DIR = pathNode.join(WORKSPACE, "apps/bootstrap/db/immutable");
+const __dir = import.meta.dirname;
+export const WORKSPACE = new URL("../../../..", `file://${__dir}/`).pathname.replace(/\/$/, "");
+export const IMMUTABLE_DIR = `${WORKSPACE}/apps/bootstrap/db/immutable`;
 
 /**
  * Parse a single ImmutableDB chunk triplet and return the raw block bytes.

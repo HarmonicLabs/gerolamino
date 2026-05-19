@@ -1,0 +1,72 @@
+cabal-version: 3.0
+name:          lsm-tree-wasm-shim
+version:       0.1.0
+synopsis:      wasm32-wasi reactor module exposing IntersectMBO/lsm-tree to JS hosts
+description:
+  Builds the IntersectMBO/lsm-tree library as a wasm32-wasi reactor
+  module via ghc-wasm-meta (`wasm32-wasi-ghc`). The resulting
+  `lsm-tree-wasm.wasm` exposes a small `hs_lsm_*` reactor-export
+  surface that the host (Node + `node:wasi` for the TUI build, a
+  browser-side WASI shim backed by OPFS for the chrome-ext build)
+  drives directly.
+  .
+  Filesystem access is routed through `wasi_snapshot_preview1` — the
+  upstream `System.FS.IO.Unix` HasFS instance compiles cleanly under
+  wasm32-wasi because the `unix` package's POSIX FFI maps onto WASI
+  syscalls. No bespoke JSFFI HasFS layer is needed; the host's WASI
+  implementation is the filesystem.
+
+license:       Apache-2.0
+build-type:    Simple
+
+common base-options
+  default-language: GHC2024
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
+    -Wno-name-shadowing
+
+executable lsm-tree-wasm
+  import:          base-options
+  hs-source-dirs:  app
+  main-is:         Main.hs
+  build-depends:
+    , base                 >=4.18 && <5
+    , bytestring
+    , containers
+    , lsm-tree
+    , text
+    , vector
+  ghc-options:
+    -- Reactor model: the WASM module is a library-shaped object that
+    -- the JS host drives via the exported `hs_lsm_*` table.
+    -- `-no-hs-main` strips the traditional command-mode startup.
+    -no-hs-main
+    "-optl-mexec-model=reactor"
+    -- Always-required linker exports:
+    --   * hs_init    — boots the Haskell RTS; called once by the host
+    --     after instantiation + `_initialize`.
+    --   * malloc / free — host-side memory marshaling for path /
+    --     key / value buffers passed across the WASM boundary.
+    "-optl-Wl,--export=hs_init"
+    "-optl-Wl,--export=malloc"
+    "-optl-Wl,--export=free"
+    -- One linker export per `foreign export javascript` in Main.hs.
+    -- Add new ones here when extending the `hs_lsm_*` surface.
+    "-optl-Wl,--export=hs_lsm_smoke"
+    "-optl-Wl,--export=hs_lsm_smoke_reopen"
+    "-optl-Wl,--export=hs_lsm_open_session"
+    "-optl-Wl,--export=hs_lsm_close_session"
+    "-optl-Wl,--export=hs_lsm_open_table"
+    "-optl-Wl,--export=hs_lsm_close_table"
+    "-optl-Wl,--export=hs_lsm_get"
+    "-optl-Wl,--export=hs_lsm_put"
+    "-optl-Wl,--export=hs_lsm_delete"
+    "-optl-Wl,--export=hs_lsm_has"
+    "-optl-Wl,--export=hs_lsm_put_batch"
+    "-optl-Wl,--export=hs_lsm_delete_batch"
+    "-optl-Wl,--export=hs_lsm_cursor_open"
+    "-optl-Wl,--export=hs_lsm_cursor_read"
+    "-optl-Wl,--export=hs_lsm_cursor_close"
+    "-optl-Wl,--export=hs_lsm_save_snapshot"
+    "-optl-Wl,--export=hs_lsm_open_snapshot"

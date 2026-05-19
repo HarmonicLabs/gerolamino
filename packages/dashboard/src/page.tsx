@@ -27,7 +27,10 @@ declare global {
     __APPLY_DELTAS__?: (raw: string) => void;
   }
 }
-window.__APPLY_DELTAS__ = (raw) => applyDelta(registry, raw);
+// Legacy push path is fire-and-forget — drop apply errors with `orDie`
+// (no live consumer of this surface anymore; the WS transport below is
+// the canonical path).
+window.__APPLY_DELTAS__ = (raw) => Effect.runSync(applyDelta(registry, raw).pipe(Effect.orDie));
 
 const root = document.getElementById("root");
 if (!root) throw new Error("page.tsx: #root not found in DOM");
@@ -63,9 +66,7 @@ if (location.protocol === "http:" || location.protocol === "https:") {
   const oneConnection = Effect.gen(function* () {
     const socket = yield* Socket.makeWebSocket(wsUrl);
     yield* socket.runRaw((message) =>
-      Effect.sync(() => {
-        if (typeof message === "string") applyDelta(registry, message);
-      }),
+      typeof message === "string" ? applyDelta(registry, message) : Effect.void,
     );
   }).pipe(
     Effect.catch((err) =>

@@ -1,61 +1,49 @@
 /**
- * RPC server — chrome-ext background service worker.
+ * RPC server — chrome-ext background service worker (popup-facing).
  *
- * `BroadcastDeltas` is the streaming endpoint that ships every popup
- * connection a `Stream.concat(initial, fromPubSub(broadcast))` — the
- * exact shape of `apps/tui/src/dashboard/serve.ts:54-67`'s WS handler,
- * just routed over `chrome.runtime.Port` instead of an upgraded
- * WebSocket. The PubSub itself is fed by the broadcast fiber in
- * `./dashboard/broadcast.ts`.
+ * The SW is a thin pass-through: every popup-facing `NodeRpcs` method
+ * relays to the matching `OffscreenRpcs` handler over a single shared
+ * BroadcastChannel-backed `RpcClient` (`OffscreenClient` service). One
+ * persistent client = one listener = deterministic response routing.
  *
- * `StartSync` forks the bootstrap pipeline. The SW also auto-starts the
- * pipeline on boot (`./index.ts`), so this endpoint is mostly a hook for
- * a future user-driven retry; the side effect is a fork + atom update.
+ * `relayRetry` absorbs the offscreen daemon's ~5 s cold-start.
  */
 import { Effect, Layer, Stream } from "effect";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
-import { buildDeltaJson } from "dashboard/delta";
 import { NodeRpcs } from "./rpc.ts";
-import { registry, pushNodeState } from "./dashboard/atoms.ts";
-import { DashboardBroadcast } from "./dashboard/broadcast.ts";
-import { bootstrapSyncPipeline } from "./bootstrap-sync.ts";
+import { OffscreenClient, OffscreenClientLive, relayRetry } from "./offscreen-rpc-client.ts";
 import { layerServerProtocolChromePort } from "./rpc-transport.ts";
 
 export const NodeRpcHandlers = NodeRpcs.toLayer(
   Effect.gen(function* () {
-    const broadcast = yield* DashboardBroadcast;
-
+    const offscreen = yield* OffscreenClient;
     return NodeRpcs.of({
-      BroadcastDeltas: () =>
-        Stream.concat(
-          Stream.sync(() => buildDeltaJson(registry)),
-          Stream.fromPubSub(broadcast),
-        ),
+      BroadcastDeltas: () => offscreen.SubscribeAtomDeltas().pipe(Stream.orDie),
 
       StartSync: () =>
         Effect.gen(function* () {
-          yield* Effect.log("[rpc] StartSync — forking bootstrap pipeline");
-          yield* pushNodeState({ status: "connecting" });
-          yield* Effect.forkDetach(
-            bootstrapSyncPipeline.pipe(
-              Effect.tapError((err) => pushNodeState({ status: "error", lastError: String(err) })),
-            ),
-          );
-          return { ok: true };
-        }),
+          const result = yield* relayRetry(offscreen.RequestRestart());
+          return { ok: !result.alreadyRunning };
+        }).pipe(Effect.orDie),
+
+      UploadSnapshotChunk: (payload) =>
+        relayRetry(offscreen.UploadSnapshotChunk(payload)).pipe(Effect.orDie),
+
+      ReopenAfterSnapshot: () =>
+        relayRetry(offscreen.ReopenAfterSnapshot()).pipe(Effect.orDie),
+
+      InspectOpfsSnapshot: () =>
+        relayRetry(offscreen.InspectOpfsSnapshot()).pipe(Effect.orDie),
     });
   }),
 );
 
-/**
- * Composes:
- *   - NodeRpcHandlers (BroadcastDeltas, StartSync)
- *   - chrome.runtime.Port server protocol
- *
- * Caller must provide `DashboardBroadcast.Live` so the same PubSub is
- * shared with whatever else publishes to it (currently only the
- * broadcast fiber forked inside `DashboardBroadcast.Live`).
- */
+/** Handlers + their `OffscreenClient` dependency, composed into a single
+ *  Layer so the array-form `Layer.provide` below doesn't have to compose
+ *  array elements against each other (it doesn't — each entry is
+ *  fed to the parent independently). */
+const NodeRpcHandlersWithDeps = NodeRpcHandlers.pipe(Layer.provide(OffscreenClientLive));
+
 export const RpcServerLive = RpcServer.layer(NodeRpcs, {
   disableFatalDefects: true,
-}).pipe(Layer.provide(NodeRpcHandlers), Layer.provide(layerServerProtocolChromePort));
+}).pipe(Layer.provide([NodeRpcHandlersWithDeps, layerServerProtocolChromePort]));

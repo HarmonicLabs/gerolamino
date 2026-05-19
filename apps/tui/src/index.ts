@@ -1,9 +1,13 @@
 /**
  * Gerolamino TUI node — sync-to-tip Cardano data node.
  *
- * Bootstraps remotely from a bootstrap server via WebSocket, then
- * validates headers via the consensus layer, stores data via BlobStore
- * (LSM) + SQL.
+ * Bootstraps from a local Mithril V2LSM snapshot directory
+ * (`--snapshot-path`) or from genesis (`--genesis`). The bootstrap
+ * server is gone (May 2026) — relay sync over `BunSocket.layerNet`
+ * is the only way to reach the upstream cardano-node relay.
+ * Storage flows through BlobStore (LSM-backed on Bun, IndexedDB-
+ * backed on chrome-ext). No SQL — chain metadata, tip pointers,
+ * snapshots, and nonces all live in BlobStore.
  *
  * Visualization:
  *   - **default**: mounts `Bun.WebView` on the bundled `packages/dashboard`
@@ -16,16 +20,9 @@
  * Top-level wiring:
  *
  *   start command
- *     ├── runBootstrap            (one-shot; extracts LedgerView + Nonces)
- *     │       └── BlobStore put/putBatch + dashboard atom pushes
  *     ├── chain-event drain       (Stream.fromPubSub → atom append, scoped)
  *     ├── visualization fiber     (WebView delta-push  OR  headless logger)
  *     └── parallel main loop      (relay sync + dashboardMonitorLoop)
- *
- * SQL access:
- *   layerBunSqlClient → SqlClient
- *     → runMigrations (consumes SqlClient) — creates tables
- *     → ChainDBLive (consumes BlobStore + SqlClient) → ChainDB
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import * as BunSocket from "@effect/platform-bun/BunSocket";
@@ -40,12 +37,11 @@ import {
   Path,
   Ref,
   Schedule,
-  Schema,
   Stream,
 } from "effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Socket from "effect/unstable/socket/Socket";
-import { mapValues, takeRight } from "es-toolkit";
+import { clamp, mapValues } from "es-toolkit";
 import { Command, Flag } from "effect/unstable/cli";
 import {
   ChainEventStream,
@@ -59,31 +55,25 @@ import {
   RelayRetrySchedule,
   PREPROD_MAGIC,
   MAINNET_MAGIC,
+  initialVolatileState,
+  Nonces,
   extractLedgerView,
   extractNonces,
   extractSnapshotTip,
-  initialVolatileState,
-  Nonces,
 } from "consensus";
 import { CryptoWorkerBun } from "wasm-utils/rpc/bun.ts";
 import type { LedgerView } from "consensus";
 import { decodeExtLedgerState } from "ledger";
-import { connect, BootstrapMessage } from "bootstrap";
+import { readSnapshotMeta, readLedgerStateBytes } from "bootstrap";
 import {
   type BlobEntry,
   BlobStore,
-  PREFIX_UTXO,
-  blockKey,
   stakeKey,
   ChainDBLive,
   LedgerSnapshotStoreLive,
-  runMigrations,
 } from "storage";
-import { layer as layerBunSqlClient } from "@effect/sql-sqlite-bun/SqliteClient";
-import { layerLsm } from "lsm-ffi/lsm";
-import { concat } from "consensus";
-import { resolve } from "node:path";
-import { access } from "node:fs/promises";
+import { layerLsm } from "lsm-ffi/native";
+import { layerLsmWasm, makeBunWasi } from "lsm-ffi";
 import {
   registry,
   pushNodeState,
@@ -103,36 +93,15 @@ import {
   peersAtom,
   chainEventLogAtom,
   bootstrapAtom,
-  syncSparklineAtom,
-  SYNC_SPARKLINE_CAP,
+  pushSyncSparklinePoint,
 } from "dashboard/atoms";
 import { startDashboardServer } from "./dashboard/serve.ts";
 import {
-  UTXO_LOG_INTERVAL,
-  BLOCK_LOG_INTERVAL,
   MONITOR_LOOP_INTERVAL,
   HEADLESS_LOG_INTERVAL,
   MONITOR_RETRY_SPACING,
   DASHBOARD_PORT,
 } from "./constants.ts";
-
-// ───────────────────────────── Types ─────────────────────────────
-
-/** Bootstrap completed without receiving the expected LedgerState message. */
-class BootstrapMissingLedgerState extends Schema.TaggedErrorClass<BootstrapMissingLedgerState>()(
-  "BootstrapMissingLedgerState",
-  {},
-) {}
-
-type SnapshotState = {
-  tip: { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined;
-  nonces: ReturnType<typeof extractNonces>;
-};
-
-type BootstrapResult = {
-  ledgerView: LedgerView;
-  snapshotState: SnapshotState | undefined;
-};
 
 // ───────────────────────────── SPA bundle ─────────────────────────────
 
@@ -140,10 +109,21 @@ type BootstrapResult = {
  * Path to the bundled dashboard SPA. Built by
  * `bun packages/dashboard/build.ts` to `packages/dashboard/dist-spa/`.
  */
-const SPA_HTML_PATH = resolve(import.meta.dir, "../../../packages/dashboard/dist-spa/index.html");
+// Bun-native path resolution + existence check — replaces `node:path`
+// + `node:fs/promises` per the no-node:* rule. `import.meta.dir` and
+// `Bun.file().exists()` are stdlib-equivalents in Bun runtime; both
+// stay inside the Effect.tryPromise wrapper so failures land in the
+// typed error channel.
+const SPA_HTML_PATH = new URL(
+  "../../../packages/dashboard/dist-spa/index.html",
+  `file://${import.meta.dir}/`,
+).pathname;
 
 const ensureSpaBundle: Effect.Effect<void, Error> = Effect.tryPromise({
-  try: () => access(SPA_HTML_PATH),
+  try: async () => {
+    const exists = await Bun.file(SPA_HTML_PATH).exists();
+    if (!exists) throw new Error("missing");
+  },
   catch: () =>
     new Error(
       `Dashboard SPA bundle not found at ${SPA_HTML_PATH}. ` +
@@ -152,13 +132,13 @@ const ensureSpaBundle: Effect.Effect<void, Error> = Effect.tryPromise({
     ),
 });
 
-// ───────────────────────────── Bootstrap ─────────────────────────────
+// ───────────────────────────── Ledger view ─────────────────────────────
 
 /**
- * Genesis-mode "ledger view" — empty stake / pool maps. Used when the
- * `--genesis` flag is set; the consensus layer's gentle-skip behavior
- * (size === 0 → bypass) makes this a valid placeholder until enough
- * blocks have been synced to populate stake distribution.
+ * Genesis-mode "ledger view" — empty stake / pool maps. The consensus
+ * layer's gentle-skip behavior (size === 0 → bypass) treats this as a
+ * valid placeholder until enough blocks have been synced from the
+ * relay to populate the stake distribution.
  */
 const GENESIS_LEDGER_VIEW: LedgerView = {
   epochNonce: new Uint8Array(32),
@@ -172,144 +152,99 @@ const GENESIS_LEDGER_VIEW: LedgerView = {
   ocertCounters: HashMap.empty(),
 };
 
+type SnapshotState = {
+  tip: { slot: bigint; blockNo: bigint; hash: Uint8Array } | undefined;
+  nonces: Nonces;
+};
+
+type BootstrapResult = {
+  ledgerView: LedgerView;
+  snapshotState: SnapshotState | undefined;
+};
+
 /**
- * Run the full bootstrap stream end-to-end:
- *   1. Open the WebSocket to the bootstrap server.
- *   2. Process Init / LedgerState / BlobEntries / Block / Complete messages.
- *   3. Decode `ExtLedgerState` once it arrives, extract `LedgerView`
- *      + initial `Nonces` + snapshot tip.
- *   4. Persist the stake distribution to the BlobStore.
+ * Load + decode a Mithril V2LSM snapshot's `ledger/{slot}/state` file.
  *
- * Pure side-effecting Effect — does not fork. The caller awaits its
- * completion before starting the relay sync loop because both the
- * `LedgerView` and `Nonces` are required to validate the first relay
- * header.
+ * Returns the consensus `LedgerView` (pool stake distribution, VRF
+ * keys, opcert counters), the initial `Nonces` (active / evolving /
+ * candidate / epoch), and the snapshot tip — everything the relay
+ * sync loop needs to skip validation forward to the snapshot tip
+ * before processing the first incoming header.
+ *
+ * Also writes the snapshot's stake distribution into BlobStore as
+ * `STAKE_DISTR/<poolHash>` entries (8 BE bytes per pool), so the
+ * mempool / ledger queries can resolve stake without re-decoding the
+ * ledger state.
  */
-const runBootstrap = (bootstrapUrl: string) =>
+const loadSnapshotState = (
+  snapshotPath: string,
+): Effect.Effect<
+  BootstrapResult,
+  unknown,
+  FileSystem.FileSystem | Path.Path | BlobStore | import("consensus").SlotClock
+> =>
   Effect.gen(function* () {
-    yield* Effect.log(`Connecting to bootstrap server: ${bootstrapUrl}`);
+    yield* Effect.log(`Reading Mithril V2LSM snapshot from ${snapshotPath}`);
     yield* pushNodeState({ status: "bootstrapping" });
-    const store = yield* BlobStore;
 
-    const blobCountRef = yield* Ref.make(0);
-    const blockCountRef = yield* Ref.make(0);
-    const ledgerViewRef = yield* Ref.make<LedgerView | undefined>(undefined);
-    const snapshotStateRef = yield* Ref.make<SnapshotState | undefined>(undefined);
+    const meta = yield* readSnapshotMeta(snapshotPath);
+    yield* Effect.log(
+      `Snapshot: slot ${meta.snapshotSlot}, magic ${meta.protocolMagic}, ` +
+        `${meta.totalChunks} chunks`,
+    );
+    yield* pushBootstrapProgress({
+      protocolMagic: meta.protocolMagic,
+      snapshotSlot: meta.snapshotSlot,
+      totalChunks: meta.totalChunks,
+      phase: "awaiting-ledger-state",
+    });
 
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        const stream = yield* connect(bootstrapUrl);
+    const bytes = yield* readLedgerStateBytes(meta);
+    yield* Effect.log(`Ledger state: ${bytes.length} bytes — decoding...`);
+    yield* pushBootstrapProgress({
+      ledgerStateReceived: true,
+      phase: "decoding-ledger-state",
+    });
 
-        yield* stream.pipe(
-          Stream.runForEach(
-            BootstrapMessage.match({
-              Init: (m) =>
-                Effect.gen(function* () {
-                  yield* Effect.log(
-                    `Bootstrap: slot ${m.snapshotSlot}, magic ${m.protocolMagic}, ${m.totalChunks} chunks`,
-                  );
-                  yield* pushBootstrapProgress({
-                    protocolMagic: m.protocolMagic,
-                    totalChunks: m.totalChunks,
-                    phase: "awaiting-ledger-state",
-                  });
-                }),
-
-              LedgerState: (m) =>
-                Effect.gen(function* () {
-                  yield* Effect.log(`Ledger state: ${m.payload.length} bytes, decoding...`);
-                  const extState = yield* decodeExtLedgerState(m.payload);
-                  yield* Effect.log(
-                    `Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
-                      `${HashMap.size(extState.newEpochState.poolDistr.pools)} pools`,
-                  );
-
-                  const lv = yield* extractLedgerView(extState);
-                  const nonces = extractNonces(extState);
-                  const tip = extractSnapshotTip(extState);
-                  yield* Ref.set(ledgerViewRef, lv);
-                  yield* Ref.set(snapshotStateRef, { tip, nonces });
-
-                  yield* Effect.log(
-                    `Bootstrap: tip slot ${tip?.slot ?? "origin"}, totalStake ${lv.totalStake}, ` +
-                      `${HashMap.size(lv.poolVrfKeys)} VRF keys loaded`,
-                  );
-                  yield* pushBootstrapProgress({ ledgerStateReceived: true });
-                }),
-
-              LedgerMeta: (m) => Effect.log(`Ledger meta: ${m.payload.length} bytes`),
-
-              BlobEntries: (m) =>
-                Effect.gen(function* () {
-                  yield* store.putBatch(
-                    m.entries.map((e) => ({
-                      key: concat(PREFIX_UTXO, e.key),
-                      value: e.value,
-                    })),
-                  );
-                  const newCount = yield* Ref.updateAndGet(blobCountRef, (n) => n + m.count);
-                  if (newCount % UTXO_LOG_INTERVAL === 0) {
-                    yield* Effect.log(`UTxO entries received: ${newCount}`);
-                    yield* pushBootstrapProgress({
-                      blobEntriesReceived: newCount,
-                      phase: "receiving-utxos",
-                    });
-                  }
-                }),
-
-              Block: (m) =>
-                Effect.gen(function* () {
-                  yield* store.put(blockKey(m.slotNo, m.headerHash), m.blockCbor);
-                  const newCount = yield* Ref.updateAndGet(blockCountRef, (n) => n + 1);
-                  if (newCount % BLOCK_LOG_INTERVAL === 0) {
-                    yield* Effect.log(`Blocks received: ${newCount}`);
-                    yield* pushBootstrapProgress({
-                      blocksReceived: newCount,
-                      phase: "receiving-blocks",
-                    });
-                  }
-                }),
-
-              Progress: (m) => Effect.log(`Progress: ${m.phase} ${m.current}/${m.total}`),
-
-              Complete: () =>
-                Effect.gen(function* () {
-                  const blobCount = yield* Ref.get(blobCountRef);
-                  const blockCount = yield* Ref.get(blockCountRef);
-                  yield* Effect.log(
-                    `Bootstrap complete: ${blobCount} UTxO entries, ${blockCount} blocks`,
-                  );
-                  yield* pushBootstrapProgress({
-                    blobEntriesReceived: blobCount,
-                    blocksReceived: blockCount,
-                    phase: "complete",
-                  });
-                }),
-            }),
-          ),
-        );
-      }),
+    const extState = yield* decodeExtLedgerState(bytes);
+    yield* Effect.log(
+      `Decoded: era ${extState.currentEra}, epoch ${extState.newEpochState.epoch}, ` +
+        `${HashMap.size(extState.newEpochState.poolDistr.pools)} pools`,
     );
 
-    const lv = yield* Ref.get(ledgerViewRef);
-    if (!lv) return yield* new BootstrapMissingLedgerState();
+    const ledgerView = yield* extractLedgerView(extState);
+    const nonces = extractNonces(extState);
+    const tip = extractSnapshotTip(extState);
+    yield* Effect.log(
+      `LedgerView: tip ${tip?.slot ?? "origin"}, totalStake ${ledgerView.totalStake}, ` +
+        `${HashMap.size(ledgerView.poolVrfKeys)} VRF keys`,
+    );
 
-    // Populate stake distribution table from LedgerView
-    const stakeEntries: Array<BlobEntry> = [];
-    for (const [poolHashHex, stake] of lv.poolStake) {
-      const val = new Uint8Array(8);
-      new DataView(val.buffer).setBigUint64(0, stake);
-      stakeEntries.push({ key: stakeKey(Uint8Array.fromHex(poolHashHex)), value: val });
-    }
+    // Materialise the snapshot's stake distribution into BlobStore so
+    // mempool / queries can resolve `STAKE_DISTR/<poolHash>` without
+    // re-decoding the (≥200 MB) ledger-state CBOR.
+    const store = yield* BlobStore;
+    const stakeEntries: Array<BlobEntry> = Array.from(
+      HashMap.entries(ledgerView.poolStake),
+      ([poolHashHex, stake]) => {
+        const val = new Uint8Array(8);
+        new DataView(val.buffer).setBigUint64(0, stake);
+        return { key: stakeKey(Uint8Array.fromHex(poolHashHex)), value: val };
+      },
+    );
     if (stakeEntries.length > 0) {
       yield* store.putBatch(stakeEntries);
       yield* Effect.log(`Wrote ${stakeEntries.length} stake distribution entries`);
     }
 
-    return {
-      ledgerView: lv,
-      snapshotState: yield* Ref.get(snapshotStateRef),
-    };
+    yield* pushBootstrapProgress({
+      ledgerStateDecoded: true,
+      totalAccounts: stakeEntries.length,
+      totalStakeEntries: stakeEntries.length,
+      phase: "complete",
+    });
+
+    return { ledgerView, snapshotState: { tip, nonces } };
   });
 
 // ───────────────────────── Dashboard monitor loop ─────────────────────────
@@ -325,11 +260,11 @@ const runBootstrap = (bootstrapUrl: string) =>
  * WebView delta-push fiber, the headless logger, any in-process Solid
  * components — observe a single coherent post-state per tick. Without
  * batching, the delta-push fiber's 16ms cadence can race the writes
- * mid-tick and emit a partial-state JSON. Raw registry mutations are
- * used inside the batch (vs `pushPeers` / `pushSyncSparklinePoint`
- * Effects) so the synchronous `Atom.batch` callback doesn't need to
- * thread an Effect runtime through three nested `runSync` calls; Clock
- * is yielded once outside the batch for the `lastUpdated` timestamp.
+ * mid-tick and emit a partial-state JSON. The shared push helpers from
+ * `dashboard/atoms` are sync `void`-returning functions, so they
+ * compose cleanly inside `Atom.batch`'s synchronous callback — no
+ * Effect-runtime threading needed. Clock is yielded once outside the
+ * batch for the `lastUpdated` timestamp.
  */
 const makeDashboardMonitorLoop = (volatileRef: Ref.Ref<ReturnType<typeof initialVolatileState>>) =>
   Effect.gen(function* () {
@@ -349,7 +284,9 @@ const makeDashboardMonitorLoop = (volatileRef: Ref.Ref<ReturnType<typeof initial
         }
 
         const slotsBehind = nodeStatus.currentSlot - nodeStatus.tipSlot;
-        const sparklinePoint = Number(slotsBehind < 0n ? 0n : slotsBehind);
+        // `clamp` saturates pathological negative values (clock-skew tips)
+        // at 0 and caps at safe-int so the sparkline accepts a JS number.
+        const sparklinePoint = clamp(Number(slotsBehind), 0, Number.MAX_SAFE_INTEGER);
         const peerRows = peers.map((p) => ({
           id: p.peerId,
           address: p.address,
@@ -372,10 +309,11 @@ const makeDashboardMonitorLoop = (volatileRef: Ref.Ref<ReturnType<typeof initial
               lastUpdated: now,
             }));
             registry.set(peersAtom, peerRows);
-            registry.set(
-              syncSparklineAtom,
-              takeRight([...registry.get(syncSparklineAtom), sparklinePoint], SYNC_SPARKLINE_CAP),
-            );
+            // `pushSyncSparklinePoint` encapsulates the bounded-ring
+            // append+cap; identical wire shape to the prior inline
+            // `takeRight([...prev, point], cap)` but DRY-shared with
+            // the chrome-ext SW's atom push path.
+            pushSyncSparklinePoint(registry, sparklinePoint);
           }),
         );
       }).pipe(
@@ -440,15 +378,9 @@ const headlessLogFiber = Effect.repeat(
 const start = Command.make(
   "start",
   {
-    bootstrapUrl: Flag.string("bootstrap-url").pipe(
-      Flag.withAlias("b"),
-      Flag.withDescription("Bootstrap server WebSocket URL"),
-      Flag.withFallbackConfig(Config.string("BOOTSTRAP_SERVER_URL")),
-      Flag.withDefault("ws://localhost:3040/bootstrap"),
-    ),
     genesis: Flag.boolean("genesis").pipe(
       Flag.withAlias("g"),
-      Flag.withDescription("Sync from genesis (no bootstrap server needed)"),
+      Flag.withDescription("Sync from genesis without seeding from a snapshot"),
       Flag.withDefault(false),
     ),
     relayHost: Flag.string("relay-host").pipe(
@@ -473,9 +405,20 @@ const start = Command.make(
     ),
     dataDir: Flag.string("data-dir").pipe(
       Flag.withDescription(
-        "Persistent storage directory (LSM + SQLite). Default: fresh temp dir per run.",
+        "Persistent storage directory (LSM BlobStore). Default: fresh temp dir per run.",
       ),
       Flag.withFallbackConfig(Config.string("GEROLAMINO_DATA_DIR")),
+      Flag.withDefault(""),
+    ),
+    snapshotPath: Flag.string("snapshot-path").pipe(
+      Flag.withDescription(
+        "Path to a Mithril V2LSM snapshot directory. When set, skips the WS bootstrap " +
+          "connection — the LSM BlobStore opens directly against the snapshot, and relay " +
+          "sync resumes from the snapshot's tip. Requires GEROLAMINO_USE_WASM_LSM=1 " +
+          "(the WASM lsm-tree backend) to function; the Zig backend doesn't support " +
+          "session-from-snapshot at startup time.",
+      ),
+      Flag.withFallbackConfig(Config.string("GEROLAMINO_SNAPSHOT_PATH")),
       Flag.withDefault(""),
     ),
   },
@@ -497,17 +440,53 @@ const start = Command.make(
         relayPort: config.relayPort,
       });
 
-      yield* runMigrations;
-      yield* Effect.log("Database migrations complete.");
-
-      const { ledgerView, snapshotState } = yield* config.genesis
-        ? Effect.gen(function* () {
-            yield* Effect.log("Genesis mode: syncing from origin (no bootstrap)");
-            yield* pushNodeState({ status: "connecting" });
-            return { ledgerView: GENESIS_LEDGER_VIEW, snapshotState: undefined } as BootstrapResult;
-          })
-        : runBootstrap(config.bootstrapUrl);
-
+      // Bootstrap-source selection:
+      //   --snapshot-path <dir>: open lsm-tree session against the
+      //     on-disk Mithril V2LSM snapshot AND decode
+      //     `<dir>/ledger/{slot}/state` (CBOR ExtLedgerState) to seed
+      //     `LedgerView` + `Nonces` + tip directly. Requires
+      //     `GEROLAMINO_USE_WASM_LSM=1` to be useful for the LSM
+      //     session — the Zig backend doesn't pre-load lsm sessions
+      //     from disk at startup. The ledger-state decode itself is
+      //     backend-agnostic.
+      //   --genesis (or no snapshot): sync from origin over the
+      //     relay; `LedgerView` is empty until enough blocks land to
+      //     populate it.
+      yield* pushNodeState({ status: "connecting" });
+      // Try snapshot ingest first, fall back to genesis on any
+      // decode failure. The Cardano ledger schemas evolve faster
+      // than this package's typed decoders — when the snapshot's
+      // CBOR shape drifts ahead of the schema, we log a warning
+      // and continue with an empty LedgerView. Consensus's
+      // gentle-skip behavior (poolStake.size === 0 → bypass)
+      // makes the resulting node correct-but-slow: relay sync
+      // still happens, header validation falls through, and the
+      // LSM session opens against the on-disk snapshot directly
+      // so ChainDB queries hit pre-populated data immediately.
+      const { ledgerView, snapshotState } =
+        config.snapshotPath !== ""
+          ? yield* loadSnapshotState(config.snapshotPath).pipe(
+              Effect.tapError((e) =>
+                Effect.logWarning(
+                  `Snapshot ingest failed (${String(e)}). Falling back to genesis LedgerView; ` +
+                    `consensus will catch up over the relay. The LSM session still opens ` +
+                    `against ${config.snapshotPath}.`,
+                ),
+              ),
+              Effect.catch(() =>
+                pushBootstrapProgress({
+                  phase: "complete",
+                  ledgerStateDecoded: false,
+                }).pipe(
+                  Effect.as<BootstrapResult>({
+                    ledgerView: GENESIS_LEDGER_VIEW,
+                    snapshotState: undefined,
+                  }),
+                ),
+              ),
+            )
+          : (yield* Effect.log("Genesis mode: syncing from origin"),
+            { ledgerView: GENESIS_LEDGER_VIEW, snapshotState: undefined } as BootstrapResult);
       const volatileRef = yield* Ref.make(
         initialVolatileState(
           snapshotState?.tip,
@@ -518,6 +497,7 @@ const start = Command.make(
               candidate: new Uint8Array(32),
               epoch: 0n,
             }),
+          ledgerView.ocertCounters,
         ),
       );
 
@@ -589,7 +569,14 @@ const start = Command.make(
         { concurrency: "unbounded" },
       );
     }).pipe(
-      Effect.provide(makeStorageLayers(config.dataDir || undefined)),
+      // When `--snapshot-path` is set, route storage to that directory
+      // — the LSM session opens against the Mithril V2LSM snapshot tree
+      // (expects `<path>/lsm/active/`, `<path>/lsm/metadata`,
+      // `<path>/lsm/snapshots/`). Otherwise fall back to `--data-dir`
+      // (default fresh temp dir).
+      Effect.provide(
+        makeStorageLayers(config.snapshotPath || config.dataDir || undefined),
+      ),
       // Wrap the entire program so the chain-event Stream's Scope is
       // satisfied. Forked fibers (`Effect.forkScoped`) inherit this scope
       // and are interrupted cleanly on program exit.
@@ -605,13 +592,27 @@ const app = Command.make("gerolamino").pipe(
 // ───────────────────────────── Layer wiring ─────────────────────────────
 
 /**
- * Build storage layers with LSM BlobStore + SQLite ChainDB.
+ * Build storage layers — BlobStore + BlobStore-backed ChainDB +
+ * LedgerSnapshotStore. If `dataDir` is provided, LSM lives there
+ * persistently for crash-recovery and E2E test harnesses. Without it,
+ * a fresh temp directory is allocated per process start.
  *
- * If `dataDir` is provided, LSM and SQLite live there persistently — for
- * crash-recovery and E2E test harnesses. Without it, a fresh temp
- * directory is allocated per process start (matches the prior
- * bootstrap-stream-only flow).
+ * Backend selection (env flag `GEROLAMINO_USE_WASM_LSM`):
+ *   - `"1"`: load the WASM lsm-tree (`packages/ffi/src/lsm-wasm/`)
+ *     via Bun's `node:wasi` + the in-tree reactor-mode polyfill.
+ *     Requires `WASM_LSM_MODULE_PATH` + `WASM_LSM_JSFFI_PATH` pointing
+ *     at the build artefacts under `packages/ffi/haskell/lsm-tree-wasm-shim/`.
+ *     **Known limitation (May 2026)**: Bun's `node:wasi` reactor
+ *     pattern has a multi-call out-of-bounds memory-access bug under
+ *     heavy mutation workloads — works for read-heavy / smoke tests,
+ *     unstable for full bootstrap. Track Bun PR
+ *     `claude/fix-wasi-initialize-12755`; once merged, this opt-in
+ *     becomes the default.
+ *   - default (unset): the Zig-bridged `liblsm-bridge.so` (existing
+ *     production path). Reads `LIBLSM_BRIDGE_PATH` for the .so location.
  */
+const useWasmLsm = process.env["GEROLAMINO_USE_WASM_LSM"] === "1";
+
 const makeStorageLayers = (dataDir: string | undefined) =>
   Layer.unwrap(
     Effect.gen(function* () {
@@ -619,24 +620,47 @@ const makeStorageLayers = (dataDir: string | undefined) =>
       const fs = yield* FileSystem.FileSystem;
 
       const baseDir = yield* dataDir
-        ? Effect.gen(function* () {
-            yield* fs.makeDirectory(dataDir, { recursive: true });
-            return dataDir;
-          })
+        ? fs.makeDirectory(dataDir, { recursive: true }).pipe(Effect.as(dataDir))
         : fs.makeTempDirectory({ prefix: "gerolamino-" });
       const lsmDir = p.join(baseDir, "lsm");
       yield* fs.makeDirectory(lsmDir, { recursive: true });
 
-      const blobStoreLayer = layerLsm(lsmDir);
-      const sqlClientLayer = layerBunSqlClient({ filename: p.join(baseDir, "chain.db") });
+      const blobStoreLayer = useWasmLsm
+        ? yield* makeWasmLsmLayer(lsmDir)
+        : layerLsm(lsmDir);
+      const chainDbLayer = ChainDBLive.pipe(Layer.provide(blobStoreLayer));
+      const snapshotStoreLayer = LedgerSnapshotStoreLive.pipe(Layer.provide(blobStoreLayer));
 
-      const storageDepsLayer = Layer.merge(blobStoreLayer, sqlClientLayer);
-      const chainDbLayer = ChainDBLive.pipe(Layer.provide(storageDepsLayer));
-      const snapshotStoreLayer = LedgerSnapshotStoreLive.pipe(Layer.provide(storageDepsLayer));
-
-      return Layer.mergeAll(chainDbLayer, snapshotStoreLayer, sqlClientLayer, blobStoreLayer);
+      return Layer.mergeAll(chainDbLayer, snapshotStoreLayer, blobStoreLayer);
     }),
   );
+
+/** Build the WASM lsm-tree BlobStore Layer. Resolves the `.wasm` +
+ *  `.js` post-link artefacts from env vars, reads the bytes via
+ *  Effect's `FileSystem`, and wires the Bun WASI adapter against
+ *  `dataDir` as a preopen root. */
+const makeWasmLsmLayer = (dataDir: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const wasmPath = yield* Config.string("WASM_LSM_MODULE_PATH");
+    const jsffiPath = yield* Config.string("WASM_LSM_JSFFI_PATH");
+    const rawBytes = yield* fs.readFile(wasmPath);
+    // Defensive copy into a fresh ArrayBuffer-backed Uint8Array — Bun's
+    // `fs.readFile` returns a `Uint8Array<ArrayBufferLike>` whose backing
+    // store can be `SharedArrayBuffer`. `WebAssembly.compile`'s
+    // `BufferSource` type rejects that, so we materialise a clean copy.
+    const wasmBytes = new Uint8Array(new ArrayBuffer(rawBytes.byteLength));
+    wasmBytes.set(rawBytes);
+    const jsffiModule: { default: (e: Record<string, unknown>) => WebAssembly.ModuleImports } =
+      yield* Effect.promise(() => import(jsffiPath));
+    const wasi = makeBunWasi({ preopens: { "/": dataDir } });
+    return layerLsmWasm({
+      wasmBytes,
+      jsffiFactory: jsffiModule.default,
+      wasi,
+      sessionDir: "/",
+    }).pipe(Layer.orDie);
+  });
 
 const slotClockLayer = SlotClockLiveFromEnvOrPreprod;
 const peerManagerLayer = PeerManagerLayer.pipe(Layer.provide(slotClockLayer));

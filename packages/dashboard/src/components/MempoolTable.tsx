@@ -71,12 +71,15 @@ export const MempoolTable: Component<MempoolTableProps> = (props) => {
   const { Section } = usePrimitives();
   const mempool = useAtomValue(() => mempoolSnapshotAtom);
   // Unify the multiple atom reads (TanStack's `get data()` getter and the
-  // header's count display) into a single tracked subscription.
-  const memoMempool = createMemo(() => mempool());
+  // header's count display) into a single tracked subscription. The spread
+  // also lives inside the memo so TanStack's getter sees a stable reference
+  // until the upstream atom changes — without this the `[...memoMempool()]`
+  // expression allocates a fresh mutable copy on every getRowModel access.
+  const data = createMemo(() => [...mempool()]);
 
   const table = createSolidTable({
     get data() {
-      return [...memoMempool()];
+      return data();
     },
     columns,
     getCoreRowModel: getCoreRowModel(),
@@ -97,7 +100,7 @@ export const MempoolTable: Component<MempoolTableProps> = (props) => {
   });
 
   return (
-    <Section title={`Mempool (${memoMempool().length} tx)`}>
+    <Section title={`Mempool (${data().length} tx)`}>
       {/* `contain: strict` lets the browser optimize the scroll container's
           layout independently — the inner translateY-positioned rows would
           otherwise trigger layout invalidation upward. */}

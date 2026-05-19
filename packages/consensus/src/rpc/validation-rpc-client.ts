@@ -15,7 +15,7 @@ import { Context, Effect, Layer } from "effect";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type * as RpcGroup from "effect/unstable/rpc/RpcGroup";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 
 import {
   ValidationClient,
@@ -23,7 +23,7 @@ import {
   mapTransportToCrypto,
 } from "./validation-client.ts";
 import { ValidationRpcGroup } from "./validation-rpc-group.ts";
-import type { CryptoOpError, CryptoOperation } from "wasm-utils";
+import { CryptoOpError, CryptoOperation } from "wasm-utils/errors.ts";
 
 /**
  * RpcClient service tag for `ValidationRpcGroup`. Resolved from whatever

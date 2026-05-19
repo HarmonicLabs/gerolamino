@@ -11,7 +11,8 @@
  *                                      ↓
  *                              validateHeader + ChainDB
  */
-import { Deferred, Effect, Layer, Option, Ref, Schedule, Schema, Stream } from "effect";
+import { Deferred, Effect, Layer, Metric, Option, Ref, Schedule, Schema, Stream } from "effect";
+import { BlockFetchError } from "../observability.ts";
 import {
   Multiplexer,
   MultiplexerBuffer,
@@ -34,7 +35,8 @@ import {
   cborOffsetKey,
   analyzeBlockCbor,
 } from "storage";
-import { Crypto, type CryptoOpError } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
+import { type CryptoOpError } from "wasm-utils/errors.ts";
 import { applyBlock } from "../validate/apply";
 import { verifyBodyHash } from "../validate/block";
 import { PeerManager } from "../peer/manager";
@@ -47,6 +49,28 @@ import type { LedgerView } from "../validate/header";
 /** Network magic for known Cardano networks. */
 export const PREPROD_MAGIC = 1;
 export const MAINNET_MAGIC = 764824073;
+export const PREVIEW_MAGIC = 2;
+
+/** Canonical name for a known Cardano protocol magic. Defaults to
+ *  "preview" for unknown magics so the dashboard never blanks. */
+export type NetworkName = "mainnet" | "preprod" | "preview";
+
+export const networkOfMagic = (magic: number): NetworkName => {
+  if (magic === MAINNET_MAGIC) return "mainnet";
+  if (magic === PREPROD_MAGIC) return "preprod";
+  return "preview";
+};
+
+export const magicOfNetwork = (name: NetworkName): number => {
+  switch (name) {
+    case "mainnet":
+      return MAINNET_MAGIC;
+    case "preprod":
+      return PREPROD_MAGIC;
+    case "preview":
+      return PREVIEW_MAGIC;
+  }
+};
 
 /**
  * N2N protocol versions to propose (spec §3.16, Table 3.20 — N2N v14, 15, 16
@@ -54,6 +78,20 @@ export const MAINNET_MAGIC = 764824073;
  * the highest mutually-supported version from our proposal table.
  */
 const N2N_VERSIONS: ReadonlyArray<number> = [14, 15, 16];
+
+/** Sentinel zero hash used when the server tip is `Origin` (chain-pre-genesis).
+ *  Hoisted so the per-message hot path (one allocation per RollForward +
+ *  RollBackward) reuses one frozen 32-byte buffer. */
+const ORIGIN_HASH = new Uint8Array(32);
+
+/** Decode a `ChainPoint` into the `(slot, hash)` shape consumed by
+ *  `handleRollForward` / `handleRollBackward`. Hoisted so the two
+ *  call sites in the chain-sync loop share one definition. */
+const decodeServerTipPoint = (point: typeof ChainPointSchema.Type) =>
+  ChainPointSchema.match(point, {
+    RealPoint: (p) => ({ slot: BigInt(p.slot), hash: p.hash }),
+    Origin: () => ({ slot: 0n, hash: ORIGIN_HASH }),
+  });
 
 /**
  * N2N `RollForward` `eraVariant`: `0` = Byron classic, `1` = Byron EBB,
@@ -306,10 +344,7 @@ const chainSyncLoop = (
 
         if (ChainSyncMessage.guards.RollForward(msg)) {
           const serverTip = {
-            ...ChainPointSchema.match(msg.tip.point, {
-              RealPoint: (p) => ({ slot: BigInt(p.slot), hash: p.hash }),
-              Origin: () => ({ slot: 0n, hash: new Uint8Array(32) }),
-            }),
+            ...decodeServerTipPoint(msg.tip.point),
             blockNo: BigInt(msg.tip.blockNo),
           };
 
@@ -343,7 +378,11 @@ const chainSyncLoop = (
                   if (currentState.tip && msg.eraVariant >= POST_BYRON_ERA_VARIANT_MIN) {
                     yield* fetchAndStoreFullBlock(currentState.tip).pipe(
                       Effect.scoped,
-                      Effect.catch((err) => Effect.logWarning(`[sync] BlockFetch skipped: ${err}`)),
+                      Effect.catch((err) =>
+                        Metric.update(BlockFetchError, 1).pipe(
+                          Effect.andThen(Effect.logWarning(`[sync] BlockFetch skipped: ${err}`)),
+                        ),
+                      ),
                     );
                   }
                 }),
@@ -375,10 +414,7 @@ const chainSyncLoop = (
           });
 
           const serverTip = {
-            ...ChainPointSchema.match(msg.tip.point, {
-              RealPoint: (p) => ({ slot: BigInt(p.slot), hash: p.hash }),
-              Origin: () => ({ slot: 0n, hash: new Uint8Array(32) }),
-            }),
+            ...decodeServerTipPoint(msg.tip.point),
             blockNo: BigInt(msg.tip.blockNo),
           };
 

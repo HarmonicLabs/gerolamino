@@ -1,36 +1,48 @@
 /**
  * Background service worker — Gerolamino in-browser Cardano node.
  *
- * Architecture mirrors `apps/tui` exactly: a single Effect program owns
- * the dashboard atom registry; a scoped fiber polls it every 100 ms,
- * builds a JSON delta, and publishes via `PubSub<string>`; every popup
- * connection consumes that PubSub via the `BroadcastDeltas` streaming
- * RPC over `chrome.runtime.Port`. Bootstrap + relay sync run in the same
- * scope so atom updates and broadcast share a fate.
+ * Phase D Step 3 stage 3b2: the SW is now a thin RPC gateway. The
+ * Effect runtime + atom registry + bootstrap-sync + consensus driver
+ * + WS connection all live in the offscreen document under the
+ * `WORKERS` reason (Chrome 124+, indefinite lifetime). The SW's only
+ * jobs are:
+ *   1. Set up the watchdog alarm (re-create offscreen on
+ *      renderer-OOM / extension-update / browser-restart).
+ *   2. Launch the popup-facing `RpcServerLive` over
+ *      `chrome.runtime.Port`. Its `BroadcastDeltas` handler is now a
+ *      relay over the offscreen's `SubscribeAtomDeltas` stream.
  *
- * Keepalive: Chrome MV3 service workers are evicted after ~30 s of
- * inactivity. A `chrome.alarms` alarm fires every 30 s to reset the idle
- * timer during long-running bootstrap downloads. The alarm itself does
- * no work — its delivery is the keepalive.
+ * The SW can sleep — chrome.runtime events wake it on demand (popup
+ * connect, alarms tick, onStartup, onInstalled). The offscreen is the
+ * persistent compute daemon.
  */
 import { Effect, Layer } from "effect";
 import { RpcServerLive } from "./rpc-server.ts";
-import { DashboardBroadcast } from "./dashboard/broadcast.ts";
-import { pushNodeState } from "./dashboard/atoms.ts";
-import { bootstrapSyncWithStateUpdates } from "./bootstrap-sync.ts";
+import { ensureOffscreen } from "./offscreen-client.ts";
+import { TestLogBufferLayer } from "../shared/test-log-buffer.ts";
 
 // ---------------------------------------------------------------------------
-// Chrome MV3 Service Worker Keepalive
+// Offscreen daemon watchdog (5-minute sentinel, not a keepalive)
 // ---------------------------------------------------------------------------
 
-const KEEPALIVE_ALARM = "gerolamino-keepalive";
+const OFFSCREEN_WATCHDOG_ALARM = "gerolamino-offscreen-watchdog";
 
-function setupKeepalive() {
-  globalThis.chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.5 });
+function setupOffscreenWatchdog() {
+  // 5-minute period — the daemon's natural lifetime is indefinite (WORKERS
+  // Reason). The watchdog fires only to re-create after a kill (renderer
+  // OOM, extension auto-update, profile reload) — not for keepalive.
+  globalThis.chrome.alarms.create(OFFSCREEN_WATCHDOG_ALARM, { periodInMinutes: 5 });
   globalThis.chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === KEEPALIVE_ALARM) {
-      // Alarm delivery resets Chrome's 30 s idle timer; no work needed.
-    }
+    if (alarm.name !== OFFSCREEN_WATCHDOG_ALARM) return;
+    // Recreate-if-missing on every alarm tick. `ensureOffscreen` is
+    // idempotent: it skips `chrome.offscreen.createDocument` when one
+    // already exists. The module-level latch in `offscreen-client.ts`
+    // memoises the first-creation promise; if Chromium evicted the
+    // offscreen under memory pressure the latch holds a stale resolved
+    // promise — see the next-iteration plan in
+    // `project_chrome_offscreen_step3_verified.md` for a "reset latch
+    // on watchdog miss" follow-up.
+    Effect.runFork(ensureOffscreen);
   });
 }
 
@@ -42,46 +54,34 @@ export default defineBackground({
   type: "module",
 
   main() {
-    setupKeepalive();
+    setupOffscreenWatchdog();
 
-    // Layer composition: the broadcast PubSub + RPC server share the
-    // dashboard atom registry (module-level singleton in
-    // `dashboard/atoms.ts`). `Effect.provide` pulls in `DashboardBroadcast.Live`,
-    // which spins up the PubSub + the broadcast fiber that publishes
-    // delta JSON every `DELTA_PUSH_INTERVAL_MS` (see `dashboard/broadcast.ts`).
     const program = Effect.gen(function* () {
       yield* Effect.log("[gerolamino] Background service worker started");
       yield* Effect.log(
-        `[gerolamino] chrome.alarms keepalive registered (${KEEPALIVE_ALARM}, 30s interval)`,
+        `[gerolamino] offscreen watchdog registered (${OFFSCREEN_WATCHDOG_ALARM}, 5min)`,
       );
+
+      // Boot-time offscreen creation. After Phase D Step 3 stage 3b2 the
+      // SW no longer drives bootstrap-sync; the offscreen owns the daemon.
+      // No SW caller ever invokes `ensureOffscreen` lazily anymore (the
+      // legacy decode-protocol caller was the only path), so without this
+      // explicit creation the offscreen never starts and the popup-facing
+      // `BroadcastDeltas` relay's `RpcClient.make(OffscreenRpcs)` would
+      // hang forever waiting for a BroadcastChannel server that doesn't
+      // exist. `ensureOffscreen` is idempotent across re-invocations.
+      yield* Effect.log("[gerolamino] Ensuring offscreen daemon at SW boot");
+      yield* ensureOffscreen;
 
       yield* Effect.log("[gerolamino] Launching RPC server (chrome.runtime.Port transport)");
       yield* Effect.forkDetach(Layer.launch(RpcServerLive));
 
-      yield* Effect.log("[gerolamino] Auto-starting bootstrap sync pipeline");
-      yield* bootstrapSyncWithStateUpdates.pipe(
-        Effect.tapError((err) =>
-          Effect.gen(function* () {
-            yield* Effect.logError(`[gerolamino] Sync error: ${err}`);
-            yield* pushNodeState({ status: "error", lastError: String(err) });
-          }),
-        ),
-        Effect.catchDefect((defect) =>
-          Effect.gen(function* () {
-            const msg = defect instanceof Error ? defect.message : String(defect);
-            yield* Effect.logError(`[gerolamino] Sync defect: ${msg}`);
-            yield* pushNodeState({ status: "error", lastError: msg });
-            return yield* Effect.fail(defect);
-          }),
-        ),
+      yield* Effect.log(
+        "[gerolamino] Bootstrap-sync runs in the offscreen daemon. " +
+          "SW boot is complete; popup deltas relay through SubscribeAtomDeltas.",
       );
     });
 
-    // Provide layers explicitly, then run-fork. Piping `Effect.runFork`
-    // through `.pipe(...)` confused tsgo's overload resolution because
-    // the inner program's `R` channel inherits a residual `any` from
-    // upstream packages — calling `runFork` as a function avoids the
-    // overload mismatch.
-    Effect.runFork(program.pipe(Effect.provide(DashboardBroadcast.Live)));
+    Effect.runFork(program.pipe(Effect.provide(TestLogBufferLayer)));
   },
 });

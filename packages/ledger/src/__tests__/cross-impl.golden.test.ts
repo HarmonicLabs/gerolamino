@@ -2,11 +2,9 @@ import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
 import { CborBytes, CborKinds, CborValue } from "codecs";
-import pathNode from "path";
-import { fileURLToPath } from "url";
 
-const __dir = pathNode.dirname(fileURLToPath(import.meta.url));
-const fixtureDir = pathNode.resolve(__dir, "golden/fixtures");
+const __dir = import.meta.dirname;
+const fixtureDir = `${__dir}/golden/fixtures`;
 
 const decodeCborBytes = Schema.decodeUnknownEffect(CborBytes);
 
@@ -64,7 +62,7 @@ const FsLayer = BunFileSystem.layer;
 describe.each(fixtures)("cross-impl golden: $era translations.cbor", ({ file, numSlots }) => {
   const loadOuter = Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const bytes = yield* fs.readFile(pathNode.join(fixtureDir, file));
+    const bytes = yield* fs.readFile(`${fixtureDir}/${file}`);
     const outer = yield* decodeCborBytes(new Uint8Array(bytes));
     return { bytes: new Uint8Array(bytes), outer };
   }).pipe(Effect.provide(FsLayer));

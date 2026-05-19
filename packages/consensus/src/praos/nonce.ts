@@ -11,7 +11,8 @@
  * Nonce freezing: after 4k/f slots into an epoch, the candidate nonce is frozen.
  */
 import { Effect, Schema } from "effect";
-import { Crypto, type CryptoOpError } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
+import { type CryptoOpError } from "wasm-utils/errors.ts";
 import { concat } from "../util";
 
 export class Nonces extends Schema.TaggedClass<Nonces>()("Nonces", {
@@ -34,6 +35,8 @@ export const evolveNonce = (
   vrfNonceOutput: Uint8Array,
 ): Effect.Effect<Uint8Array, CryptoOpError, Crypto> =>
   Effect.gen(function* () {
+    // `Context.Service` is directly yieldable in effect@4.0.0-beta.67+;
+    // `.asEffect()` was removed (it was the beta.47–.59 escape hatch).
     const crypto = yield* Crypto;
     const innerHash = yield* crypto.blake2b256(vrfNonceOutput);
     return yield* crypto.blake2b256(concat(currentNonce, innerHash));
@@ -47,10 +50,10 @@ export const deriveEpochNonce = (
   candidateNonce: Uint8Array,
   parentHash: Uint8Array,
 ): Effect.Effect<Uint8Array, CryptoOpError, Crypto> =>
-  Effect.gen(function* () {
-    const crypto = yield* Crypto;
-    return yield* crypto.blake2b256(concat(candidateNonce, parentHash));
-  });
+  // `Crypto.use(fn)` replaces the `Effect.flatMap(Crypto, fn)` shape —
+  // same v4-beta-59 Service-isn't-yieldable issue, .use() is the
+  // canonical one-shot extractor.
+  Crypto.use((crypto) => crypto.blake2b256(concat(candidateNonce, parentHash)));
 
 /**
  * Check if a slot is past the randomness stabilization window.

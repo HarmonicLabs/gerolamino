@@ -14,7 +14,8 @@ import { Context, Effect } from "effect";
 import { concat } from "codecs";
 import { MultiEraBlock, decodeMultiEraBlock } from "ledger/lib/block/block.ts";
 import { Era } from "ledger/lib/core/era.ts";
-import { Crypto, CryptoOpError, type CryptoOperation } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
+import { CryptoOpError, type CryptoOperation } from "wasm-utils/errors.ts";
 import { ValidationError, type ValidationOperation } from "./validation-rpc-group.ts";
 
 /**

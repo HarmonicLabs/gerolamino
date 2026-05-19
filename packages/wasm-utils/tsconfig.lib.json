@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["./src/**/*.ts", "./pkg/wasm_utils.d.ts"],
+  "exclude": ["**/__tests__/**/*", "**/*.test.ts", "**/*.spec.ts", "**/*.bench.ts"]
+}

@@ -11,5 +11,8 @@
   },
   "include": ["./src/**/*"],
   "exclude": ["**/__tests__/**/*", "**/*.test.ts", "**/*.spec.ts", "**/*.bench.ts"],
-  "references": [{ "path": "../ffi/tsconfig.lib.json" }]
+  "references": [
+    { "path": "../codecs/tsconfig.lib.json" },
+    { "path": "../wasm-utils/tsconfig.lib.json" }
+  ]
 }

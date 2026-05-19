@@ -77,15 +77,17 @@ const entriesToPolicyMap = (entries: ReadonlyArray<MultiAssetEntry>): PolicyMap 
   entries.reduce(addEntryToPolicyMap, HashMap.empty<PolicyKey, AssetMap>());
 
 const policyMapToEntries = (pm: PolicyMap): ReadonlyArray<MultiAssetEntry> =>
-  Array.from(
-    pm,
-    ([pk, am]): MultiAssetEntry => ({
-      policy: pk.bytes,
-      assets: Array.from(am, ([nk, q]) => ({ name: nk.bytes, quantity: q })).filter(
-        (a) => a.quantity !== 0n,
-      ),
-    }),
-  ).filter((e) => e.assets.length > 0);
+  // Single-pass via `flatMap`: a policy with all-zero quantities produces
+  // an empty `assets` array, and the empty-`[]` return drops it from the
+  // output without a second filter pass over the materialised array.
+  // Saves one full walk of the (potentially-large) policy collection on
+  // every multi-asset arithmetic op.
+  Array.from(pm).flatMap(([pk, am]): readonly MultiAssetEntry[] => {
+    const assets = Array.from(am, ([nk, q]) => ({ name: nk.bytes, quantity: q })).filter(
+      (a) => a.quantity !== 0n,
+    );
+    return assets.length > 0 ? [{ policy: pk.bytes, assets }] : [];
+  });
 
 /**
  * Element-wise merge of two HashMaps under a `QuantityMonoid`-shaped combiner.

@@ -24,10 +24,6 @@ import {
 } from "@tanstack/solid-table";
 import { peersAtom, type PeerInfo } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
-// `peers` from `useAtomValue` is already a Solid signal accessor backed
-// by the AtomRegistry — it tracks identity changes natively, so wrapping
-// it in `createMemo(() => peers())` was a redundant layer of indirection
-// that re-ran on every parent reactivity tick without filtering anything.
 
 const columnHelper = createColumnHelper<PeerInfo>();
 
@@ -52,10 +48,15 @@ const columns = [
 export const PeerTable = () => {
   const { Section } = usePrimitives();
   const peers = useAtomValue(() => peersAtom);
+  // `peers()` is `ReadonlyArray<PeerInfo>` — TanStack mutates the data
+  // array in-place during sort, so we wrap in a memo'd shallow copy.
+  // The memo means the spread runs once per atom write, not once per
+  // reactive read inside the surrounding tracking scope.
+  const data = createMemo(() => [...peers()]);
 
   const table = createSolidTable({
     get data() {
-      return [...peers()];
+      return data();
     },
     columns,
     getCoreRowModel: getCoreRowModel(),

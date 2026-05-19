@@ -30,8 +30,11 @@
 let
   cardanoNodeBin = pkgs.callPackage ./cardano-node-bin.nix { };
 
-  mithrilAggregator = inputs.mithril.packages.${pkgs.system}.mithril-aggregator;
-  mithrilSigner = inputs.mithril.packages.${pkgs.system}.mithril-signer;
+  # `pkgs.system` is deprecated as of nixpkgs 26.05+ — the canonical
+  # accessor is `pkgs.stdenv.hostPlatform.system`. Both resolve to the
+  # same string at evaluation time, but the new spelling is warning-free.
+  mithrilAggregator = inputs.mithril.packages.${pkgs.stdenv.hostPlatform.system}.mithril-aggregator;
+  mithrilSigner = inputs.mithril.packages.${pkgs.stdenv.hostPlatform.system}.mithril-signer;
 
   # Preprod network magic (matches cardano-node's topology / genesis).
   networkMagic = 1;

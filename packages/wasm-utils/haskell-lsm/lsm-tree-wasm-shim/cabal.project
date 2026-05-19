@@ -1,0 +1,60 @@
+-- Local cabal project for the wasm32-wasi build.
+--
+-- During development we point at the in-tree lsm-tree checkout at
+-- `~/code/reference/input-output-hk/lsm-tree`. The Nix-packaged build
+-- (`nix/packages/ffi-wasm.nix`) materialises a combined source tree
+-- where the lsm-tree subdir is co-located instead.
+
+packages:
+  ./
+  /home/hariamoor/code/reference/input-output-hk/lsm-tree/lsm-tree
+  -- blockio is locally vendored + patched: adds `elif arch(wasm32)`
+  -- branch with a serial-only `Internal` that routes through HasFS.
+  -- Upstream's `if os(linux) | osx | windows` chain has no wasm32
+  -- fallback so `System.FS.BlockIO.Internal` was missing.
+  ../blockio-wasm
+
+-- blockio's default IO backend uses io_uring + preadv/pwritev syscalls
+-- that aren't in WASI Preview 1. The `+serialblockio` flag picks the
+-- single-threaded fallback that routes every read/write through
+-- `HasFS` — exactly what we want so the JS-FS bridge is the only
+-- I/O path.
+package blockio
+  flags: +serialblockio
+
+-- The rocksdb-backed bench harness in lsm-tree pulls a C++ rocksdb
+-- dependency that doesn't cross-compile to WASM. We don't build the
+-- bench targets so the flag default is fine, but pin it off explicitly
+-- to keep build-time dependency closure deterministic.
+package lsm-tree
+  flags: -rocksdb
+
+-- Pin to ghc-wasm-meta-bundled cabal's matching Hackage index. Bumping
+-- this is allowed when a newer transitive dep is needed; treat as a
+-- conscious commit.
+index-state:
+  , hackage.haskell.org 2026-04-30T10:58:23Z
+
+-- cborg-0.2.10.0 (latest Hackage release) uses native-word-size
+-- primitive types that don't compile under wasm32 (`Word#`/`Int#`
+-- treated as 64-bit, but on wasm32 they're 32-bit while `Word64#`/
+-- `Int64#` are separate). PR #374 (palas/cborg branch `wasm-fix`)
+-- gates the offending fast-path code on `arch(wasm32)` so wasm32
+-- builds fall back to the slow path that works correctly with
+-- 32-bit Word#. Released cborg pins to this commit until upstream
+-- accepts the PR.
+source-repository-package
+  type: git
+  location: https://github.com/palas/cborg.git
+  tag: 07bae315f2f72811480da56f27627fc874b60bb7
+  subdir: cborg
+
+-- fs-sim @ main carries the merged PR #107 (`partialiseWord64` fixed
+-- for wasm32-csize-32-bit). Released fs-api-0.4.0.0 / fs-sim-0.5.0.0
+-- on Hackage predate this fix. Pin to a recent main-branch commit
+-- until 0.4.1.1+ ships.
+source-repository-package
+  type: git
+  location: https://github.com/input-output-hk/fs-sim.git
+  tag: 6e50751964e2d44d102747490728dbcc3fa65bc1
+  subdir: fs-api fs-sim

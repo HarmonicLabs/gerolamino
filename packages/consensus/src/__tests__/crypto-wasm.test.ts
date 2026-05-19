@@ -6,13 +6,12 @@
  */
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
+import { Crypto, CryptoDirect } from "wasm-utils/service.ts";
 import {
-  Crypto,
-  CryptoDirect,
-  ed25519_sign,
   ed25519_public_key,
   ed25519_secret_key_from_seed,
-} from "wasm-utils";
+  ed25519_sign,
+} from "wasm-utils/pkg/wasm_utils.js";
 
 const provide = <A>(effect: Effect.Effect<A, unknown, Crypto>) =>
   effect.pipe(Effect.provide(CryptoDirect));

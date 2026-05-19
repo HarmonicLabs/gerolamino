@@ -18,7 +18,7 @@ import { Config, Effect, Layer } from "effect";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
 import type { WorkerError } from "effect/unstable/workers/WorkerError";
-import { type Crypto } from "wasm-utils";
+import { type Crypto } from "wasm-utils/service.ts";
 
 import type { ValidationClient } from "./validation-client.ts";
 import { ValidationFromRpc, ValidationRpcClient } from "./validation-rpc-client.ts";

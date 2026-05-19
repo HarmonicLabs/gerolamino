@@ -1,39 +1,39 @@
 /**
- * Bootstrap mode settings — `chrome.storage.local` round-trip.
+ * Bootstrap mode settings — `KeyValueStore`-backed round-trip.
  *
- * The user picks one of three modes from the popup setup form on first
- * open:
+ * The user picks one of two modes from the popup setup form on first open:
  *
- *   - `remote`   — connect to a bootstrap server over WebSocket. Fast
- *                  if a server is reachable; ships every block CBOR
- *                  over the wire so the popup is bandwidth-bound.
- *   - `local`    — point at a local Mithril V2LSM snapshot directory.
- *                  The popup uses the File System Access API to grab a
- *                  `FileSystemDirectoryHandle`, hands it to the SW, and
- *                  the SW reads from disk directly — no WS server in
- *                  the loop. Skipped on browsers that don't expose
- *                  `showDirectoryPicker` (Firefox / older Chromium).
- *   - `genesis`  — no snapshot; sync from genesis off the upstream
- *                  relay. The popup is responsive immediately but the
- *                  SW takes hours to catch up.
+ *   - `local`    — drag a local Mithril V2LSM snapshot directory onto the
+ *                  popup. The popup uses the File System Access API to grab
+ *                  a `FileSystemDirectoryHandle`, walks it via the
+ *                  `bootstrap` package helpers, and streams the bytes into
+ *                  the lsm-worker's OPFS. Skipped on browsers that don't
+ *                  expose `showDirectoryPicker` (Firefox / older Chromium).
+ *   - `genesis`  — no snapshot; sync from genesis off the upstream relay.
  *
- * The Schema is the single source of truth for both encode + decode;
- * `Schema.decodeUnknown` catches stale shapes from a previous build.
+ * Persistence rides on Effect's `KeyValueStore` service — the chrome-ext
+ * provides `ChromeLocalKeyValueStoreLayer` (backed by `chrome.storage.local`)
+ * at each entrypoint; tests can substitute an in-memory layer for hermetic
+ * round-trip assertions. The Schema-decoded shape is the single source of
+ * truth; `Schema.decodeUnknownEffect(Schema.parseJson(BootstrapSettings))`
+ * catches stale formats from a previous build.
  *
- * Persistence rationale: `chrome.storage.local` survives SW evictions
- * and popup closes, so the user's choice sticks across the MV3 SW
- * 30 s idle timeout. Survives extension reload too — the user only
- * re-picks if they uninstall + reinstall.
+ * Composition is pipeline-style (no nested `Effect.gen`) so the dependency
+ * surface — `KeyValueStoreError | SchemaError` collapsed to `undefined`
+ * for the read side — is visible at the type level.
  */
 import { Effect, Schema } from "effect";
+import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore";
 
-export const BootstrapMode = Schema.Literals(["remote", "local", "genesis"] as const);
+export const BootstrapMode = Schema.Literals(["local", "genesis"] as const);
 export type BootstrapMode = typeof BootstrapMode.Type;
 
 export const BootstrapSettings = Schema.Struct({
   mode: BootstrapMode,
-  /** WebSocket URL for `mode: "remote"` (e.g. `ws://localhost:3040`).
-   *  Ignored for `local` / `genesis`. */
+  /** WebSocket URL for the relay proxy (e.g. `ws://localhost:3040`).
+   *  The offscreen connects to `${serverUrl}/relay` regardless of mode —
+   *  relay sync is the only WS in the loop now that the bootstrap server
+   *  has been removed. */
   serverUrl: Schema.String,
 });
 export type BootstrapSettings = typeof BootstrapSettings.Type;
@@ -45,25 +45,52 @@ export const DEFAULT_SETTINGS: BootstrapSettings = {
   serverUrl: "ws://localhost:3040",
 };
 
-const decode = Schema.decodeUnknownEffect(BootstrapSettings);
+/**
+ * Schema-driven JSON codec: `string ↔ JSON parse ↔ BootstrapSettings`. The
+ * canonical v4 entry point — round-trips through `Schema.fromJsonString`
+ * (Schema.ts:9650). No hand-rolled `JSON.parse` / `JSON.stringify` walls.
+ */
+const SettingsJsonCodec = Schema.fromJsonString(BootstrapSettings);
+const decodeFromJsonString = Schema.decodeUnknownEffect(SettingsJsonCodec);
+const encodeToJsonString = Schema.encodeUnknownEffect(SettingsJsonCodec);
 
-/** Read the persisted settings, or `None` on first open / decode error. */
-export const loadSettings: Effect.Effect<BootstrapSettings | undefined> = Effect.gen(function* () {
-  const stored: { [STORAGE_KEY]?: unknown } = yield* Effect.promise(() =>
-    globalThis.chrome.storage.local.get(STORAGE_KEY),
-  );
-  const raw = stored[STORAGE_KEY];
-  if (raw === undefined) return undefined;
-  return yield* decode(raw).pipe(Effect.catchTag("SchemaError", () => Effect.succeed(undefined)));
-});
-
-/** Persist settings. Resolves once Chromium has flushed to its
- *  IndexedDB-backed storage. */
-export const saveSettings = (s: BootstrapSettings): Effect.Effect<void> =>
-  Effect.promise(() => globalThis.chrome.storage.local.set({ [STORAGE_KEY]: s }));
-
-/** Clear the persisted settings — used by the "reset" button in the
- *  setup form so the user is prompted again on next popup open. */
-export const clearSettings: Effect.Effect<void> = Effect.promise(() =>
-  globalThis.chrome.storage.local.remove(STORAGE_KEY),
+/**
+ * Read the persisted settings; resolve to `undefined` on first open or
+ * decode failure. Pipeline-composed (no nested `Effect.gen`).
+ */
+export const loadSettings: Effect.Effect<
+  BootstrapSettings | undefined,
+  never,
+  KeyValueStore.KeyValueStore
+> = Effect.flatMap(KeyValueStore.KeyValueStore, (kvs) =>
+  kvs.get(STORAGE_KEY).pipe(
+    Effect.flatMap((raw) =>
+      raw === undefined
+        ? Effect.succeed<BootstrapSettings | undefined>(undefined)
+        : decodeFromJsonString(raw).pipe(Effect.orElseSucceed(() => undefined)),
+    ),
+    Effect.orElseSucceed(() => undefined),
+  ),
 );
+
+/**
+ * Persist settings; resolves once the underlying KVS has flushed. Errors
+ * propagate as `KeyValueStoreError`; callers downgrade with `.pipe(Effect.orDie)`
+ * or surface them through `Cause` for the dashboard.
+ */
+export const saveSettings = (
+  s: BootstrapSettings,
+): Effect.Effect<void, KeyValueStore.KeyValueStoreError, KeyValueStore.KeyValueStore> =>
+  encodeToJsonString(s).pipe(
+    Effect.orDie,
+    Effect.flatMap((encoded) =>
+      Effect.flatMap(KeyValueStore.KeyValueStore, (kvs) => kvs.set(STORAGE_KEY, encoded)),
+    ),
+  );
+
+/** Clear the persisted settings (Reset button in the setup form). */
+export const clearSettings: Effect.Effect<
+  void,
+  KeyValueStore.KeyValueStoreError,
+  KeyValueStore.KeyValueStore
+> = Effect.flatMap(KeyValueStore.KeyValueStore, (kvs) => kvs.remove(STORAGE_KEY));

@@ -21,7 +21,7 @@
  * wasm-utils) in the app's layer composition.
  */
 import { Effect, Layer } from "effect";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 import { ValidationClient, makeLocalValidationOps } from "./validation-client.ts";
 
 export const ValidationDirectLayer: Layer.Layer<ValidationClient, never, Crypto> = Layer.effect(

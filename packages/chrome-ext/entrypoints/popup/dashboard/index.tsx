@@ -18,9 +18,10 @@
  * evicts and respawns; the chrome.alarms keepalive in the background
  * keeps that window short.
  */
-import { Effect, Stream } from "effect";
+import { Effect, Fiber, Stream } from "effect";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
+import { onCleanup } from "solid-js";
 import { RegistryContext } from "@effect/atom-solid";
 import { PrimitivesProvider, Dashboard, createDomPrimitives, applyDelta } from "dashboard";
 import { NodeRpcs } from "../../background/rpc.ts";
@@ -37,9 +38,7 @@ const registry = AtomRegistry.make();
 // Port.
 const oneConnection = Effect.gen(function* () {
   const client = yield* RpcClient.make(NodeRpcs);
-  yield* Stream.runForEach(client.BroadcastDeltas(), (json) =>
-    Effect.sync(() => applyDelta(registry, json)),
-  );
+  yield* Stream.runForEach(client.BroadcastDeltas(), (json) => applyDelta(registry, json));
 }).pipe(
   Effect.scoped,
   Effect.catch((err) =>
@@ -49,17 +48,25 @@ const oneConnection = Effect.gen(function* () {
   ),
 );
 
-Effect.runFork(oneConnection.pipe(Effect.forever, Effect.provide(layerClientProtocolChromePort)));
-
-/** Top-level browser dashboard for the popup. */
-export const BrowserDashboard = () => (
-  <RegistryContext.Provider value={registry}>
-    <PrimitivesProvider value={domPrimitives}>
-      {/* 380 px popup viewport; `dark` forces the dark token palette
-          regardless of OS theme until light-theme support lands. */}
-      <div class="dark w-[380px] min-h-[480px] p-4 bg-background text-foreground font-sans">
-        <Dashboard />
-      </div>
-    </PrimitivesProvider>
-  </RegistryContext.Provider>
-);
+/** Top-level browser dashboard for the popup. The RPC connection fiber
+ *  is bound to component lifetime via `onCleanup`: re-mount produces a
+ *  fresh fiber, unmount tears down the chrome.runtime.Port and any
+ *  in-flight stream. Previously this was a module-top `Effect.runFork`
+ *  that leaked the fiber across popup re-mounts. */
+export const BrowserDashboard = () => {
+  const fiber = Effect.runFork(
+    oneConnection.pipe(Effect.forever, Effect.provide(layerClientProtocolChromePort)),
+  );
+  onCleanup(() => Effect.runFork(Fiber.interrupt(fiber)));
+  return (
+    <RegistryContext.Provider value={registry}>
+      <PrimitivesProvider value={domPrimitives}>
+        {/* 380 px popup viewport; `dark` forces the dark token palette
+            regardless of OS theme until light-theme support lands. */}
+        <div class="dark w-[380px] min-h-[480px] p-4 bg-background text-foreground font-sans">
+          <Dashboard />
+        </div>
+      </PrimitivesProvider>
+    </RegistryContext.Provider>
+  );
+};

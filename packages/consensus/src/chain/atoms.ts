@@ -29,6 +29,7 @@ import { Effect, Layer, PubSub } from "effect";
 import { EventLog } from "effect/unstable/eventlog";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as AtomRegistryModule from "effect/unstable/reactivity/AtomRegistry";
+import { clamp } from "es-toolkit";
 import {
   ChainEvent,
   type ChainEventType,
@@ -117,7 +118,7 @@ const applyRollback = (
   registry.update(rollbackCountAtom, (n) => n + 1);
   RollbackTarget.match(payload.to, {
     RealPoint: (point) => {
-      registry.update(chainLengthAtom, (n) => Math.max(0, n - payload.depth));
+      registry.update(chainLengthAtom, (n) => clamp(n - payload.depth, 0, Number.MAX_SAFE_INTEGER));
       // Tip slot drops to the rollback point; blockNo is unknown without
       // ledger-state introspection, so we set it to the current length
       // which is an upper bound.

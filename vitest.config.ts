@@ -22,9 +22,6 @@ export default defineConfig({
       // Skip snapshot-dependent tests unless SNAPSHOT_PATH is set
       ...(!hasSnapshot
         ? [
-            "apps/bootstrap/src/__tests__/integration.test.ts",
-            "apps/bootstrap/src/__tests__/full-stream-decode.test.ts",
-            "apps/bootstrap/src/__tests__/chunk-reader.test.ts",
             "packages/ledger/src/__tests__/new-epoch-state.test.ts",
             "packages/ledger/src/__tests__/full-snapshot-coverage.test.ts",
           ]
@@ -88,7 +85,12 @@ export default defineConfig({
         __dirname,
         "packages/storage/src/services/chain-db.ts",
       ),
-      ffi: path.resolve(__dirname, "packages/ffi/src/index.ts"),
+      // `packages/ffi/` was retired; the LSM bindings now live under
+      // `packages/wasm-utils/src/lsm/`. Both the legacy `ffi` alias
+      // and the canonical `lsm-ffi` alias point to the new location
+      // so existing imports keep working without a global sed.
+      ffi: path.resolve(__dirname, "packages/wasm-utils/src/lsm/index.ts"),
+      "lsm-ffi": path.resolve(__dirname, "packages/wasm-utils/src/lsm/index.ts"),
     },
   },
   server: {

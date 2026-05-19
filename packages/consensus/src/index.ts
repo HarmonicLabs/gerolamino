@@ -83,6 +83,10 @@ export {
   connectToRelay,
   PREPROD_MAGIC,
   MAINNET_MAGIC,
+  PREVIEW_MAGIC,
+  type NetworkName,
+  networkOfMagic,
+  magicOfNetwork,
   RelayError,
   RelayRetrySchedule,
 } from "./sync/relay";

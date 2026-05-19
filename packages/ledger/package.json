@@ -14,7 +14,7 @@
   "dependencies": {
     "@harmoniclabs/crypto": "^0.3.0",
     "codecs": "workspace:*",
-    "es-toolkit": "^1.46.0",
+    "es-toolkit": "^1.46.1",
     "wasm-utils": "workspace:*"
   }
 }

@@ -20,7 +20,10 @@ import {
   isShelleyLikeHeader,
   type MultiEraHeader,
 } from "ledger";
-import { Crypto, type CryptoOpError } from "wasm-utils";
+// Subpath imports — see `reference_effect_v4_context_tag_removed.md`
+// for the tsgo cross-package re-export drop that requires this form.
+import { Crypto } from "wasm-utils/service.ts";
+import type { CryptoOpError } from "wasm-utils/errors.ts";
 import { BlockHeader as ConsensusBlockHeader } from "../validate/header";
 import { concat } from "../util";
 

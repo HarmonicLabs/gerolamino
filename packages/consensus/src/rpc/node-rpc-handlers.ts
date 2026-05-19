@@ -28,7 +28,7 @@
  */
 import { Effect, Option, Stream } from "effect";
 import { ChainDB } from "storage";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 import { ChainEventStream } from "../chain/event-log.ts";
 import { Mempool, SubmitResult } from "../mempool/mempool.ts";
 import { getNodeStatus } from "../node.ts";

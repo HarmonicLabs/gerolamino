@@ -4,12 +4,13 @@ Sync-to-tip Cardano data node with embedded `Bun.WebView` dashboard.
 
 ## Architecture
 
-Bootstraps remotely from a bootstrap server via WebSocket
-(`packages/bootstrap` client), then validates headers via consensus layer
-and stores data locally via BlobStore (LSM) + SQLite (ChainDB).
-
-No local `cardano-node` or Mithril snapshot required — the bootstrap server
-provides ledger state, UTxO entries, and block data over the wire.
+Bootstraps from a local Mithril V2LSM snapshot directory
+(`--snapshot-path`) or from genesis (`--genesis`), then validates
+headers via the consensus layer and stores data locally via the
+BlobStore-backed ChainDB + LedgerSnapshotStore. The legacy bootstrap
+server (`apps/bootstrap`) has been removed — relay sync over
+`BunSocket.layerNet` is the only WS connection in the loop, and the
+upstream is a real cardano-node relay (no WS proxy needed for the TUI).
 
 ### Visualization
 
@@ -30,7 +31,6 @@ the next.
 ## Dependencies
 
 - `@effect/platform-bun` — Bun runtime layer
-- `bootstrap` (workspace) — WebSocket bootstrap client + protocol
 - `consensus` (workspace) — header validation, slot clock, peer manager,
   `ChainEventStream`, `ConsensusEvents`
 - `dashboard` (workspace) — atoms + `createDomPrimitives` + `<Dashboard>`
@@ -41,15 +41,59 @@ the next.
 
 ## Environment variables / CLI flags
 
-| Flag                 | Env var                | Default                             |
-| -------------------- | ---------------------- | ----------------------------------- |
-| `--bootstrap-url/-b` | `BOOTSTRAP_SERVER_URL` | `ws://localhost:3040/bootstrap`     |
-| `--genesis / -g`     | (none)                 | `false`                             |
-| `--relay-host`       | `RELAY_HOST`           | `preprod-node.play.dev.cardano.org` |
-| `--relay-port`       | `RELAY_PORT`           | `3001`                              |
-| `--network`          | (none)                 | `preprod`                           |
-| `--headless`         | (none)                 | `false` (WebView mounts by default) |
-| `--data-dir`         | `GEROLAMINO_DATA_DIR`  | fresh temp dir per run              |
+| Flag                 | Env var                  | Default                             |
+| -------------------- | ------------------------ | ----------------------------------- |
+| `--genesis / -g`     | (none)                   | `false`                             |
+| `--relay-host`       | `RELAY_HOST`             | `preprod-node.play.dev.cardano.org` |
+| `--relay-port`       | `RELAY_PORT`             | `3001`                              |
+| `--network`          | (none)                   | `preprod`                           |
+| `--headless`         | (none)                   | `false` (WebView mounts by default) |
+| `--data-dir`         | `GEROLAMINO_DATA_DIR`    | fresh temp dir per run              |
+| `--snapshot-path`    | `GEROLAMINO_SNAPSHOT_PATH` | empty (no local snapshot)        |
+| (none)               | `LIBLSM_BRIDGE_PATH`     | required for default Zig backend    |
+| (none)               | `GEROLAMINO_USE_WASM_LSM`| `0` (Zig backend); `1` opts in to WASM |
+| (none)               | `WASM_LSM_MODULE_PATH`   | required when `USE_WASM_LSM=1`      |
+| (none)               | `WASM_LSM_JSFFI_PATH`    | required when `USE_WASM_LSM=1`      |
+
+### Local-snapshot bootstrap (`--snapshot-path`)
+
+When set, the LSM session opens against `<snapshot-path>/lsm/`
+(canonical Mithril V2LSM layout); relay sync resumes from whatever
+tip the snapshot encodes.
+
+Today this still seeds the consensus `LedgerView` from genesis (same as
+`--genesis`); a follow-up reads `<snapshot-path>/protocolMagicId` +
+`<snapshot-path>/ledger/{slot}/state` (CBOR `ExtLedgerState`) to
+seed the post-snapshot ledger state directly. Without that follow-up,
+`--snapshot-path` doesn't shave catch-up time vs `--genesis` —
+consensus still has to evolve nonces + populate the stake distribution
+over the relay protocol. The LSM session having the snapshot's UTxO
+set IS already a win for ChainDB / LedgerSnapshotStore queries — those
+resolve against the on-disk snapshot immediately.
+
+Use this together with `GEROLAMINO_USE_WASM_LSM=1` once Bun's
+`node:wasi` reactor fix lands.
+
+### LSM backend (Zig vs WASM)
+
+Default: bun:ffi → `liblsm-bridge.so` → Haskell V2LSM (the `LIBLSM_BRIDGE_PATH`
+chain).
+
+Opt-in: WASM lsm-tree via Bun's `node:wasi` + the in-tree reactor polyfill
+(`packages/ffi/src/lsm-wasm/bun-wasi.ts`). Set:
+
+```sh
+GEROLAMINO_USE_WASM_LSM=1 \
+WASM_LSM_MODULE_PATH=$PWD/packages/ffi/haskell/lsm-tree-wasm-shim/lsm-tree-wasm.wasm \
+WASM_LSM_JSFFI_PATH=$PWD/packages/ffi/haskell/lsm-tree-wasm-shim/lsm-tree-wasm.js \
+bun run apps/tui/src/index.ts start --headless
+```
+
+**Known limitation (May 2026):** Bun's `node:wasi` reactor pattern has a
+multi-call out-of-bounds memory-access bug; the WASM path works for
+read-heavy / smoke tests but is unstable under heavy mutation. Track Bun PR
+`claude/fix-wasi-initialize-12755`; once merged, the WASM backend becomes
+the default and the Zig bridge is removed.
 
 ## Running
 

@@ -17,7 +17,7 @@
  * The returned list has at most `⌈log_φ(k) + 2⌉` entries — well under 20
  * even at k = 2160 — plus genesis.
  */
-import { takeWhile, uniq } from "es-toolkit";
+import { range, takeWhile, uniq } from "es-toolkit";
 
 /**
  * Closed-form Fibonacci offsets `[0, 1, 2, 3, 5, 8, 13, …]`.
@@ -31,22 +31,23 @@ const LN_PHI = Math.log((1 + Math.sqrt(5)) / 2);
 const fibOffsetCount = (k: number): number =>
   Math.min(64, Math.ceil(Math.log(Math.max(2, k)) / LN_PHI) + 3);
 
+// Binet's formula — closed-form `fib(n)` for n ≤ 64. We only need
+// small `n` (k = 2160 → n ≤ 17) so IEEE-754 precision is plenty.
+// Module-level constants — `Math.sqrt(5)` ran once per loop iteration
+// before; hoisting saves ~17 sqrt calls per `selectPoints` invocation.
+const SQRT_5 = Math.sqrt(5);
+const PHI = (1 + SQRT_5) / 2;
+const PSI = (1 - SQRT_5) / 2;
+
 /**
  * Produce the Fibonacci offset series up to (but not past) `limit`
- * inclusive. Each offset is computed via the closed-form
- * `Array.from({length}, mapper)` pattern — no mutation, no generators.
- * Bulk-allocates a tiny fixed-size array (≤ 20 entries in practice) and
- * clips by `takeWhile` to the requested upper bound.
+ * inclusive. `range(0, length)` declares "indices 0..length-1" without
+ * the `Array.from({length}, mapper)` index trick; `takeWhile` clips at
+ * the requested upper bound.
  */
 const fibOffsetsUpTo = (limit: number): ReadonlyArray<number> => {
   const length = fibOffsetCount(limit);
-  const series = Array.from({ length }, (_, i) => {
-    // Binet's formula — closed-form `fib(n)` for n ≤ 64. We only need
-    // small `n` (k = 2160 → n ≤ 17) so IEEE-754 precision is plenty.
-    const phi = (1 + Math.sqrt(5)) / 2;
-    const psi = (1 - Math.sqrt(5)) / 2;
-    return Math.round((phi ** i - psi ** i) / Math.sqrt(5));
-  });
+  const series = range(0, length).map((i) => Math.round((PHI ** i - PSI ** i) / SQRT_5));
   return takeWhile(series, (offset) => offset <= limit);
 };
 

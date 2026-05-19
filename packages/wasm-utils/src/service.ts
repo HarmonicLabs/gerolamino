@@ -50,6 +50,18 @@ export class Crypto extends Context.Service<
   }
 >()("wasm-utils/Crypto") {}
 
+/** Wrap a sync wasm-bindgen call into an Effect with a typed CryptoOpError.
+ *  Hoisted to module scope so it doesn't capture closure state — keeps the
+ *  Layer body a pure single-Effect pipeline (no nested `Effect.gen`). */
+const wrap = <A>(
+  operation: CryptoOperation,
+  tryFn: () => A,
+): Effect.Effect<A, CryptoOpError> =>
+  Effect.try({
+    try: tryFn,
+    catch: (err) => fromWasmError(operation, err),
+  });
+
 /**
  * Direct in-process Crypto layer — synchronous WASM calls on the caller's
  * thread. Used by tests, unit benches, and any hot path where worker
@@ -57,20 +69,12 @@ export class Crypto extends Context.Service<
  */
 export const CryptoDirect: Layer.Layer<Crypto> = Layer.effect(
   Crypto,
-  Effect.gen(function* () {
-    yield* initWasm;
-
-    const wrap = <A>(operation: CryptoOperation, tryFn: () => A): Effect.Effect<A, CryptoOpError> =>
-      Effect.try({
-        try: tryFn,
-        catch: (err) => fromWasmError(operation, err),
-      });
-
-    return {
-      // Goes through the pallas-crypto / blake2b_simd Rust implementation in
-      // WASM so shared `packages/consensus` + `packages/storage` code that
-      // binds to `Crypto` is browser-compatible. `Bun.CryptoHasher` is not
-      // available in the browser and must not appear in shared-package source.
+  // Goes through the pallas-crypto / blake2b_simd Rust implementation in
+  // WASM so shared `packages/consensus` + `packages/storage` code that
+  // binds to `Crypto` is browser-compatible. `Bun.CryptoHasher` is not
+  // available in the browser and must not appear in shared-package source.
+  initWasm.pipe(
+    Effect.as<Crypto["Service"]>({
       blake2b256: (data) => wrap("blake2b256", () => blake2b_256(data)),
       ed25519Verify: (message, signature, publicKey) =>
         wrap("ed25519Verify", () => ed25519_verify(message, signature, publicKey)),
@@ -95,6 +99,6 @@ export const CryptoDirect: Layer.Layer<Crypto> = Layer.effect(
       vrfVerifyProof: (vrfVkey, vrfProof, vrfInput) =>
         wrap("vrfVerifyProof", () => vrf_verify_proof(vrfVkey, vrfProof, vrfInput)),
       vrfProofToHash: (vrfProof) => wrap("vrfProofToHash", () => vrf_proof_to_hash(vrfProof)),
-    };
-  }),
+    }),
+  ),
 );

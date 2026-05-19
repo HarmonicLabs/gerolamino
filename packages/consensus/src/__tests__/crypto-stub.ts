@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 
 const stubHash = (data: Uint8Array): Uint8Array =>
   new Uint8Array(new Bun.CryptoHasher("blake2b256").update(data).digest().buffer);

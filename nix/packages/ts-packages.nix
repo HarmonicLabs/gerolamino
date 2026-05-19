@@ -47,8 +47,6 @@
           (root + "/packages/chrome-ext/package.json")
           (root + "/packages/consensus/package.json")
           (root + "/packages/dashboard/package.json")
-          (root + "/packages/ffi/package.json")
-          (root + "/apps/bootstrap/package.json")
           (root + "/apps/tui/package.json")
         ];
       };

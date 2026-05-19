@@ -5,6 +5,13 @@
     "jsxImportSource": "solid-js",
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
+    // `allowJs` lets tsgo follow `import init from "../pkg/wasm_utils.js"`
+    // in `wasm-utils/src/index.ts` so the chain's re-exports surface
+    // correctly. Without this, tsgo can't compile the wasm-bindgen JS
+    // output and silently treats wasm-utils as default-only —
+    // producing spurious "no exported member 'initWasm'" errors
+    // throughout chrome-ext.
+    "allowJs": true,
     "types": ["chrome", "bun"],
     // `customConditions` lets `package.json#exports` resolve workspace
     // packages (wasm-utils, wasm-plexer, lsm-ffi) to their `@org/source`
@@ -23,8 +30,10 @@
       "~~/*": ["./../*"],
       "consensus": ["./../consensus/src/index.ts"],
       "consensus/*": ["./../consensus/src/*"],
-      "ffi": ["./../ffi/src/index.ts"],
-      "ffi/*": ["./../ffi/src/*"],
+      "ffi": ["./../wasm-utils/src/lsm/index.ts"],
+      "ffi/*": ["./../wasm-utils/src/lsm/*"],
+      "lsm-ffi": ["./../wasm-utils/src/lsm/index.ts"],
+      "lsm-ffi/*": ["./../wasm-utils/src/lsm/*"],
       "storage": ["./../storage/src/index.ts"],
       "storage/*": ["./../storage/src/*"],
       "ledger": ["./../ledger/src/index.ts"],

@@ -21,6 +21,7 @@ import {
   clearSettings,
   loadSettings,
 } from "../shared/bootstrap-settings.ts";
+import { ChromeLocalKeyValueStoreLayer } from "../shared/chrome-key-value-store.ts";
 
 const App: Component = () => {
   const [overrideSettings, setOverrideSettings] = createSignal<BootstrapSettings | undefined>();
@@ -38,6 +39,7 @@ const App: Component = () => {
     loadSettings.pipe(
       Effect.timeout("500 millis"),
       Effect.catch(() => Effect.succeed<BootstrapSettings | undefined>(undefined)),
+      Effect.provide(ChromeLocalKeyValueStoreLayer),
       Effect.runPromise,
     ),
   );
@@ -53,6 +55,8 @@ const App: Component = () => {
             setResetRequested(true);
           }),
         ),
+        Effect.orDie,
+        Effect.provide(ChromeLocalKeyValueStoreLayer),
       ),
     );
   };

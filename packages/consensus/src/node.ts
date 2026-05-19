@@ -11,6 +11,7 @@
  * No XState needed — Effect's structured concurrency handles lifecycle.
  */
 import { Effect, Option, Ref, Schedule, Schema } from "effect";
+import { clamp } from "es-toolkit";
 import { SlotClock } from "./praos/clock";
 import { PeerManager } from "./peer/manager";
 import { ConsensusEvents, ConsensusEventKind } from "./peer/events";
@@ -44,9 +45,10 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
     const tipOpt = yield* chainDb.getTip;
     const currentSlot = yield* slotClock.currentSlot;
     const epoch = yield* slotClock.currentEpoch;
-    const peers = yield* peerManager.getPeers;
-    // Count without allocating an intermediate filtered array.
-    const activePeers = peers.reduce((n, p) => n + (p.status !== "disconnected" ? 1 : 0), 0);
+    // O(1) read from the cached active-peer Ref instead of a full
+    // `getPeers().filter(...).length` walk — peer-manager maintains this
+    // counter atomically with add/remove.
+    const activePeers = yield* peerManager.getActiveCount;
 
     const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
     const tipBlock = Option.isSome(tipOpt)
@@ -55,11 +57,12 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
     const tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
     // Sync ratio as a percentage of historical chain coverage. Computed
     // in 1000-ths so a sub-1% genesis-mode sync (typical at startup) shows
-    // a non-zero value instead of integer-truncating to 0. Bound on both
-    // sides — `syncPercent < 0` would surface if a clock skew put the
-    // wallclock behind the tip, which is impossible-but-cheap to guard.
+    // a non-zero value instead of integer-truncating to 0. `clamp` bounds
+    // both sides — a negative `syncPercent` would surface if a clock skew
+    // put the wallclock behind the tip, which is impossible-but-cheap to
+    // guard.
     const syncPermille = currentSlot > 0n ? Number((tipSlot * 100000n) / currentSlot) : 0;
-    const syncPercent = Math.max(0, Math.min(syncPermille / 1000, 100));
+    const syncPercent = clamp(syncPermille / 1000, 0, 100);
 
     const blocksProcessed = volatileStateRef
       ? (yield* Ref.get(volatileStateRef)).blocksProcessed
@@ -79,6 +82,54 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
   });
 
 /**
+ * One iteration of the monitor loop. Extracted from `monitorLoop` so the
+ * outer `Effect.repeat` reads as a single composition step (audit F18).
+ *
+ * - Reads node status + detects stalled peers
+ * - Emits `PeerStalled` events (one per stalled peer id)
+ * - Emits `GsmTransition` only when the GSM state changed since the
+ *   prior tick — `lastGsmState` is the cross-tick handshake
+ * - Logs a one-line status summary
+ */
+const monitorTick = (
+  peerManager: PeerManager["Service"],
+  events: Option.Option<ConsensusEvents["Service"]>,
+  lastGsmState: Ref.Ref<string | undefined>,
+) =>
+  Effect.gen(function* () {
+    const status = yield* getNodeStatus();
+    const stalled = yield* peerManager.detectStalls;
+
+    // Emit PeerStalled events
+    if (stalled.length > 0) {
+      yield* Effect.log(`Detected ${stalled.length} stalled peers: ${stalled.join(", ")}`);
+      if (Option.isSome(events)) {
+        yield* Effect.forEach(
+          stalled,
+          (peerId) => events.value.emit({ _tag: ConsensusEventKind.PeerStalled, peerId }),
+          { discard: true },
+        );
+      }
+    }
+
+    // Emit GsmTransition event on state change.
+    const prevGsmState = yield* Ref.get(lastGsmState);
+    if (prevGsmState !== undefined && prevGsmState !== status.gsmState && Option.isSome(events)) {
+      yield* events.value.emit({
+        _tag: ConsensusEventKind.GsmTransition,
+        from: prevGsmState,
+        to: status.gsmState,
+      });
+    }
+    yield* Ref.set(lastGsmState, status.gsmState);
+
+    yield* Effect.log(
+      `[${status.gsmState}] slot ${status.tipSlot}/${status.currentSlot} ` +
+        `(${status.syncPercent}%) epoch ${status.epochNumber} peers ${status.peerCount}`,
+    );
+  });
+
+/**
  * Run the node's monitoring loop — periodic status logging and stall detection.
  * Runs forever until interrupted.
  */
@@ -92,38 +143,7 @@ export const monitorLoop = Effect.gen(function* () {
   const lastGsmState = yield* Ref.make<string | undefined>(undefined);
 
   yield* Effect.repeat(
-    Effect.gen(function* () {
-      const status = yield* getNodeStatus();
-      const stalled = yield* peerManager.detectStalls;
-
-      // Emit PeerStalled events
-      if (stalled.length > 0) {
-        yield* Effect.log(`Detected ${stalled.length} stalled peers: ${stalled.join(", ")}`);
-        if (Option.isSome(events)) {
-          yield* Effect.forEach(
-            stalled,
-            (peerId) => events.value.emit({ _tag: ConsensusEventKind.PeerStalled, peerId }),
-            { discard: true },
-          );
-        }
-      }
-
-      // Emit GsmTransition event on state change.
-      const prevGsmState = yield* Ref.get(lastGsmState);
-      if (prevGsmState !== undefined && prevGsmState !== status.gsmState && Option.isSome(events)) {
-        yield* events.value.emit({
-          _tag: ConsensusEventKind.GsmTransition,
-          from: prevGsmState,
-          to: status.gsmState,
-        });
-      }
-      yield* Ref.set(lastGsmState, status.gsmState);
-
-      yield* Effect.log(
-        `[${status.gsmState}] slot ${status.tipSlot}/${status.currentSlot} ` +
-          `(${status.syncPercent}%) epoch ${status.epochNumber} peers ${status.peerCount}`,
-      );
-    }).pipe(
+    monitorTick(peerManager, events, lastGsmState).pipe(
       // Individual monitor iterations are non-fatal — log and continue
       Effect.catch((e) => Effect.logWarning(`Monitor check failed: ${e}`)),
     ),

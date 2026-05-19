@@ -11,7 +11,8 @@
  * The driver is an Effect program that runs in a Scope (for resource cleanup).
  */
 import { Deferred, Duration, Effect, HashMap, Metric, Option, Ref, Schema } from "effect";
-import { Crypto, type CryptoOpError } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
+import { type CryptoOpError } from "wasm-utils/errors.ts";
 import { SlotClock } from "../praos/clock";
 import { validateHeader } from "../validate/header";
 import { PeerManager } from "../peer/manager";
@@ -140,19 +141,27 @@ export const handleRollForward = (
       // ChainSync's pre-Babbage protocol guarantees they're in the canonical
       // chain by the time the relay sends them. Downstream subscribers
       // (mempool reorg reaction, dashboard event log) need them tracked.
-      yield* emitChainEvent({
-        _tag: "BlockAccepted",
-        slot: decoded.slot,
-        blockNo: decoded.blockNo,
-        hash: decoded.hash,
-        parentHash: decoded.prevHash,
-      });
-      yield* emitChainEvent({
-        _tag: "TipAdvanced",
-        slot: decoded.slot,
-        blockNo: decoded.blockNo,
-        hash: decoded.hash,
-      });
+      // Emitted concurrently — both writes are independent journal
+      // appends; order is preserved by the EventLog itself, not by
+      // sequencing here.
+      yield* Effect.all(
+        [
+          emitChainEvent({
+            _tag: "BlockAccepted",
+            slot: decoded.slot,
+            blockNo: decoded.blockNo,
+            hash: decoded.hash,
+            parentHash: decoded.prevHash,
+          }),
+          emitChainEvent({
+            _tag: "TipAdvanced",
+            slot: decoded.slot,
+            blockNo: decoded.blockNo,
+            hash: decoded.hash,
+          }),
+        ],
+        { concurrency: "unbounded", discard: true },
+      );
 
       const result: VolatileState = {
         tip: { slot: decoded.slot, blockNo: decoded.blockNo, hash: decoded.hash },
@@ -297,23 +306,27 @@ export const handleRollForward = (
       });
     }
 
-    // Durable BlockAccepted + TipAdvanced. Order matters: `BlockAccepted`
-    // first (the journal records WHY the tip moved), `TipAdvanced` second
-    // (the chain head transition). Subscribers that filter to one or the
-    // other still observe a consistent ordering across blocks.
-    yield* emitChainEvent({
-      _tag: "BlockAccepted",
-      slot: header.slot,
-      blockNo: header.blockNo,
-      hash: header.hash,
-      parentHash: header.prevHash,
-    });
-    yield* emitChainEvent({
-      _tag: "TipAdvanced",
-      slot: header.slot,
-      blockNo: header.blockNo,
-      hash: header.hash,
-    });
+    // Durable BlockAccepted + TipAdvanced. Both are independent journal
+    // appends; the EventLog preserves arrival order so consumers still
+    // see consistent ordering even when emitted concurrently here.
+    yield* Effect.all(
+      [
+        emitChainEvent({
+          _tag: "BlockAccepted",
+          slot: header.slot,
+          blockNo: header.blockNo,
+          hash: header.hash,
+          parentHash: header.prevHash,
+        }),
+        emitChainEvent({
+          _tag: "TipAdvanced",
+          slot: header.slot,
+          blockNo: header.blockNo,
+          hash: header.hash,
+        }),
+      ],
+      { concurrency: "unbounded", discard: true },
+    );
 
     // Update opcert counter for this pool after successful validation
     const poolIdBytes = yield* crypto

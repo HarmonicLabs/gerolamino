@@ -51,19 +51,19 @@ export class ConsensusEvents extends Context.Service<
     readonly subscribe: Effect.Effect<PubSub.Subscription<ConsensusEventType>, never, Scope.Scope>;
   }
 >()("consensus/ConsensusEvents") {
+  // `sliding(256)` keeps the newest events and drops oldest when full —
+  // matches UI-consumer semantics where the dashboard only cares about
+  // the latest tip / GSM transition. `unbounded` previously let memory
+  // grow without bound when a paused popup never drained its queue.
   static readonly Live = Layer.effect(
     ConsensusEvents,
-    Effect.gen(function* () {
-      // `sliding(256)` keeps the newest events and drops oldest when full —
-      // matches UI-consumer semantics where the dashboard only cares about
-      // the latest tip / GSM transition. `unbounded` previously let memory
-      // grow without bound when a paused popup never drained its queue.
-      const pubsub = yield* PubSub.sliding<ConsensusEventType>(256);
-
-      return ConsensusEvents.of({
-        emit: (event) => PubSub.publish(pubsub, event),
-        subscribe: PubSub.subscribe(pubsub),
-      });
-    }),
+    PubSub.sliding<ConsensusEventType>(256).pipe(
+      Effect.map((pubsub) =>
+        ConsensusEvents.of({
+          emit: (event) => PubSub.publish(pubsub, event),
+          subscribe: PubSub.subscribe(pubsub),
+        }),
+      ),
+    ),
   );
 }

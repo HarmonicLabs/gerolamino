@@ -10,7 +10,7 @@
 import * as AtomRegistryModule from "effect/unstable/reactivity/AtomRegistry";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import * as Schema from "effect/Schema";
-import { takeRight } from "es-toolkit";
+import { clamp, medianBy, takeRight } from "es-toolkit";
 
 // ---------------------------------------------------------------------------
 // Node status
@@ -127,7 +127,12 @@ export const BootstrapProgress = Schema.Struct({
   protocolMagic: Schema.Number,
   totalChunks: Schema.Number,
   totalBlobEntries: Schema.Number,
-  snapshotSlot: Schema.String,
+  // BigInt to align with every other slot-typed field in the codebase
+  // (`tipSlot`, `currentSlot`, `MempoolEntry.addedSlot`, `RealPoint.slot`,
+  // …). Storing it as a string was a wire-format accident that forced
+  // explicit BigInt coercion at every consumer; unifying eliminates the
+  // off-by-one risk at the component boundary.
+  snapshotSlot: Schema.BigInt,
   blobEntriesReceived: Schema.Number,
   blocksReceived: Schema.Number,
   ledgerStateReceived: Schema.Boolean,
@@ -144,7 +149,7 @@ export const INITIAL_BOOTSTRAP: BootstrapProgress = {
   protocolMagic: 0,
   totalChunks: 0,
   totalBlobEntries: 0,
-  snapshotSlot: "0",
+  snapshotSlot: 0n,
   blobEntriesReceived: 0,
   blocksReceived: 0,
   ledgerStateReceived: false,
@@ -203,7 +208,7 @@ export const syncPercentLabelAtom: Atom.Atom<string> = Atom.make((get) => {
   const state = get(nodeStateAtom);
   if (state.status === "caught-up") return "100%";
   if (state.status === "idle") return "--";
-  return `${Math.min(state.syncPercent, 100).toFixed(1)}%`;
+  return `${clamp(state.syncPercent, 0, 100).toFixed(1)}%`;
 });
 
 // ---------------------------------------------------------------------------
@@ -235,15 +240,12 @@ export const mempoolSizeAtom: Atom.Atom<number> = Atom.make(
   (get) => get(mempoolSnapshotAtom).length,
 );
 
-/** Derived: median feePerByte across the snapshot, 0 when empty. The `?? 0`
- *  fallbacks below are unreachable (`mid` is computed from `fees.length` so
- *  both indices are in range) but satisfy `noUncheckedIndexedAccess`. */
+/** Derived: median feePerByte across the snapshot, 0 when empty.
+ *  `medianBy` handles the sort + odd/even-length branching internally,
+ *  one pass over the entries. */
 export const mempoolFeeP50Atom: Atom.Atom<number> = Atom.make((get) => {
   const snap = get(mempoolSnapshotAtom);
-  if (snap.length === 0) return 0;
-  const fees = snap.map((e) => e.feePerByte).toSorted((a, b) => a - b);
-  const mid = fees.length >> 1;
-  return fees.length % 2 === 0 ? ((fees[mid - 1] ?? 0) + (fees[mid] ?? 0)) / 2 : (fees[mid] ?? 0);
+  return snap.length === 0 ? 0 : medianBy(snap, (e) => e.feePerByte);
 });
 
 // ---------------------------------------------------------------------------

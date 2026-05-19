@@ -125,8 +125,12 @@ export class Multiplexer extends Context.Service<
           processFiber,
         };
       }),
-      ({ fetchFiber, processFiber }) =>
-        Fiber.interrupt(fetchFiber).pipe(Effect.andThen(Fiber.interrupt(processFiber))),
+      // Parallel interrupt — sequential `Fiber.interrupt` chained via
+      // `andThen` blocked scope-close on whichever fiber was slower to
+      // reach its next checkpoint. The bounded per-protocol PubSubs
+      // already provide back-pressure-safe shutdown semantics, so
+      // dropping ordering between the two interrupts is safe.
+      ({ fetchFiber, processFiber }) => Fiber.interruptAll([fetchFiber, processFiber]),
     ).pipe(
       Effect.map(({ socket, channels }) => ({
         getProtocolChannel: (protocolId: MiniProtocol) =>

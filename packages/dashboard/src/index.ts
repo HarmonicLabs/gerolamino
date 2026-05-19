@@ -93,3 +93,8 @@ export {
 // (apps/tui's HTTP+WS server, chrome-ext's RPC-over-Port broadcast).
 export { replacer, reviver, buildDeltaJson, applyDelta } from "./delta.ts";
 export type { Delta } from "./delta.ts";
+
+// Shared broadcast fiber — identity-first dedup + JSON stringify only on
+// changed ticks. Both apps/tui's WebSocket host and chrome-ext's PubSub
+// fanout use this single producer pipeline.
+export { makeBroadcastFiber } from "./broadcast.ts";

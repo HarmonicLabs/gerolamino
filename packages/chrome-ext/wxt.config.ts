@@ -1,8 +1,7 @@
 import { defineConfig } from "wxt";
-import path from "node:path";
 
-const root = path.resolve(__dirname, "../..");
-const pkg = (name: string, sub: string = "src") => path.join(root, "packages", name, sub);
+const root = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+const pkg = (name: string, sub: string = "src") => `${root}/packages/${name}/${sub}`;
 
 /**
  * Workspace package aliases for Vite — maps tsconfig.base.json paths
@@ -13,47 +12,58 @@ const pkg = (name: string, sub: string = "src") => path.join(root, "packages", n
  *   - Deep import: `import { X } from "consensus/crypto.ts"` → src/crypto.ts
  */
 const workspaceAliases = [
-  { find: /^codecs$/, replacement: path.join(pkg("codecs"), "index.ts") },
-  { find: /^codecs\/(.*)/, replacement: path.join(pkg("codecs"), "$1") },
-  { find: /^ledger$/, replacement: path.join(pkg("ledger"), "index.ts") },
-  { find: /^ledger\/(.*)/, replacement: path.join(pkg("ledger"), "$1") },
-  { find: /^storage$/, replacement: path.join(pkg("storage"), "index.ts") },
-  { find: /^storage\/(.*)/, replacement: path.join(pkg("storage"), "$1") },
-  { find: /^miniprotocols$/, replacement: path.join(pkg("miniprotocols"), "index.ts") },
-  { find: /^miniprotocols\/(.*)/, replacement: path.join(pkg("miniprotocols"), "$1") },
-  { find: /^bootstrap$/, replacement: path.join(pkg("bootstrap"), "index.ts") },
-  { find: /^bootstrap\/(.*)/, replacement: path.join(pkg("bootstrap"), "$1") },
-  { find: /^consensus$/, replacement: path.join(pkg("consensus"), "index.ts") },
-  { find: /^consensus\/(.*)/, replacement: path.join(pkg("consensus"), "$1") },
-  { find: /^dashboard$/, replacement: path.join(pkg("dashboard"), "index.ts") },
-  { find: /^dashboard\/(.*)/, replacement: path.join(pkg("dashboard"), "$1") },
-  // The package's directory is `packages/ffi/` but its npm name is
-  // `lsm-ffi` (per `packages/ffi/package.json#name`). Map both
-  // bare-name forms — `from "ffi"` for legacy paths still in tree
-  // and `from "lsm-ffi"` (the canonical name) — to the same source.
-  // Without `lsm-ffi`'s alias Vite walks node_modules to find the
-  // package and that walk surprises Rolldown's chunker with a stray
-  // solid-js import attempt from `lsm-wasm/blob-store.ts` (which is
-  // not solid-js related — the JSX-runtime injection from
-  // `jsxImportSource: solid-js` leaks the symbol onto every
-  // transpiled .ts file in the workspace). The companion `solid-js`
-  // dep on the root `package.json` ensures Bun hoists it to the
-  // top-level `node_modules/` so any workspace package's walk-up
-  // resolves it.
-  { find: /^ffi$/, replacement: path.join(pkg("ffi"), "index.ts") },
-  { find: /^ffi\/(.*)/, replacement: path.join(pkg("ffi"), "$1") },
-  { find: /^lsm-ffi$/, replacement: path.join(pkg("ffi"), "index.ts") },
-  { find: /^lsm-ffi\/(.*)/, replacement: path.join(pkg("ffi"), "$1") },
+  { find: /^codecs$/, replacement: `${pkg("codecs")}/index.ts` },
+  { find: /^codecs\/(.*)/, replacement: `${pkg("codecs")}/$1` },
+  { find: /^ledger$/, replacement: `${pkg("ledger")}/index.ts` },
+  { find: /^ledger\/(.*)/, replacement: `${pkg("ledger")}/$1` },
+  { find: /^storage$/, replacement: `${pkg("storage")}/index.ts` },
+  { find: /^storage\/(.*)/, replacement: `${pkg("storage")}/$1` },
+  { find: /^miniprotocols$/, replacement: `${pkg("miniprotocols")}/index.ts` },
+  { find: /^miniprotocols\/(.*)/, replacement: `${pkg("miniprotocols")}/$1` },
+  { find: /^bootstrap$/, replacement: `${pkg("bootstrap")}/index.ts` },
+  { find: /^bootstrap\/(.*)/, replacement: `${pkg("bootstrap")}/$1` },
+  { find: /^consensus$/, replacement: `${pkg("consensus")}/index.ts` },
+  { find: /^consensus\/(.*)/, replacement: `${pkg("consensus")}/$1` },
+  { find: /^dashboard$/, replacement: `${pkg("dashboard")}/index.ts` },
+  { find: /^dashboard\/(.*)/, replacement: `${pkg("dashboard")}/$1` },
+  // The LSM↔WASM bindings now live under `packages/wasm-utils/src/lsm/`
+  // (consolidated from the deleted `packages/ffi/`). Keep the
+  // `lsm-ffi` and bare `ffi` aliases pointing into the new location so
+  // existing `from "lsm-ffi/..."` imports keep resolving without
+  // a global sed-rewrite; the canonical path going forward is
+  // `wasm-utils/lsm/...` via the alias below.
+  { find: /^ffi$/, replacement: `${pkg("wasm-utils")}/lsm/index.ts` },
+  { find: /^ffi\/(.*)/, replacement: `${pkg("wasm-utils")}/lsm/$1` },
+  { find: /^lsm-ffi$/, replacement: `${pkg("wasm-utils")}/lsm/index.ts` },
+  { find: /^lsm-ffi\/(.*)/, replacement: `${pkg("wasm-utils")}/lsm/$1` },
   // Resolve `wasm-utils` to source so the high-level Crypto service +
   // CryptoOpError + initWasm are reachable. The source `index.ts`
   // pulls the wasm-bindgen bundle in as `import init from "../pkg/wasm_utils.js"`,
   // so the WASM module still ends up in the output — we just go
   // through the workspace layer instead of bypassing it.
-  { find: /^wasm-utils$/, replacement: path.join(pkg("wasm-utils"), "index.ts") },
-  { find: /^wasm-utils\/(.*)/, replacement: path.join(pkg("wasm-utils"), "$1") },
+  { find: /^wasm-utils$/, replacement: `${pkg("wasm-utils")}/index.ts` },
+  { find: /^wasm-utils\/(.*)/, replacement: `${pkg("wasm-utils")}/$1` },
   {
     find: /^wasm-plexer$/,
-    replacement: path.join(root, "packages/wasm-plexer/browser.js"),
+    replacement: `${root}/packages/wasm-plexer/browser.js`,
+  },
+  // msgpackr's default entrypoint (`./index.js`) uses `new Function(...)`
+  // for JIT-compiled encoders. Effect's `RpcSerialization` module
+  // does an unconditional top-level `import * as Msgpackr from
+  // "msgpackr"` — even when downstream consumers only use NdJson —
+  // so msgpackr lands in every chrome-ext bundle. Chrome MV3's
+  // strict CSP (`script-src 'self' 'wasm-unsafe-eval'`) blocks
+  // `Function(...)` and reports each invocation as a console error.
+  // The library catches its own feature-detection failure, but the
+  // surfacing-via-console is noise that drowns out real diagnostics.
+  // msgpackr ships a `dist/index-no-eval.cjs` build that skips the
+  // JIT path entirely; aliasing the bare specifier to that file
+  // makes the bundle CSP-clean without losing serialization
+  // capability (msgpack codec still works, just slower since it
+  // can't JIT-compile per-shape encoders).
+  {
+    find: /^msgpackr$/,
+    replacement: `${root}/node_modules/.bun/msgpackr@1.11.9/node_modules/msgpackr/dist/index-no-eval.cjs`,
   },
 ];
 

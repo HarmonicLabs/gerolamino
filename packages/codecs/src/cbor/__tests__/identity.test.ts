@@ -68,6 +68,8 @@ describe("byte-level round-trip: encodeSync(parseSync(bytes)) === bytes", () => 
     it("empty", () => byteRoundTrip("a0"));
     it("{bytes: text, uint: array}", () =>
       byteRoundTrip("a2466369616f6e65676d6f6e646f6e6501820203"));
+    // bf = indefinite-length map; pairs (1,2)(3,4); ff = break.
+    it("indefinite {1: 2, 3: 4}", () => byteRoundTrip("bf01020304ff"));
   });
 
   describe("tags", () => {
@@ -86,6 +88,8 @@ describe("byte-level round-trip: encodeSync(parseSync(bytes)) === bytes", () => 
     it("float64: 2.5", () => byteRoundTrip("fb4004000000000000"));
     it("float64: 2.4", () => byteRoundTrip("fb4003333333333333"));
     it("float16: 5.5", () => byteRoundTrip("f94580"));
+    // RFC 8949 §A: float32 100000.0 = 0x47c35000.
+    it("float32: 100000", () => byteRoundTrip("fa47c35000"));
   });
 });
 

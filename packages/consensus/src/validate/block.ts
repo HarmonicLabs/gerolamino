@@ -16,7 +16,7 @@
  */
 import { Effect, Equal, Metric, Schema } from "effect";
 import { parseSync, encodeSync, CborKinds, CborValue } from "codecs";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 import { concat } from "../util";
 import { BlockValidationFailed, SPAN } from "../observability.ts";
 

@@ -20,7 +20,8 @@
  * bootstrap path).
  */
 import { Show, createSignal, onMount, type Component } from "solid-js";
-import { Effect, Schedule } from "effect";
+import { Cause, Console, Effect, Schedule } from "effect";
+import * as Schema from "effect/Schema";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
 import {
@@ -31,6 +32,8 @@ import {
 } from "bootstrap";
 import { NodeRpcs } from "../background/rpc.ts";
 import { layerClientProtocolChromePort } from "../background/rpc-transport.ts";
+
+const isSnapshotReadError = Schema.is(SnapshotReadError);
 
 /** Stream-friendly chunk size. 1 MiB is large enough to amortise the
  *  three-hop RPC overhead per chunk, small enough to fit in the
@@ -90,7 +93,7 @@ export const SnapshotUpload: Component<SnapshotUploadProps> = (props) => {
         }
       }).pipe(
         Effect.scoped,
-        Effect.provide(RpcSerialization.layerMsgPack),
+        Effect.provide(RpcSerialization.layerNdjson),
         Effect.provide(layerClientProtocolChromePort),
         Effect.catchCause(() => Effect.void),
       ),
@@ -103,9 +106,16 @@ export const SnapshotUpload: Component<SnapshotUploadProps> = (props) => {
    *  up the port automatically when this effect resolves or fails. */
   const uploadProgram = (files: ReadonlyArray<SnapshotFile>, total: number) =>
     Effect.gen(function* () {
+      yield* Console.log("[snapshot-upload] step 3: opening RpcClient (popup → SW)");
       const client = yield* RpcClient.make(NodeRpcs);
+      yield* Console.log("[snapshot-upload] step 3: RpcClient open; streaming chunks");
       let written = 0;
+      let fileIx = 0;
       for (const { file, opfsPath } of files) {
+        fileIx++;
+        yield* Console.log(
+          `[snapshot-upload] file ${fileIx}/${files.length}: ${opfsPath} (${(file.size / 1024).toFixed(1)} KiB)`,
+        );
         setStatus({ kind: "uploading", file: opfsPath, bytes: written, total });
         if (file.size === 0) {
           // Zero-byte create + close so the OPFS tree still sees the
@@ -135,12 +145,14 @@ export const SnapshotUpload: Component<SnapshotUploadProps> = (props) => {
         }
         written += file.size;
       }
+      yield* Console.log("[snapshot-upload] step 3: all chunks uploaded; reopening lsm-tree session");
       setStatus({ kind: "reopening" });
       // Worker may briefly still be flushing the last OPFS handles when
       // the popup sends Reopen; bounded-retry absorbs that race. `recurs`
       // is a count-only schedule in v4; the 250 ms granularity is
       // implicit in the cross-process RPC round-trip latency.
       yield* client.ReopenAfterSnapshot().pipe(Effect.retry(Schedule.recurs(3)));
+      yield* Console.log("[snapshot-upload] step 3: reopen complete; restarting bootstrap-sync");
       // Restart the offscreen bootstrap-sync fiber so it re-reads
       // the newly-populated OPFS `ledger/<slot>/state` and seeds
       // `LedgerView` + `Nonces` + tip. `StartSync` relays to the
@@ -149,7 +161,7 @@ export const SnapshotUpload: Component<SnapshotUploadProps> = (props) => {
       setStatus({ kind: "done" });
     }).pipe(
       Effect.scoped,
-      Effect.provide(RpcSerialization.layerMsgPack),
+      Effect.provide(RpcSerialization.layerNdjson),
       Effect.provide(layerClientProtocolChromePort),
     );
 
@@ -160,19 +172,42 @@ export const SnapshotUpload: Component<SnapshotUploadProps> = (props) => {
     // `bootstrap` package owns the layout constants; both this popup
     // and apps/tui's `--snapshot-path` reader share them.
     Effect.runFork(
-      Effect.promise(() => validateSnapshotHandle(handle)).pipe(
-        Effect.flatMap(() => Effect.promise(() => walkSnapshotDirectory(handle))),
-        Effect.flatMap((files) => {
-          const total = files.reduce((s, f) => s + f.file.size, 0);
-          return uploadProgram(files, total);
-        }),
+      Console.log(`[snapshot-upload] runUpload start; handle="${handle.name}"`).pipe(
+        Effect.andThen(Console.log("[snapshot-upload] step 1: validating layout")),
+        Effect.andThen(Effect.promise(() => validateSnapshotHandle(handle))),
+        Effect.tap(() => Console.log("[snapshot-upload] step 1 done: layout OK")),
+        Effect.andThen(
+          Effect.sync(() => {
+            setStatus({ kind: "uploading", file: "(walking)", bytes: 0, total: 0 });
+          }),
+        ),
+        Effect.andThen(Console.log("[snapshot-upload] step 2: walking directory")),
+        Effect.andThen(Effect.promise(() => walkSnapshotDirectory(handle))),
+        Effect.tap((files) =>
+          Console.log(
+            `[snapshot-upload] step 2 done: ${files.length} files, ${(
+              files.reduce((s, f) => s + f.file.size, 0) /
+              1024 /
+              1024
+            ).toFixed(1)} MiB total`,
+          ),
+        ),
+        Effect.flatMap((files) =>
+          uploadProgram(files, files.reduce((s, f) => s + f.file.size, 0)),
+        ),
+        Effect.tap(() => Console.log("[snapshot-upload] step 3 done: upload complete")),
         Effect.tap(() => Effect.sync(() => props.onUploaded())),
         Effect.tapCause((cause) =>
-          Effect.sync(() => {
-            // `SnapshotReadError` carries a structured message; fall
-            // back to `String(cause)` for unknown failures.
-            const root = cause instanceof SnapshotReadError ? cause.message : String(cause);
-            setStatus({ kind: "error", message: root });
+          Effect.gen(function* () {
+            // `Effect.promise(...)` surfaces rejections as defects, so a
+            // SnapshotReadError thrown by validateSnapshotHandle/walk
+            // lands in the defect channel. `Cause.squash` returns the
+            // first encountered failure-or-defect; `Schema.is` confirms
+            // the tag.
+            const squashed = Cause.squash(cause);
+            const root = isSnapshotReadError(squashed) ? squashed.message : Cause.pretty(cause);
+            yield* Console.error(`[snapshot-upload] FAILED: ${root}`);
+            yield* Effect.sync(() => setStatus({ kind: "error", message: root }));
           }),
         ),
       ),
@@ -219,7 +254,7 @@ export const SnapshotUpload: Component<SnapshotUploadProps> = (props) => {
         props.onUploaded();
       }).pipe(
         Effect.scoped,
-        Effect.provide(RpcSerialization.layerMsgPack),
+        Effect.provide(RpcSerialization.layerNdjson),
         Effect.provide(layerClientProtocolChromePort),
         Effect.tapCause((cause) =>
           Effect.sync(() => setStatus({ kind: "error", message: String(cause) })),

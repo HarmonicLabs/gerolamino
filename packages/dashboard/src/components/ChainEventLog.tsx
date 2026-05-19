@@ -14,7 +14,7 @@
  * scroll-position (when reading older events) is preferred over a
  * forced auto-scroll, so no scroll-pin logic is needed here.
  */
-import { For, Show, createMemo, type Component } from "solid-js";
+import { For, Show, type Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { useAtomValue } from "@effect/atom-solid";
 import Check from "lucide-solid/icons/check";
@@ -22,7 +22,7 @@ import Undo2 from "lucide-solid/icons/undo-2";
 import Calendar from "lucide-solid/icons/calendar";
 import ArrowRight from "lucide-solid/icons/arrow-right";
 import type { LucideIcon } from "lucide-solid";
-import { chainEventLogAtom, type ChainEventEntry } from "../atoms/node-state.ts";
+import { chainEventLogAtom, ChainEventEntry } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
 import type { LogRowProps } from "../primitives.ts";
 
@@ -50,18 +50,13 @@ const ICON_FOR: Record<ChainEventEntry["_tag"], LucideIcon> = {
   EpochBoundary: Calendar,
 };
 
-const titleFor = (e: ChainEventEntry): string => {
-  switch (e._tag) {
-    case "BlockAccepted":
-      return `Block accepted at slot ${e.slot} (#${e.blockNo})`;
-    case "RolledBack":
-      return `Rolled back ${e.depth} block${e.depth === 1 ? "" : "s"}`;
-    case "TipAdvanced":
-      return `Tip advanced to slot ${e.slot}`;
-    case "EpochBoundary":
-      return `Epoch ${e.fromEpoch} → ${e.toEpoch}`;
-  }
-};
+const titleFor = (e: ChainEventEntry): string =>
+  ChainEventEntry.match(e, {
+    BlockAccepted: ({ slot, blockNo }) => `Block accepted at slot ${slot} (#${blockNo})`,
+    RolledBack: ({ depth }) => `Rolled back ${depth} block${depth === 1 ? "" : "s"}`,
+    TipAdvanced: ({ slot }) => `Tip advanced to slot ${slot}`,
+    EpochBoundary: ({ fromEpoch, toEpoch }) => `Epoch ${fromEpoch} → ${toEpoch}`,
+  });
 
 export interface ChainEventLogProps {
   /** Pixel max-height of the inner scroll area. Defaults to 400. */
@@ -71,10 +66,10 @@ export interface ChainEventLogProps {
 export const ChainEventLog: Component<ChainEventLogProps> = (props) => {
   const { Section, Text, ScrollArea, LogRow } = usePrimitives();
   const events = useAtomValue(() => chainEventLogAtom);
-  // `toReversed()` allocates a new array; wrapping in `createMemo` keeps
-  // it bound to atom updates only, instead of re-allocating on every
-  // unrelated reactive read in the surrounding tracking scope.
-  const reversedEvents = createMemo(() => events().toReversed());
+  // Newest-first via CSS `flex-direction: column-reverse` — saves a
+  // 1000-element `toReversed()` allocation on every popup tick. The
+  // children iterate in insertion order; column-reverse paints them
+  // bottom-to-top so the visual order is newest-on-top.
 
   return (
     <Section title={`Chain events (${events().length})`}>
@@ -87,21 +82,23 @@ export const ChainEventLog: Component<ChainEventLogProps> = (props) => {
             </Text>
           }
         >
-          <For each={reversedEvents()}>
-            {(e) => (
-              <LogRow
-                tag={TAG_FOR[e._tag]}
-                icon={
-                  <Dynamic
-                    component={ICON_FOR[e._tag]}
-                    size={ICON_SIZE}
-                    strokeWidth={ICON_STROKE}
-                  />
-                }
-                title={<span>{titleFor(e)}</span>}
-              />
-            )}
-          </For>
+          <div class="flex flex-col-reverse">
+            <For each={events()}>
+              {(e) => (
+                <LogRow
+                  tag={TAG_FOR[e._tag]}
+                  icon={
+                    <Dynamic
+                      component={ICON_FOR[e._tag]}
+                      size={ICON_SIZE}
+                      strokeWidth={ICON_STROKE}
+                    />
+                  }
+                  title={<span>{titleFor(e)}</span>}
+                />
+              )}
+            </For>
+          </div>
         </Show>
       </ScrollArea>
     </Section>

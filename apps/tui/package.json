@@ -12,9 +12,9 @@
     "consensus": "workspace:*",
     "dashboard": "workspace:*",
     "ledger": "workspace:*",
-    "lsm-ffi": "workspace:*",
     "miniprotocols": "workspace:*",
-    "solid-js": "^1.9.12",
-    "storage": "workspace:*"
+    "solid-js": "^1.9.13",
+    "storage": "workspace:*",
+    "wasm-utils": "workspace:*"
   }
 }

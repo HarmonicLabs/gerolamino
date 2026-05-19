@@ -133,4 +133,79 @@ describe("chain-selection (Praos)", () => {
     });
     expect(preferCandidate(sample, sample, 0, 2160)).toBe(false);
   });
+
+  // Slot-independence — vanilla Praos chain selection is purely
+  // length-first + VRF-tiebreak. Slot is part of `ChainTip` but does
+  // NOT enter the comparator (per `chain/selection.ts:50-59`). Pin
+  // this so a future "density-aware" refactor surfaces here.
+  it("slot independence: preferCandidate ignores slot (only blockNo + VRF matter)", () => {
+    FastCheck.assert(
+      FastCheck.property(
+        tipArb,
+        FastCheck.bigInt({ min: 0n, max: 2n ** 32n }),
+        FastCheck.bigInt({ min: 0n, max: 2n ** 32n }),
+        (base, slotA, slotB) => {
+          // Build two tips that differ ONLY in slot. Same blockNo,
+          // same hash, same vrfOutput → preferCandidate must agree
+          // regardless of which slot is in `ours` vs `candidate`.
+          const tipA = new ChainTip({
+            slot: slotA,
+            blockNo: base.blockNo,
+            hash: base.hash,
+            ...(base.vrfOutput !== undefined ? { vrfOutput: base.vrfOutput } : {}),
+          });
+          const tipB = new ChainTip({
+            slot: slotB,
+            blockNo: base.blockNo,
+            hash: base.hash,
+            ...(base.vrfOutput !== undefined ? { vrfOutput: base.vrfOutput } : {}),
+          });
+          // Equal blockNo + same VRF → tiebreak yields false (no
+          // strict preference) regardless of slot ordering.
+          return (
+            preferCandidate(tipA, tipB, 1, 2160) === false &&
+            preferCandidate(tipB, tipA, 1, 2160) === false
+          );
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  // Transitivity at shallow fork depth — if A < B and B < C in blockNo,
+  // then preferCandidate(A, C) must be true. This is the
+  // length-dominance rule applied across three tips, pinning that the
+  // comparator is consistent (not an oddity that flips at certain
+  // depths).
+  it("transitivity (length): A.blockNo < B.blockNo < C.blockNo ⇒ A prefers C", () => {
+    FastCheck.assert(
+      FastCheck.property(
+        tipArb,
+        FastCheck.bigInt({ min: 1n, max: 1_000_000n }),
+        FastCheck.bigInt({ min: 1n, max: 1_000_000n }),
+        (base, dAB, dBC) => {
+          const a = base;
+          const b = new ChainTip({
+            slot: a.slot + dAB,
+            blockNo: a.blockNo + dAB,
+            hash: a.hash,
+            ...(a.vrfOutput !== undefined ? { vrfOutput: a.vrfOutput } : {}),
+          });
+          const c = new ChainTip({
+            slot: b.slot + dBC,
+            blockNo: b.blockNo + dBC,
+            hash: a.hash,
+            ...(a.vrfOutput !== undefined ? { vrfOutput: a.vrfOutput } : {}),
+          });
+          // A→B, B→C, and A→C must all be true at shallow fork depth.
+          return (
+            preferCandidate(a, b, 1, 2160) === true &&
+            preferCandidate(b, c, 1, 2160) === true &&
+            preferCandidate(a, c, 1, 2160) === true
+          );
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
 });

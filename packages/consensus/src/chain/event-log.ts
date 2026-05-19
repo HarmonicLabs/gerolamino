@@ -27,6 +27,7 @@
  */
 import { Context, Effect, Layer, Metric, PubSub, Schema, Scope, Stream } from "effect";
 import { EventGroup, EventJournal, EventLog, EventLogEncryption } from "effect/unstable/eventlog";
+import { mapValues } from "es-toolkit";
 import { ChainLength, ChainTipSlot, EpochBoundaryCount, RollbackCount } from "../observability.ts";
 
 // ---------------------------------------------------------------------------
@@ -210,10 +211,7 @@ export class ChainEventStream extends Context.Service<
 // ---------------------------------------------------------------------------
 
 const publishTo = (event: ChainEventType) =>
-  Effect.gen(function* () {
-    const pubsub = yield* ChainEventPubSub;
-    yield* PubSub.publish(pubsub, event);
-  });
+  ChainEventPubSub.use((pubsub) => PubSub.publish(pubsub, event));
 
 const handlerLayer = EventLog.group(ChainEventGroup, (handlers) =>
   handlers
@@ -234,22 +232,28 @@ const ChainEventStreamLive = Layer.effect(
     const pubsub = yield* ChainEventPubSub;
     const log = yield* EventLog.EventLog;
 
-    // Per-tag payload decoders pulled from the EventGroup's `payloadMsgPack`.
-    // The EventGroup's `payloadMsgPack` is the full tagged event schema
-    // (already includes `_tag`), so a single decode yields `ChainEventType`
-    // directly. An explicit return type on `decodeByTag` unifies the
-    // miss-branch (`Effect<never, DecodedUnknownEventError>`) and
-    // hit-branch (`Effect<ChainEventType, SchemaError>`) into one Effect
-    // type so downstream `Effect.forEach` sees a uniform signature rather
-    // than a union of Effects.
-    const events = ChainEventGroup.events;
+    // Per-tag payload decoders pulled from the EventGroup's
+    // `payloadMsgPack`. `Schema.decodeUnknownEffect(...)` materialises a
+    // closure per call; hoisting once into a `Record<tag, decoder>` at
+    // layer init saves an allocation per replay entry. The EventGroup's
+    // `payloadMsgPack` is the full tagged event schema (already includes
+    // `_tag`), so a single decode yields `ChainEventType` directly. The
+    // explicit return type on `decodeByTag` unifies the miss-branch
+    // (`Effect<never, DecodedUnknownEventError>`) and hit-branch
+    // (`Effect<ChainEventType, SchemaError>`) into one Effect type so
+    // downstream `Effect.forEach` sees a uniform signature rather than a
+    // union of Effects.
+    const decoders = mapValues(
+      ChainEventGroup.events,
+      (event) => Schema.decodeUnknownEffect(event.payloadMsgPack),
+    );
     const decodeByTag = (
       tag: string,
       payload: Uint8Array,
     ): Effect.Effect<ChainEventType, DecodedUnknownEventError | Schema.SchemaError> => {
-      const event = events[tag];
-      if (!event) return Effect.fail(new DecodedUnknownEventError({ tag }));
-      return Schema.decodeUnknownEffect(event.payloadMsgPack)(payload);
+      const decoder = decoders[tag];
+      if (!decoder) return Effect.fail(new DecodedUnknownEventError({ tag }));
+      return decoder(payload);
     };
 
     return ChainEventStream.of({

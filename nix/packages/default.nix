@@ -10,8 +10,8 @@
     ./snapshot-converter.nix
     ./download-mithril-lsm-snapshot.nix
     ./ts-packages.nix
-    ./bootstrap-image.nix
     ./bun.nix
     ./run-apps.nix
+    ./tui-image.nix
   ];
 }

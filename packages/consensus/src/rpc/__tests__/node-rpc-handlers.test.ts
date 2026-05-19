@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Clock, Effect, Layer, Option, Stream } from "effect";
 import { KeyValueStore } from "effect/unstable/persistence";
 import { ChainDB, LedgerSnapshotStore } from "storage";
-import { CryptoDirect } from "wasm-utils";
+import { CryptoDirect } from "wasm-utils/service.ts";
 import { ChainEventsLive } from "../../chain/event-log.ts";
 import { Mempool } from "../../mempool/mempool.ts";
 import { PeerManager, PeerManagerLive } from "../../peer/manager.ts";

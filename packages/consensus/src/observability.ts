@@ -53,6 +53,14 @@ export const BlockValidationFailed = Metric.counter("consensus_block_validation_
   incremental: true,
 });
 
+/** Cumulative BlockFetch failures during relay sync. The relay loop
+ *  treats these as best-effort (next block can still be processed
+ *  without the body bytes); the counter surfaces the rate so an
+ *  operator alert can fire on persistent upstream pathology. */
+export const BlockFetchError = Metric.counter("consensus_block_fetch_error", {
+  incremental: true,
+});
+
 /** Cumulative peers evicted for stall (past stall timeout). */
 export const PeerStalledCount = Metric.counter("consensus_peer_stalled", { incremental: true });
 

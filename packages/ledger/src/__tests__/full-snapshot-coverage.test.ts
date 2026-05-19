@@ -10,9 +10,8 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { CborKinds } from "codecs";
 import { decodeMultiEraBlock, isByronBlock, type BlockHeader, decodeExtLedgerState } from "..";
 import { WORKSPACE, IMMUTABLE_DIR } from "./chunk-reader.ts";
-import pathNode from "path";
 
-const STATE_PATH = pathNode.join(WORKSPACE, "apps/bootstrap/db/ledger/119401006/state");
+const STATE_PATH = `${WORKSPACE}/apps/bootstrap/db/ledger/119401006/state`;
 
 const FsLayer = BunFileSystem.layer;
 

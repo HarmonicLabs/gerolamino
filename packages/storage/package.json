@@ -8,15 +8,11 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "type-check": "tsgo --noEmit -p tsconfig.json",
-    "drizzle:generate": "drizzle-kit generate"
+    "type-check": "tsgo --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "codecs": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.1",
-    "lsm-ffi": "workspace:*"
-  },
-  "devDependencies": {
-    "drizzle-kit": "1.0.0-rc.1"
+    "drizzle-orm": "^1.0.0-rc.2",
+    "wasm-utils": "workspace:*"
   }
 }

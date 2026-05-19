@@ -6,9 +6,13 @@
   </head>
   <body>
     <!--
-      Offscreen document — runs Mithril snapshot decoding in a separate
-      OS process from the MV3 service worker. Communicates with the SW via
-      BroadcastChannel (see entrypoints/background/offscreen-protocol.ts).
+      Offscreen daemon — owns the Cardano node's persistent compute
+      (Effect runtime, atom registry, broadcast fiber, bootstrap-sync,
+      consensus driver, WebSocket). Runs under chrome.offscreen
+      `WORKERS` reason for indefinite lifetime; the SW is a thin
+      gateway. Communicates with the SW via typed Effect RPC over
+      BroadcastChannel `gerolamino/offscreen-rpc` (see ./rpc.ts +
+      ./rpc-transport.ts).
 
       No UI: this page is never shown to the user.
     -->

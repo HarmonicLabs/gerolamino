@@ -1,30 +1,37 @@
 # bootstrap (package)
 
-Lightweight bootstrap protocol client for downloading Mithril snapshots.
+Mithril V2LSM snapshot layout helpers — host-agnostic constants
+plus two readers (Effect FileSystem for Bun/Node, FS Access API for
+the browser).
 
 ## Structure
 
 ```
 src/
   index.ts        <- re-exports
-  protocol.ts     <- Schema.TaggedStruct + toTaggedUnion("_tag") wire schema
-  codec.ts        <- TLV frame encoder/decoder
-  client.ts       <- Effect-based WebSocket client (Socket.makeWebSocket)
-  snapshot.ts     <- local Mithril snapshot reader (disk-based fallback)
-  errors.ts       <- Schema.TaggedErrorClass error types
-  __tests__/      <- protocol.test.ts
+  snapshot.ts     <- layout constants + Effect FileSystem reader (Node/Bun)
+  walker.ts       <- browser-side FS Access API walker (drag-drop)
+  __tests__/      <- snapshot.test.ts
 ```
 
 ## Dependencies
 
-- `effect` ^4.0.0-beta.47
-- `codecs` (workspace) — shared byte primitives only (`concat` re-exported as `concatBytes`)
+- `effect` ^4.0.0-beta.47+
 
 ## Notes
 
-This is the protocol client library. The server application is in
-`apps/bootstrap/`. Dependencies intentionally minimal — only the codecs byte
-primitives + effect.
+The `apps/bootstrap` server has been deleted (May 2026). This package
+no longer ships a wire protocol — only the V2LSM directory layout
+constants (`REQUIRED_TOP_LEVEL`, `REQUIRED_LSM_ENTRIES`, `SLOT_DIR_RE`,
+`NETWORK_MAGIC`) and two readers that consume them:
+
+- **Node/Bun** (`apps/tui`) — `readSnapshotMeta`, `readLedgerStateBytes`,
+  `findLatestLsmSnapshot`, `prepareLsmSession`, `readNodeDbMeta` via
+  Effect's `FileSystem` service.
+- **Browser** (`packages/chrome-ext`) — `walkSnapshotDirectory`,
+  `validateSnapshotHandle` via the File System Access API. The popup's
+  drag-drop uploader pairs each enumerated file with its OPFS
+  destination path.
 
 ## Testing
 

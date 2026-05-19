@@ -19,9 +19,18 @@ import { PoolMetadata, Relay, RewardAccount } from "./pool.ts";
 //   [vrfKeyHash, pledge, cost, margin, rewardAccount, owners, relays,
 //    metadata, deposit]
 //
-// Distinct from `PoolParams` (block/CDDL wire), which has 9 slots with
-// operator at position 0 and no deposit slot. Each codec has its own
-// `positionalArrayLink` field ordering — no runtime branching.
+// NOTE: cardano-ledger v10.7.x renamed this to `StakePoolState` and
+// added two trailing fields (`spsDeposit` was promoted from the old
+// `deposit` slot, plus a new `spsDelegators :: Set (Credential
+// Staking)`), AND restructured the rewardAccount/account-id slot to
+// use the structured `AccountAddress` form instead of the packed
+// 29-byte `RewardAccount`. This 9-element schema is the older shape
+// and will fail to decode a v10.7.x state snapshot. The TUI's
+// `loadSnapshotState` wraps the decode in a graceful fallback —
+// snapshot ingest fails, consensus falls back to genesis, and the
+// node still syncs from the relay against the on-disk LSM session.
+// Bringing this back to spec is gated on a coordinated update of
+// every state-layer schema (PState, DState, EpochState etc.).
 //
 // Haskell ref: `cardano-ledger` v10.7.x PState.PoolParams (state-layer) vs
 // Shelley/Conway TxBody pool_registration cert (block-layer).

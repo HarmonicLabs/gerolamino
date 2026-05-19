@@ -68,6 +68,11 @@ let
       # --- ZFS ---
       networking.hostId = "a1b2c3d4";
       boot.supportedFilesystems = [ "zfs" ];
+      # Adopt the safer 26.11+ default explicitly (the legacy default
+      # was `true`, which silently imports pools by `-f` and risks data
+      # loss across host migrations). Our deploy never moves the pool
+      # between hosts, so the strict import is fine.
+      boot.zfs.forceImportRoot = false;
 
       # --- Networking ---
       networking = {
@@ -214,9 +219,13 @@ let
 in
 {
   flake.nixosConfigurations.production = inputs.nixpkgs.lib.nixosSystem {
-    system = "x86_64-linux";
+    # `system = "x86_64-linux"` is the legacy form deprecated in 26.05+.
+    # The replacement is `nixpkgs.hostPlatform` set inside a module —
+    # but it has to be set unconditionally before module evaluation,
+    # so we inline it as a top-level module entry below.
     specialArgs = { inherit inputs; self = inputs.self; };
     modules = [
+      ({ ... }: { nixpkgs.hostPlatform = "x86_64-linux"; })
       inputs.disko.nixosModules.disko
       inputs.nixos-hardware.nixosModules.common-cpu-intel-cpu-only
       inputs.nixos-hardware.nixosModules.common-pc-ssd

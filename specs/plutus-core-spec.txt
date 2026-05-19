@@ -1,0 +1,5762 @@
+Formal Specification of
+the Plutus Core Language
+DRAFT
+Plutus Core Team
+18th Decemeber 2025
+
+Abstract
+This is intended to be a reference guide for developers who want to utilise the Plutus Core infrastructure.
+We lay out the grammar and syntax of untyped Plutus Core terms, and their semantics and evaluation rules.
+We also describe the built-in types and functions. The Appendices include a list of supported builtins in
+each era and some aspects of Plutus Core which have been mechanically formalised.
+This document only describes untyped Plutus Core: a subsequent version will also include the syntax
+and semantics of Typed Plutus Core and describe its relation to untyped Plutus Core.
+
+Contents
+Contents
+
+1
+
+1
+
+Preliminaries
+1.1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+1.2 Some basic notation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+1.2.1 Sets . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+1.2.2 Lists . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+1.2.3 Bytestrings and bitstrings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+1.2.4 Miscellaneous notation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+4
+4
+4
+4
+5
+5
+6
+
+2
+
+Untyped Plutus Core
+2.1 The grammar of Plutus Core . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.1.1 Lexical grammar . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.1.2 Grammar . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.1.3 Notes . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2 Interpretation of built-in types and functions . . . . . . . . . . . . . . . . . . . . . . . .
+2.2.1 Built-in types . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2.1.1 Type variables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2.1.2 Polymorphic types . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2.1.3 Type assignments . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2.2 Built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2.2.1 Inputs to built-in functions . . . . . . . . . . . . . . . . . . . . . . .
+2.2.2.2 Outputs of built-in functions . . . . . . . . . . . . . . . . . . . . . .
+2.2.2.3 Signatures and denotations of built-in functions . . . . . . . . . . . .
+2.2.2.4 Denotations of built-in functions . . . . . . . . . . . . . . . . . . . .
+2.2.2.5 Results of built-in functions. . . . . . . . . . . . . . . . . . . . . . .
+2.2.2.6 Parametricity for fully-polymorphic arguments . . . . . . . . . . . . .
+2.2.3 Evaluation of built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2.3.1 Compatibility of inputs and signature entries . . . . . . . . . . . . . .
+2.2.3.2 Evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.3 Term reduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.3.1 Values in Plutus Core . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.3.2 Term reduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.4 The CEK machine . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.4.1 Converting CEK evaluation results into Plutus Core terms . . . . . . . . . . . .
+2.5 Cost accounting for Untyped Plutus Core . . . . . . . . . . . . . . . . . . . . . . . . .
+
+7
+7
+7
+8
+8
+9
+9
+10
+11
+11
+12
+12
+13
+13
+15
+15
+16
+16
+16
+16
+17
+17
+19
+21
+24
+24
+
+3
+
+Typed Plutus Core
+
+25
+1
+
+4
+
+Plutus Core on Cardano
+4.1 Protocol versions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.2 Ledger languages . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3 Built-in types and functions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.1 Batch 1 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.1.1 Built-in types and type operators . . . . . . . . . . . . . . . . . . . .
+4.3.1.2 Built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.2 Batch 2 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.2.1 Built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.3 Batch 3 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.3.1 Built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.4 Batch 4 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.4.1 Miscellaneous built-in functions . . . . . . . . . . . . . . . . . . . .
+4.3.4.2 BLS12-381 built-in types . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.4.3 BLS12-381 built-in functions . . . . . . . . . . . . . . . . . . . . . .
+4.3.5 Batch 5 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.5.1 Built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.6 Batch 6 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.6.1 Built-in type operators . . . . . . . . . . . . . . . . . . . . . . . . . .
+4.3.6.2 Built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+26
+26
+26
+28
+29
+29
+31
+36
+36
+36
+36
+37
+37
+39
+41
+46
+46
+49
+49
+49
+
+A Formally Verified Behaviours
+
+51
+
+B Serialising data Objects Using the CBOR Format
+B.1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+B.2 Notation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+B.3 The CBOR format . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+B.4 Encoding and decoding the heads of CBOR items . . . . . . . . . . . . . . . . . . . . .
+B.5 Encoding and decoding bytestrings . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+B.6 Encoding and decoding integers . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+B.7 Encoding and decoding data . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+52
+52
+53
+53
+53
+55
+56
+56
+
+C Serialising Plutus Core Terms and Programs Using the flat Format
+C.1 Encoding and decoding . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.1.1 Padding . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.2 Basic flat encodings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.2.1 Fixed-width natural numbers . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.2.2 Lists . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.2.3 Natural numbers . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.2.4 Integers . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.2.5 Bytestrings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.2.6 Strings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.3 Encoding and decoding Plutus Core . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.3.1 Programs . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.3.2 Terms . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.3.3 Built-in types . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.3.4 Constants . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.3.5 Built-in functions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.3.6 Variable names . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+59
+59
+60
+61
+61
+61
+61
+62
+62
+63
+64
+64
+64
+65
+67
+68
+71
+
+2
+
+C.4 Cardano-specific serialisation issues . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.4.1 Scope checking . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.4.2 CBOR wrapping . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+C.5 Example . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+72
+72
+72
+72
+
+Bibliography
+
+74
+
+Index of Notation
+
+77
+
+3
+
+Chapter 1
+
+Preliminaries
+1.1
+
+Introduction
+
+Plutus Core (more correctly, Untyped Plutus Core) is an eagerly-evaluated version of the untyped lambda
+calculus extended with some “built-in” types and functions; it is intended for the implementation of validation scripts on the Cardano blockchain. This document presents the syntax and semantics of Plutus
+Core, a specification of an efficient evaluator, a description of the built-in types and functions available in
+various releases of Cardano, and a specification of the binary serialisation format used by Plutus Core.
+Since Plutus Core is intended for use in an environment where computation is potentially expensive
+and excessively long computations can be problematic we have also developed a costing infrastructure for
+Plutus Core programs. A description of this will be added in a later version of this document.
+We also have a typed version of Plutus Core which provides extra robustness when untyped Plutus
+Core is used as a compilation target, and we will eventually provide a specification of the type system and
+semantics of Typed Plutus Core here as well, together with its relationship to Untyped Plutus Core.
+
+1.2
+
+Some basic notation
+
+We begin with some notation which will be used throughout the document.
+
+1.2.1
+
+Sets
+
+• ℕ = {0, 1, 2, 3, …}.
+• ℕ+ = {1, 2, 3, …}.
+• The symbol ⊎ denotes a disjoint union of sets; for emphasis we often use this to denote the union
+of sets which we know to be disjoint.
+• Given a set 𝑋, 𝑋 ∗ denotes the set of finite sequences of elements of 𝑋:
+⨄
+𝑋∗ =
+{𝑋 𝑛 ∶ 𝑛 ∈ ℕ}
+and 𝑋 + denotes the set of nonempty finite sequences of elements of 𝑋:
+⨄
+𝑋+ =
+{𝑋 𝑛 ∶ 𝑛 ∈ ℕ+ }.
+We will sometimes write elements of 𝑋 + in the form (𝑥|𝑥1 , … , 𝑥𝑛 ) with 𝑛 ≥ 0.
+4
+
+• ℕ[𝑎,𝑏] = {𝑛 ∈ ℕ ∶ 𝑎 ≤ 𝑛 ≤ 𝑏}.
+• 𝔹 = ℕ[0,255] , the set of 8-bit bytes.
+• 𝔹∗ is the set of all bytestrings.
+• 𝕓 = {𝟶, 𝟷}, the set of bits.
+• 𝕓∗ is the set of all bitstrings.
+• ℤ = {… , −2, −1, 0, 1, 2, …}.
+• 𝔽𝑞 denotes a finite field with 𝑞 elements (𝑞 a prime power).
+• 𝔽𝑞× denotes the multiplicative group of nonzero elements of 𝔽𝑞 .
+• 𝕌 denotes the set of Unicode scalar values, as defined in [45, Definition D76].
+• 𝕌∗ is the set of all Unicode strings.
+• We assume that there is a special symbol × which does not appear in any other set we mention. The
+symbol × is used to indicate that some sort of error condition has occurred, and we will often need
+to consider situations in which a value is either × or a member of some set 𝑆. For brevity, if 𝑆 is a
+set then we define
+𝑆× ∶= 𝑆 ⊎ {×}.
+
+1.2.2
+
+Lists
+
+• The symbol [] denotes an empty list.
+• The notation [𝑥𝑚 , … , 𝑥𝑛 ] denotes a list containing the elements 𝑥𝑚 , … , 𝑥𝑛 . If 𝑚 > 𝑛 then the list is
+empty.
+• The length of a list 𝐿 is denoted by 𝓁(𝐿).
+• Given two lists 𝐿 = [𝑥1 , … , 𝑥𝑚 ] and 𝐿′ = [𝑦1 , … , 𝑦𝑛 ], 𝐿⋅𝐿′ denotes their concatenation [𝑥1 , … , 𝑥𝑚 ,
+𝑦1 , … , 𝑦𝑛 ].
+• Given an object 𝑥 and a list 𝐿 = [𝑥1 , … , 𝑥𝑛 ], we denote the list [𝑥, 𝑥1 , … , 𝑥𝑛 ] by 𝑥⋅𝐿.
+• Given a list 𝐿 = [𝑥1 , … , 𝑥𝑛 ] and an object 𝑥, we denote the list [𝑥1 , … , 𝑥𝑛 , 𝑥] by 𝐿⋅𝑥.
+• Given a syntactic category 𝑉 , the symbol 𝑉 denotes a possibly empty list [𝑉1 , … , 𝑉𝑛 ] of elements
+𝑉𝑖 ∈ 𝑉 .
+
+1.2.3
+
+Bytestrings and bitstrings
+
+We make frequent use of bytestrings and bitstrings and for the sake of conciseness we occasionally use
+special notation. We also define conversion functions between bytestrings and bitstrings
+• We typically index the bytes in bytestrings starting from the left end but the bits in bitstrings from
+the right end.
+
+5
+
+• The bytestring [𝑐0 , … , 𝑐𝑛−1 ] may be denoted by 𝑐0 ⋯𝑐𝑛−1 (𝑛 ≥ 0, 𝑐𝑖 ∈ 𝔹); the empty bytestring may
+be denoted by 𝜖.
+• The bitstring [𝑏𝑛−1 , … , 𝑏0 ] may be denoted by 𝑏𝑛−1 ⋯𝑏0 (𝑛 ≥ 0, 𝑏𝑖 ∈ 𝕓); the empty bitstring may
+be denoted by 𝜖: we also use this symbol for the empty bytestring, but this should not cause any
+confusion.
+• In the special case of bitstrings we sometimes use notation such as 101110 to denote the list
+[1, 0, 1, 1, 1, 0]; we use a teletype font to avoid confusion with decimal numbers.
+• A bytestring can naturally be viewed as a bitstring whose length is a multiple of 8 simply by concatenating the bits of the individual bytes, and vice-versa (by breaking the bitstring into groups of
+8 bits). To make this precise we define two conversion functions 𝖻𝗂𝗍𝗌 ∶ 𝔹∗ → 𝕓∗ and 𝖻𝗒𝗍𝖾𝗌 ∶ {𝑠 ∈
+𝕓∗ ∶ 8 ∣ 𝓁(𝑠)} → 𝔹∗ . These depend on the fact that any 𝑐 ∈ 𝔹 can be written uniquely in the form
+Σ7𝑖=0 2𝑖 𝑏𝑖 with 𝑏0 , … , 𝑏7 ∈ 𝕓.
+– 𝖻𝗂𝗍𝗌([𝑐0 , … , 𝑐𝑛−1 ]) = [𝑏8𝑛−1 , … , 𝑏0 ] where 𝑐𝑗 = Σ7𝑖=0 2𝑖 𝑏8(𝑛−𝑗−1)+𝑖
+– 𝖻𝗒𝗍𝖾𝗌([𝑏8𝑛−1 , … , 𝑏0 ]) = [𝑐0 , … , 𝑐𝑛−1 ] where 𝑐𝑗 = Σ7𝑖=0 2𝑖 𝑏8(𝑛−𝑗−1)+𝑖 .
+
+1.2.4
+
+Miscellaneous notation
+
+• Given integers 𝑘 ∈ ℤ and 𝑛 ≥ 1 we write 𝑘 mod 𝑛 = min{𝑟 ∈ ℤ ∶ 𝑟 ≥ 0 and 𝑛|𝑘 − 𝑟}
+
+6
+
+Chapter 2
+
+Untyped Plutus Core
+2.1
+
+The grammar of Plutus Core
+
+This section presents the grammar of Plutus Core in a Lisp-like form. This is intended as a specification
+of the abstract syntax of the language; it may also by used by tools as a concrete syntax for working with
+Plutus Core programs, but this is a secondary use and we do not make any guarantees of its completeness
+when used in this way. The primary concrete form of Plutus Core programs is the binary format described
+in Appendix C.
+
+2.1.1
+
+Lexical grammar
+
+Name
+Var
+BuiltinName
+Version
+Natural
+Constant
+
+𝑛 ∶∶= [a-zA-Z][a-zA-Z0-9_']*(-[0-9]+)?
+𝑥 ∶∶= 𝑛
+𝑏𝑛 ∶∶= 𝑛
+𝑣 ∶∶= [0-9]+.[0-9]+.[0-9]+
+𝑘 ∶∶= [0-9]+
+𝑐 ∶∶= ⟨literal constant⟩
+Figure 2.1: Lexical grammar of Plutus Core
+
+7
+
+name
+term variable
+built-in function name
+version
+a natural number
+
+2.1.2
+
+Grammar
+
+Term
+
+𝐿, 𝑀, 𝑁
+
+Program
+
+𝑃
+
+∶∶=
+
+𝑥
+(con T 𝑐)
+(builtin 𝑏)
+(lam 𝑥 𝑀)
+[𝑀 𝑁]
+(delay 𝑀)
+(force 𝑀)
+(constr 𝑘 𝑀1 … 𝑀𝑚 )
+(case 𝑀 𝑁1 … 𝑁𝑛 )
+(error)
+∶∶= (program 𝑣 𝑀)
+
+variable
+constant
+builtin
+𝜆 abstraction
+function application
+delay execution of a term
+force execution of a term
+constructor with tag 𝑘 and 𝑚 arguments (𝑚 ≥ 0)
+case analysis with 𝑛 alternatives (𝑛 ≥ 0)
+error
+versioned program
+
+Figure 2.2: Grammar of untyped Plutus Core
+
+2.1.3
+
+Notes
+
+Version numbers. The version number at the start of a program specifies the Plutus Core language
+version used in the program.
+A Plutus Core language version describes a version of the basic language with a particular set of
+features. A language version consists of three non-negative integers separated by decimal points, for
+example 1.4.2. Language versions are ordered lexicographically.
+The grammar above describes Plutus Core version 1.1.0. Version 1.0.0 is identical, except that constr
+and case are not included. Version 1.0.0 is fully forward-compatible with version 1.1.0, so any valid version 1.0.0 program is also a valid version 1.1.0 program. The semantics, evaluator and serialisation formats
+described later in this document all apply to both versions, except that it is an error to use constr or case
+in any program with a version prior to 1.1.0: a parser, deserialiser, or evaluator should fail immediately if
+constr or case is encountered when processing such a program.
+Scoping. For simplicity, we assume throughout that the body of a Plutus Core program is a closed
+term, ie, that it contains no free variables. Thus (program 1.0.0 (lam x x)) is a valid program but
+(program 1.0.0 (lam x y)) is not, since the variable y is free. This condition should be checked
+before execution of any program commences, and the program should be rejected if its body is not closed.
+The assumption implies that any variable 𝑥 occurring in the body of a program must be bound by an
+occurrence of lam in some enclosing term; in this case, we always assume that 𝑥 refers to the most recent
+(ie, innermost) such binding.
+Iterated applications. An application of a term 𝑀 to a term 𝑁 is represented by [𝑀 𝑁]. We may occasionally write [𝑀 𝑁1 … 𝑁𝑘 ] or [𝑀 𝑁] as an abbreviation for an iterated application [ … [[𝑀 𝑁1 ] 𝑁2 ] …
+𝑁𝑘 ], and tools may also use this as concrete syntax.
+Constructors and case analysis. Plutus Core supports creating structured data using constr and deconstructing it using case. Both of these terms are unusual in that they have (possibly empty) lists of
+children: constr has the (0-based) tag and then a list of arguments; case has a scrutinee and then a list
+of case branches. The behaviour of constr and case is mostly straightforward: constr evaluates its
+arguments and forms a value; case evaluates the scrutinee into a constr value, selects the branch corresponding to the tag on the value (if the tag is 𝑘 and the branches are 𝑁1 , … , 𝑁𝑛 then it selects 𝑁𝑘+1 , with
+8
+
+an error occurring if 𝑘 does not lie between 0 and 𝑛 − 1), and then applies that to the arguments in the
+value. Note that case does not strictly evaluate the case branches, only applying (and hence evaluating)
+the one that is eventually selected. The list of branches in case is allowed to be empty, but in that case
+there will be an error if it is ever applied to a scrutinee.
+Constructor tags. Constructor tags can in principle be any natural number. In practice, since they cannot be dynamically constructed, we can limit them to a fixed size without having to worry about overflow.
+So we limit them to 64 bits, although this is currently only enforced in the binary format (see Section C.3.2).
+Built-in types and functions. The language is parameterised by a set U of built-in types (we sometimes refer to U as the universe) and a set B of built-in functions (builtins for short), both of which are
+sets of Names. Briefly, the built-in types represent sets of constants such as integers or strings; constant
+expressions (con T 𝑐) represent values of the built-in types (the integer 123 or the string "string", for
+example), and built-in functions are functions operating on these values, and possibly also general Plutus
+Core terms. Precise details are given in Section 2.2.
+See Section 4.3 for a description of the types and functions which have already been deployed on the
+Cardano blockchain (or will be in the near future).
+De Bruijn indices. The grammar defines names to be textual strings, but occasionally (specifically in
+Appendix C) we want to use de Bruijn indices ([24], [12, C.3]), and for this we redefine names to be
+natural numbers. In de Bruijn terms, 𝜆-expressions do not need to bind a variable, but in order to re-use
+our existing syntax we arbitrarily use 0 for the bound variable, so that all 𝜆-expressions are of the form
+(lam 0 𝑀); other variables (ie, those not appearing immediately after a lam binder) are represented by
+natural number greater than zero.
+Name suffixes. Names may include an optional numeric suffix consisting of a dash followed by one
+or more digits (for example, x-0, name-42, or variable-12345). This suffix provides a mechanism for
+disambiguating variables that share the same base name, allowing multiple distinct variables with identical
+textual representations to coexist within a program.
+Lists in constructor and case terms. The grammar defines constructor and case terms to have a variable
+number of subterms written in sequence with no delimiters. This corresponds to the concrete syntax, e.g.
+we write (constr 0 𝑡1 𝑡2 𝑡3 ). However, in the rest of the specification we will abuse notation and treat
+these terms as having lists of subterms.
+
+2.2
+
+Interpretation of built-in types and functions
+
+As mentioned above, Plutus Core is generic over a universe U of types and a set B of built-in functions.
+As the terminology suggests, built-in functions are interpreted as functions over terms and elements of the
+built-in types: in this section we make this interpretation precise by giving a specification of built-in types
+and functions in a set-theoretic denotational style. We require a considerable amount of extra notation in
+order to do this, and we emphasise that nothing in this section is part of the syntax of Plutus Core: it is
+meta-notation introduced purely for specification purposes.
+
+2.2.1
+
+Built-in types
+
+We require some extra syntactic notation for built-in types: see Figure 2.3.
+
+9
+
+at ∶∶= 𝑛
+Atomic type
+op ∶∶= 𝑛
+Type operator
+T ∶∶= at | op(T, T, ..., T) Built-in type
+Figure 2.3: Type names and operators
+We assume that we have a set U0 of atomic type names and a set O of type operator names. Each type
+operator name op ∈ O has an argument count |op| ∈ ℕ+ , and a type name op(T1 , … , T𝑛 ) is well-formed
+if and only if 𝑛 = |op|. We define the universe U to be the closure of U0 under repeated applications of
+operators in O:
+U𝑖+1 = U𝑖 ∪ {op(T1 , … , T|op| ) ∶ op ∈ O, T1 , … , T|𝑜𝑝| ∈ U𝑖 }
+⋃
+U=
+{U𝑖 ∶ 𝑖 ∈ ℕ+ }
+
+The universe U consists entirely of names, and the semantics of these names are given by denotations.
+Each built-in type T ∈ U is associated with some mathematical set JTK, the denotation of T. For example,
+we might have JboolK = {𝗍𝗋𝗎𝖾, 𝖿 𝖺𝗅𝗌𝖾} and JintegerK = ℤ and J𝚙𝚊𝚒𝚛 (𝑎, 𝑏)K = J𝑎K × J𝑏K. We assume that
+if 𝑇 , 𝑇 ′ ∈ U and 𝑇 ≠ 𝑇 ′ then J𝑇 K and J𝑇 ′ K are disjoint, and we put
+⨄
+JUK =
+{J𝑇 K ∶ 𝑇 ∈ U}.
+See Section 4.3 for a description of the types and functions which have already been deployed on the
+Cardano blockchain (or will be in the near future).
+For non-atomic type names T = op(T1 , … , T𝑟 ) we would generally expect the denotation of T to be
+obtained in some uniform way (ie, parametrically) from the denotations of T1 , … , T𝑟 ; we do not insist on
+this though.
+2.2.1.1
+
+Type variables
+
+Built-in functions can be polymorphic, and to deal with this we need type variables. An argument of a
+polymorphic function can be either restricted to built-in types or can be an arbitrary term, and we define
+two different kinds of type variables to cover these two situations. See Figure 2.4.
+TypeVariable
+
+tv
+
+∶∶=
+
+𝑛#
+∗
+
+built-in-polymorphic type variable
+fully-polymorphic type variable
+
+Figure 2.4: Type variables
+We denote the set of all possible type variables by V and the set of all built-in-polymorphic type variables
+𝑣# by V# . Note that V ∩ U = ∅ since the symbols ∗ and # do not occur in names in U.
+The two kinds of type variable are required because we have two different kinds of polymorphism.
+Later on we will see that built-in functions can take arguments which can be of a type which is unknown
+but must be in U, whereas other arguments can range over a larger set of values such as the set of all Plutus
+Core terms. Type variables in V# are used in the former situation and ∗ is used in the latter.
+
+10
+
+2.2.1.2
+
+Polymorphic types
+
+We also need to talk about polymorphic types, and to do this we define an extended universe of polymorphic types U# by adjoining V# to U0 and closing under type operators as before:
+U#,0 = U0 ∪ V#
+U#,𝑖+1 = U#,𝑖 ∪ {op(T1 , … , T|op| ) ∶ op ∈ O, T1 , … , T|𝑜𝑝| ∈ U#,𝑖 }
+⋃
+U# =
+{U#,𝑖 ∶ 𝑖 ∈ ℕ+ }.
+We will denote a typical element of U# by the symbol 𝑃 (possibly subscripted).
+We define the set of free #-variables of an element of U# by
+𝖥𝖵# (𝑃 ) = ∅ if 𝑃 ∈ U0
+𝖥𝖵# (𝑣# ) = {𝑣# }
+𝖥𝖵# (op(𝑃1 , … , 𝑃𝑘 )) = 𝖥𝖵# (𝑃1 ) ∪ 𝖥𝖵# (𝑃2 ) ∪ ⋯ ∪ 𝖥𝖵# (𝑃𝑟 ).
+Thus 𝖥𝖵# (𝑃 ) ⊆ V# for all 𝑃 ∈ U. We say that a type name 𝑃 ∈ U# is monomorphic if 𝖥𝖵# (𝑃 ) = ∅ (in
+which case we actually have 𝑃 ∈ U); otherwise 𝑃 is polymorphic. The fact that type variables in U# are
+only allowed to come from V# will ensure that values of polymorphic types such as lists and pairs can only
+contain values of built-in types: in particular, we will not be able to construct types representing things
+such as lists of Plutus Core terms.
+2.2.1.3
+
+Type assignments
+
+A type assignment is a function 𝑆 ∶ 𝐷 → U where 𝐷 is some subset of V# . As usual we say that 𝐷 is the
+domain of 𝑆 and denote it by dom 𝑆.
+We can extend a type assignment 𝑆 to a map 𝑆̂ ∶ U# ⊎ {∗} → U# ⊎ {∗} by defining
+̂ # ) = 𝑆(𝑣# ) if 𝑣# ∈ dom 𝑆
+𝑆(𝑣
+̂ # ) = 𝑣# if 𝑣# ∈ V# ∖ dom 𝑆
+𝑆(𝑣
+if 𝑇 ∈ U0
+̂
+̂
+̂
+𝑆(op(𝑃
+1 , … , 𝑃𝑛 )) = op(𝑆(𝑃1 ), … , 𝑆(𝑃𝑛 ))
+̂ )=𝑇
+𝑆(𝑇
+
+̂
+𝑆(∗)
+= ∗.
+̂ ) ∈ U; in this case we
+If 𝑃 ∈ U# and 𝑆 is a type assignment with 𝖥𝖵# (𝑃 ) ⊆ dom 𝑆 then in fact 𝑆(𝑃
+̂ ) is an instance or a monomorphisation of 𝑃 (via 𝑆). If 𝑇 is an instance of 𝑃 then there is a
+say that 𝑆(𝑃
+̂ ): we write 𝑇 ⪯𝑆 𝑃 to indicate that 𝑇 is an
+unique smallest 𝑆 (with 𝖥𝖵# (𝑃 ) = dom 𝑆) such that 𝑇 = 𝑆(𝑃
+instance of 𝑃 via 𝑆 and 𝑆 is minimal.
+
+11
+
+Constructing type assignments. We say that a collection {𝑆𝑖 ∶ 1 ≤ 𝑖 ≤ 𝑛} of type assignments is
+consistent if 𝑆𝑖 |𝐷𝑖𝑗 = 𝑆𝑗 |𝐷𝑖𝑗 for all 𝑖 and 𝑗, where | denotes function restriction and 𝐷𝑖𝑗 = dom 𝑆𝑖 ∩
+dom 𝑆𝑗 . If this is the case then (viewing functions as sets of pairs in the usual way) 𝑆1 ∪ ⋯ ∪ 𝑆𝑛 is also a
+well-formed type assignment (each variable in its domain is associated with exactly one type).
+Given 𝑇 ∈ U and 𝑃 ∈ U# it can be shown that 𝑇 ⪯𝑆 𝑃 if and only if one of the following holds:
+• 𝑇 = 𝑃 and 𝑆 = ∅.
+• 𝑃 ∈ V# and 𝑆 = {(𝑣# , 𝑇 )}.
+•
+
+– 𝑇 = op(𝑇1 , … , 𝑇𝑛 ) with each 𝑇𝑖 ∈ U.
+– 𝑃 = op(𝑃1 , … , 𝑃𝑛 ) with each 𝑃𝑖 ∈ U# .
+– 𝑇𝑖 ⪯𝑆𝑖 𝑃𝑖 for 1 ≤ 𝑖 ≤ 𝑛.
+– {𝑆1 , … , 𝑆𝑛 } is consistent.
+– 𝑆 = 𝑆1 ∪ ⋯ ∪ 𝑆𝑛 .
+
+This allows us to decide whether 𝑇 ∈ U is an instance of 𝑃 ∈ U# and, if so, to construct an 𝑆 with
+𝑇 ⪯𝑆 𝑃 .
+
+2.2.2
+
+Built-in functions
+
+2.2.2.1
+
+Inputs to built-in functions
+
+To treat the typed and untyped versions of Plutus Core uniformly it is necessary to make the machinery
+of built-in functions generic over a set I of inputs which are taken as arguments by built-in functions. In
+practice I will be the set of Plutus Core values or something very closely related.
+We require I to have the following two properties:
+• I is disjoint from JTK for all T ∈ U
+
+• There should be disjoint subsets CT ⊆ I (where T ∈ U) of constants of type T and maps J⋅KT ∶
+CT → JTK (denotation) and ⦃⋅⦄T ∶ JTK → CT (reification) such that ⦃J𝑐KT ⦄T = 𝑐 for all 𝑐 ∈ CT .
+We do not require these maps to be bijective (for example, there may be multiple inputs with the
+same denotation), but the condition implies that J⋅KT is surjective and ⦃⋅⦄T is injective.
+It is also convenient to let JIK = I and define both J⋅KI and ⦃⋅⦄I to be the identity function, and we write
+JUKI = JUK ⊎ I.
+For example, we could take I to be the set of all Plutus Core values (see Section 2.3.1), CT to be the set
+of all terms of the form (con T 𝑐), and J⋅KT to be the function which maps (con T 𝑐) to 𝑐. For simplicity
+we are assuming that mathematical entities occurring as members of type denotations JTK are embedded
+directly as values 𝑐 in Plutus Core constant terms. In reality, tools which work with Plutus Core will need
+some concrete syntactic representation of constants; we do not specify this here, but see Section 4.3 for
+suggested syntax for the built-in types currently in use on the Cardano blockchain.
+
+12
+
+2.2.2.2
+
+Outputs of built-in functions
+
+All built-in functions either fail or conceptually return a non-empty list whose entries lie either in the
+denotation of some built-in type 𝑇 or in the set of inputs I, i.e., builtins return elements of the set (R+ )× ,
+where
+⨄{
+}
+R ∶=
+JTK ∶ T ∈ U ⊎ I.
+We will denote elements of R+ by expressions of the form (𝑣|𝑣1 , … , 𝑣𝑘 ) with 𝑣, 𝑣𝑖 ∈ R and 𝑘 ≥ 0, the
+case 𝑘 = 0 indicating a list (𝑣|) with a single entry. Currently all builtins return a single value, and to
+simplify notation we will identify R with {(𝑣|) ∶ 𝑣 ∈ R} ⊆ R+ . The intention is that (𝑣|𝑣1 , … , 𝑣𝑘 ) will
+immediately be interpreted as an application 𝑣 𝑣1 … 𝑣𝑘 in the ambient language (eg, typed or untyped
+Plutus Core); the number of arguments 𝑘 may depend on the values of the inputs to the function.
+2.2.2.3
+
+Signatures and denotations of built-in functions
+
+We will consistently use the symbol 𝜏 and subscripted versions of it to denote members of U# ⊎ {∗} in the
+rest of the document; these indicate the types of values consumed by built-in functions.
+We also define a class of quantifications which are used to introduce type variables: a quantification is a
+symbol of the form ∀𝑣 with 𝑣 ∈ V; the set of of all possible quantifications is denoted by Q.
+Signatures. Every built-in function 𝑏 ∈ B has a signature 𝜎(𝑏) which describes the types of its arguments and its return value: a signature is of the form
+[𝜄1 , … , 𝜄𝑛 ] → 𝜔
+with
+• 𝜄𝑗 ∈ U# ⊎ {∗} ⊎ Q for all 𝑗
+• 𝜔 ∈ U# ⊎ {∗, ap}
+• |{𝑗 ∶ 𝜄𝑗 ∉ Q}| ≥ 1 (so 𝑛 ≥ 1)
+• If 𝜄𝑗 involves 𝑣 ∈ V then 𝜄𝑘 = ∀𝑣 for some 𝑘 < 𝑗, and similarly for 𝜔; in other words, any type
+variable 𝑣 must be introduced by a quantification before it is used. (Here 𝜄 involves 𝑣 if either
+𝜄 = T ∈ U# and 𝑣 ∈ 𝖥𝖵# (T) or 𝜄 = 𝑣 and 𝑣 ∈ {∗}.)
+⋃
+• If 𝜔 involves 𝑣 ∈ V then some 𝜄𝑗 must involve 𝑣; this implies that 𝖥𝖵# (𝜔) ⊆ {𝖥𝖵# (𝜄𝑗 ) ∶ 𝜄𝑗 ∈ U# }
+(where we extend the earlier definition of 𝖥𝖵# by setting 𝖥𝖵# (ap) = ∅).
+• If 𝑗 ≠ 𝑘 and 𝜄𝑗 , 𝜄𝑘 ∈ Q then 𝜄𝑗 ≠ 𝜄𝑘 ; ie, no quantification appears more than once.
+• If 𝜄𝑖 = ∀𝑣 ∈ Q then some 𝑖𝑗 ∉ Q with 𝑗 > 𝑖 must involve 𝑣 (signatures are not allowed to contain
+phantom type variables).
+For example, in our default set of built-in functions we have the functions mkCons with signature [∀𝑎# , 𝑎# ,
+𝚕𝚒𝚜𝚝 (𝑎# )] → 𝚕𝚒𝚜𝚝 (𝑎# ) and ifThenElse with signature [∀∗, 𝚋𝚘𝚘𝚕, ∗, ∗] → ∗. When we use mkCons its
+arguments must be of built-in types, but the two final arguments of ifThenElse can be any Plutus Core
+values.
+
+13
+
+If 𝑏 has signature [𝜄1 , … , 𝜄𝑛 ] → 𝜔 then we define the arity of 𝑏 to be
+𝛼(𝑏) = [𝜄1 , … , 𝜄𝑛 ].
+We also define
+𝜒(𝑏) = 𝑛.
+We may abuse notation slightly by using the symbol 𝜎 to denote a specific signature as well as the function
+which maps built-in function names to signatures, and similarly with the symbol 𝛼.
+Given a signature 𝜎 = [𝜄1 , … , 𝜄𝑛 ] → 𝜔, we define the reduced signature 𝜎̄ to be
+𝜎̄ = [𝜄𝑗 ∶ 𝜄𝑗 ∉ Q] → 𝜔
+Here we have extended the usual set comprehension notation to lists in the obvious way, so 𝜎̄ just denotes
+the signature 𝜎 with all quantifications omitted. We will often write a reduced signature in the form
+[𝜏1 , … , 𝜏𝑚 ] → 𝜔 to emphasise that the entries are types, and ∀ does not appear.
+Also, given an arity = [𝜄1 , … , 𝜄𝑛 ], the reduced arity is
+𝛼̄ = [𝜄𝑗 ∶ 𝜄𝑗 ∉ Q].
+
+Commentary. What is the intended meaning of the notation introduced above? In Typed Plutus Core
+we have to instantiate polymorphic functions (both built-in functions and polymorphic lambda terms) at
+concrete types before they can be applied, and in Untyped Plutus Core instantiation is replaced by an
+application of force. When we are applying a built-in function we supply its arguments one by one, and
+we can also apply force (or perform type instantiation in the typed case) to a partially-applied builtin
+“between” arguments (and also after the final argument); no computation occurs until all arguments have
+been supplied and all forces have been applied. The arity (read from left to right) specifies what types
+of arguments are expected and how they should be interleaved with applications of force, and 𝜒(𝑏) tells
+you the total number of arguments and applications of force that a built-in function 𝑏 requires. The fullypolymorphic type variable ∗ indicates that an arbitrary value from I can be provided, whereas a type from
+U# indicates that a value of the specified built-in type is expected. Occurrences of quantifications indicate
+that force is to be applied to a partially-applied builtin; we allow this purely so that partially-applied
+builtins can be treated in the same way as delayed lambda-abstractions: force has no effect unless it is
+the very last item in the signature. In Plutus Core, partially-applied builtins are values which can be treated
+like any others (for example, by being passed as an argument to a lam-expression): see Section 2.3.1.
+In general a builtin returns a sequence (𝑣|𝑣1 , … , 𝑣𝑘 ) ∈ R+ , but in fact the majority of builtins currently
+deployed on Cardano only return a single value, and in this case we can specify a signature where 𝜔 is
+either a built-in type name 𝑇 or ∗, denoting an input (typically a value in the ambient language), and this
+tells us exactly what sort of value is returned. The general case is considerably more complicated: the size
+of the list returned, and the types of its entries, may be different for different inputs. To specify this sort of
+behaviour precisely in a signature would require a considerable increase in the complexity of the notation
+for signatures, so instead we approximate all return types involving elements of R+ ∖R by ap. However,
+when specifying the semantics of particular builtins with 𝜔 = ap we will always give a precise description
+of the possible return values.
+
+14
+
+2.2.2.4
+
+Denotations of built-in functions
+
+The basic idea is that a built-in function 𝑏 should represent some mathematical function on the denotations
+of the types of its inputs. However, this is complicated by the presence of polymorphism and we have to
+require that there is such a function for every possible monomorphisation of 𝑏.
+More precisely, suppose that we have a builtin 𝑏 with reduced signature [𝜏1 , … 𝜏𝑛 ] → 𝜔. For every
+type assignment 𝑆 with dom 𝑆 = 𝖥𝖵# (𝜏1 ) ∪ ⋯ ∪ 𝖥𝖵# (𝜏𝑛 ) (which contains 𝖥𝖵# (𝜔) by the conditions on
+signatures in Section 2.2.2.3) we require a denotation of 𝑏 at 𝑆, a function
+
+where
+
+̂ 1 )K × ⋯ × J𝑆(𝜏
+̂ 𝑛 )K → J𝑆(𝜔)K
+̂
+J𝑏K𝑆 ∶ J𝑆(𝜏
+×
+J∗K = I
+
+and
+
+JapK = R+ .
+
+̂ 𝑖 ) ∈ U⊎I for all 𝑖, so J𝑆(𝜏
+̂ 𝑖 )K is always defined, and similarly for 𝜔 (extending
+This makes sense because 𝑆(𝜏
+̂
+𝑆̂ by setting 𝑆(ap)
+= ap).
+If 𝖥𝖵# (𝜎(𝑏))
+̄
+= ∅ (in which case we say that 𝑏 is monomorphic) then the only relevant type assignment
+will be the empty one; in this case we have a single denotation
+J𝑏K∅ ∶ J𝜏1 K × ⋯ × J𝜏𝑛 K → J𝜔K× .
+Denotations of builtins are mathematical functions which terminate on every possible input; the symbol
+× can be returned by a function to indicate that something has gone wrong, for example if an argument is
+out of range.
+In practice we expect most builtins to be parametrically polymorphic [47, 40], so that the denotation J𝑏K𝑆
+will be the “same” for all type assignments 𝑆; we do not insist on this though.
+2.2.2.5
+
+Results of built-in functions.
+
+Recall from Section 2.2.2.2 that the result of the evaluation of a built-in function lies in the set
+(⨄ {
+} )+
+(R+ )× =
+JTK ∶ T ∈ U ⊎ I ⊎ {×}.
+Since we have assumed that all denotations J𝑇 K with 𝑇 ∈ U are disjoint from each other and from I
+(Section 2.2.2.1) we can define a function
+⦃⋅⦄ ∶ R → I×
+which converts elements 𝑟 ∈ R back into inputs by
+{
+⦃𝑟⦄T ∈ CT ⊆ I if 𝑟 ∈ JTK
+⦃𝑟⦄ =
+𝑟
+if 𝑟 ∈ I
+(see Section 2.2.2.1 for the definition of ⦃⋅⦄T ), and we can extend this to a function ⦃⋅⦄ ∶ (R+ )× → I×
+by defining
+⦃(𝑟, 𝑟1 , … , 𝑟𝑘 )⦄ = (⦃𝑟⦄|⦃𝑟1 ⦄, … , ⦃𝑟𝑘 ⦄)
+⦃×⦄ = ×.
+
+15
+
+2.2.2.6
+
+Parametricity for fully-polymorphic arguments
+
+A built-in function 𝑏 can only inspect arguments which are values of built-in types; other arguments
+(occurring as ∗ in 𝜎(𝑏))
+̄
+are treated opaquely, and can be discarded or returned as (part of) a result, but
+cannot be altered or examined (in particular, they cannot be compared for equality): 𝑏 is parametrically
+polymorphic in such arguments. This implies that if the sequence returned by a builtin contains a value
+𝑣 ∈ I, then 𝑣 must have been an argument of the builtin.
+
+2.2.3
+
+Evaluation of built-in functions
+
+2.2.3.1
+
+Compatibility of inputs and signature entries
+
+The previous section describes how a built-in function is interpreted as a mathematical function. When a
+Plutus Core built-in function 𝑏 is applied to a sequence of arguments, the arguments must have types which
+are compatible with the signature of 𝑏; for example, if 𝑏 has signature [∀∗, ∀𝑎# , ∀𝑏# , 𝑎# , 𝑏# , 𝑎# , ∗, ∗] → ∗
+and 𝑏 is applied to a sequence of inputs 𝑉1 , 𝑉2 , 𝑉3 , 𝑉4 , 𝑉5 then 𝑉1 , 𝑉2 , and 𝑉3 must all be constants of some
+monomorphic built-in types and the types of 𝑉1 and 𝑉3 must be the same; 𝑉4 and 𝑉5 can be arbitrary
+inputs. This section describes the conditions for type compatibility.
+In detail, given a reduced arity 𝛼̄ = [𝜏1 , … , 𝜏𝑛 ], a sequence 𝑉̄ = [𝑉1 , … , 𝑉𝑚 ], and a type assignment 𝑆
+we say that 𝑉̄ is compatible with 𝛼̄ (via 𝑆) if and only if 𝑛 = 𝑚 and, letting 𝐼 = {𝑖 ∶ 1 ≤ 𝑖 ≤ 𝑛, 𝜏𝑖 ∈ U# }
+(so 𝜏𝑗 = ∗ if 𝑗 ∉ 𝐼), there exist type assignments 𝑆𝑖 (1 ≤ 𝑖 ≤ 𝑛) such that all of the following are satisfied
+• For all 𝑖 ∈ 𝐼 there exists 𝑇𝑖 ∈ U such that 𝑉𝑖 ∈ C𝑇𝑖 and 𝑇𝑖 ⪯𝑆𝑖 𝜏𝑖 .
+• {𝑆𝑖 ∶ 𝑖 ∈ 𝐼} is consistent (see Section 2.2.1.3).
+⋃
+• 𝑆 = {𝑆𝑖 ∶ 𝑖 ∈ 𝐼}.
+If these conditions are all satisfied then we can find suitable 𝑆𝑖 using the procedure described in Section 2.2.1.3 and this allows us to construct 𝑆 explicitly since the 𝑆𝑖 are consistent. Note that in this case
+dom 𝑆 = dom 𝑆1 ∪ … ∪ dom 𝑆𝑛 = 𝖥𝖵# (𝜏1 ) ∪ ⋯ ∪ 𝖥𝖵# (𝜏𝑛 ) = 𝖥𝖵# (𝛼), so 𝑆 is minimal in the sense that
+no 𝑆 ′ with dom 𝑆 ′ strictly smaller than dom 𝑆 is sufficient to monomorphise all of the 𝜏𝑖 simultaneously.
+We write
+[𝑉1 , … , 𝑉𝑚 ] ≈𝑆 [𝜏1 , … , 𝜏𝑛 ]
+in this case. If 𝑉̄ is not compatible with 𝛼̄ then we write 𝑉̄ ≉ 𝛼.
+̄
+2.2.3.2
+
+Evaluation
+
+For later use we define a function 𝖤𝗏𝖺𝗅 which attempts to evaluate an application of a built-in function 𝑏
+to a sequence of inputs [𝑉1 , … , 𝑉𝑚 ]. This fails if the number of inputs is incorrect or if the inputs are not
+compatible with 𝛼(𝑏):
+̄
+𝖤𝗏𝖺𝗅(𝑏, [𝑉1 , … , 𝑉𝑛 ]) = × if [𝑉1 , … , 𝑉𝑛 ] ≉ 𝛼(𝑏).
+̄
+Otherwise, the conditions for the existence of a denotation of 𝑏 are met and we can apply that denotation to
+̂ 𝑖)
+the denotations of the inputs and then reify the result. If [𝑉1 , … , 𝑉𝑛 ] ≈𝑆 𝛼(𝑏)
+̄
+= [𝜏1 , … , 𝜏𝑛 ], let 𝑇𝑖 = 𝑆(𝜏
+for 1 ≤ 𝑖 ≤ 𝑛; then we define
+𝖤𝗏𝖺𝗅(𝑏, [𝑉1 , … , 𝑉𝑛 ]) = ⦃J𝑏K𝑆 (J𝑉1 K𝑇1 , … , J𝑉𝑛 K𝑇𝑛 )⦄.
+
+It can be checked that the compatibility condition guarantees that this makes sense according to the definition of J𝑏K𝑆 in Section 2.2.2.4.
+16
+
+Notes.
+• All of the machinery which we have defined for built-in functions is parametric over the set I of
+inputs and the sets C𝑇 ⊆ I of constants. This also applies to the 𝖤𝗏𝖺𝗅 function, so its meaning is not
+fully defined until we have given concrete definitions of the sets of inputs and constants.
+• The error value × can occur in two different ways: either because the arguments are not compatible
+with the signature, or because the builtin itself returns × to signal some error condition.
+• The symbol × is not part of Plutus Core; when we define reduction rules and evaluators for Plutus Core later some extra translation will be required to convert the result of 𝖤𝗏𝖺𝗅 into something
+appropriate to the context.
+
+2.3
+
+Term reduction
+
+This section defines the semantics of (untyped) Plutus Core.
+
+2.3.1
+
+Values in Plutus Core
+
+The semantics of built-in functions in Plutus Core are obtained by instantiating the sets CT of constants
+of type T (see Section 2.2.2.1) to be the expressions of the form (con T 𝑐) and the set I to be the set
+of Plutus Core values, terms which cannot immediately undergo any further reduction, such as lambda
+terms and delayed terms. Values also include partial applications of built-in functions such as [(builtin
+modInteger) (con integer 5)], which cannot perform any computation until a second integer argument is supplied. However, partial applications must also be well-formed, in the sense that applications
+of force must be correctly interleaved with genuine arguments, and the arguments must themselves be
+values.
+We define syntactic classes 𝑉 of Plutus Core values and 𝐴 of partial builtin applications simultaneously:
+Value
+
+𝑉
+
+∶∶=
+
+(con T 𝑐)
+(delay 𝑀)
+(lam 𝑥 𝑀)
+(constr 𝑖 𝑉 )
+𝐴
+
+Figure 2.5: Values in Plutus Core
+Here 𝐴 is the class of well-formed partial applications, and to define this we first define a class of possibly
+ill-formed iterated applications 𝐵 for each built-in function 𝑏 ∈ B:
+𝐵
+
+∶∶=
+
+(builtin 𝑏)
+[𝐵 𝑉 ]
+(force 𝐵)
+
+Figure 2.6: Partial built-in function application
+
+17
+
+We let 𝖡 denote the set of terms generated by the grammar in Figure 2.6 and we define a function 𝛽 which
+extracts the name of the built-in function occurring in a term in 𝖡:
+𝛽((builtin 𝑏)) = 𝑏
+𝛽([𝐵 𝑉 ])
+= 𝛽(𝐵)
+𝛽((force 𝐵))
+= 𝛽(𝐵)
+We also define a function ‖⋅‖ which measures the size of a term 𝐵 ∈ 𝖡:
+‖(builtin 𝑏)‖ = 0
+‖[𝐵 𝑉 ]‖
+= 1 + ‖𝐵‖
+‖(force 𝐵)‖
+= 1 + ‖𝐵‖
+
+Well-formed partial applications. A term 𝐵 ∈ 𝖡 is an application of 𝑏 = 𝛽(𝐵) to a number of values
+in 𝑆, interleaved with applications of force. We now define what it means for 𝐵 to be a well-formed
+partial application. Suppose that 𝛼(𝑏) = [𝜄1 , … , 𝜄𝑛 ]. Firstly we require that ‖𝐵‖ < 𝑛, so that 𝑏 is not fully
+applied; in this case we put 𝜄 = 𝜄‖𝐵‖ , the element of 𝑏’s signature which describes what kind of “argument”
+𝑏 currently expects. The definition is completed by induction on the structure of 𝐵:
+1. 𝐵 = (𝚋𝚞𝚒𝚕𝚝𝚒𝚗 𝑏) is always well formed.
+2. 𝐵 = [𝐵 ′ 𝑉 ] is well formed if 𝐵 ′ is well formed and 𝜄 ∈ U# or 𝜄 = ∗ (equivalently, 𝜄 ∉ Q).
+3. 𝐵 = (𝚏𝚘𝚛𝚌𝚎 𝐵 ′ ) is well formed if 𝐵 ′ is well formed and 𝜄 ∈ Q.
+The definition of values in Figure 2.5 is now completed by defining 𝐴 to be the syntactic class of wellformed partial built-in function applications:
+𝐴 = {𝐵 ∈ 𝖡 ∶ 𝐵 is a well-formed partial application}.
+Note that this definition does not impose any requirements of type correctness. For example, with the types
+and functions defined in Section 4.3.1 the term 𝑋 = [(builtin modInteger) (con string "blue")]
+is a valid value which could be treated like any other, for instance by being passed as an argument to a
+lam expression. However, the evaluation rules described in the next section require that when a built-in
+function 𝑏 becomes fully applied the types of the arguments are checked against the signature of 𝑏 using
+the relation ≈ and the function 𝖤𝗏𝖺𝗅 defined in Sections 2.2.3.1 and 2.2.3.2, so an error would arise if the
+term 𝑋 were ever applied to another argument.
+More notation. Suppose that 𝐴 is a well-formed partial application with 𝛼(𝛽(𝐴)) = [𝜄1 , … , 𝜄𝑛 ]. We
+define a function 𝗇𝖾𝗑𝗍 which extracts the next argument (or force) expected by 𝐴:
+𝗇𝖾𝗑𝗍(𝐴) = 𝜄‖𝐴‖+1 .
+This makes sense because in a well-formed partial application 𝐴 we have ‖𝐴‖ < 𝑛.
+We also define a function 𝖺𝗋𝗀𝗌 which extracts the arguments which 𝑏 has received so far in 𝐴:
+𝖺𝗋𝗀𝗌((builtin 𝑏)) = []
+𝖺𝗋𝗀𝗌([𝐴 𝑉 ])
+= 𝖺𝗋𝗀𝗌(𝐴)⋅𝑉
+𝖺𝗋𝗀𝗌((force 𝐴))
+= 𝖺𝗋𝗀𝗌(𝐴).
+
+18
+
+2.3.2
+
+Term reduction
+
+We define the semantics of Plutus Core using contextual semantics (or reduction semantics): see [31]
+or [29] or [32, 5.3], for example. We use 𝐴 to denote a partial application of a built-in function as in
+Section 2.3.1 above. For builtin evaluation, we instantiate the set I of Section 2.2.2.1 to be the set of
+Plutus Core values. Thus all builtins take values as arguments and return a value or ×. Since values are
+terms here, we can take ⦃𝑉 ⦄ = 𝑉 .
+The notation [𝑉 ∕𝑥]𝑀 below denotes substitution of the value 𝑉 for the variable 𝑥 in 𝑀. This is captureavoiding in that substitution is not performed on occurrences of 𝑥 inside subterms of 𝑀 of the form
+(lam 𝑥 𝑁).
+
+19
+
+Frame
+
+𝑓
+
+∶∶=
+
+[_ 𝑀]
+[𝑉 _]
+(force _)
+(constr 𝑖 𝑉 _ 𝑀)
+(case _ 𝑀)
+
+left application
+right application
+force
+constructor argument
+case scrutinee
+
+(a) Grammar of reduction frames for Plutus Core
+
+𝑀 → 𝑀′
+Term 𝑀 reduces in one step to term 𝑀 ′ .
+[(lam 𝑥 𝑀) 𝑉 ] → [𝑉 ∕𝑥]𝑀
+𝗇𝖾𝗑𝗍(𝐴) ∈ U# ∪ {∗}
+
+𝓁(𝐴) = 𝜒(𝛽(𝐴)) − 1
+
+[𝐴 𝑉 ] → 𝖤𝗏𝖺𝗅 (𝛽(𝐴), 𝖺𝗋𝗀𝗌(𝐴)⋅𝑉 )
+′
+
+𝓁(𝐴) < 𝜒(𝛽(𝐴)) − 1
+𝗇𝖾𝗑𝗍(𝐴) ∈ U# ∪ {∗}
+[𝐴 𝑉 ] → [𝐴 𝑉 ]
+(force (delay 𝑀)) → 𝑀
+0≤𝑖≤𝑛−1
+(case (constr 𝑖 𝑉 ) 𝑈1 … 𝑈𝑛 ) → [𝑈𝑖+1 𝑉 ]
+𝓁(𝐴) = 𝜒(𝛽(𝐴)) − 1
+𝗇𝖾𝗑𝗍(𝐴) ∈ Q
+′
+(force 𝐴) → 𝖤𝗏𝖺𝗅 (𝛽(𝐴), 𝖺𝗋𝗀𝗌(𝐴))
+𝓁(𝐴) < 𝜒(𝛽(𝐴)) − 1
+𝗇𝖾𝗑𝗍(𝐴) ∈ Q
+(force 𝐴) → 𝐴
+𝑓 {(error)} → (error)
+𝑀 → 𝑀′
+𝑓 {𝑀} → 𝑓 {𝑀 ′ }
+(b) Reduction via contextual semantics
+
+⎧(error) if 𝖤𝗏𝖺𝗅(𝑏, [𝑉 , … , 𝑉 ]) = ×
+1
+𝑛
+⎪
+𝖤𝗏𝖺𝗅′ (𝑏, [𝑉1 , … , 𝑉𝑛 ]) = ⎨𝑉
+if 𝖤𝗏𝖺𝗅(𝑏, [𝑉1 , … , 𝑉𝑛 ]) = (𝑉 |)
+⎪[𝑉 𝑉 ′ ]
+if 𝖤𝗏𝖺𝗅(𝑏, [𝑉1 , … , 𝑉𝑛 ]) = (𝑉 |𝑉 ′ ) with 𝑉 ′ nonempty.
+⎩
+(c) Built-in function application
+
+Figure 2.7: Term reduction for Plutus Core
+
+20
+
+It can be shown that any closed Plutus Core term whose evaluation terminates yields either (error) or a
+value. Recall from Section 2.1.3 that we require the body of every Plutus Core program to be closed.
+
+2.4
+
+The CEK machine
+
+This section contains a description of an abstract machine for efficiently executing Plutus Core. This is
+based on the CEK machine of Felleisen and Friedman [30].
+The machine alternates between two main phases: the compute phase (⊳), where it recurses down the AST
+looking for values, saving surrounding contexts as frames (or reduction contexts) on a stack as it goes; and
+the return phase (⊲), where it has obtained a value and pops a frame off the stack to tell it how to proceed
+next. In addition there is an error state ⬥ which halts execution with an error, and a halting state ◻ which
+halts execution and returns a value to the outside world.
+To evaluate a program (program 𝑣 𝑀), we first check that the version number 𝑣 is valid, then start the
+machine in the state []; [] ⊳ 𝑀. It can be proved that the transitions in Figure 2.10 always preserve validity
+of states, so that the machine can never enter a state such as [] ⊲ 𝑀 or 𝑠, (force _) ⊲ (lam 𝑥 𝐴 𝑀)
+which isn’t covered by the rules. If such a situation were to occur in an implementation then it would
+indicate that the machine was incorrectly implemented or that it was attempting to evaluate an ill-formed
+program (for example, one which attempts to apply a variable to some other term).
+State
+Stack
+CEK value
+
+𝑠; 𝜌 ⊳ 𝑀 | 𝑠 ⊲ 𝑉 | ⬥ | ◻ 𝑉
+𝑓∗
+〈con T 𝑐〉 | 〈delay 𝑀 𝜌〉 | 〈lam 𝑥 𝑀 𝜌〉
+| 〈constr 𝑖 𝑉 〉 | 〈builtin 𝑏 𝑉 𝜂〉
+𝜌 ∶∶= [] | 𝜌[𝑥 ↦ 𝑉 ]
+𝜂 ∶∶= [𝜄] | 𝜄⋅𝜂
+
+Σ
+𝑠
+𝑉
+
+Environment
+Expected builtin arguments
+
+∶∶=
+∶∶=
+∶∶=
+
+Figure 2.8: Grammar of CEK machine states for Plutus Core
+
+Frame
+
+𝑓
+
+∶∶=
+
+(force _)
+force
+[_ (𝑀, 𝜌)]
+left application to term
+[_ 𝑉 ]
+left application to value
+[𝑉 _]
+right application of value
+(constr 𝑖 𝑉 _ (𝑀, 𝜌))
+constructor argument
+(case _ (𝑀, 𝜌))
+case scrutinee
+
+Figure 2.9: Grammar of CEK stack frames
+
+Figures 2.8 and 2.9 define some notation for states of the CEK machine: these involve a modified type
+of value adapted to the CEK machine, environments which bind names to values, and a stack which
+stores partially evaluated terms whose evaluation cannot proceed until some more computation has been
+performed (for example, since Plutus Core is a strict language function arguments have to be reduced to
+values before application takes place, and because of this a lambda term may have to be stored on the
+21
+
+stack while its argument is being reduced to a value). Environments are lists of the form 𝜌 = [𝑥1 ↦
+𝑉1 , … , 𝑥𝑛 ↦ 𝑉𝑛 ] which grow by having new entries appended on the right; we say that 𝑥 is bound in the
+environment 𝜌 if 𝜌 contains an entry of the form 𝑥 ↦ 𝑉 , and in that case we denote by 𝜌[𝑥] the value 𝑉
+in the rightmost (ie, most recent) such entry.∗
+To make the CEK machine fit into the built-in evaluation mechanism defined in Section 2.2 we define
+I = 𝑉 and CT = {〈con T 𝑐〉 ∶ T ∈ U, 𝑐 ∈ JTK}.
+The rules in Figure 2.10 show the transitions of the machine; if any situation arises which is not
+included in these transitions (for example, if a frame [〈con T 𝑐〉 _] is encountered or if an attempt is made
+to apply force to a partial builtin application which is expecting a term argument), then the machine stops
+immediately in an error state.
+∗ The description of environments we use here is more general than necessary in that it permits a given variable to have multiple
+bindings; however, in what follows we never actually retrieve bindings other than the most recent one and we never remove bindings
+to expose earlier ones. The list-based definition has the merit of simplicity and suffices for specification purposes but in an implementation it would be safe to use some data structure where existing bindings of a given variable are discarded when a new binding
+is added.
+
+22
+
+Σ ↦ Σ′
+Machine takes one step from state Σ to state Σ′
+𝑠; 𝜌 ⊳ 𝑥
+
+↦ 𝑠 ⊲ 𝜌[𝑥] if 𝑥 is bound in 𝜌
+
+𝑠; 𝜌 ⊳ (con T 𝑐)
+
+↦ 𝑠 ⊲ 〈con T 𝑐〉
+
+𝑠; 𝜌 ⊳ (lam 𝑥 𝑀)
+
+↦ 𝑠 ⊲ 〈lam 𝑥 𝑀 𝜌〉
+
+𝑠; 𝜌 ⊳ (delay 𝑀)
+
+↦ 𝑠 ⊲ 〈delay 𝑀 𝜌〉
+
+𝑠; 𝜌 ⊳ (force 𝑀)
+
+↦ (force _)⋅𝑠; 𝜌 ⊳ 𝑀
+
+𝑠; 𝜌 ⊳ [𝑀 𝑁]
+
+↦ [_ (𝑁, 𝜌)]⋅𝑠; 𝜌 ⊳ 𝑀
+
+𝑠; 𝜌 ⊳ (constr 𝑖 𝑀 ⋅𝑀)
+
+↦ (constr 𝑖 [] _ (𝑀, 𝜌))⋅𝑠; 𝜌 ⊳ 𝑀
+
+𝑠; 𝜌 ⊳ (constr 𝑖 [])
+
+↦ 𝑠 ⊲ 〈constr 𝑖 []〉
+
+𝑠; 𝜌 ⊳ (case 𝑁 𝑀)
+
+↦ (case _ (𝑀, 𝜌))⋅𝑠; 𝜌 ⊳ 𝑁
+
+𝑠; 𝜌 ⊳ (builtin 𝑏)
+
+↦ 𝑠 ⊲ 〈builtin 𝑏 [] 𝛼(𝑏)〉
+
+𝑠; 𝜌 ⊳ (error)
+
+↦⬥
+
+[] ⊲ 𝑉
+
+↦ ◻𝑉
+
+[_ (𝑀, 𝜌)]⋅𝑠 ⊲ 𝑉
+
+↦ [𝑉 _]⋅𝑠; 𝜌 ⊳ 𝑀
+
+[〈lam 𝑥 𝑀 𝜌〉 _]⋅𝑠 ⊲ 𝑉
+[_ 𝑉 ]⋅𝑠 ⊲ 〈lam 𝑥 𝑀 𝜌〉
+
+↦ 𝑠; 𝜌[𝑥 ↦ 𝑉 ] ⊳ 𝑀
+↦ 𝑠; 𝜌[𝑥 ↦ 𝑉 ] ⊳ 𝑀
+
+[〈builtin 𝑏 𝑉 (𝜄⋅𝜂)〉 _]⋅𝑠 ⊲ 𝑉
+
+↦ 𝑠 ⊲ 〈builtin 𝑏 (𝑉 ⋅𝑉 ) 𝜂〉 if 𝜄 ∈ U# ∪ {∗}
+
+[_ 𝑉 ]⋅𝑠 ⊲ 〈builtin 𝑏 𝑉 (𝜄⋅𝜂)〉 ↦ 𝑠 ⊲ 〈builtin 𝑏 (𝑉 ⋅𝑉 ) 𝜂〉 if 𝜄 ∈ U# ∪ {∗}
+[〈builtin 𝑏 𝑉 [𝜄]〉 _]⋅𝑠 ⊲ 𝑉
+
+↦ 𝖤𝗏𝖺𝗅 𝖢𝖤𝖪 (𝑠, 𝑏, 𝑉 ⋅𝑉 ) if 𝜄 ∈ U# ∪ {∗}
+
+[_ 𝑉 ]⋅𝑠 ⊲ 〈builtin 𝑏 𝑉 [𝜄]〉
+(force _)⋅𝑠 ⊲ 〈delay 𝑀 𝜌〉
+
+↦ 𝖤𝗏𝖺𝗅 𝖢𝖤𝖪 (𝑠, 𝑏, 𝑉 ⋅𝑉 ) if 𝜄 ∈ U# ∪ {∗}
+↦ 𝑠; 𝜌 ⊳ 𝑀
+
+(force _)⋅𝑠 ⊲ 〈builtin 𝑏 𝑉 (𝜄⋅𝜂)〉 ↦ 𝑠 ⊲ 〈builtin 𝑏 𝑉 𝜂〉 if 𝜄 ∈ Q
+(force _)⋅𝑠 ⊲ 〈builtin 𝑏 𝑉 [𝜄]〉
+(constr 𝑖 𝑉 _ (𝑀 ⋅𝑀, 𝜌))⋅𝑠 ⊲ 𝑉
+
+↦ 𝖤𝗏𝖺𝗅 𝖢𝖤𝖪 (𝑠, 𝑏, 𝑉 ) if 𝜄 ∈ Q
+↦ (constr 𝑖 𝑉 ⋅𝑉 _ (𝑀, 𝜌))⋅𝑠; 𝜌 ⊳ 𝑀
+
+(constr 𝑖 𝑉 _ ([], 𝜌))⋅𝑠 ⊲ 𝑉
+
+↦ 𝑠 ⊲ 〈constr 𝑖 𝑉 ⋅𝑉 〉
+
+(case _ (𝑀1 … 𝑀𝑛 , 𝜌))⋅𝑠 ⊲ 〈constr 𝑖 𝑉1 … 𝑉𝑚 〉 ↦ [_ 𝑉1 ]⋅⋯⋅[_ 𝑉𝑚 ]⋅𝑠; 𝜌 ⊳ 𝑀𝑖+1 if 0 ≤ 𝑖 ≤ 𝑛 − 1
+(a) CEK machine transitions for Plutus Core
+
+{
+𝖤𝗏𝖺𝗅 𝖢𝖤𝖪 (𝑠, 𝑏, [𝑉1 , … , 𝑉𝑛 ]) =
+
+⬥
+[_ 𝑉𝑚′ ]⋅⋯⋅[_ 𝑉1′ ]⋅𝑠 ⊲ 𝑉 ′
+
+if 𝑟 = ×
+if 𝑟 = (𝑉 ′ |𝑉1′ , … , 𝑉𝑚′ ) ∈ R+
+
+where 𝑟 = 𝖤𝗏𝖺𝗅 (𝑏, [𝑉1 , … , 𝑉𝑛 ])
+
+(b) Evaluation of built-in functions
+
+Figure 2.10: A CEK machine for Plutus Core
+23
+
+2.4.1
+
+Converting CEK evaluation results into Plutus Core terms
+
+The purpose of the CEK machine is to evaluate Plutus Core terms, but in the definition in Figure 2.10 it
+does not return a Plutus Core term; instead the machine can halt in two different ways:
+• The machine can halt in the state ◻ 𝑉 for some CEK value 𝑉 .
+• The machine can halt in the state ⬥ .
+To get a complete evaluation strategy for Plutus Core we must convert these states into Plutus Core terms.
+The term corresponding to ⬥ is (error), and to obtain a term from ◻ 𝑉 we perform a process which
+we refer to as discharging the CEK value 𝑉 (also known as unloading: see [39, pp. 129–130], [28, pp.
+71ff]). This process substitutes bindings in environments for variables occurring in the value 𝑉 to obtain
+a term U(𝑉 ): see Figure 2.11a. Since environments contain bindings 𝑥 ↦ 𝑊 of variables to further
+CEK values, we have to recursively discharge those bindings first before substituting: see Figure 2.11b,
+which defines an operation @𝜌 which does this. As before [𝑁∕𝑥]𝑀 denotes the usual (capture-avoiding)
+process of substituting the term 𝑁 for all unbound occurrences of the variable 𝑥 in the term 𝑀. Note that
+in Figure 2.11b we substitute the rightmost (ie, the most recent) bindings in the environment first.
+U(〈con T 𝑐〉) = (con T 𝑐)
+U(〈delay 𝑀 𝜌〉) = (delay 𝑀)@𝜌
+U(〈lam 𝑥 𝑀 𝜌〉) = (lam 𝑥 𝑀)@𝜌
+U(〈constr 𝑖 𝑉 〉) = (constr 𝑖 U(𝑉 ))
+U(〈builtin 𝑏 𝑉1 𝑉2 … 𝑉𝑘 𝜂〉) = [ … [[(builtin 𝑏) (U(𝑉1 ))] (U(𝑉2 ))]… (U(𝑉𝑘 ))]
+(a) Discharging CEK values
+
+𝑀@𝜌 = [(U(𝑉1 ))∕𝑥1 ] ⋯ [(U (𝑉𝑛 ))∕𝑥𝑛 ]𝑀
+
+if 𝜌 = [𝑥1 ↦ 𝑉1 , … , 𝑥𝑛 ↦ 𝑉𝑛 ]
+
+(b) Iterated substitution/discharging
+
+Figure 2.11: Discharging CEK values to obtain Plutus Core terms
+We can prove that if we evaluate a closed Plutus Core term in the CEK machine and then convert the
+result back to a term using the above procedure then we get the result that we should get according to the
+semantics in Figure 2.7.
+
+2.5
+
+Cost accounting for Untyped Plutus Core
+
+To follow.
+
+24
+
+Chapter 3
+
+Typed Plutus Core
+To follow.
+
+25
+
+Chapter 4
+
+Plutus Core on Cardano
+4.1
+
+Protocol versions
+
+The Cardano blockchain controls the introduction of features through the use of protocol versions, a field
+in the protocol parameters. The major protocol version is used to indicate when forwards-incompatible
+changes (i.e. those that allow blocks that were not previously allowed) are made to the rules of the chain.
+This is a hard fork of the chain.
+The protocol version is part of the history of the chain, as are all protocol parameters. That means
+that all blocks are associated with the protocol version from when they were created, so that they can be
+interpreted correctly.
+In summary, conditioning on the protocol version is the main way in which we can introduce changes
+in behaviour.
+Table 4.1 lists the protocol versions that are relevant to the use of Plutus Core on Cardano.
+Protocol version
+
+Codename
+
+Date
+
+5.0
+7.0
+8.0
+9.0
+10.0
+
+Alonzo
+Vasil
+Valentine
+Chang
+Plomin
+
+September 2021
+June 2022
+February 2023
+September 2024
+January 2025
+
+Table 4.1: Protocol versions
+
+4.2
+
+Ledger languages
+
+The Cardano ledger uses Plutus Core as the programming language for scripts. The ledger in fact supports
+multiple different interpretations for scripts, and so each script is tagged with a ledger language that tells
+the ledger how to interpret it. Since the ledger must always be able to evaluate old scripts and get the same
+answer, the ledger language must pin down everything about how the script is evaluated, including:
+1. How to interpret the script itself (e.g. as a Plutus Core program, what versions of the Plutus Core
+language are allowable)
+2. Other configuration the script may need in order to run (e.g. the set of builtin types and functions
+and their interpretations, cost model parameters)
+26
+
+3. How the script is invoked (e.g. after having certain arguments passed to it)
+There are currently three “Plutus” ledger languages (i.e. ledger languages whose underlying programming language is Plutus Core) in use on Cardano:∗
+1. PlutusV1
+2. PlutusV2
+3. PlutusV3
+Table 4.2 shows when each Plutus ledger language was introduced. Ledger languages remain available
+permanently after they have been introduced.
+Protocol version
+
+Ledger language introduced
+
+5.0
+7.0
+9.0
+
+PlutusV1
+PlutusV2
+PlutusV3
+
+Table 4.2: Introduction of Plutus ledger languages
+Ledger languages can evolve over time. We can make backwards-compatible changes when the major
+protocol version changes, but backwards-incompatible changes can only be introduced by creating a whole
+new ledger language.† This means that to fully explain the behaviour of a ledger language we may need
+to also index by the protocol version.
+The following tables show how Plutus ledger languages determine:
+• Which Plutus Core language versions are allowable (Table 4.3)
+• Which built-in functions and types are available (Table 4.4, given in terms of batches, see Section 4.3)
+• How to interpret the built-in functions and types (Table 4.5, given in terms of built-in semantics
+variants, see Section 4.3)
+Currently, once we add a feature for any given protocol version/ledger language, we also make it
+available for all subsequent protocol versions/ledger languages. For example, Batch 2 of builtins was
+introduced in PlutusV2 at protocol version 7.0, so it is also available in PlutusV2 at protocol versions
+after 7.0, and PlutusV3 at protocol versions after 9.0 (when PlutusV3 itself was first introduced). Hence
+the tables are simplified to only show when something is introduced.
+Ledger language
+
+Protocol version
+
+Plutus Core language version introduced
+
+PlutusV1
+PlutusV3
+
+5.0
+9.0
+
+1.0.0
+1.1.0
+
+Table 4.3: Introduction of Plutus Core language versions
+∗ Note that ledger languages are completely distinct from the point of view of the ledger, the “V1”/“V2” naming is suggestive of
+the fact that these two ledger languages are related, but in the implementation they are completely independent.
+† See [1] for more details on how the process of evolution works.
+
+27
+
+Ledger language
+
+Protocol version
+
+Built-in functions and types introduced
+
+PlutusV1
+PlutusV2
+PlutusV2
+PlutusV3
+PlutusV3
+
+5.0
+7.0
+8.0
+9.0
+10.0
+
+Batch 1
+Batch 2
+Batch 3
+Batch 4
+Batch 5
+
+Table 4.4: Introduction of built-in functions and types
+
+Ledger language
+
+Built-in semantics variant used
+
+PlutusV1
+PlutusV3
+
+Built-in semantics 1
+Built-in semantics 2
+
+Table 4.5: Selection of built-in semantics variant
+
+4.3
+
+Built-in types and functions
+
+Built-in batches. The built-in types and functions are defined in batches corresponding to how they
+were added to ledger languages. These batches are given in the following sections.
+Built-in semantics variants. In rare cases we can make a mistake or need to change the actual behaviour
+of a built-in function. To handle this we define a series of built-in semantics variants, which indicate which
+behaviour should be used. A fix will typically be deployed by defining a new semantics variant, and then
+using that variant for future ledger languages (but not existing ones, since this is usually a backwardsincompatible change).
+Changes are listed alongside the original definition of the built-in function in its original batch, and
+are indexed in the following table.
+Built-in semantics variant
+
+Changes from previous semantics
+
+Built-in semantics 1
+Built-in semantics 2
+
+None
+consByteString (See 2)
+
+Table 4.6: Built-in semantics variants
+Concrete syntax for built-in types. Recall that in the abstract notation for built-in types introduced
+in Section 2.2.1, a built-in type is either an atomic type such as integer or string or an application
+op(𝑇1 , … , 𝑇𝑛 ) of a type operator to a sequence of built-in types. The concrete syntax of built-in types
+used in textual Plutus Core programs is slightly different in that we use a curried form of application for
+type operators: a type is given by
+𝐓
+
+∶∶=
+
+atomic-type
+(op 𝐓1 … 𝐓|op| )
+
+Atomic type
+Type application
+
+Note that we again require that all type operators are fully applied. We refer to the syntactic objects 𝐓
+above as concrete built-in types. There is an obvious bijection between these and the abstract built-in types
+
+28
+
+used elsewhere in this document, and given an abstract built-in type 𝑇 we will denote the corresponding
+concrete built-in type by 𝑇̄ .
+Concrete syntax for built-in constants. We provide concrete syntax for constants of most (but not all)
+built-in types. For a built-in type 𝑇 which has a concrete syntax we specify a set 𝐂𝑇 of strings (using
+either regular expressions or a BNF-style grammar), and a constant of type 𝑇 is then represented in the
+concrete syntax by an expression of the form (con 𝑇̄ 𝑐𝑇 ) with 𝑐𝑇 ∈ 𝐂𝑇 . Each string 𝑐𝑇 will have an
+interpretation as a value of type 𝑇 (ie, an element of J𝑇 K) and since this will generally be the obvious
+interpretation we will not always spell out the details.
+
+4.3.1
+
+Batch 1
+
+4.3.1.1
+
+Built-in types and type operators
+
+The first batch of built-in types and type operators is defined in Tables 4.7 and 4.8. We also include
+concrete syntax for these; the concrete syntax is not strictly part of the language, but may be useful for
+tools working with Plutus Core.
+Type
+integer
+bytestring
+string
+bool
+unit
+data
+
+Denotation
+ℤ
+𝔹∗ , the set of sequences of bytes or 8-bit
+characters.
+𝕌∗ , the set of sequences of Unicode characters.
+{𝗍𝗋𝗎𝖾, 𝖿 𝖺𝗅𝗌𝖾}
+{()}
+See below
+
+Concrete Syntax
+-?[0-9]+
+#([0-9A-Fa-f][0-9A-Fa-f])*
+See note below
+True | False
+()
+See below
+
+Table 4.7: Atomic types, Batch 1
+Operator op
+list
+pair
+
+|op|
+1
+2
+
+Denotation
+J𝚕𝚒𝚜𝚝 (𝑡)K = J𝑡K∗
+J𝚙𝚊𝚒𝚛 (𝑡1 , 𝑡2 )K = J𝑡1 K × J𝑡2 K
+
+Concrete Syntax
+See below
+See below
+
+Table 4.8: Type operators, Batch 1
+Concrete syntax for strings. Strings are represented as sequences of Unicode characters enclosed in
+double quotes, and may include standard escape sequences. Surrogate characters in the range U+D800–
+U+DFFF are replaced with the Unicode replacement character U+FFFD.
+Concrete syntax for lists and pairs. A list of type list(𝑡) is written as a syntactic list [𝑐1 , … , 𝑐𝑛 ]
+where each 𝑐𝑖 lies in 𝐂𝑡 ; a pair of type pair(𝑡1 , 𝑡2 ) is written as a syntactic pair (𝑐1 , 𝑐2 ) with 𝑐1 ∈ 𝐂𝑡1 and
+𝑐2 ∈ 𝐂𝑡2 . Some valid constant expressions are thus
+(con (list integer) [11, 22, 33])
+(con (pair bool string) (True, "Plutus")).
+(con (list (pair bool (list bytestring)))
+[(True, []), (False, [#,#1F]), (True, [#123456, #AB, #ef2804])])
+29
+
+The 𝚍𝚊𝚝𝚊 type. We provide a built-in type 𝚍𝚊𝚝𝚊 which permits the encoding of simple data structures
+for use as arguments to Plutus Core scripts. This type is defined in Haskell as
+data Data =
+Constr Integer [Data]
+| Map [(Data, Data)]
+| List [Data]
+| I Integer
+| B ByteString
+In set-theoretic terms the denotation of 𝚍𝚊𝚝𝚊 is defined to be the least fixed point of the endofunctor 𝐹 on
+the category of sets given by 𝐹 (𝑋) = (J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K × 𝑋 ∗ ) ⊎ (𝑋 × 𝑋)∗ ⊎ 𝑋 ∗ ⊎ J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K ⊎ J𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐K,
+so that
+J𝚍𝚊𝚝𝚊K = (J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K × J𝚍𝚊𝚝𝚊K∗ ) ⊎ (J𝚍𝚊𝚝𝚊K × J𝚍𝚊𝚝𝚊K)∗ ⊎ J𝚍𝚊𝚝𝚊K∗ ⊎ J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K ⊎ J𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐K.
+
+We have injections
+
+inj𝐶 ∶ J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K × J𝚍𝚊𝚝𝚊K∗ → J𝚍𝚊𝚝𝚊K
+inj𝑀 ∶ (J𝚍𝚊𝚝𝚊K × J𝚍𝚊𝚝𝚊K)∗ → J𝚍𝚊𝚝𝚊K
+inj𝐿 ∶ J𝚍𝚊𝚝𝚊K∗ → J𝚍𝚊𝚝𝚊K
+
+inj𝐼 ∶ J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K → J𝚍𝚊𝚝𝚊K
+
+𝑖𝑛𝑗𝐵 ∶ J𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐K → J𝚍𝚊𝚝𝚊K
+and projections
+proj𝐶 ∶ J𝚍𝚊𝚝𝚊K → (J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K × J𝚍𝚊𝚝𝚊K∗ )×
+
+proj𝑀 ∶ J𝚍𝚊𝚝𝚊K → (J𝚍𝚊𝚝𝚊K × J𝚍𝚊𝚝𝚊K)∗×
+proj𝐿 ∶ J𝚍𝚊𝚝𝚊K → J𝚍𝚊𝚝𝚊K∗×
+
+proj𝐼 ∶ J𝚍𝚊𝚝𝚊K → J𝚒𝚗𝚝𝚎𝚐𝚎𝚛K×
+
+proj𝐵 ∶ J𝚍𝚊𝚝𝚊K → J𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐K×
+which extract an object of the relevant type from a 𝚍𝚊𝚝𝚊 object 𝐷, returning × if 𝐷 does not lie in the
+expected component of the disjoint union; also there are functions
+is𝐶 , is𝑀 , is𝐿 , is𝐼 , is𝐵 ∶ J𝚍𝚊𝚝𝚊K → J𝚋𝚘𝚘𝚕K
+
+which determine whether a 𝚍𝚊𝚝𝚊 value lies in the relevant component.
+
+Note: Constr tag values. The Constr constructor of the data type is intended to represent values from
+algebraic data types (also known as sum types and discriminated unions, among other things; data itself
+is an example of such a type), where 𝙲𝚘𝚗𝚜𝚝𝚛 𝑖 [𝑑1 , … , 𝑑𝑛 ] represents a tuple of data items together with a
+tag 𝑖 indicating which of a number of alternatives the data belongs to. The definition above allows tags to
+be any integer value, but because of restrictions in the serialisation format for data (see Section B.7) we
+recommend that in practice only tags 𝑖 with 0 ≤ 𝑖 ≤ 264 − 1 should be used: deserialisation will fail for
+data items (and programs which include such items) involving tags outside this range.
+Note also that Constr is unrelated to the constr term in Plutus Core itself. Both provide ways of
+representing structured data, but the former is part of a built-in type whereas the latter is part of the
+language itself.
+30
+
+Concrete syntax for 𝚍𝚊𝚝𝚊.
+𝑐𝚍𝚊𝚝𝚊
+
+∶∶=
+
+The concrete syntax for 𝚍𝚊𝚝𝚊 is given by
+
+(Constr 𝑐𝚒𝚗𝚝𝚎𝚐𝚎𝚛 𝑐𝚕𝚒𝚜𝚝(𝚍𝚊𝚝𝚊) )
+(Map 𝑐𝚕𝚒𝚜𝚝(𝚙𝚊𝚒𝚛(𝚍𝚊𝚝𝚊,𝚍𝚊𝚝𝚊)) )
+(List 𝑐𝚕𝚒𝚜𝚝(𝚍𝚊𝚝𝚊) )
+(I 𝑐𝚒𝚗𝚝𝚎𝚐𝚎𝚛 )
+(B 𝑐𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐 ).
+
+We interpret these syntactic constants as elements of J𝚍𝚊𝚝𝚊K using the various ‘inj’ functions defined
+earlier. Some valid data constants are
+(con data (Constr 1 [(I 2), (B #), (Map [])])
+(con data (Map [((I 0), (B #00)), ((I 1), (B #0F))]))
+(con data (List [(I 0), (I 1), (B #7FFF), (List []])))
+(con data (I -22))
+(con data (B #001A)).
+Note. At the time of writing the syntax accepted by IOG’s parser for textual Plutus Core differs slightly
+from that above in that subobjects of Constr, Map and List objects must not be parenthesised: for example one must write (con data (Constr 1 [I 2, B #,Map []]). This discrepancy will be resolved
+in the near future.
+4.3.1.2
+
+Built-in functions
+
+The first batch of built-in functions is shown in Table 4.9. The table indicates which functions can fail
+during execution, and conditions causing failure are specified either in the denotation given in the table or
+in a relevant note. Recall also that a built-in function will fail if it is given an argument of the wrong type:
+this is checked in conditions involving the ∼ relation and the 𝖤𝗏𝖺𝗅 function in Figures 2.7 and 2.10. Note
+also that some of the functions are #-polymorphic. According to Section 2.2.2.4 we require a denotation for
+every possible monomorphisation of these; however all of these functions are parametrically polymorphic
+so to simplify notation we have given a single denotation for each of them with an implicit assumption
+that it applies at each possible monomorphisation in an obvious way.
+Function
+
+Signature
+
+Denotation
+
+addInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
++
+
+Can
+fail?
+No
+
+subtractInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+−
+
+No
+
+multiplyInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+×
+
+No
+
+divideInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝖽𝗂𝗏
+
+Yes
+
+1
+
+modInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝗆𝗈𝖽
+
+Yes
+
+1
+
+quotientInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝗊𝗎𝗈𝗍
+
+Yes
+
+1
+
+remainderInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝗋𝖾𝗆
+
+Yes
+
+1
+
+equalsInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚋𝚘𝚘𝚕
+
+=
+
+No
+
+lessThanInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚋𝚘𝚘𝚕
+
+<
+
+No
+
+Table 4.9: Built-in functions, Batch 1
+31
+
+Note
+
+Function
+
+Type
+
+Denotation
+
+lessThanEqualsInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚋𝚘𝚘𝚕
+
+≤
+
+appendByteString
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+([𝑐1 , … , 𝑐𝑚 ], [𝑑1 , … , 𝑑𝑛 ])
+↦ [𝑐1 , … , 𝑐𝑚 , 𝑑1 , … , 𝑑𝑛 ]
+(𝑐, [𝑐1 , … , 𝑐𝑛 ])
+↦ [mod(𝑐, 256), 𝑐1 , … , 𝑐𝑛 ]
+(𝑐, [𝑐1 , … , 𝑐𝑛 ])
+⎧
+⎪[𝑐, 𝑐1 , … , 𝑐𝑛 ] if 0 ≤ 𝑐 ≤ 255
+↦⎨
+otherwise
+⎪×
+⎩
+(𝑠, 𝑘, [𝑐1 , … , 𝑐𝑛 ])
+↦ [𝑐max(𝑠+1,1) , … , 𝑐min(𝑠+𝑘,𝑛) ]
+[] ↦ 0, [𝑐1 , … , 𝑐𝑛 ] ↦ 𝑛
+
+consByteString (Variant 1)
+consByteString (Variant 2)
+
+sliceByteString
+lengthOfByteString
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+indexByteString
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛]
+→ 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+equalsByteString
+
+appendString
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚘𝚘𝚕
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚘𝚘𝚕
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚘𝚘𝚕
+[𝚜𝚝𝚛𝚒𝚗𝚐, 𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚜𝚝𝚛𝚒𝚗𝚐
+
+equalsString
+
+Can
+fail?
+No
+
+Note
+
+No
+No
+
+2
+
+Yes
+
+2
+
+No
+
+3
+
+No
+
+([𝑐1 , … , 𝑐𝑛 ], 𝑖)
+⎧
+⎪𝑐𝑖+1 if 0 ≤ 𝑖 ≤ 𝑛 − 1
+↦⎨
+otherwise
+⎪×
+⎩
+=
+
+Yes
+
+No
+
+4
+
+<
+
+No
+
+4
+
+≤
+
+No
+
+4
+
+No
+
+[𝚜𝚝𝚛𝚒𝚗𝚐, 𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚘𝚘𝚕
+
+([𝑢1 , … , 𝑢𝑚 ], [𝑣1 , … , 𝑣𝑛 ])
+↦ [𝑢1 , … , 𝑢𝑚 , 𝑣1 , … , 𝑣𝑛 ]
+=
+
+encodeUtf8
+
+[𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+𝗎𝗍𝖿 𝟪
+
+decodeUtf8
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚜𝚝𝚛𝚒𝚗𝚐
+
+𝗎𝗍𝖿 𝟪−1
+
+Yes
+
+sha2_256
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+No
+
+sha3_256
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+blake2b_256
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+verifyEd25519Signature
+
+Yes
+
+ifThenElse
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐,
+𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚘𝚘𝚕
+[∀∗, 𝚋𝚘𝚘𝚕, ∗, ∗] → ∗
+
+Hash a 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐 using
+SHA-256 [23].
+Hash a 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐 using
+SHA3-256 [26].
+Hash a 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐 using
+Blake2b-256 [41].
+Verify an Ed25519 digital signature.
+(𝗍𝗋𝗎𝖾, 𝑡1 , 𝑡2 ) ↦ 𝑡1 (𝖿 𝖺𝗅𝗌𝖾, 𝑡1 , 𝑡2 ) ↦ 𝑡2
+
+No
+
+chooseUnit
+
+[∀∗, 𝚞𝚗𝚒𝚝, ∗] → ∗
+
+((), 𝑡) ↦ 𝑡
+
+No
+
+trace
+
+[∀∗, 𝚜𝚝𝚛𝚒𝚗𝚐, ∗] → ∗
+
+(𝑠, 𝑡) ↦ 𝑡
+
+No
+
+fstPair
+
+[∀𝑎# , ∀𝑏# , 𝚙𝚊𝚒𝚛 (𝑎# , 𝑏# )] → 𝑎#
+
+(𝑥, 𝑦) ↦ 𝑥
+
+No
+
+sndPair
+
+[∀𝑎# , ∀𝑏# , 𝚙𝚊𝚒𝚛 (𝑎# , 𝑏# )] → 𝑏#
+
+(𝑥, 𝑦) ↦ 𝑦
+
+No
+
+lessThanByteString
+lessThanEqualsByteString
+
+Table 4.9: Built-in functions, Batch 1
+32
+
+No
+5
+5
+
+No
+No
+6, 7
+
+8
+
+Function
+
+Type
+
+Denotation
+
+Can
+fail?
+No
+
+Note
+
+chooseList
+
+[∀𝑎# , ∀∗, 𝚕𝚒𝚜𝚝 (𝑎# ), ∗, ∗] → ∗
+
+mkCons
+
+[∀𝑎# , 𝑎# , 𝚕𝚒𝚜𝚝 (𝑎# )] → 𝚕𝚒𝚜𝚝 (𝑎# )
+
+([], 𝑡1 , 𝑡2 ) ↦ 𝑡1 ,
+([𝑥1 , … , 𝑥𝑛 ], 𝑡1 , 𝑡2 ) ↦ 𝑡2 (𝑛 ≥ 1).
+(𝑥, [𝑥1 , … , 𝑥𝑛 ]) ↦ [𝑥, 𝑥1 , … , 𝑥𝑛 ]
+
+No
+
+9
+
+headList
+
+[∀𝑎# , 𝚕𝚒𝚜𝚝 (𝑎# )] → 𝑎#
+
+[] ↦ ×, [𝑥1 , 𝑥2 , … , 𝑥𝑛 ] ↦ 𝑥1
+
+Yes
+
+9
+
+tailList
+
+[∀𝑎# , 𝚕𝚒𝚜𝚝 (𝑎# )] → 𝚕𝚒𝚜𝚝 (𝑎# )
+
+[] ↦ ×, [𝑥1 , 𝑥2 , … , 𝑥𝑛 ] ↦ [𝑥2 , … , 𝑥𝑛 ]
+
+Yes
+
+9
+
+nullList
+
+[∀𝑎# , 𝚕𝚒𝚜𝚝 (𝑎# )] → 𝚋𝚘𝚘𝚕
+
+[] ↦ 𝗍𝗋𝗎𝖾, [𝑥1 , … , 𝑥𝑛 ] ↦ 𝖿 𝖺𝗅𝗌𝖾
+
+No
+
+9
+
+chooseData
+
+[∀∗, 𝚍𝚊𝚝𝚊, ∗, ∗, ∗, ∗, ∗] → ∗
+
+(𝑑, 𝑡𝐶 , 𝑡𝑀 , 𝑡𝐿 , 𝑡𝐼 , 𝑡𝐵 )
+
+No
+
+constrData
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚕𝚒𝚜𝚝 (𝚍𝚊𝚝𝚊)] → 𝚍𝚊𝚝𝚊
+
+⎧ 𝑡𝐶
+⎪ 𝑡
+⎪ 𝑀
+↦ ⎨ 𝑡𝐿
+⎪ 𝑡𝐼
+⎪ 𝑡
+⎩ 𝐵
+inj𝐶
+
+No
+
+mapData
+
+inj𝑀
+
+No
+
+listData
+
+[𝚕𝚒𝚜𝚝 (𝚙𝚊𝚒𝚛 (𝚍𝚊𝚝𝚊, 𝚍𝚊𝚝𝚊))
+→ 𝚍𝚊𝚝𝚊
+[𝚕𝚒𝚜𝚝 (𝚍𝚊𝚝𝚊)] → 𝚍𝚊𝚝𝚊
+
+inj𝐿
+
+No
+
+iData
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚍𝚊𝚝𝚊
+
+inj𝐼
+
+No
+
+bData
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚍𝚊𝚝𝚊
+
+inj𝐵
+
+No
+
+unConstrData
+
+proj𝐶
+
+Yes
+
+proj𝑀
+
+Yes
+
+unListData
+
+[𝚍𝚊𝚝𝚊]
+→ 𝚙𝚊𝚒𝚛 (𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚕𝚒𝚜𝚝 (𝚍𝚊𝚝𝚊))
+[𝚍𝚊𝚝𝚊]
+→ 𝚕𝚒𝚜𝚝 (𝚙𝚊𝚒𝚛 (𝚍𝚊𝚝𝚊, 𝚍𝚊𝚝𝚊))
+[𝚍𝚊𝚝𝚊] → 𝚕𝚒𝚜𝚝 (𝚍𝚊𝚝𝚊)
+
+proj𝐿
+
+Yes
+
+unIData
+
+[𝚍𝚊𝚝𝚊] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+proj𝐼
+
+Yes
+
+unBData
+
+[𝚍𝚊𝚝𝚊] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+proj𝐵
+
+Yes
+
+equalsData
+
+[𝚍𝚊𝚝𝚊, 𝚍𝚊𝚝𝚊] → 𝚋𝚘𝚘𝚕
+
+=
+
+No
+
+mkPairData
+
+[𝚍𝚊𝚝𝚊, 𝚍𝚊𝚝𝚊]
+→ 𝚙𝚊𝚒𝚛 (𝚍𝚊𝚝𝚊, 𝚍𝚊𝚝𝚊)
+[𝚞𝚗𝚒𝚝] → 𝚕𝚒𝚜𝚝 (𝚍𝚊𝚝𝚊)
+
+(𝑥, 𝑦) ↦ (𝑥, 𝑦)
+
+No
+
+() ↦ []
+
+No
+
+[𝚞𝚗𝚒𝚝]
+→ 𝚕𝚒𝚜𝚝 (𝚙𝚊𝚒𝚛 (𝚍𝚊𝚝𝚊, 𝚍𝚊𝚝𝚊))
+
+() ↦ []
+
+No
+
+unMapData
+
+mkNilData
+mkNilPairData
+
+if is𝐶 (𝑑)
+if is𝑀 (𝑑)
+if is𝐿 (𝑑)
+if is𝐼 (𝑑)
+if is𝐵 (𝑑)
+
+Table 4.9: Built-in functions, Batch 1 (continued)
+
+Note 1. Integer division functions. We provide four integer division functions: divideInteger,
+modInteger, quotientInteger, and remainderInteger, whose denotations are mathematical functions 𝖽𝗂𝗏, 𝗆𝗈𝖽, 𝗊𝗎𝗈𝗍, and 𝗋𝖾𝗆 which are modelled on the corresponding Haskell operations. Each of these
+takes two arguments and will fail (returning ×) if the second one is zero. For all 𝑎, 𝑏 ∈ ℤ with 𝑏 ≠ 0 we
+have
+𝖽𝗂𝗏(𝑎, 𝑏) × 𝑏 + 𝗆𝗈𝖽(𝑎, 𝑏) = 𝑎
+33
+
+9
+
+| 𝗆𝗈𝖽(𝑎, 𝑏)| < |𝑏|
+and
+𝗊𝗎𝗈𝗍(𝑎, 𝑏) × 𝑏 + 𝗋𝖾𝗆(𝑎, 𝑏) = 𝑎
+| 𝗋𝖾𝗆(𝑎, 𝑏)| < |𝑏|.
+The 𝖽𝗂𝗏 and 𝗆𝗈𝖽 functions form a pair, as do 𝗊𝗎𝗈𝗍 and 𝗋𝖾𝗆; 𝖽𝗂𝗏 should not be used in combination with
+𝗋𝖾𝗆, nor should 𝗊𝗎𝗈𝗍 be used with 𝗆𝗈𝖽.
+For positive divisors 𝑏, 𝖽𝗂𝗏 truncates downwards and 𝗆𝗈𝖽 always returns a non-negative result (0 ≤
+𝗆𝗈𝖽(𝑎, 𝑏) ≤ 𝑏 − 1). The 𝗊𝗎𝗈𝗍 function truncates towards zero. Table 4.10 shows how the signs of the
+outputs of the division functions depend on the signs of the inputs; + means ≥ 0 and − means ≤ 0, but
+recall that for 𝑏 = 0 all of these functions return the error value ×.
+a
++
+−
++
+−
+
+b
++
++
+−
+−
+
+𝖽𝗂𝗏
++
+−
+−
++
+
+𝗆𝗈𝖽
++
++
+−
+−
+
+𝗊𝗎𝗈𝗍
++
+−
+−
++
+
+𝗋𝖾𝗆
++
+−
++
+−
+
+Table 4.10: Behaviour of integer division functions
+
+Note 2. The consByteString function. In built-in semantics variant 1, the first argument of consByteString
+is an arbitrary integer which will be reduced modulo 256 before being prepended to the second argument.
+In built-in semantics variant 2 we require that the first argument lies between 0 and 255 (inclusive): in any
+other case an error will occur.
+Note 3. The sliceByteString function. The application [[(builtin sliceByteString) (con
+integer 𝑠)] (con integer 𝑘)] (con bytestring 𝑏)] returns the substring of 𝑏 of length 𝑘 starting at position 𝑠; indexing is zero-based, so a call with 𝑠 = 0 returns a substring starting with the first
+element of 𝑏, 𝑠 = 1 returns a substring starting with the second, and so on. This function always succeeds,
+even if the arguments are out of range: if 𝑏 = [𝑐1 , … , 𝑐𝑛 ] then the application above returns the substring
+[𝑐𝑖 , … , 𝑐𝑗 ] where 𝑖 = max(𝑠 + 1, 1) and 𝑗 = min(𝑠 + 𝑘, 𝑛); if 𝑗 < 𝑖 then the empty string is returned.
+Note 4. Comparisons of bytestrings. Bytestrings are ordered lexicographically in the usual way. If we
+have 𝑎 = [𝑎1 , … , 𝑎𝑚 ] and 𝑏 = [𝑏1 , … , 𝑏𝑛 ] then (recalling that if 𝑚 = 0 then 𝑎 = [], and similarly for 𝑏),
+• 𝑎 = 𝑏 if and only if 𝑚 = 𝑛 and 𝑎𝑖 = 𝑏𝑖 for 1 ≤ 𝑖 ≤ 𝑚.
+• 𝑎 ≤ 𝑏 if and only if one of the following holds:
+– 𝑎 = []
+– 𝑚, 𝑛 > 0 and 𝑎1 < 𝑏1
+– 𝑚, 𝑛 > 0 and 𝑎1 = 𝑏1 and [𝑎2 , … , 𝑎𝑚 ] ≤ [𝑏2 , … , 𝑏𝑛 ].
+• 𝑎 < 𝑏 if and only if 𝑎 ≤ 𝑏 and 𝑎 ≠ 𝑏.
+
+34
+
+For example, #𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿 < #𝟸𝟺 and #𝟸𝟹𝟺𝟻 < #𝟸𝟹𝟺𝟻𝟶𝟶. The empty bytestring is equal only to itself and
+is strictly less than all other bytestrings.
+Note 5. Encoding and decoding bytestrings. The encodeUtf8 and decodeUtf8 functions convert
+between the 𝚜𝚝𝚛𝚒𝚗𝚐 type and the 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐 type. We have defined J𝚜𝚝𝚛𝚒𝚗𝚐K to consist of sequences
+of Unicode characters without specifying any particular character representation, whereas J𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐K
+consists of sequences of 8-bit bytes. We define the denotation of encodeUtf8 to be the function
+𝗎𝗍𝖿 𝟪 ∶ 𝕌∗ → 𝔹∗
+which converts sequences of Unicode characters to sequences of bytes using the well-known UTF-8 character encoding [45, Definition D92]. The denotation of decodeUtf8 is the partial inverse function
+𝗎𝗍𝖿 𝟪−1 ∶ 𝔹∗ → 𝕌∗× .
+UTF-8 encodes Unicode characters encoded using between one and four bytes: thus in general neither
+function will preserve the length of an object. Moreover, not all sequences of bytes are valid representations of Unicode characters, and decodeUtf8 will fail if it receives an invalid input (but encodeUtf8
+will always succeed).
+Note 6. Digital signature verification functions. We use a uniform interface for digital signature
+verification algorithms. A digital signature verification function takes three bytestring arguments (in the
+given order):
+• a public key vk (in this context vk is also known as a verification key)
+• a message 𝑚
+• a signature 𝑠.
+A signature verification function may require one or more arguments to be well-formed in some sense
+(in particular an argument may need to be of a specified length), and in this case the function will fail
+(returning ×) if any argument is malformed. If all of the arguments are well-formed then the verification
+function returns 𝗍𝗋𝗎𝖾 if the private key corresponding to vk was used to sign the message 𝑚 to produce 𝑠,
+otherwise it returns 𝖿 𝖺𝗅𝗌𝖾.
+Note 7. Ed25519 signature verification. The verifyEd25519Signature function performs cryptographic signature verification using the Ed25519 scheme [13, 34], and conforms to the interface described
+in Note 6. The arguments must have the following sizes:
+• vk: 32 bytes
+• 𝑚: unrestricted
+• 𝑠: 64 bytes.
+Note 8. The trace function. An application [(builtin trace) 𝑠 𝑣] (𝑠 a string, 𝑣 any Plutus Core
+value) returns 𝑣. We do not specify the semantics any further. An implementation may choose to discard
+𝑠 or to perform some side-effect such as writing it to a terminal or log file.
+Note 9. Semantics of lists. The mathematical denotation of lists is as finite seqeunces of elements. We expect that in practice they will be implemented in such a way (for example as linked lists) that chooseList,
+mkCons, headList, tailList, and nullList are all constant-time operations.
+35
+
+4.3.2
+
+Batch 2
+
+4.3.2.1
+
+Built-in functions
+
+The second batch of built-in functions is defined in Table 4.11. See [2].
+Function
+
+Signature
+
+Denotation
+
+serialiseData
+
+[𝚍𝚊𝚝𝚊] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+E𝚍𝚊𝚝𝚊
+
+Can
+fail?
+No
+
+Note
+1
+
+Table 4.11: Built-in functions, Batch 2
+
+Note 1. Serialising 𝚍𝚊𝚝𝚊 objects. The serialiseData function takes a 𝚍𝚊𝚝𝚊 object and converts it
+into a bytestring using a CBOR encoding. A full specification of the encoding (including the definition of
+E𝚍𝚊𝚝𝚊 ) is provided in Appendix B.
+
+4.3.3
+
+Batch 3
+
+4.3.3.1
+
+Built-in functions
+
+The third batch of built-in functions is defined in Table 4.12. See [3].
+Function
+
+Signature
+
+Denotation
+
+verifyEcdsaSecp256k1Signature
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐,
+𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚘𝚘𝚕
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐,
+𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚘𝚘𝚕
+
+Verify an SECP-256k1
+ECDSA signature
+Verify an SECP-256k1
+Schnorr signature
+
+verifySchnorrSecp256k1Signature
+
+Can
+fail?
+Yes
+
+Note
+
+Yes
+
+2
+
+Table 4.12: Built-in functions, Batch 3
+
+Note 1. Secp256k1 ECDSA Signature verification. The verifyEcdsaSecp256k1Signature function performs elliptic curve digital signature verification [9, 10, 33] over the secp256k1 curve [20, §2.4.1]
+and conforms to the interface described in Note 6 of Section 4.3.1.2. The arguments must have the following sizes:
+• vk: 33 bytes
+• 𝑚: 32 bytes
+• 𝑠: 64 bytes.
+The public key vk is expected to be in the 33-byte compressed form described in [15]. It is expected that
+the inputs to the function are well formed, and if they are not then an error will occur. For example, the
+signature 𝑠 encodes a pair (𝑅, 𝑆) of 32-byte bytestrings which are big-endian encodings of integers, and
+both of these integers must lie between 0 and |𝐺| − 1 (inclusive), where 𝐺 is the relevant subgroup of
+the secp256k1 curve; it is also required that the last 32 bytes of the verification key are the big-endian
+encoding of the 𝑥-coordinate of a point in 𝐺.
+Moreover, the ECDSA scheme admits two distinct valid signatures for a given message and private
+key, and we follow the restriction imposed by Bitcoin (see [37], LOW_S) and only accept the smaller
+signature; verifyEcdsaSecp256k1Signature will return 𝖿 𝖺𝗅𝗌𝖾 if the larger one is supplied.
+36
+
+1
+
+Note 2. Secp256k1 Schnorr Signature verification. The verifySchnorrSecp256k1Signature
+function performs verification of Schnorr signatures [43, 36] over the secp256k1 curve and conforms
+to the interface described in Note 6 of Section 4.3.1.2. The arguments are expected to be of the forms
+specified in BIP-340 [36] and thus should have the following sizes:
+• vk: 32 bytes
+• 𝑚: unrestricted
+• 𝑠: 64 bytes.
+Any deviation from the conditions of BIP-340 [36] will cause an error.
+
+4.3.4
+
+Batch 4
+
+The fourth batch of built-in types and functions adds support for
+• The Blake2b-224 and Keccak-256 hash functions (see [4]).
+• Conversion functions from integers to bytestrings and vice-versa (see [6]).
+• BLS12-381 elliptic curve pairing operations (see [5], [19], [42, 4.2.1], [38]). For clarity these are
+described separately in Sections 4.3.4.2 and 4.3.4.3.
+4.3.4.1
+
+Miscellaneous built-in functions
+
+Function
+
+Signature
+
+Denotation
+
+blake2b_224
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+Hash a 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐 using Blake2b-224 [41]
+
+keccak_256
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+Hash a 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+using Keccak-256 [14]
+{
+
+No
+
+integerToByteString
+
+[𝚋𝚘𝚘𝚕, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+(𝑒, 𝑤, 𝑛) ↦
+
+Yes
+
+1
+
+byteStringToInteger
+
+[𝚋𝚘𝚘𝚕, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+(𝑒, [𝑐{
+0 , … , 𝑐𝑁−1 ])
+∑𝑁−1
+𝑐𝑖 256𝑖
+↦ ∑𝑖=0
+𝑁−1
+𝑁−1−𝑖
+𝑖=0 𝑐𝑖 256
+
+No
+
+2
+
+𝗂𝗍𝗈𝖻𝗌𝖫𝖤 (𝑤, 𝑛) if 𝑒 = 𝖿 𝖺𝗅𝗌𝖾
+𝗂𝗍𝗈𝖻𝗌𝖡𝖤 (𝑤, 𝑛) if 𝑒 = 𝗍𝗋𝗎𝖾
+
+Can
+fail?
+No
+
+if 𝑒 = 𝖿 𝖺𝗅𝗌𝖾
+if 𝑒 = 𝗍𝗋𝗎𝖾
+
+Table 4.13: Batch 4: miscellaneous built-in functions
+
+Note 1. Integer to bytestring conversion. The integerToByteString function converts non-negative
+integers to bytestrings. It takes three arguments:
+• A boolean endianness flag 𝑒.
+• An integer width argument 𝑤: it is required that 0 ≤ 𝑤 ≤ 8192.
+• The integer 𝑛 to be converted: it is required that 0 ≤ 𝑛 < 2568192 = 265536 .
+
+37
+
+Note
+
+The conversion is little-endian (𝖫𝖤) if 𝑒 is (con bool False) and big-endian (𝖡𝖤) if 𝑒 is (con bool
+True). If the width 𝑤 is zero then the output is a bytestring which is just large enough to hold the converted
+integer. If 𝑤 > 0 then the output is exactly 𝑤 bytes long, and it is an error if 𝑛 does not fit into a bytestring
+of that size; if necessary, the output is padded with 0x00 bytes (on the right in the little-endian case and
+the left in the big-endian case) to make it the correct length. For example, the five-byte little-endian
+representation of the integer 0x123456 is the bytestring [0x56, 0x34, 0x12, 0x00, 0x00] and the
+five-byte big-endian representation is [0x00, 0x00, 0x12, 0x34, 0x56]. In all cases an error occurs
+if 𝑤 or 𝑛 lies outside the expected range, and in particular if 𝑛 is negative.
+
+38
+
+The precise semantics of integerToByteString are given by the functions 𝗂𝗍𝗈𝖻𝗌𝖫𝖤 ∶ ℤ × ℤ → 𝔹∗× and
+𝗂𝗍𝗈𝖻𝗌𝖡𝖤 ∶ ℤ × ℤ → 𝔹∗× . Firstly we deal with out-of-range cases and the case 𝑛 = 0:
+⎧×
+⎪
+𝗂𝗍𝗈𝖻𝗌𝖫𝖤 (𝑤, 𝑛) = 𝗂𝗍𝗈𝖻𝗌𝖡𝖤 (𝑤, 𝑛) = ⎨×
+⎪[]
+⎩
+
+if 𝑛 < 0 or 𝑛 ≥ 265536
+if 𝑤 < 0 or 𝑤 > 8192
+if 𝑛 = 0 and 0 ≤ 𝑤 ≤ 8192
+
+Now assume that none of the conditions above hold, so 0 < 𝑛 < 265536 and 0 ≤ 𝑤 ≤ 8192. Since 𝑛 > 0
+∑
+𝑖
+it has a unique base-256 expansion of the form 𝑛 = 𝑁−1
+𝑖=0 𝑎𝑖 256 with 𝑁 ≥ 1, 𝑎𝑖 ∈ 𝔹 for 0 ≤ 𝑖 ≤ 𝑁 − 1
+and 𝑎𝑁−1 ≠ 0. We then have
+⎧[𝑎 , … , 𝑎
+𝑁−1 ]
+⎪ 0
+⎪
+𝗂𝗍𝗈𝖻𝗌𝖫𝖤 (𝑤, 𝑛) = ⎨[𝑏0 , … , 𝑏𝑤−1 ]
+⎪
+⎪×
+⎩
+
+if 𝑤 = 0
+
+{
+
+if 𝑤 > 0 and 𝑁 ≤ 𝑤, where 𝑏𝑖 =
+
+𝑎𝑖
+0
+
+if 𝑖 ≤ 𝑁 − 1
+if 𝑖 ≥ 𝑁
+
+if 𝑤 > 0 and 𝑁 > 𝑤
+
+and
+⎧[𝑎
+, … , 𝑎0 ] if 𝑤 = 0
+{
+⎪ 𝑁−1
+⎪
+0
+𝗂𝗍𝗈𝖻𝗌𝖡𝖤 (𝑤, 𝑛) = ⎨[𝑏0 , … , 𝑏𝑤−1 ] if 𝑤 > 0 and 𝑁 ≤ 𝑤, where 𝑏𝑖 =
+𝑎𝑤−1−𝑖
+⎪
+⎪×
+if
+𝑤
+>
+0
+and
+𝑁
+>
+𝑤.
+⎩
+
+if 𝑖 ≤ 𝑤 − 1 − 𝑁
+if 𝑖 ≥ 𝑤 − 𝑁
+
+Note 2. Bytestring to integer conversion. The byteStringToInteger function converts bytestrings
+to non-negative integers. It takes two arguments:
+• A boolean endianness flag 𝑒.
+• The bytestring 𝑠 to be converted.
+The conversion is little-endian if 𝑒 is (con bool False) and big-endian if 𝑒 is (con bool True). In
+both cases the empty bytestring is converted to the integer 0. All bytestrings are legal inputs and there is
+no limitation on the size of 𝑠.
+4.3.4.2
+
+BLS12-381 built-in types
+
+Supporting the BLS12-381 operations involves adding three new types and seventeen new built-in functions. The description of the semantics of these types and functions is quite complex and requires a
+considerable amount of notation, most of which is used only in Sections 4.3.4.2 and 4.3.4.3.
+Table 4.14 describes three new built-in types.
+Type
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝
+
+Denotation
+𝐺1
+𝐺2
+𝐻
+
+Concrete Syntax
+0x[0-9A-Fa-f]{96} (see Note 6)
+0x[0-9A-Fa-f]{192} (see Note 6)
+None (see Note 6)
+
+Table 4.14: Atomic types, Batch 4
+39
+
+Here 𝐺1 and 𝐺2 are both additive cyclic groups of prime order 𝑟, where
+𝑟 = 𝟶𝚡𝟽𝟹𝚎𝚍𝚊𝟽𝟻𝟹𝟸𝟿𝟿𝚍𝟽𝚍𝟺𝟾𝟹𝟹𝟹𝟿𝚍𝟾𝟶𝟾𝟶𝟿𝚊𝟷𝚍𝟾𝟶𝟻𝟻𝟹𝚋𝚍𝚊𝟺𝟶𝟸𝚏𝚏𝚏𝚎𝟻𝚋𝚏𝚎𝚏𝚏𝚏𝚏𝚏𝚏𝚏𝚏𝟶𝟶𝟶𝟶𝟶𝟶𝟶𝟷.
+The fields 𝔽𝑞 and 𝔽𝑞2 .
+
+To define the groups 𝐺1 and 𝐺2 we need the finite field 𝔽𝑞 where
+
+𝑞 = 𝟶𝚡𝟷𝚊𝟶𝟷𝟷𝟷𝚎𝚊𝟹𝟿𝟽𝚏𝚎𝟼𝟿𝚊𝟺𝚋𝟷𝚋𝚊𝟽𝚋𝟼𝟺𝟹𝟺𝚋𝚊𝚌𝚍𝟽𝟼𝟺𝟽𝟽𝟺𝚋𝟾𝟺𝚏𝟹𝟾𝟻𝟷𝟸𝚋𝚏
+𝟼𝟽𝟹𝟶𝚍𝟸𝚊𝟶𝚏𝟼𝚋𝟶𝚏𝟼𝟸𝟺𝟷𝚎𝚊𝚋𝚏𝚏𝚏𝚎𝚋𝟷𝟻𝟹𝚏𝚏𝚏𝚏𝚋𝟿𝚏𝚎𝚏𝚏𝚏𝚏𝚏𝚏𝚏𝚏𝚊𝚊𝚊𝚋
+which is a 381-bit prime. The field 𝔽𝑞 is isomorphic to ℤ𝑞 , the ring of integers modulo 𝑞, and hence there
+is a natural epimorphism from ℤ to 𝔽𝑞 which we denote by 𝑛 ↦ 𝑛.
+̄ Given 𝑥 ∈ 𝔽𝑞 , we denote by 𝑥̃ the
+smallest non-negative integer 𝑛 with 𝑛̄ = 𝑥. We sometimes use literal integers to represent elements of 𝔽𝑞
+in the obvious way.
+We also make use of the field 𝔽𝑞2 = 𝔽𝑞 [𝑋]∕(𝑋 2 + 1); we may regard 𝔽𝑞2 as the set {𝑎 + 𝑏𝑢 ∶ 𝑎, 𝑏 ∈ 𝔽𝑞 }
+where 𝑢2 = −1.
+It is convenient to say that an element 𝑎 of 𝔽𝑞 is larger than another element 𝑏 (and 𝑏 is smaller than
+𝑎) if 𝑎̃ > 𝑏̃ in ℤ. We extend this terminology to 𝔽𝑞2 by saying that 𝑎 + 𝑏𝑢 is larger than 𝑐 + 𝑑𝑢 if either 𝑏
+is larger than 𝑑 or 𝑏 = 𝑑 and 𝑎 is larger than 𝑐.
+The groups 𝐺1 and 𝐺2 .
+
+There are elliptic curves 𝐸1 defined over 𝔽𝑞 :
+𝐸1 ∶ 𝑌 2 = 𝑋 3 + 4
+
+and 𝐸2 defined over 𝔽𝑞2 :
+𝐸2 ∶ 𝑌 2 = 𝑋 3 + 4(𝑢 + 1).
+𝐸1 (𝔽𝑞 ) and 𝐸2 (𝔽𝑞2 ) are abelian groups under the usual elliptic curve addition operations as described
+in [44, III.2] or [21, 2.1]. 𝐺1 is a subgroup of 𝐸1 (𝔽𝑞 ) and 𝐺2 is a subgroup of 𝐸2 (𝔽𝑞2 ); explicit generators
+for 𝐺1 and 𝐺2 are given in [42, 4.2.1]. We denote the identity element (the point at infinity) in 𝐺1 by O𝐺1
+and that in 𝐺2 by O𝐺2 . Given an integer 𝑛 and a group element 𝑎 in 𝐺1 or 𝐺2 , the scalar multiple 𝑛𝑎 is
+defined as usual to be 𝑎 + ⋯ + 𝑎 (𝑛 times) if 𝑛 > 0 and −𝑎 + ⋯ + −𝑎 (−𝑛 times) if 𝑛 < 0; 0𝑎 is the identity
+element of the group.
+The bls12_381_MlResult type. Values of the bls12_381_MlResult type are completely opaque
+and can only be obtained as a result of bls12_381_millerLoop or by multiplying two existing elements
+of type bls12_381_MlResult. We provide neither a serialisation format nor a concrete syntax for values
+of this type: they exist only ephemerally during computation. We do not specify 𝐻, the denotation of
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝, precisely, but it must be a multiplicative abelian group. See Note 7 for more on
+this.
+
+40
+
+4.3.4.3
+
+BLS12-381 built-in functions
+
+Function
+
+Signature
+
+Denotation
+
+bls12_381_G1_add
+
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚘𝚘𝚕
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚘𝚘𝚕
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝
+[𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝,
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝] → 𝚋𝚘𝚘𝚕
+
+(𝑎, 𝑏) ↦ 𝑎 + 𝑏
+
+Can
+fail?
+No
+
+𝑎 ↦ −𝑎
+
+No
+
+(𝑛, 𝑎) ↦ 𝑛𝑎
+
+No
+
+=
+
+No
+
+𝗁𝖺𝗌𝗁𝐺1
+
+Yes
+
+3
+
+𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1
+
+No
+
+4
+
+𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1
+
+Yes
+
+5
+
+(𝑎, 𝑏) ↦ 𝑎 + 𝑏
+
+No
+
+𝑎 ↦ −𝑎
+
+No
+
+(𝑛, 𝑎) ↦ 𝑛𝑎
+
+No
+
+=
+
+No
+
+𝗁𝖺𝗌𝗁𝐺2
+
+Yes
+
+3
+
+𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2
+
+No
+
+4
+
+𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2
+
+Yes
+
+5
+
+𝑒
+
+No
+
+7
+
+(𝑎, 𝑏) ↦ 𝑎𝑏
+
+No
+
+7
+
+𝜙
+
+No
+
+7
+
+bls12_381_G1_neg
+bls12_381_G1_scalarMul
+bls12_381_G1_equal
+bls12_381_G1_hashToGroup
+bls12_381_G1_compress
+bls12_381_G1_uncompress
+bls12_381_G2_add
+bls12_381_G2_neg
+bls12_381_G2_scalarMul
+bls12_381_G2_equal
+bls12_381_G2_hashToGroup
+bls12_381_G2_compress
+bls12_381_G2_uncompress
+bls12_381_millerLoop
+bls12_381_mulMlResult
+bls12_381_finalVerify
+
+Table 4.15: Batch 4: BLS12-381 built-in functions (continued)
+
+41
+
+Note
+
+Note 3. Hashing into 𝐺1 and 𝐺2 . The denotations 𝗁𝖺𝗌𝗁𝐺1 and 𝗁𝖺𝗌𝗁𝐺2 of bls12_381_G1_hashToGroup
+and bls12_381_G2_hashToGroup both take an arbitrary bytestring 𝑏 (the message) and a (possibly
+empty) bytestring of length at most 255 known as a domain separation tag (DST) [27, 2.2.5] and hash
+them to obtain a point in 𝐺1 or 𝐺2 respectively. The details of the hashing process are described in [27]
+(see specifically Section 8.8), except that we do not support DSTs of length greater than 255: an attempt
+to use a longer DST directly will cause an error. If a longer DST is required then it should be hashed to
+obtain a short DST as described in [27, 5.3.3], and then this should be supplied as the second argument to
+the appropriate hashToGroup function.
+Note 4. Compression for elements of 𝐺1 and 𝐺2 . Points in 𝐺1 and 𝐺2 are encoded as bytestrings in
+a “compressed” format where only the 𝑥-coordinate of a point is encoded and some metadata is used to
+indicate which of two possible 𝑦-coordinates the point has. The encoding format is based on the Zcash
+encoding for BLS12-381 points: see [48] or [38, “Serialization”] or [42, Appendices C and D]. In detail,
+• Given an element 𝑥 of 𝔽𝑞 , 𝑥̃ can be written as a 381-bit binary number: 𝑥̃ =
+{0, 1}. We define 𝖻𝗂𝗍𝗌(𝑥) to be the bitstring 𝑏380 ⋯ 𝑏0 .
+
+∑380
+
+𝑖
+𝑖=0 𝑏𝑖 2 with 𝑏𝑖 ∈
+
+• A non-identity element of 𝐺1 can be written in the form (𝑥, 𝑦) with 𝑥, 𝑦 ∈ 𝔽𝑞 . Not every element 𝑥
+of 𝔽𝑞 is the 𝑥-coordinate of a point in 𝐺1 , but those which are in fact occur as the 𝑥-coordinate of
+two distinct points in 𝐺1 whose 𝑦-coordinates are the negatives of each other. A similar statement
+is true for 𝔽𝑞2 and 𝐺2 . In both cases we denote the smaller of the possible 𝑦-coordinates by 𝑦min (𝑥)
+and the larger by 𝑦max (𝑥).
+• For (𝑥, 𝑦) ∈ 𝐺1 ∖O𝐺1 we define
+{
+𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (𝑥, 𝑦) =
+
+𝟣𝟢𝟢 ⋅ 𝖻𝗂𝗍𝗌(𝑥) if 𝑦 = 𝑦min (𝑥)
+𝟣𝟢𝟣 ⋅ 𝖻𝗂𝗍𝗌(𝑥) if 𝑦 = 𝑦max (𝑥)
+
+• We encode the identity element of 𝐺1 using
+𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (O𝐺1 ) = 𝟣𝟣𝟢 ⋅ 𝟢381 ,
+where 𝟢381 denotes a string of 381 𝟢 bits.
+Thus in all cases the encoding of an element of 𝐺1 requires exactly 384 bits, or 48 bytes.
+• Similarly, every non-identity element of 𝐺2 can be written in the form (𝑥, 𝑦) with 𝑥, 𝑦 ∈ 𝔽𝑞2 . We
+define
+{
+𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (𝑎 + 𝑏𝑢, 𝑦) =
+
+𝟣𝟢𝟢 ⋅ 𝖻𝗂𝗍𝗌(𝑏) ⋅ 𝟢𝟢𝟢 ⋅ 𝖻𝗂𝗍𝗌(𝑎)
+𝟣𝟢𝟣 ⋅ 𝖻𝗂𝗍𝗌(𝑏) ⋅ 𝟢𝟢𝟢 ⋅ 𝖻𝗂𝗍𝗌(𝑎)
+
+if 𝑦 = 𝑦min (𝑎 + 𝑏𝑢)
+if 𝑦 = 𝑦max (𝑎 + 𝑏𝑢)
+
+• The identity element of 𝐺2 is encoded using
+𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (O𝐺2 ) = 𝟣𝟣𝟢 ⋅ 𝟢765 .
+The encoding of an element of 𝐺2 requires exactly 768 bits, or 96 bytes.
+Note that in all cases the most significant bit of a compressed point is 1. In the Zcash serialisation
+scheme this indicates that the point is compressed; Zcash also supports a serialisation format where both
+42
+
+the 𝑥- and 𝑦-coordinates of a point are encoded, and in that case the leading bit of the encoded point is 0.
+We do not support this format.
+Note 5. Uncompression for elements of 𝐺1 and 𝐺2 . There are two (partial) “uncompression” functions
+𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 and 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 which convert bytestrings into group elements; these are obtained by
+inverting the process described in Note 4.
+Uncompression for 𝐺1 elements. Given a bytestring 𝑏, it is checked that 𝑏 contains exactly 48 bytes.
+If not, then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (𝑏) = × (ie, uncompression fails). If the length is equal to 48 bytes, write 𝑏 as
+a sequence of bits: 𝑏 = 𝑏383 ⋯ 𝑏0 .
+• If 𝑏383 ≠ 1, then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (𝑏) = ×.
+
+{
+O𝐺1
+• If 𝑏383 = 𝑏382 = 1 then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (𝑏) =
+×
+• If 𝑏383 = 1 and 𝑏382 = 0, let 𝑐 =
+
+if 𝑏381 = 𝑏380 = ⋯ = 𝑏0 = 0
+otherwise.
+
+∑380
+
+𝑖
+𝑖=0 𝑏𝑖 2 ∈ ℕ.
+
+– If 𝑐 ≥ 𝑞, 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (𝑏) = ×.
+– Otherwise, let 𝑥 = 𝑐̄ ∈ 𝔽𝑞 and let 𝑧 = 𝑥3 +4. If 𝑧 is not a square in 𝔽𝑞 , then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (𝑏) =
+×.
+{
+𝑦min (𝑥) if 𝑏381 = 0
+– If 𝑧 is a square then let 𝑦 =
+𝑦max (𝑥) if 𝑏381 = 1.
+{
+(𝑥, 𝑦) if (𝑥, 𝑦) ∈ 𝐺1
+– Then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺1 (𝑏) =
+×
+otherwise.
+Uncompression for 𝐺2 elements. Given a bytestring 𝑏, it is checked that 𝑏 contains exactly 96 bytes.
+If not, then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (𝑏) = × (ie, uncompression fails). If the length is equal to 96 bytes, write 𝑏 as
+a sequence of bits: 𝑏 = 𝑏767 ⋯ 𝑏0 .
+• If 𝑏767 ≠ 1, then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (𝑏) = ×.
+
+{
+O𝐺2
+• If 𝑏767 = 𝑏766 = 1 then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (𝑏) =
+×
+• If 𝑏767 = 1 and 𝑏766 = 0, let 𝑐 =
+
+if 𝑏765 = 𝑏764 = ⋯ = 𝑏0 = 0
+otherwise.
+
+∑764
+𝑖−384 ∈ ℕ.
+𝑖
+𝑖=0 𝑏𝑖 2 and 𝑑 =
+𝑖=384 𝑏𝑖 2
+
+∑383
+
+– If 𝑐 ≥ 𝑞 or 𝑑 ≥ 𝑞, 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (𝑏) = ×.
+̄ ∈ 𝔽𝑞2 and let 𝑧 = 𝑥3 + 4(𝑢 + 1). If 𝑧 is not a square in 𝔽𝑞2 , then
+– Otherwise, let 𝑥 = 𝑐̄ + 𝑑𝑢
+𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (𝑏) = ×.
+{
+𝑦min (𝑥) if 𝑏765 = 0
+– If 𝑧 is a square then let 𝑦 =
+𝑦max (𝑥) if 𝑏765 = 1.
+{
+(𝑥, 𝑦) if (𝑥, 𝑦) ∈ 𝐺2
+– Then 𝗎𝗇𝖼𝗈𝗆𝗉𝗋𝖾𝗌𝗌𝐺2 (𝑏) =
+×
+otherwise.
+
+43
+
+Note 6. Concrete syntax for BLS12-381 types. Concrete syntax for the 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝 and
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝 types is provided via the compression and decompression functions defined in
+Notes 4 and 5. Specifically, a value of type 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝 is denoted by a term of the form
+(con bls12_381_G1_element 0x...) where ... consists of 96 hexadecimal digits representing the
+48-byte compressed form of the relevant point. Similarly, a value of type 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝 is
+denoted by a term of the form (con bls12_381_G2_element 0x...) where ... consists of 192 hexadecimal digits representing the 96-byte compressed form of the relevant point. This syntax is provided
+only for use in textual Plutus Core programs, for example for experimentation and testing. We do not
+support constants of any of the BLS12-381 types in serialised programs on the Cardano blockchain: see
+Section C.3.4. However, for 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝 and 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝 one can use the
+appropriate uncompression function on a bytestring constant at runtime: for example, instead of
+(con bls12_381_G1_element 0xa1e9a0...)
+write
+
+[(builtin bls12_381_G1_uncompress) (con bytestring #a1e9a0...)].
+
+No concrete syntax is provided for values of type 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝. It is not possible to parse such
+values, and they will appear as (con bls12_381_mlresult <opaque>) if output by a program.
+Note 7. Pairing operations. For efficiency reasons we split the pairing process into two parts: the
+bls12_381_millerLoop and bls12_381_finalVerify functions. We assume that we have
+• An intermediate multiplicative abelian group 𝐻.
+• A function (not necessarily itself a pairing) 𝑒 ∶ 𝐺1 × 𝐺2 → 𝐻.
+• A cyclic group 𝜇𝑟 of order 𝑟.
+• An epimorphism 𝜓 ∶ 𝐻 → 𝜇𝑟 of groups such that 𝜓◦𝑒 ∶ 𝐺1 × 𝐺2 → 𝜇𝑟 is a (nondegenerate,
+bilinear) pairing.
+Given these ingredients, we define
+• J𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝K = 𝐻.
+
+• J𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚞𝚕𝙼𝚕𝚁𝚎𝚜𝚞𝚕𝚝K = the group multiplication operation in 𝐻.
+• J𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚒𝚕𝚕𝚎𝚛𝙻𝚘𝚘𝚙K = 𝑒.
+
+• J𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚏𝚒𝚗𝚊𝚕𝚅𝚎𝚛𝚒𝚏𝚢K = 𝜙, where
+{
+𝜙(𝑎, 𝑏) =
+
+𝗍𝗋𝗎𝖾
+𝖿 𝖺𝗅𝗌𝖾
+
+if 𝜓(𝑎𝑏−1 ) = 1𝜇𝑟
+otherwise.
+
+We do not mandate specific choices for 𝐻, 𝜇𝑟 , 𝑒, and 𝜙, but a plausible choice would be
+• 𝐻 = 𝔽 ×12 .
+𝑞
+
+• 𝑒 is the Miller loop associated with the optimal Ate pairing for 𝐸1 and 𝐸2 [46].
+• 𝜇𝑟 = {𝑥 ∈ 𝔽 ×12 ∶ 𝑥𝑟 = 1}, the group of 𝑟th roots of unity in 𝔽𝑞12 . (There are 𝑟 distinct 𝑟th roots of
+𝑞
+unity in 𝔽𝑞12 because the embedding degree of 𝐸1 and 𝐸2 with respect to 𝑟 is 12 (see [21, 4.1]).)
+44
+
+• 𝜓(𝑥) = 𝑥
+
+𝑞 12 −1
+𝑟
+
+.
+
+The functions bls12_381_millerLoop and (especially) bls12_381_finalVerify are expected to be
+expensive, so their use should be kept to a minimum. Fortunately most current use cases do not require
+many uses of these functions.
+
+45
+
+4.3.5
+
+Batch 5
+
+4.3.5.1
+
+Built-in functions
+
+The fifth batch of built-in functions adds support for
+• Logical and bitwise operations on bytestrings (see [7] and [8]).
+• The RIPEMD-160 hash function.
+In the table below most of the functions involve operating on individual bits. We will often view bytestrings
+as bitstrings 𝑏𝑛−1 ⋯ 𝑏0 with 𝑏𝑖 ∈ {𝟶, 𝟷} (and 𝑛 necessarily a multiple of 8). Strictly we should use the
+functions 𝖻𝗂𝗍𝗌 and 𝖻𝗒𝗍𝖾𝗌 of Section 1.2.3 to convert back and forth between bytestrings and bitstrings, but
+we elide this for conciseness and reduce ambiguity by using lower-case names like 𝑏,𝑐 and 𝑑 for bits and
+̄ so 𝟶̄ = 𝟷 and
+upper-case names like 𝐵 for bytes. We denote the complement of a bit 𝑏 ∈ {𝟶, 𝟷} by 𝑏,
+𝟷̄ = 𝟶.
+Function
+
+Signature
+
+Denotation
+
+Note
+
+𝖺𝗇𝖽
+
+Can
+fail?
+No
+
+andByteString
+
+[𝚋𝚘𝚘𝚕, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚘𝚘𝚕, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚘𝚘𝚕, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+𝗈𝗋
+
+No
+
+1
+
+𝗑𝗈𝗋
+
+No
+
+1
+
+𝑏𝑛−1 ⋯𝑏0 ↦ 𝑏̄ 𝑛−1 ⋯𝑏̄ 0
+
+No
+
+𝗌𝗁𝗂𝖿 𝗍
+
+No
+
+2
+
+𝗋𝗈𝗍𝖺𝗍𝖾
+
+No
+
+3
+
+countSetBits
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝑏𝑛−1 ⋯𝑏0 ↦ ||{𝑖 ∶ 𝑏𝑖 = 1}||
+
+No
+
+findFirstSetBit
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝖿𝖿𝗌
+
+No
+
+readBit
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛] → 𝚋𝚘𝚘𝚕
+
+(𝑏𝑛−1
+{⋯𝑏0 , 𝑖)
+𝑏𝑖 if 0 ≤ 𝑖 ≤ 𝑛 − 1
+↦
+× otherwise
+
+Yes
+
+writeBits
+
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐, 𝚕𝚒𝚜𝚝 (𝚒𝚗𝚝𝚎𝚐𝚎𝚛),
+𝚋𝚘𝚘𝚕] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛]
+→ 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+[𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐] → 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+𝗐𝗋𝗂𝗍𝖾𝖡𝗂𝗍𝗌
+
+Yes
+
+5
+
+𝗋𝖾𝗉𝗅𝗂𝖼𝖺𝗍𝖾𝖡𝗒𝗍𝖾
+
+Yes
+
+6
+
+Compute a RIPEMD-160
+hash [18, 25]
+
+No
+
+orByteString
+xorByteString
+complementByteString
+shiftByteString
+rotateByteString
+
+replicateByte
+ripemd_160
+
+Table 4.16: Built-in functions, Batch 5
+
+Note 1. Bitwise logical operations. The bitwise logical operations 𝖺𝗇𝖽, 𝗈𝗋, and 𝗑𝗈𝗋 are defined by
+extending the usual single-bit logical operations ∧, ∨, and ⊕ (respectively) to bytestrings. However, there
+is a complication if the bytestrings have different lengths.
+
+46
+
+1
+
+4
+
+• If the first argument of one of the bitwise logical operations is 𝖿 𝖺𝗅𝗌𝖾 then the longer bytestring is
+(conceptually) truncated on the right to have the same length as the shorter one.
+• If the first argument is 𝗍𝗋𝗎𝖾 then the shorter bytestring is (conceptually) extended on the right to
+have the same length as the longer one. In the case of 𝖺𝗇𝖽 the shorter bytestring is extended with 𝟷
+bits and in the case of 𝗈𝗋 and 𝗑𝗈𝗋 it is extended with 𝟶 bits.
+Formally the truncation operation mentioned above is defined as a function which removes the rightmost
+𝑘 bits from a bitstring:
+𝗍𝗋𝗎𝗇𝖼 (𝑏𝑛−1 ⋯𝑏0 , 𝑘) = 𝑏𝑛−1 ⋯𝑏𝑘
+
+if 0 ≤ 𝑘 ≤ 𝑛
+
+and the extension operation is defined as a function which appends 𝑘 bits to a bitstring:
+ext (𝑏𝑛−1 ⋯𝑏0 , 𝑘, 𝑥) = 𝑏𝑛−1 ⋯𝑏0 ⋅ 𝑥𝑘−1 ⋯𝑥0
+
+where 𝑥 ∈ {𝟶, 𝟷}, 𝑘 ≥ 0, and 𝑥0 = 𝑥1 = ⋯ = 𝑥𝑘−1 = 𝑥.
+
+In both cases, the output is the same as the input when 𝑘 = 0.
+The denotations of the bitwise logical functions are now defined on bitstring representations of bytestrings
+as follows, where 𝑏 is a bitstring of length 𝑚 and 𝑐 is a bitstring of length 𝑛:
+𝖺𝗇𝖽 (𝖿 𝖺𝗅𝗌𝖾, 𝑏, 𝑐) = 𝑑𝑙−1 ⋯ 𝑑0
+
+where 𝑙 = min{𝑚, 𝑛} and 𝑑𝑖 = 𝗍𝗋𝗎𝗇𝖼 (𝑏, 𝑚 − 𝑙)𝑖 ∧ 𝗍𝗋𝗎𝗇𝖼 (𝑐, 𝑛 − 𝑙)𝑖
+
+𝖺𝗇𝖽 (𝗍𝗋𝗎𝖾, 𝑏, 𝑐) = 𝑑𝑙−1 ⋯ 𝑑0
+
+where 𝑙 = max{𝑚, 𝑛} and 𝑑𝑖 = ext (𝑏, 𝑙 − 𝑚, 𝟷)𝑖 ∧ ext (𝑐, 𝑙 − 𝑛, 𝟷)𝑖
+
+𝗈𝗋 (𝖿 𝖺𝗅𝗌𝖾, 𝑏, 𝑐) = 𝑑𝑙−1 ⋯ 𝑑0
+
+where 𝑙 = min{𝑚, 𝑛} and 𝑑𝑖 = 𝗍𝗋𝗎𝗇𝖼 (𝑏, 𝑚 − 𝑙)𝑖 ∨ 𝗍𝗋𝗎𝗇𝖼 (𝑐, 𝑛 − 𝑙)𝑖
+
+𝗈𝗋 (𝗍𝗋𝗎𝖾, 𝑏, 𝑐) = 𝑑𝑙−1 ⋯ 𝑑0
+
+where 𝑙 = max{𝑚, 𝑛} and 𝑑𝑖 = ext (𝑏, 𝑙 − 𝑚, 𝟶)𝑖 ∨ ext (𝑐, 𝑙 − 𝑛, 𝟶)𝑖
+
+𝗑𝗈𝗋 (𝖿 𝖺𝗅𝗌𝖾, 𝑏, 𝑐) = 𝑑𝑙−1 ⋯ 𝑑0
+
+where 𝑙 = min{𝑚, 𝑛} and 𝑑𝑖 = 𝗍𝗋𝗎𝗇𝖼 (𝑏, 𝑚 − 𝑙)𝑖 ⊕ 𝗍𝗋𝗎𝗇𝖼 (𝑐, 𝑛 − 𝑙)𝑖
+
+𝗑𝗈𝗋 (𝗍𝗋𝗎𝖾, 𝑏, 𝑐) = 𝑑𝑙−1 ⋯ 𝑑0
+
+where 𝑙 = max{𝑚, 𝑛} and 𝑑𝑖 = ext (𝑏, 𝑙 − 𝑚, 𝟶)𝑖 ⊕ ext (𝑐, 𝑙 − 𝑛, 𝟶)𝑖 .
+
+Note that although 𝗍𝗋𝗎𝗇𝖼 is applied to both arguments in the above definitions, if the arguments have the
+same lengths then in fact neither will be truncated and if the arguments have different lengths then only the
+longer one will be truncated. Similarly extension will only occur if the arguments are of different lengths,
+in which case the shorter one will be extended.
+Note 2. Shifting bits. The shiftByteString builtin takes a bytestring 𝑠 and an integer 𝑘 and shifts the
+bits of the bytestring 𝑘 places to the left if 𝑘 ≥ 0 and 𝑘 places to the right if 𝑘 < 0, replacing vacated bits
+with 𝟶. The length of the output bytestring is the same as that of the input. The denotation (defined on the
+bitstring representation of 𝑠) is
+{
+𝑏𝑖−𝑘 if 0 ≤ 𝑖 − 𝑘 ≤ 𝑛 − 1
+𝗌𝗁𝗂𝖿 𝗍 (𝑏𝑛−1 ⋯ 𝑏0 , 𝑘) = 𝑑𝑛−1 ⋯ 𝑑0 where 𝑑𝑖 =
+𝟶
+otherwise.
+Note 3. Rotating bits. The rotateByteString builtin takes a bytestring 𝑠 and an integer 𝑘 and
+rotates the bits of 𝑠 𝑘 places to the left if 𝑘 ≥ 0 and 𝑘 places to the right if 𝑘 < 0. The length of the
+output bytestring is the same as that of the input. The denotation of rotateByteString (defined on the
+bitstring representation of 𝑠) is
+𝗋𝗈𝗍𝖺𝗍𝖾 (𝑏𝑛−1 ⋯ 𝑏0 , 𝑘) = 𝑑𝑛−1 ⋯ 𝑑0
+47
+
+where 𝑑𝑖 = 𝑏(𝑖−𝑘) mod 𝑛 .
+
+Note 4. Finding the first set bit in a bytestring. The findFirstSetBit builtin returns the index of the
+first nonzero bit in a bytestring, counting from the right. If the bytestring consists entirely of zeros then it
+returns −1. The denotation 𝖿 𝖿 𝗌 ∶ 𝕓∗ → ℤ is
+{
+−1
+if 𝑏𝑖 = 𝟶 for 0 ≤ 𝑖 ≤ 𝑛 − 1
+𝖿 𝖿 𝗌 (𝑏𝑛−1 ⋯ 𝑏0 ) =
+min {𝑖 ∶ 𝑏𝑖 ≠ 𝟶} otherwise.
+Note 5. Writing bits. The denotation 𝗐𝗋𝗂𝗍𝖾𝖡𝗂𝗍𝗌 of the writeBits builtin takes a bytestring 𝑠, a list 𝐽 of
+integer indices, and a boolean value 𝑢. An error occurs if any of the indices in 𝐽 is not a valid bit index for
+𝑠. If all of the indices are within bounds then for each index 𝑗 in 𝐽 the 𝑗-th bit of 𝑠 is updated according
+to the value of 𝑢 (𝟶 for false, 𝟷 for true). The list 𝐽 is allowed to contain repetitions.
+Formally,
+{
+𝗐𝗋𝗂𝗍𝖾𝖡𝗂𝗍𝗌(𝑏𝑛−1 ⋯𝑏0 , [𝑗0 , … , 𝑗𝑙−1 ], 𝑢) =
+where
+
+⎧𝑏
+⎪ 𝑖
+𝑑𝑖 = ⎨𝟶
+⎪𝟷
+⎩
+
+×
+𝑑𝑛−1 ⋯𝑑0
+
+if ∃𝑘 ∈ {0, … , 𝑙 − 1} such that 𝑗𝑘 < 0 or 𝑗𝑘 ≥ 𝑛
+otherwise
+
+if 𝑖 ∉ {𝑗0 , … , 𝑗𝑙−1 }
+if 𝑖 ∈ {𝑗0 , … , 𝑗𝑙−1 } and 𝑢 = 𝖿 𝖺𝗅𝗌𝖾
+if 𝑖 ∈ {𝑗0 , … , 𝑗𝑙−1 } and 𝑢 = 𝗍𝗋𝗎𝖾.
+
+Note 6. Replicating bytes. The replicateByte builtin takes a length 𝑙 between 0 and 8192 and an
+integer 𝐵 between 0 and 255 and produces a bytestring of length 𝑙. It fails if either argument is outside
+the required bounds. The denotation is
+{
+𝐵0 ⋯𝐵𝑙−1 (𝐵𝑖 = 𝐵 for all 𝑖) if 0 ≤ 𝑙 ≤ 8192 and 𝐵 ∈ 𝔹
+𝗋𝖾𝗉𝗅𝗂𝖼𝖺𝗍𝖾𝖡𝗒𝗍𝖾 (𝑙, 𝐵) =
+×
+otherwise.
+Note that unlike the other denotations in this section we are viewing the output as a bytestring here, not a
+bitstring.
+
+48
+
+4.3.6
+
+Batch 6
+
+This section describes some new types and functions which have not been released at the time of writing
+(July 2025), but are expected to be released at a later date.
+4.3.6.1
+
+Built-in type operators
+
+The sixth batch adds type operators defined in Table 4.17.
+Operator op
+array
+
+|op|
+1
+
+Denotation
+J𝚊𝚛𝚛𝚊𝚢 (𝑡)K = J𝑡K∗
+
+Concrete Syntax
+See below
+
+Table 4.17: Type operators, Batch 6
+Concrete syntax for arrays. An array of type array(𝑡) is written as a syntactic list [𝑐1 , … , 𝑐𝑛 ] where
+each 𝑐𝑖 lies in 𝐂𝑡 . Some valid constant expressions are thus:
+(con (array bool) [True, False, True])
+(con (array integer) [])
+4.3.6.2
+
+Built-in functions
+
+The sixth batch of built-in types is defined in Table 4.17. Operations are defined in Table 4.18.
+Function
+
+Signature
+
+Denotation
+
+Can
+
+Note
+
+expModInteger
+
+[𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛]
+→ 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝖾𝗑𝗉𝖬𝗈𝖽
+
+Yes
+
+dropList
+
+[∀𝑎# , 𝚒𝚗𝚝𝚎𝚐𝚎𝚛, 𝚕𝚒𝚜𝚝 (𝑎# )]
+→ 𝚕𝚒𝚜𝚝 (𝑎# )
+
+(𝑘, [𝑥1 , … , 𝑥𝑛 ])
+
+No
+
+lengthOfArray
+
+[∀𝑎# , 𝚊𝚛𝚛𝚊𝚢 (𝑎# )] → 𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+[] ↦ 0
+[𝑥1 , … , 𝑥𝑛 ] ↦ 𝑛 (𝑛 ≥ 1)
+
+No
+
+2
+
+listToArray
+
+[∀𝑎# , 𝚕𝚒𝚜𝚝 (𝑎# )] → 𝚊𝚛𝚛𝚊𝚢 (𝑎# )
+
+[] ↦ []
+[𝑥1 , … , 𝑥𝑛 ] ↦ [𝑥1 , … , 𝑥𝑛 ] (𝑛 ≥ 1)
+
+No
+
+2
+
+indexArray
+
+[∀𝑎# , 𝚊𝚛𝚛𝚊𝚢 (𝑎# ), 𝚒𝚗𝚝𝚎𝚐𝚎𝚛]
+
+([𝑥1 , … , 𝑥𝑛 ], 𝑘)
+
+Yes
+
+2
+
+No
+
+3
+
+fail?
+
+bls12_381_G1_multiScalarMul
+
+⎧ [𝑥1 , … , 𝑥𝑛 ]
+if 𝑘 ≤ 0
+⎪
+↦ ⎨ [𝑥𝑘+1 , … , 𝑥𝑛 ] if 1 ≤ 𝑘 ≤ 𝑛 − 1
+⎪ []
+if 𝑘 ≥ 𝑛
+⎩
+
+→ 𝚊#
+
+[𝚕𝚒𝚜𝚝 (𝚒𝚗𝚝𝚎𝚐𝚎𝚛),
+𝚕𝚒𝚜𝚝 (𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝)]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+
+⎧ ×
+if 𝑘 < 0
+⎪
+↦ ⎨ 𝑥𝑘+1 if 0 ≤ 𝑘 ≤ 𝑛 − 1
+⎪ ×
+if 𝑘 > 𝑛 − 1
+⎩
+([𝑛1 , … , 𝑛𝑘 ], [𝑎1 , … , 𝑎𝑙 ])
+↦ 𝑛1 𝑎1 + ⋯ + 𝑛𝑟 𝑎𝑟 where 𝑟 = min(𝑘, 𝑙)
+
+Table 4.18: Built-in functions, Batch 6
+
+49
+
+1
+
+Function
+
+Type
+
+Denotation
+
+Can
+
+Note
+
+fail?
+bls12_381_G2_multiScalarMul
+
+[𝚕𝚒𝚜𝚝 (𝚒𝚗𝚝𝚎𝚐𝚎𝚛),
+𝚕𝚒𝚜𝚝 (𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝)]
+→ 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+
+([𝑛1 , … , 𝑛𝑘 ], [𝑎1 , … , 𝑎𝑙 ])
+↦ 𝑛1 𝑎1 + ⋯ + 𝑛𝑟 𝑎𝑟 where 𝑟 = min(𝑘, 𝑙)
+
+Table 4.18: Built-in functions, Batch 6
+
+Note 1. Modular Exponentiation. The expModInteger function performs modular exponentiation.
+Its denotation 𝖾𝗑𝗉𝖬𝗈𝖽 ∶ ℤ × ℤ × ℤ → ℤ× is given by
+⎧
+𝑒
+⎪𝗆𝗈𝖽(𝑎 , 𝑚)
+⎪min{𝑟 ∈ ℕ ∶ 𝑟𝑎−𝑒 ≡ 1
+⎪
+𝖾𝗑𝗉𝖬𝗈𝖽(𝑎, 𝑒, 𝑚) = ⎨×
+⎪0
+⎪
+⎪×
+⎩
+
+(mod 𝑚)}
+
+if 𝑚 > 1 and 𝑒 ≥ 0
+if 𝑚 > 1, 𝑒 < 0 and gcd(𝑎, 𝑚) = 1
+if 𝑚 > 1, 𝑒 < 0, and gcd(𝑎, 𝑚) ≠ 1
+if 𝑚 = 1
+if 𝑚 ≤ 0.
+
+The fact that this is well defined for the case 𝑒 < 0 and gcd(𝑎, 𝑚) = 1 follows, for example, from Proposition I.3.1 of [35]. See Note 1 of Section 4.3.1.2 for the definition of 𝗆𝗈𝖽.
+Note 2. Semantics of arrays. The denotation of the array type is identical to that of lists, but we expect
+that in practice arrays will be implemented in such a way that the lengthOfArray and indexArray
+functions will be constant time and listToArray may be nontrivial, requiring linear time.
+Note 3. BLS12-381 multi-scalar multiplication. We have added two multi-scalar-multiplication operations for BLS12-381 types. Given lists of scalars [𝑛1 , … , 𝑛𝑘 ] and group elements [𝑎1 , … , 𝑎𝑙 ] these
+compute the group sum of the scalar products 𝑛𝑖 𝑎𝑖 with 1 ≤ 𝑖 ≤ min(𝑘, 𝑙). The input lists are allowed to
+be of different lengths but the longer one is effectively truncated to make them the same length. If either
+list is empty then the result of the function is the zero element of the relevant group. Multi-scalar multiplication can already be performed using the standard group addition and scalar multiplication functions
+from Batch 4, but having dedicated functions allows for significantly more efficient implementation.
+
+50
+
+No
+
+3
+
+Appendix A
+
+Formally Verified Behaviours
+To follow.
+
+51
+
+Appendix B
+
+Serialising data Objects Using the
+CBOR Format
+B.1
+
+Introduction
+
+In this section we define a CBOR encoding for the data type introduced in Section 4.3.1.1. For ease of
+reference we reproduce the definition of the Haskell Data type, which we may regard as the definition
+of the Plutus data type. Other representations are of course possible, but this is useful for the present
+discussion.
+data Data =
+Constr Integer [Data]
+| Map [(Data, Data)]
+| List [Data]
+| I Integer
+| B ByteString
+The CBOR encoding defined here uses basic CBOR encodings as defined in the CBOR standard [17], but
+with some refinements. Specifically
+• We use a restricted encoding for bytestrings which requires that bytestrings are serialised as sequences of blocks, each block being at most 64 bytes long. Any encoding of a bytestring using our
+scheme is valid according to the CBOR specification, but the CBOR specification permits some
+encodings which we do not accept. The purpose of the size restriction is to prevent arbitrary data
+from being stored on the blockchain.
+• Large integers (less than −264 or greater than 264 − 1) are encoded via the restricted bytestring
+encoding; other integers are encoded as normal. Again, our restricted encodings are compatible
+with the CBOR specification.
+• The Constr case of the data type is encoded using a scheme which is an early version of a proposed
+extension of the CBOR specification to include encodings for discriminated unions. See [22] and
+[16, Section 9.1].
+
+52
+
+B.2
+
+Notation
+
+We introduce some extra notation for use here and in Appendix C.
+The notation 𝑓 ∶ 𝑋 ⇀ 𝑌 indicates that 𝑓 is a partial map from 𝑋 to 𝑌 . We denote the empty bytestring
+by 𝜖 and (as in 1.2.2) use 𝓁(𝑠) to denote the length of a bytestring 𝑠 and ⋅ to denote the concatenation of
+two bytestrings, and also the operation of prepending or appending a byte to a bytestring. We will also
+make use of the 𝖽𝗂𝗏 and 𝗆𝗈𝖽 functions described in Note 1 in Section 4.3.1.
+Encoders and decoders. Recall that 𝔹 = ℕ[0,255] , the set of integral values that can be represented in a
+single byte, and that we identify bytestrings with elements of 𝔹∗ . We will describe the CBOR encoding
+of the data type by defining families of encoding functions (or encoders)
+E𝑋 ∶ 𝑋 → 𝔹∗
+and decoding functions (or decoders)
+D𝑋 ∶ 𝔹∗ ⇀ 𝔹∗ × 𝑋
+for various sets 𝑋, such as the set ℤ of integers and the set of all data items. The encoding function E𝑋
+takes an element 𝑥 ∈ 𝑋 and converts it to a bytestring, and the decoding function D𝑋 takes a bytestring 𝑠,
+decodes some initial prefix of 𝑠 to a value 𝑥 ∈ 𝑋, and returns the remainder of 𝑠 together with 𝑥. Decoders
+for complex types will often be built up from decoders for simpler types. Decoders are partial functions
+because they can fail, for instance, if there is insufficient input, or if the input is not well formed, or if a
+decoded value is outside some specified range.
+Many of the decoders which we define below involve a number of cases for different forms of input,
+and we implicitly assume that the decoder fails if none of the cases applies. We also assume that if a
+decoder fails then so does any other decoder which invokes it, so any failure when attempting to decode a
+particular data item in a bytestring will cause the entire decoding process to fail (immediately).
+
+B.3
+
+The CBOR format
+
+A CBOR-encoded item consists of a bytestring beginning with a head which occupies 1,2,3,5, or 9 bytes.
+Depending on the contents of the head, some sequence of bytes following it may also contribute to the
+encoded item. The first three bits of the head are interpreted as a natural number between 0 and 7 (the
+major type) which gives basic information about the type of the following data. The remainder of the
+head is called the argument of the head and is used to encode further information, such as the value of
+an encoded integer or the size of a list of encoded items. Encodings of complex objects may occupy the
+bytes following the head, and these will typically contain further encoded items.
+
+B.4
+
+Encoding and decoding the heads of CBOR items
+
+For 𝑖 ∈ ℕ we define a function 𝖻𝑖 ∶ ℕ → 𝔹 which returns the 𝑖-th byte of an integer, with the 0-th byte
+being the least significant:
+𝖻𝑖 (𝑛) = 𝗆𝗈𝖽(𝖽𝗂𝗏(𝑛, 256𝑖 ), 256).
+We use this to define for each 𝑘 ≥ 1 a partial function 𝖾𝑘 ∶ ℕ ⇀ 𝔹∗ which converts a sufficiently small
+integer to a bytestring of length 𝑘 (possibly with leading zeros):
+𝖾𝑘 (𝑛) = [𝖻𝑘−1 (𝑛), … , 𝖻0 (𝑛)]
+53
+
+if 𝑛 ≤ 256𝑘 − 1.
+
+This function fails if the input is too large to fit into a 𝑘-byte bytestring.
+We also define inverse functions 𝖽𝑘 ∶ 𝔹∗ ⇀ ℕ which decode a 𝑘-byte natural number from the start
+of a bytestring, failing if there is insufficient input:
+𝖽𝑘 (𝑠) = (𝑠′ ,
+
+𝑘−1
+∑
+
+if 𝑠 = [𝑏𝑘−1 , … , 𝑏0 ] ⋅ 𝑠′ .
+
+256𝑖 𝑏𝑖 )
+
+𝑖=0
+
+We now define an encoder E𝗁𝖾𝖺𝖽 ∶ ℕ[0,7] × ℕ[0,264 −1] → 𝔹∗ which takes a major type and a natural number
+and encodes them as a CBOR head using the standard encoding:
+⎧
+if 𝑛 ≤ 23
+⎪[32𝑚 + 𝑛]
+⎪(32𝑚 + 24) ⋅ 𝖾1 (𝑛) if 24 ≤ 𝑛 ≤ 255
+⎪
+E𝗁𝖾𝖺𝖽 (𝑚, 𝑛) = ⎨(32𝑚 + 25) ⋅ 𝖾2 (𝑛) if 256 ≤ 𝑛 ≤ 2562 − 1
+⎪(32𝑚 + 26) ⋅ 𝖾 (𝑛) if 2562 ≤ 𝑛 ≤ 2564 − 1
+4
+⎪
+⎪(32𝑚 + 27) ⋅ 𝖾8 (𝑛) if 2564 ≤ 𝑛 ≤ 2568 − 1.
+⎩
+The corresponding decoder D𝗁𝖾𝖺𝖽 ∶ 𝔹∗ ⇀ 𝔹∗ × ℕ[0,7] × ℕ[0,264 −1] is given by
+⎧
+⎪(𝑠, 𝖽𝗂𝗏(𝑛, 32), 𝗆𝗈𝖽(𝑛, 32))
+⎪(𝑠′ , 𝖽𝗂𝗏(𝑛, 32), 𝑘)
+⎪
+D𝗁𝖾𝖺𝖽 (𝑛 ⋅ 𝑠) = ⎨(𝑠′ , 𝖽𝗂𝗏(𝑛, 32), 𝑘)
+⎪(𝑠′ , 𝖽𝗂𝗏(𝑛, 32), 𝑘)
+⎪
+⎪(𝑠′ , 𝖽𝗂𝗏(𝑛, 32), 𝑘)
+⎩
+
+if 𝗆𝗈𝖽(𝑛, 32) ≤ 23
+if 𝗆𝗈𝖽(𝑛, 32) = 24 and 𝖽1 (𝑠) = (𝑠′ , 𝑘)
+if 𝗆𝗈𝖽(𝑛, 32) = 25 and 𝖽2 (𝑠) = (𝑠′ , 𝑘)
+if 𝗆𝗈𝖽(𝑛, 32) = 26 and 𝖽4 (𝑠) = (𝑠′ , 𝑘)
+if 𝗆𝗈𝖽(𝑛, 32) = 27 and 𝖽8 (𝑠) = (𝑠′ , 𝑘).
+
+This function is undefined if the input is the empty bytestring 𝜖, if the input is too short, or if its initial
+byte is not of the expected form.
+Heads for indefinite-length items. The functions E𝗁𝖾𝖺𝖽 and D𝗁𝖾𝖺𝖽 defined above are used for a number
+of purposes. One use is to encode integers less than 64 bits, where the argument of the head is the relevant
+integer. Another use is for “definite-length” encodings of items such as bytestrings and lists, where the
+head contains the length 𝑛 of the object and is followed by some encoding of the object itself (for example
+a sequence of 𝑛 bytes for a bytestring or a sequence of 𝑛 encoded objects for the elements of a list). It is
+also possible to have “indefinite-length” encodings of objects such as lists and arrays, which do not specify
+the length of an object in advance: instead a special head with argument 31 is emitted, followed by the
+encodings of the individual items; the end of the sequence is marked by a “break” byte with value 255.
+We define an encoder E𝗂𝗇𝖽𝖾𝖿 ∶ ℕ[2,5] → 𝔹∗ and a decoder D𝗂𝗇𝖽𝖾𝖿 ∶ 𝔹∗ ⇀ 𝔹∗ × ℕ[2,5] which deal with
+indefinite heads for a given major type:
+E𝗂𝗇𝖽𝖾𝖿 (𝑚) = [32𝑚 + 31]
+D𝗂𝗇𝖽𝖾𝖿 (𝑛 ⋅ 𝑠) = (𝑠, 𝑚)
+
+if 𝑛 = 32𝑚 + 31.
+
+Note that E𝗂𝗇𝖽𝖾𝖿 and D𝗂𝗇𝖽𝖾𝖿 are only defined for 𝑚 ∈ {2, 3, 4, 5} (and we shall only use them in these cases).
+The case 𝑚 = 31 corresponds to the break byte and for 𝑚 ∈ {0, 1, 6} the value is not well formed: see [17,
+3.2.4].
+
+54
+
+B.5
+
+Encoding and decoding bytestrings
+
+The standard CBOR encoding of bytestrings encodes a bytestring as either a definite-length sequence of
+bytes (the length being given in the head) or as an indefinite-length sequence of definite-length “chunks”
+(see [17, §§3.1 and 3.4.2]). We use a similar scheme, but only allow chunks of length up to 64. To this
+end, suppose that 𝑎 = [𝑎1 , … , 𝑎64𝑘+𝑟 ] ∈ 𝔹∗ ∖{𝜖} where 𝑘 ≥ 0 and 0 ≤ 𝑟 ≤ 63. We define the canonical
+64-byte decomposition 𝑎̄ of 𝑎 to be
+𝑎̄ = [[𝑎1 , … , 𝑎64 ], [𝑎65 , … , 𝑎128 ], … , [𝑎64(𝑘−1)+1 , … , 𝑎64𝑘 ]] ∈ (𝔹∗ )∗
+if 𝑟 = 0 and
+𝑎̄ = [[𝑎1 , … , 𝑎64 ], [𝑎65 , … , 𝑎128 ], … , [𝑎64(𝑘−1)+1 , … , 𝑎64𝑘 ], [𝑎64𝑘+1 , … , 𝑎64𝑘+𝑟 ]] ∈ (𝔹∗ )∗
+if 𝑟 > 0. The canonical decomposition of the empty list is 𝜖̄ = [].
+We define the encoder E𝔹∗ ∶ 𝔹∗ → 𝔹∗ for bytestrings by encoding bytestrings of size up to 64 using
+the standard CBOR encoding and encoding larger bytestrings by breaking them up into 64-byte chunks
+(with the final chunk possibly being less than 64 bytes long) and encoding them as an indefinite-length
+list (major type 2 indicates a bytestring):
+⎧E (2, 𝓁(𝑠)) ⋅ 𝑠
+⎪ 𝗁𝖾𝖺𝖽
+E𝔹∗ (𝑠) = ⎨E𝗂𝗇𝖽𝖾𝖿 (2) ⋅ E𝗁𝖾𝖺𝖽 (2, 𝓁(𝑐1 )) ⋅ 𝑐1 ⋅ E𝗁𝖾𝖺𝖽 (2, 𝓁(𝑐2 )) ⋅ ⋯
+⎪
+⋯ ⋅ 𝑐𝑛−1 ⋅ E𝗁𝖾𝖺𝖽 (2, 𝓁(𝑐𝑛 )) ⋅ 𝑐𝑛 ⋅ 255
+⎩
+
+if 𝓁(𝑠) ≤ 64
+if 𝓁(𝑠) > 64 and 𝑠̄ = [𝑐1 , … , 𝑐𝑛 ].
+
+(𝑛)
+The decoder is slightly more complicated. Firstly, for every 𝑛 ≥ 0 we define a decoder D𝖻𝗒𝗍𝖾𝗌
+∶ 𝔹∗ ⇀
+∗
+∗
+𝔹 × 𝔹 which extracts an 𝑛-byte prefix from its input (failing in the case of insufficient input):
+{
+(𝑠, 𝜖)
+if 𝑛 = 0
+(𝑛)
+D𝖻𝗒𝗍𝖾𝗌 (𝑠) =
+(𝑛−1) ′
+(𝑠′′ , 𝑏 ⋅ 𝑡) if 𝑠 = 𝑏 ⋅ 𝑠′ and D𝖻𝗒𝗍𝖾𝗌
+(𝑠 ) = (𝑠′′ , 𝑡).
+
+Secondly, we define a decoder D𝖻𝗅𝗈𝖼𝗄 ∶ 𝔹∗ ⇀ 𝔹∗ × 𝔹∗ which attempts to extract a bytestring of length at
+most 64 from its input; D𝖻𝗅𝗈𝖼𝗄 (and any other function which calls it) will fail if it encounters a bytestring
+which is greater than 64 bytes.
+(𝑛)
+D𝖻𝗅𝗈𝖼𝗄 (𝑠) = D𝖻𝗒𝗍𝖾𝗌
+(𝑠′ )
+
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 2, 𝑛) and 𝑛 ≤ 64.
+
+Thirdly, we define a decoder D𝖻𝗅𝗈𝖼𝗄𝗌 ∶ 𝔹∗ ⇀ 𝔹∗ × 𝔹∗ which decodes a sequence of blocks and returns
+their concatenation.
+{
+(𝑠′ , 𝜖)
+if 𝑠 = 255 ⋅ 𝑠′
+D𝖻𝗅𝗈𝖼𝗄𝗌 (𝑠) =
+(𝑠′′ , 𝑡 ⋅ 𝑡′ ) if D𝖻𝗅𝗈𝖼𝗄 (𝑠) = (𝑠′ , 𝑡) and D𝖻𝗅𝗈𝖼𝗄𝗌 (𝑠′ ) = (𝑠′′ , 𝑡′ ).
+Finally we define the decoder D𝔹∗ ∶ 𝔹∗ ⇀ 𝔹∗ × 𝔹∗ for bytestrings by
+{
+(𝑠′ , 𝑡)
+if D𝖻𝗅𝗈𝖼𝗄 (𝑠) = (𝑠′ , 𝑡)
+D𝔹∗ (𝑠) =
+D𝖻𝗅𝗈𝖼𝗄𝗌 (𝑠′ ) if D𝗂𝗇𝖽𝖾𝖿 (𝑠) = (𝑠′ , 2).
+This looks for either a single block or an indefinite-length list of blocks, in the latter case returning their
+concatenation. It will accept the output of E𝔹∗ but will reject bytestring encodings containing any blocks
+greater than 64 bytes long, even if they are valid bytestring encodings according to the CBOR specification.
+55
+
+B.6
+
+Encoding and decoding integers
+
+As with bytestrings we use a specialised encoding scheme for integers which prohibits encodings with
+overly-long sequences of arbitrary data. We encode integers in ℕ[−264 ,264 −1] as normal (see [17, §3.1]:
+the major type is 0 for positive integers and 1 for negative ones) and larger ones by emitting a CBOR tag
+(major type 6; argument 2 for positive numbers and 3 for negative numbers) to indicate the sign, then
+converting the integer to a bytestring and emitting that using the encoder defined above. This encoding
+scheme is the same as the standard one except for the size limitations.
+We firstly define conversion functions 𝗂𝗍𝗈𝗌 ∶ ℕ → 𝔹∗ and 𝗌𝗍𝗈𝗂 ∶ 𝔹∗ → ℕ by
+{
+𝜖
+if 𝑛 = 0
+𝗂𝗍𝗈𝗌(𝑛) =
+𝗂𝗍𝗈𝗌(𝖽𝗂𝗏(𝑛, 256)) ⋅ 𝗆𝗈𝖽(𝑛, 256) if 𝑛 > 0.
+and
+
+{
+𝗌𝗍𝗈𝗂(𝑙) =
+
+0
+256 × 𝗌𝗍𝗈𝗂(𝑙′ ) + 𝑛
+
+if 𝑙 = 𝜖
+if 𝑙 = 𝑙′ ⋅ 𝑛 with 𝑛 ∈ 𝔹.
+
+The encoder Eℤ ∶ ℤ → 𝔹∗ for integers is now defined by
+⎧E (0, 𝑛)
+⎪ 𝗁𝖾𝖺𝖽
+⎪E (6, 2) ⋅ E𝔹∗ (𝗂𝗍𝗈𝗌(𝑛))
+Eℤ (𝑛) = ⎨ 𝗁𝖾𝖺𝖽
+⎪E𝗁𝖾𝖺𝖽 (1, −𝑛 − 1)
+⎪E𝗁𝖾𝖺𝖽 (6, 3) ⋅ E𝔹∗ (𝗂𝗍𝗈𝗌(−𝑛 − 1))
+⎩
+
+if 0 ≤ 𝑛 ≤ 264 − 1
+if 𝑛 ≥ 264
+if −264 ≤ 𝑛 ≤ −1
+if 𝑛 ≤ −264 − 1.
+
+The decoder Dℤ ∶ 𝔹∗ ⇀ 𝔹∗ × ℤ inverts this process. The decoder is in fact slightly more permissive than
+the encoder because it also accepts small integers encoded using the scheme for larger ones. However, the
+CBOR standard permits integer encodings which contain bytestrings longer than 64 bytes and it will not
+accept those.
+⎧(𝑠′ , 𝑛)
+⎪
+⎪(𝑠′ , −𝑛 − 1)
+Dℤ (𝑠) = ⎨ ′′
+⎪(𝑠 , 𝗌𝗍𝗈𝗂(𝑏))
+⎪(𝑠′′ , −𝗌𝗍𝗈𝗂(𝑏) − 1)
+⎩
+
+B.7
+
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 0, 𝑛)
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 1, 𝑛)
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 6, 2) and D𝔹∗ (𝑠′ ) = (𝑠′′ , 𝑏)
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 6, 3) and D𝔹∗ (𝑠′ ) = (𝑠′′ , 𝑏).
+
+Encoding and decoding data
+
+It is now quite straightforward to encode most data values. The main complication is in the encoding of
+constructor tags (the number 𝑖 in 𝙲𝚘𝚗𝚜𝚝𝚛 𝑖 𝑙).
+The encoder.
+
+The encoder is given by
+E𝚍𝚊𝚝𝚊 (𝙼𝚊𝚙 𝑙)
+
+= E𝗁𝖾𝖺𝖽 (5, 𝓁(𝑙)) ⋅ E(𝚍𝚊𝚝𝚊𝟸 )∗ (𝑙)
+
+E𝚍𝚊𝚝𝚊 (𝙻𝚒𝚜𝚝 𝑙)
+
+= E𝗂𝗇𝖽𝖾𝖿 (4) ⋅ E𝚍𝚊𝚝𝚊∗ (𝑙) ⋅ 255
+
+E𝚍𝚊𝚝𝚊 (𝙲𝚘𝚗𝚜𝚝𝚛 𝑖 𝑙) = Ectag (𝑖) ⋅ E𝗂𝗇𝖽𝖾𝖿 (4) ⋅ E𝚍𝚊𝚝𝚊∗ (𝑙) ⋅ 255
+E𝚍𝚊𝚝𝚊 (𝙸 𝑛)
+
+= Eℤ (𝑛)
+
+E𝚍𝚊𝚝𝚊 (𝙱 𝑠)
+
+= E𝔹∗ (𝑠).
+56
+
+This definition uses encoders for lists of data items, lists of pairs of data items, and constructor tags as
+follows:
+E𝚍𝚊𝚝𝚊∗ ([𝑑1 , … , 𝑑𝑛 ]) = E𝚍𝚊𝚝𝚊 (𝑑1 ) ⋅ ⋯ ⋅ E𝚍𝚊𝚝𝚊 (𝑑𝑛 )
+E(𝚍𝚊𝚝𝚊𝟸 )∗ ([(𝑘1 , 𝑑1 ), … , (𝑘𝑛 , 𝑑𝑛 )]) = E𝚍𝚊𝚝𝚊 (𝑘1 ) ⋅ E𝚍𝚊𝚝𝚊 (𝑑1 ) ⋅ ⋯ ⋅ E𝚍𝚊𝚝𝚊 (𝑘𝑛 ) ⋅ E𝚍𝚊𝚝𝚊 (𝑑𝑛 )
+⎧E (6, 121 + 𝑖)
+⎪ 𝗁𝖾𝖺𝖽
+Ectag (𝑖) = ⎨E𝗁𝖾𝖺𝖽 (6, 1280 + (𝑖 − 7))
+⎪E (6, 102) ⋅ E (4, 2) ⋅ E (𝑖)
+𝗁𝖾𝖺𝖽
+ℤ
+⎩ 𝗁𝖾𝖺𝖽
+
+if 0 ≤ 𝑖 ≤ 6
+if 7 ≤ 𝑖 ≤ 127
+otherwise.
+
+In the final case of Ectag we emit a head with major type 4 and argument 2. This indicates that an encoding
+of a list of length 2 will follow: the first element of the list is the constructor number and the second is
+the argument list of the constructor, which is actually encoded in E𝚍𝚊𝚝𝚊 . It might be conceptually more
+accurate to have a single encoder which would encode both the constructor tag and the argument list, but
+this would increase the complexity of the notation even further. Similar remarks apply to Dctag below.
+The decoder.
+
+The decoder is given by
+
+⎧ ′′
+⎪(𝑠 , 𝙼𝚊𝚙 𝑙)
+⎪(𝑠′ , 𝙻𝚒𝚜𝚝 𝑙)
+⎪
+D𝚍𝚊𝚝𝚊 (𝑠) = ⎨(𝑠′′ , 𝙲𝚘𝚗𝚜𝚝𝚛 𝑖 𝑙)
+⎪(𝑠′ , 𝙸 𝑛)
+⎪
+⎪(𝑠′ , 𝙱 𝑏)
+⎩
+where
+
+{
+D𝚍𝚊𝚝𝚊∗ (𝑠) =
+{
+(𝑛)
+D𝚍𝚊𝚝𝚊
+∗ (𝑠) =
+
+{
+𝗂𝗇𝖽𝖾𝖿
+D𝚍𝚊𝚝𝚊
+∗ (𝑠) =
+
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 5, 𝑛) and D(𝑛)
+
+(𝚍𝚊𝚝𝚊𝟸 )∗
+
+(𝑠′ ) = (𝑠′′ , 𝑙)
+
+if D𝚍𝚊𝚝𝚊∗ (𝑠) = (𝑠′ , 𝑙)
+if Dctag (𝑠) = (𝑠′ , 𝑖) and D𝚍𝚊𝚝𝚊∗ (𝑠′ ) = (𝑠′′ , 𝑙)
+if Dℤ (𝑠) = (𝑠′ , 𝑛)
+if D𝔹∗ (𝑠) = (𝑠′ , 𝑏)
+(𝑛)
+′
+D𝚍𝚊𝚝𝚊
+∗ (𝑠 )
+𝗂𝗇𝖽𝖾𝖿
+D𝚍𝚊𝚝𝚊∗ (𝑠′ )
+
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 4, 𝑛)
+if D𝗂𝗇𝖽𝖾𝖿 (𝑠) = (𝑠′ , 4)
+
+(𝑠, 𝜖)
+(𝑠′′ , 𝑑 ⋅ 𝑙)
+
+if 𝑛 = 0
+(𝑛−1) ′
+′′
+if D𝚍𝚊𝚝𝚊 (𝑠) = (𝑠′ , 𝑑) and D𝚍𝚊𝚝𝚊
+∗ (𝑠 ) = (𝑠 , 𝑙)
+
+(𝑠′ , 𝜖)
+(𝑠′′ , 𝑑 ⋅ 𝑙)
+
+if 𝑠 = 255 ⋅ 𝑠′
+𝗂𝗇𝖽𝖾𝖿 (𝑠′ ) = (𝑠′′ , 𝑙)
+if D𝚍𝚊𝚝𝚊 (𝑠) = (𝑠′ , 𝑑) and D𝚍𝚊𝚝𝚊
+∗
+
+⎧(𝑠, 𝜖)
+⎪
+⎪
+⎪
+(𝑛)
+D
+(𝑠) = ⎨ ′′′
+(𝚍𝚊𝚝𝚊𝟸 )∗
+⎪(𝑠 , (𝑘, 𝑑) ⋅ 𝑙)
+⎪
+⎪
+⎩
+⎧(𝑠′ , 𝑖 − 121)
+⎪
+⎪(𝑠′ , (𝑖 − 1280) + 7)
+⎪
+⎪
+Dctag (𝑠) = ⎨
+⎪(𝑠′′′ , 𝑖)
+⎪
+⎪
+⎪
+⎩
+
+if 𝑛 = 0
+⎧if 𝑛 > 0
+⎪
+⎪and D𝚍𝚊𝚝𝚊 (𝑠) = (𝑠′ , 𝑘)
+⎨and D
+′
+′′
+𝚍𝚊𝚝𝚊 (𝑠 ) = (𝑠 , 𝑑)
+⎪
+(𝑛−1)
+′′
+⎪and D
+(𝑠 ) = (𝑠′′′ , 𝑙)
+(𝚍𝚊𝚝𝚊𝟸 )∗
+⎩
+
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 6, 𝑖) and 121 ≤ 𝑖 ≤ 127
+if D𝗁𝖾𝖺𝖽 (𝑠) = (𝑠′ , 6, 𝑖) and 1280 ≤ 𝑖 ≤ 1400
+⎧if D (𝑠) = (𝑠′ , 6, 102)
+𝗁𝖾𝖺𝖽
+⎪
+⎪and D𝗁𝖾𝖺𝖽 (𝑠′ ) = (𝑠′′ , 4, 2)
+⎨
+′′
+′′′
+⎪and Dℤ (𝑠 ) = (𝑠 , 𝑖)
+⎪and 0 ≤ 𝑖 ≤ 264 − 1.
+⎩
+57
+
+Note that the decoders for List and Constr accept both definite-length and indefinite-length lists of
+encoded data values, but the decoder for Map only accepts definite-length lists (and the length is the
+number of pairs in the map). This is consistent with CBOR’s standard encoding of arrays and lists (major
+type 4) and maps (major type 5).
+Note also that the encoder Ectag accepts arbitrary integer values for Constr tags, but (for compatibility
+with [22]) the decoder Dctag only accepts tags in ℕ[0,264 −1] . This means that some valid Plutus Core
+programs can be serialised but not deserialised, and is the reason for the recommendation in Section 4.3.1.1
+that only constructor tags between 0 and 264 − 1 should be used.
+
+58
+
+Appendix C
+
+Serialising Plutus Core Terms and
+Programs Using the flat Format
+We use the flat format [11] to serialise Plutus Core terms, and we regard this format as being the definitive
+concrete representation of Plutus Core programs. For compactness we generally (and always for scripts
+on the blockchain) replace names with de Bruijn indices (see Section 2.1.3) in serialised programs.
+We use bytestrings for serialisation, but it is convenient to define the serialisation and deserialisation
+process in terms of strings of bits. Some extra bits of padding are added at the end of the encoding of
+a program to ensure that the number of bits in the output is a multiple of 8, and this allows us to regard
+serialised programs as bytestrings in the obvious way.
+See Section C.4 for some restrictions on serialisation specific to the Cardano blockchain.
+Note: flat versus CBOR. Much of the Cardano codebase uses the CBOR format for serialisation; however, it is important that serialised scripts not be too large. CBOR pays a price for being a self-describing
+format. The size of the serialised terms is consistently larger than a format that is not self-describing:
+benchmarks show that flat encodings of Plutus Core scripts are smaller than CBOR encodings by about
+35% (without using compression).
+
+C.1
+
+Encoding and decoding
+
+Firstly recall some notation from Section 1.2. The set of all finite sequences of bits is denoted by 𝖻∗ =
+{𝟶, 𝟷}∗ . For brevity we write a sequence of bits in the form 𝑏𝑛−1 ⋯ 𝑏0 instead of [𝑏𝑛−1 , … , 𝑏0 ]: thus
+𝟶𝟷𝟷𝟶𝟶𝟷 instead of [𝟶, 𝟷, 𝟷, 𝟶, 𝟶, 𝟷]). We denote the empty sequence by 𝜖, and use 𝓁(𝑠) to denote the length
+of a sequence of bits, and ⋅ to denote concatenation (or prepending or appending a single bit to a sequence
+of bits).
+Similarly to the CBOR encoding for data described in Appendix B, we will describe the flat encoding by
+defining families of encoding functions (or encoders)
+𝖤𝑋 ∶ 𝖻∗ × 𝑋 → 𝖻∗
+and (partial) decoding functions (or decoders)
+𝖣𝑋 ∶ 𝖻∗ ⇀ 𝖻∗ × 𝑋
+
+59
+
+for various sets 𝑋, such as the set ℤ of integers and the set of all Plutus Core terms. The encoding function
+𝖤𝑋 takes a sequence 𝑠 ∈ 𝖻∗ and an element 𝑥 ∈ 𝑋 and produces a new sequence of bits by appending the
+encoding of 𝑥 to 𝑠, and the decoding function 𝖣𝑋 takes a sequence of bits, decodes some initial prefix of
+𝑠 to a value 𝑥 ∈ 𝑋, and returns the remainder of 𝑠 together with 𝑥.
+Encoding functions basically operate by decomposing an object into subobjects and concatenating the
+encodings of the subobject; however it is sometimes necessary to add some padding between subobjects
+in order to make sure that parts of the output are aligned on byte boundaries, and for this reason (unlike
+the CBOR encoding for data) all of our encoding functions have a first argument containing all of the
+previous output, so that it can be examined to determine how much alignment is required.
+As in the case of CBOR, decoding functions are partial: they can fail if, for instance, there is insufficient
+input, or if a decoded value is outside some specified range. To simplify notation we will mention any
+preconditions separately, with the assumption that the decoder will fail if the preconditions are not met;
+we also make a blanket assumption that all decoders fail if there is not enough input for them to proceed.
+Many of the definitions of decoders construct objects by calling other decoders to obtain subobjects which
+are then composed, and these are often introduced by a condition of the form “if 𝖣𝑋 (𝑠) = 𝑥”. Conditions
+like this should be read as implicitly saying that if the decoder 𝖣𝑋 fails then the whole decoding process
+fails.
+
+C.1.1
+
+Padding
+
+The encoding functions mentioned above produce sequences of bits, but we sometimes need sequences of
+bytes. To this end we introduce a functions 𝗉𝖺𝖽 ∶ 𝖻∗ → 𝖻∗ which adds a sequence of 𝟶s followed by a 𝟷 to
+a sequence 𝑠 to get a sequence whose length is a multiple of 8; if 𝑠 is a sequence such that 𝓁(𝑠) is already
+a multiple of 8 then 𝗉𝖺𝖽 still adds an extra byte of padding; 𝗉𝖺𝖽 is used both for internal alignment (for
+example, to make sure that the contents of a bytestring are aligned on byte boundaries) and at the end of
+a complete encoding of a Plutus Core program to make the length a multiple of 8 bits. Symbolically,
+𝗉𝖺𝖽(𝑠) = 𝑠 ⋅ 𝗉𝑘
+
+if 𝓁(𝑠) = 8𝑛 + 𝑘 with 𝑛, 𝑘 ∈ ℕ and 0 ≤ 𝑘 ≤ 7
+
+where
+𝗉0 = 𝟶𝟶𝟶𝟶𝟶𝟶𝟶𝟷
+𝗉1 = 𝟶𝟶𝟶𝟶𝟶𝟶𝟷
+𝗉2 = 𝟶𝟶𝟶𝟶𝟶𝟷
+𝗉3 = 𝟶𝟶𝟶𝟶𝟷
+𝗉4 = 𝟶𝟶𝟶𝟷
+𝗉5 = 𝟶𝟶𝟷
+𝗉6 = 𝟶𝟷
+𝗉7 = 𝟷.
+We also define a (partial) inverse function 𝗎𝗇𝗉𝖺𝖽 ∶ 𝖻∗ ⇀ 𝖻∗ which discards padding:
+𝗎𝗇𝗉𝖺𝖽(𝑞 ⋅ 𝑠) = 𝑠
+
+if 𝑞 = 𝗉𝑖 for some 𝑖 ∈ {0, 1, 2, 3, 4, 5, 6, 7}.
+
+This can fail if the padding is not of the expected form or if the input is the empty sequence 𝜖.
+
+60
+
+C.2
+
+Basic flat encodings
+
+C.2.1
+
+Fixed-width natural numbers
+
+We often wish to encode and decode natural numbers which fit into some fixed number of bits, and we do
+this simply by encoding them as their binary expansion (most significant bit first), adding leading zeros if
+necessary. More precisely for 𝑛 ≥ 1 we define an encoder
+𝖤𝑛 ∶ 𝖻∗ × ℕ[0,2𝑛−1 −1] → 𝖻∗
+by
+𝖤𝑛 (𝑠,
+
+𝑛−1
+∑
+
+(𝑏𝑖 ∈ {0, 1})
+
+𝑏𝑖 2𝑖 ) = 𝑠 ⋅ 𝑏𝑛−1 ⋯ 𝑏0
+
+𝑖=0
+
+and a decoder
+
+𝖣𝑛 ∶ 𝖻∗ ⇀ 𝖻∗ × ℕ[0,2𝑛−1 −1]
+
+by
+𝖣𝑛 (𝑏𝑛−1 ⋯ 𝑏0 ⋅ 𝑠) = (𝑠,
+
+𝑛−1
+∑
+
+𝑏𝑖 2𝑖 ).
+
+𝑖=0
+
+As in Appendix B, ℕ[𝑎,𝑏] denotes the closed interval of integers {𝑛 ∈ ℤ ∶ 𝑎 ≤ 𝑛 ≤ 𝑏}. Note that 𝑛 here
+is a variable (not a fixed label) so we are defining whole families of encoders 𝖤1 , 𝖤2 , 𝖤3 , … and decoders
+𝖣1 , 𝖣2 , 𝖣3 ….
+
+C.2.2
+
+Lists
+
+Suppose that we have a set 𝑋 for which we have defined an encoder 𝖤𝑋 and a decoder 𝖣𝑋 ; we define an
+⃖⃗𝑋 which encodes lists of elements of 𝑋 by emitting the encodings of the elements of the list,
+encoder 𝖤
+each preceded by a 𝟷 bit, then emitting a 𝟶 bit to mark the end of the list.
+⃖⃗𝑋 (𝑠, []) = 𝑠 ⋅ 𝟶
+𝖤
+⃖⃗𝑋 (𝑠, [𝑥1 , … , 𝑥𝑛 ]) = 𝖤
+⃖⃗𝑋 (𝑠 ⋅ 𝟷 ⋅ 𝖤𝑋 (𝑥1 ), [𝑥2 , … , 𝑥𝑛 ]).
+𝖤
+The corresponding decoder is given by
+⃖⃖⃗𝑋 (𝟶 ⋅ 𝑠) = (𝑠, [])
+𝖣
+⃖⃖⃗𝑋 (𝟷 ⋅ 𝑠) = (𝑠′′ , 𝑥 ⋅ 𝑙)
+𝖣
+
+C.2.3
+
+⃖⃖⃗𝑋 (𝑠′ ) = (𝑠′′ , 𝑙).
+if 𝐷𝑋 (𝑠) = (𝑠′ , 𝑥) and 𝖣
+
+Natural numbers
+
+Every natural number 𝑚 can be uniquely written in the form
+𝑚=
+
+𝑛
+∑
+
+𝑘𝑖 27𝑖
+
+𝑖=0
+
+with 𝑛 ≥ 0, 0 ≤ 𝑘𝑖 ≤ 127 for 0 ≤ 𝑖 ≤ 𝑛, and 𝑘𝑛 ≠ 0. Each 𝑘𝑖 is 7 bit binary block, 𝑘0 being the least
+significant block.
+With this representation, the encoder for natural numbers is
+
+61
+
+{
+⃖⃗7 (𝑠, []), 𝑘0 )
+𝖤7 (𝖤
+if 𝑛 = 0
+𝖤ℕ (𝑠,
+𝑘𝑖 2 ) =
+⃖
+⃗
+𝖤7 (𝖤7 (𝑠, [𝑘0 , … , 𝑘𝑛−1 ]), 𝑘𝑛 ) if 𝑛 ≠ 0.
+𝑖=0
+𝑛
+∑
+
+The decoder is
+{
+𝖣ℕ (𝑠) =
+
+7𝑖
+
+𝐷7 (𝑠′ )
+∑
+(𝑠′′ , 𝑛𝑖=0 𝑘𝑖 27𝑖 )
+
+⃖⃖⃗7 (𝑠) = (𝑠′ , [])
+if 𝖣
+⃖⃖⃗7 (𝑠) = (𝑠′ , [𝑘0 , … , 𝑘𝑛−1 ]) and 𝖣7 (𝑠′ ) = (𝑠′′ , 𝑘𝑛 ) with 𝑛 ≥ 1.
+if 𝖣
+
+Intuitively, every 7 bit block except for the last one is prefixed by 1 and the last block is prefixed by 0.
+
+C.2.4
+
+Integers
+
+Signed integers are encoded by converting them to natural numbers using the zigzag encoding (0 ↦
+0, −1 ↦ 1, 1 ↦ 2, −2 ↦ 3, 2 ↦ 4, …) and then encoding the result using 𝖤ℕ :
+{
+𝖤ℕ (𝑠, 2𝑛)
+if 𝑛 ≥ 0
+𝖤ℤ (𝑠, 𝑛) =
+𝖤ℕ (𝑠, −2𝑛 − 1) if 𝑛 < 0.
+The decoder is
+
+{
+𝖣ℤ (𝑠) =
+
+C.2.5
+
+(𝑠′ , 2𝑛 )
+if 𝑛 ≡ 0 (mod 2)
+)
+if 𝑛 ≡ 1 (mod 2)
+(𝑠′ , − 𝑛+1
+2
+
+if 𝖣ℕ (𝑠) = (𝑠′ , 𝑛).
+
+Bytestrings
+
+Bytestrings are encoded by dividing them into nonempty blocks of up to 255 bytes and emitting each block
+in sequence. Each block is preceded by a single unsigned byte containing its length, and the end of the
+encoding is marked by a zero-length block (so the empty bytestring is encoded just as a zero-length block).
+Before emitting a bytestring, the preceding output is padded so that its length (in bits) is a multiple of 8;
+if this is already the case a single padding byte is still added; this ensures that contents of the bytestring
+are aligned to byte boundaries in the output.
+Recall that 𝔹 denotes the set of 8-bit bytes, {0, 1, … , 255}. For specification purposes we may identify
+the set of bytestrings with the set 𝔹∗ of (possibly empty) lists of elements of 𝔹. We denote by 𝐶 the set
+of bytestring chunks of nonempty bytestrings of length at most 255: 𝐶 = {[𝑏1 , … , 𝑏𝑛 ] ∶ 𝑏𝑖 ∈ 𝔹, 1 ≤ 𝑛 ≤
+255}, and define a function 𝐸𝐶 ∶ 𝐶 → 𝖻∗ by
+𝐸𝐶 ([𝑏1 , … , 𝑏𝑛 ]) = 𝖤8 (𝑛) ⋅ 𝖤8 (𝑏1 ) ⋅ ⋯ ⋅ 𝖤8 (𝑏𝑛 ).
+We define an encoder 𝖤𝐶 ∗ for lists of chunks by
+𝖤𝐶 ∗ (𝑠, [𝑐1 , … , 𝑐𝑛 ]) = 𝑠 ⋅ 𝐸𝐶 (𝑐1 ) ⋅ ⋯ ⋅ 𝐸𝐶 (𝑐𝑛 ) ⋅ 𝟶𝟶𝟶𝟶𝟶𝟶𝟶𝟶.
+Note that each 𝑐𝑖 is required to be nonempty but that we allow the case 𝑛 = 0, so that an empty list of
+chunks encodes as 𝟶𝟶𝟶𝟶𝟶𝟶𝟶𝟶.
+To encode a bytestring we decompose it into a list 𝐿 of chunks and then apply 𝖤𝐶 ∗ to 𝐿. However, there
+will usually be many ways to decompose a given bytestring 𝑎 into chunks. For definiteness we recommend
+(but do not demand) that 𝑎 is decomposed into a sequence of chunks of length 255 possibly followed by
+a smaller chunk. Formally, suppose that 𝑎 = [𝑎1 , … , 𝑎255𝑘+𝑟 ] ∈ 𝔹∗ ∖{𝜖} where 𝑘 ≥ 0 and 0 ≤ 𝑟 ≤ 254.
+We define the canonical 256-byte decomposition 𝑎̃ of 𝑎 to be
+𝑎̃ = [[𝑎1 , … , 𝑎255 ], [𝑎256 , … , 𝑎510 ], … [𝑎255(𝑘−1)+1 , … , 𝑎255𝑘 ]] ∈ 𝐶 ∗
+62
+
+if 𝑟 = 0 and
+𝑎̃ = [[𝑎1 , … , 𝑎255 ], [𝑎256 , … , 𝑎510 ], … [𝑎255(𝑘−1)+1 , … , 𝑎255𝑘 ], [𝑎255𝑘+1 , … , 𝑎255𝑘+𝑟 ]] ∈ 𝐶 ∗
+if 𝑟 > 0.
+For the empty bytestring we define
+𝜖̃ = [].
+Given all of the above, we define the canonical encoding function 𝖤𝔹∗ for bytestrings to be
+𝖤𝔹∗ (𝑠, 𝑎) = 𝐸𝐶 ∗ (𝗉𝖺𝖽(𝑠), 𝑎).
+̃
+Non-canonical encodings can be obtained by replacing 𝑎̃ with any other decomposition of 𝑎 into nonempty
+chunks, and the decoder below will accept these as well.
+To define a decoder for bytestrings we first define a decoder 𝖣𝐶 for bytestring chunks:
+𝖣𝐶 (𝑠) = 𝖣(𝑛)
+(𝑠′ , [])
+𝐶
+where
+
+{
+𝖣(𝑛)
+(𝑠, 𝑙) =
+𝐶
+
+Now we define
+𝖣𝐶 ∗ (𝑠) =
+
+{
+
+(𝑠′ , [])
+(𝑠′′ , 𝑥 ⋅ 𝑙)
+
+(𝑠, 𝑙)
+𝖣(𝑛−1)
+(𝑠′ , 𝑙 ⋅ 𝑥)
+𝐶
+
+if 𝖣8 (𝑠) = (𝑠′ , 𝑛)
+if 𝑛 = 0
+if 𝑛 > 0 and 𝖣8 (𝑠) = (𝑠′ , 𝑥).
+
+if 𝐷𝐶 (𝑠) = (𝑠′ , [])
+if 𝖣𝐶 (𝑠) = (𝑠′ , 𝑥) with 𝑥 ≠ [] and 𝖣𝐶 ∗ (𝑠′ ) = (𝑠′′ , 𝑙).
+
+The notation is slightly misleading here: 𝖣𝐶 ∗ does not decode to a list of bytestring chunks, but to a single
+bytestring. We could alternatively decode to a list of bytestrings and then concatenate them later, but this
+would have the same overall effect.
+Finally, we define the decoder for bytestrings by
+𝖣𝔹∗ (𝑠) = 𝖣𝐶 ∗ (𝗎𝗇𝗉𝖺𝖽(𝑠)).
+
+C.2.6
+
+Strings
+
+We have defined values of the string type to be sequences of Unicode characters. As mentioned earlier
+we do not specify any particular internal representation of Unicode characters, but for serialisation we use
+the UTF-8 representation to convert between strings and bytestrings and then use the bytestring encoder
+and decoder:
+𝖤𝕌∗ (𝑠, 𝑢) = 𝖤𝔹∗ (𝑠, 𝗎𝗍𝖿 𝟪(𝑢))
+𝖣𝕌∗ (𝑠) = (𝑠′ , 𝗎𝗍𝖿 𝟪−1 (𝑎))
+
+if 𝖣𝔹∗ (𝑠) = (𝑠′ , 𝑎)
+
+where 𝗎𝗍𝖿 𝟪 and 𝗎𝗍𝖿 𝟪−1 are the UTF8 encoding and decoding functions mentioned in Section 4.3.1. Recall
+that 𝗎𝗍𝖿 𝟪−1 is partial (not all bytestrings represent valid Unicode sequences), so 𝖣𝕌∗ may fail if the input
+is invalid.
+
+63
+
+C.3
+
+Encoding and decoding Plutus Core
+
+C.3.1
+
+Programs
+
+A program is encoded by encoding the three components of the version number in sequence then encoding
+the body, and possibly adding some padding to ensure that the total number of bits in the output is a
+multiple of 8 (and hence the output can be viewed as a bytestring).
+𝖤𝗉𝗋𝗈𝗀𝗋𝖺𝗆 ((program 𝑎.𝑏.𝑐 𝑡)) = 𝗉𝖺𝖽(𝖤𝗍𝖾𝗋𝗆 (𝖤ℕ (𝖤ℕ (𝖤ℕ (𝜖, 𝑎), 𝑏), 𝑐), 𝑡)).
+The decoding process is the inverse of the encoding process: three natural numbers are read to obtain the
+version number and then the body is decoded. After this we discard any padding in the remaining input
+and check that all of the input has been consumed.
+
+𝖣𝗉𝗋𝗈𝗀𝗋𝖺𝗆 (𝑠) = (program 𝑎.𝑏.𝑐 𝑡)
+
+C.3.2
+
+⎧
+⎪ if
+⎪ and
+⎪
+⎨ and
+⎪ and
+⎪
+⎪ and
+⎩
+
+𝖣ℕ (𝑠) = (𝑠′ , 𝑎)
+𝖣ℕ (𝑠′ ) = (𝑠′′ , 𝑏)
+𝖣ℕ (𝑠′′ ) = (𝑠′′′ , 𝑐)
+𝖣𝗍𝖾𝗋𝗆 (𝑠′′′ ) = (𝑟, 𝑡)
+𝗎𝗇𝗉𝖺𝖽(𝑟) = 𝜖.
+
+Terms
+
+Plutus Core terms are encoded by emitting a 4-bit tag identifying the type of the term (see Table C.1;
+recall that [] denotes application) then emitting the encodings for any subterms. We currently only use
+ten of the sixteen available tags: the remainder are reserved for potential future expansion.
+Term type
+
+Binary
+
+Decimal
+
+Variable
+
+𝟶𝟶𝟶𝟶
+
+0
+
+delay
+
+𝟶𝟶𝟶𝟷
+
+1
+
+lam
+
+𝟶𝟶𝟷𝟶
+
+2
+
+[]
+
+𝟶𝟶𝟷𝟷
+
+3
+
+const
+
+𝟶𝟷𝟶𝟶
+
+4
+
+force
+
+𝟶𝟷𝟶𝟷
+
+5
+
+error
+
+𝟶𝟷𝟷𝟶
+
+6
+
+builtin
+
+𝟶𝟷𝟷𝟷
+
+7
+
+constr
+
+𝟷𝟶𝟶𝟶
+
+8
+
+case
+
+𝟷𝟶𝟶𝟷
+
+9
+
+Table C.1: Term tags
+The encoder for terms is given below: it refers to other encoders (for names, types, and constants) which
+will be defined later.
+
+64
+
+𝖤𝗍𝖾𝗋𝗆 (𝑠, 𝑥)
+
+= 𝖤𝗇𝖺𝗆𝖾 (𝑠 ⋅ 𝟶𝟶𝟶𝟶, 𝑥)
+
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (delay 𝑡))
+
+= 𝖤𝗍𝖾𝗋𝗆 (𝑠 ⋅ 𝟶𝟶𝟶𝟷, 𝑡)
+
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (lam 𝑥 𝑡))
+
+= 𝖤𝗍𝖾𝗋𝗆 (𝖤𝜆𝗏𝖺𝗋 (𝑠 ⋅ 𝟶𝟶𝟷𝟶, 𝑥), 𝑡)
+
+𝖤𝗍𝖾𝗋𝗆 (𝑠, [𝑡1 𝑡2 ])
+
+= 𝖤𝗍𝖾𝗋𝗆 (𝖤𝗍𝖾𝗋𝗆 (𝑠 ⋅ 𝟶𝟶𝟷𝟷, 𝑡1 ), 𝑡2 )
+
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (const 𝑡𝑛 𝑐)) = 𝖤𝑡𝑛
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝖤𝗍𝗒𝗉𝖾 (𝑠 ⋅ 𝟶𝟷𝟶𝟶, T), 𝑐)
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (force 𝑡))
+
+= 𝖤𝗍𝖾𝗋𝗆 (𝑠 ⋅ 𝟶𝟷𝟶𝟷, 𝑡)
+
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (error))
+
+= 𝑠 ⋅ 𝟶𝟷𝟷𝟶
+
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (builtin 𝑏)) = 𝖤𝖻𝗎𝗂𝗅𝗍𝗂𝗇 (𝑠 ⋅ 𝟶𝟷𝟷𝟷, 𝑏)
+⃖⃗𝗍𝖾𝗋𝗆 (𝖤ℕ (𝑠 ⋅ 𝟷𝟶𝟶𝟶, 𝑖), 𝑙)
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (constr 𝑖 𝑙)) = 𝖤
+𝖤𝗍𝖾𝗋𝗆 (𝑠, (case 𝑢 𝑙))
+
+⃖⃗𝗍𝖾𝗋𝗆 (𝖤𝗍𝖾𝗋𝗆 (𝑠 ⋅ 𝟷𝟶𝟶𝟷, 𝑢), 𝑙)
+=𝖤
+
+The decoder for terms is given below. To simplify the definition we use some pattern-matching syntax for
+inputs to decoders: for example the argument 𝟶𝟷𝟶𝟷 ⋅ 𝑠 indicates that when the input is a string beginning
+with 𝟶𝟷𝟶𝟷 the definition after the = sign should be used (and the remainder of the input is available in 𝑠
+there). If the input is not long enough to permit the indicated decomposition then the decoder fails. The
+decoder also fails if the input begins with a prefix which is not listed; that does not happen here, but does
+in some later decoders.
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟶𝟶𝟶 ⋅ 𝑠) = (𝑠′ , 𝑥)
+
+if 𝖣𝗇𝖺𝗆𝖾 (𝑠) = (𝑠′ , 𝑥)
+
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟶𝟶𝟷 ⋅ 𝑠) = (𝑠′ , (delay 𝑡))
+
+if 𝖣𝗍𝖾𝗋𝗆 (𝑠) = (𝑠′ , 𝑡)
+
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟶𝟷𝟶 ⋅ 𝑠) = (𝑠 , (lam 𝑥 𝑡))
+
+if 𝖣𝜆𝗏𝖺𝗋 (𝑠) = (𝑠′ , 𝑥)
+
+and 𝖣𝗍𝖾𝗋𝗆 (𝑠′ ) = (𝑠′′ , 𝑡)
+
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟶𝟷𝟷 ⋅ 𝑠) = (𝑠′′ , [𝑡1 𝑡2 ])
+
+if 𝖣𝗍𝖾𝗋𝗆 (𝑠) = (𝑠′ , 𝑡1 )
+
+and 𝖣𝗍𝖾𝗋𝗆 (𝑠′ ) = (𝑠′′ , 𝑡2 )
+
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟷𝟶𝟶 ⋅ 𝑠) = (𝑠′′ , (const 𝑡𝑛 𝑐))
+
+if 𝖣𝗍𝗒𝗉𝖾 (𝑠) = (𝑠′ , T)
+
+and 𝖣T𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠′ ) = (𝑠′′ , 𝑐)
+
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟷𝟶𝟷 ⋅ 𝑠) = (𝑠′ , (force 𝑡))
+
+if 𝖣𝗍𝖾𝗋𝗆 (𝑠) = (𝑠′ , 𝑡)
+
+′′
+
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟷𝟷𝟶 ⋅ 𝑠) = (𝑠, (error))
+𝖣𝗍𝖾𝗋𝗆 (𝟶𝟷𝟷𝟷 ⋅ 𝑠) = (𝑠′ , (builtin 𝑏))
+
+if 𝖣𝖻𝗎𝗂𝗅𝗍𝗂𝗇 (𝑠) = (𝑠′ , 𝑏)
+
+𝖣𝗍𝖾𝗋𝗆 (𝟷𝟶𝟶𝟶 ⋅ 𝑠) = (𝑠′′ , (constr 𝑖 𝑙))
+
+⃖⃖⃗𝗍𝖾𝗋𝗆 (𝑠′ ) = (𝑠′′ , 𝑙)
+if 𝖣ℕ (𝑠) = (𝑠′ , 𝑖) and 𝑖 < 264 and 𝖣
+
+𝖣𝗍𝖾𝗋𝗆 (𝟷𝟶𝟶𝟷 ⋅ 𝑠) = (𝑠′′ , (case 𝑢 𝑙))
+
+if 𝖣𝗍𝖾𝗋𝗆 (𝑠) = (𝑠′ , 𝑢)
+
+⃖⃖⃗𝗍𝖾𝗋𝗆 (𝑠′ ) = (𝑠′′ , 𝑙)
+and 𝖣
+
+NOTE. The decoder 𝖣𝗍𝖾𝗋𝗆 should fail if we are decoding a program with a version less than 1.1.0 and
+an input of the form 𝟷𝟶𝟶𝟶 ⋅ 𝑠 or 𝟷𝟶𝟶𝟷 ⋅ 𝑠 is encountered. It should also fail when decoding a constr term
+if a tag is encountered which is greater than or equal to 264 (this enforces the 64-bit limitation mentioned
+in the paragraph headed Constructor tags in Section 2.1.3).
+
+C.3.3
+
+Built-in types
+
+Constants from built-in types are essentially encoded by emitting a sequence of 4-bit tags representing
+the constant’s type and then emitting the encoding of the constant itself. However the encoding of types
+is somewhat complex because it has to be able to deal with type operators such as 𝚕𝚒𝚜𝚝 and 𝚙𝚊𝚒𝚛. The
+tags are given in Table C.2: they include tags for the basic types together with a tag for a type application
+operator.
+65
+
+Type
+
+Binary
+
+Decimal
+
+𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝟶𝟶𝟶𝟶
+
+0
+
+𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+
+𝟶𝟶𝟶𝟷
+
+1
+
+𝚜𝚝𝚛𝚒𝚗𝚐
+
+𝟶𝟶𝟷𝟶
+
+2
+
+𝚞𝚗𝚒𝚝
+𝚋𝚘𝚘𝚕
+
+𝟶𝟶𝟷𝟷
+𝟶𝟷𝟶𝟶
+
+3
+4
+
+𝚕𝚒𝚜𝚝
+
+𝟶𝟷𝟶𝟷
+
+5
+
+𝚙𝚊𝚒𝚛
+
+𝟶𝟷𝟷𝟶
+
+6
+
+(type application)
+
+𝟶𝟷𝟷𝟷
+
+7
+
+𝚍𝚊𝚝𝚊
+
+𝟷𝟶𝟶𝟶
+
+8
+
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+
+𝟷𝟶𝟶𝟷
+
+9
+
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝
+
+𝟷𝟶𝟷𝟶
+
+10
+
+𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙼𝚕𝚁𝚎𝚜𝚞𝚕𝚝
+
+𝟷𝟶𝟷𝟷
+
+11
+
+𝚊𝚛𝚛𝚊𝚢
+
+𝟷𝟷𝟶𝟶
+
+12
+
+Table C.2: Type tags
+We define auxiliary functions 𝖾𝗍𝗒𝗉𝖾 ∶ U → ℕ∗ and 𝖽𝗍𝗒𝗉𝖾 ∶ ℕ∗ ⇀ ℕ∗ × U (𝖽𝗍𝗒𝗉𝖾 is partial and U denotes
+the universe of types defined in Sections 4.3.1, 4.3.2, and 4.3.3).
+𝖾𝗍𝗒𝗉𝖾 (𝚒𝚗𝚝𝚎𝚐𝚎𝚛)
+
+= [0]
+
+𝖾𝗍𝗒𝗉𝖾 (𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐) = [1]
+𝖾𝗍𝗒𝗉𝖾 (𝚜𝚝𝚛𝚒𝚗𝚐)
+
+= [2]
+
+𝖾𝗍𝗒𝗉𝖾 (𝚞𝚗𝚒𝚝)
+
+= [3]
+
+𝖾𝗍𝗒𝗉𝖾 (𝚋𝚘𝚘𝚕)
+
+= [4]
+
+𝖾𝗍𝗒𝗉𝖾 (𝚕𝚒𝚜𝚝 (𝑡))
+
+= [7, 5] ⋅ 𝖾𝗍𝗒𝗉𝖾 (𝑡)
+
+𝖾𝗍𝗒𝗉𝖾 (𝚊𝚛𝚛𝚊𝚢 (𝑡))
+
+= [7, 12] ⋅ 𝖾𝗍𝗒𝗉𝖾 (𝑡)
+
+𝖾𝗍𝗒𝗉𝖾 (𝚙𝚊𝚒𝚛 (𝑡1 , 𝑡2 )) = [7, 7, 6] ⋅ 𝖾𝗍𝗒𝗉𝖾 (𝑡1 ) ⋅ 𝖾𝗍𝗒𝗉𝖾 (𝑡2 )
+𝖾𝗍𝗒𝗉𝖾 (𝚍𝚊𝚝𝚊)
+
+= [8].
+
+66
+
+𝖽𝗍𝗒𝗉𝖾 (0 ⋅ 𝑙)
+
+= (𝑙, 𝚒𝚗𝚝𝚎𝚐𝚎𝚛)
+
+𝖽𝗍𝗒𝗉𝖾 (1 ⋅ 𝑙)
+
+= (𝑙, 𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐)
+
+𝖽𝗍𝗒𝗉𝖾 (2 ⋅ 𝑙)
+
+= (𝑙, 𝚜𝚝𝚛𝚒𝚗𝚐)
+
+𝖽𝗍𝗒𝗉𝖾 (3 ⋅ 𝑙)
+
+= (𝑙, 𝚞𝚗𝚒𝚝)
+
+𝖽𝗍𝗒𝗉𝖾 (4 ⋅ 𝑙)
+
+= (𝑙, 𝚋𝚘𝚘𝚕)
+
+𝖽𝗍𝗒𝗉𝖾 ([7, 5] ⋅ 𝑙)
+
+= (𝑙′ , 𝚕𝚒𝚜𝚝 (𝑡))
+
+if 𝖽𝗍𝗒𝗉𝖾 (𝑙) = (𝑙′ , 𝑡)
+
+if 𝖽𝗍𝗒𝗉𝖾 (𝑙) = (𝑙′ , 𝑡)
+{
+if
+𝖽𝗍𝗒𝗉𝖾 (𝑙) = (𝑙′ , 𝑡1 )
+′′
+𝖽𝗍𝗒𝗉𝖾 ([7, 7, 6] ⋅ 𝑙) = (𝑙 , 𝚙𝚊𝚒𝚛 (𝑡1 , 𝑡2 ))
+and 𝖽𝗍𝗒𝗉𝖾 (𝑙′ ) = (𝑙′′ , 𝑡2 )
+𝖽𝗍𝗒𝗉𝖾 ([7, 12] ⋅ 𝑙) = (𝑙′ , 𝚊𝚛𝚛𝚊𝚢 (𝑡))
+
+𝖽𝗍𝗒𝗉𝖾 (8 ⋅ 𝑙)
+
+= (𝑙, 𝚍𝚊𝚝𝚊).
+
+⃖⃗4 and 𝖣
+⃖⃖⃗4 , the encoder
+The encoder and decoder for types is obtained by combining 𝖾𝗍𝗒𝗉𝖾 and 𝖽𝗍𝗒𝗉𝖾 with 𝖤
+and decoder for lists of four-bit integers (see Section C.2).
+⃖⃗4 (𝑠, 𝖾𝗍𝗒𝗉𝖾 (𝑡))
+𝖤𝗍𝗒𝗉𝖾 (𝑠, 𝑡) = 𝖤
+𝖣𝗍𝗒𝗉𝖾 (𝑠) = (𝑠′ , 𝑡)
+
+C.3.4
+
+⃖⃖⃗4 (𝑠) = (𝑠′ , 𝑙) and 𝖽𝗍𝗒𝗉𝖾 (𝑙) = ([], 𝑡).
+if 𝖣
+
+Constants
+
+Values of built-in types can mostly be encoded quite simply by using encoders already defined:
+𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑛)
+
+= 𝖤ℤ (𝑠, 𝑛)
+𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑎)
+= 𝖤𝔹∗ (𝑠, 𝑎)
+𝚜𝚝𝚛𝚒𝚗𝚐
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑡)
+= 𝖤𝕌∗ (𝑠, 𝑡)
+𝚞𝚗𝚒𝚝
+=𝑠
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑐)
+𝚋𝚘𝚘𝚕
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, False)
+=𝑠⋅𝟶
+𝚋𝚘𝚘𝚕
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, True)
+=𝑠⋅𝟷
+𝚕𝚒𝚜𝚝 (T)
+⃖⃗T
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑙)
+=𝖤
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑙)
+𝚊𝚛𝚛𝚊𝚢 (T)
+⃖⃗T
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑎)
+=𝖤
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑎)
+𝚙𝚊𝚒𝚛 (T1 , T2 )
+T2
+T1
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍
+(𝑠, (𝑐1 , 𝑐2 )) = 𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍
+(𝑠, 𝑐1 ), 𝑐2 )
+𝚍𝚊𝚝𝚊
+𝖤𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠, 𝑑)
+= 𝖤𝔹∗ (𝑠, E𝚍𝚊𝚝𝚊 (𝑑))
+
+67
+
+𝚒𝚗𝚝𝚎𝚐𝚎𝚛
+
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠)
+
+= 𝖣ℤ (𝑠)
+𝚋𝚢𝚝𝚎𝚜𝚝𝚛𝚒𝚗𝚐
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠) = 𝖣𝔹∗ (𝑠)
+𝚜𝚝𝚛𝚒𝚗𝚐
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠)
+= 𝖣𝕌∗ (𝑠)
+𝚞𝚗𝚒𝚝
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠)
+=𝑠
+𝚋𝚘𝚘𝚕
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝟶 ⋅ 𝑠) = (𝑠, False)
+𝖣𝚋𝚘𝚘𝚕
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝟷 ⋅ 𝑠) = (𝑠, True)
+(T)
+⃖⃖⃗T
+𝖣𝚕𝚒𝚜𝚝
+=𝖣
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠)
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠)
+𝚊𝚛𝚛𝚊𝚢 (T)
+⃖⃖⃗T
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠) = 𝖣
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠)
+
+{
+
+𝚙𝚊𝚒𝚛 (T , T )
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍1 2 (𝑠) = (𝑠′′ , (𝑐1 , 𝑐2 ))
+
+𝖣𝚍𝚊𝚝𝚊
+𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠)
+
+= (𝑠′ , 𝑑)
+
+if
+and
+
+T
+
+1
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍
+(𝑠) = (𝑠′ , 𝑐1 )
+T2
+𝖣𝖼𝗈𝗇𝗌𝗍𝖺𝗇𝗍 (𝑠′ ) = (𝑠′′ , 𝑐2 )
+
+if 𝖣𝔹∗ (𝑠) = (𝑠′ , 𝑡) and D𝚍𝚊𝚝𝚊 (𝑡) = (𝑡′ , 𝑑) for some 𝑡′ .
+
+Units. The unit value (con unit ()) does not have an explicit encoding: the type has only one possible
+value, so there is no need to use any space to serialise it.
+Data. The 𝚍𝚊𝚝𝚊 type is encoded by converting to a bytestring using the CBOR encoder E𝚍𝚊𝚝𝚊 described
+in Appendix B and then using 𝖤𝔹∗ . The decoding process is the opposite of this: a bytestring is obtained
+using 𝖣𝔹∗ and this is then decoded from CBOR using D𝚍𝚊𝚝𝚊 to obtain a 𝚍𝚊𝚝𝚊 object.
+Arrays. Arrays use the same encoders and decoders as lists (see Section C.2.2): given a set 𝑋 for which
+⃖⃗𝑋 and
+we have defined an encoder 𝖤𝑋 and a decoder 𝖣𝑋 , arrays of elements of 𝑋 are encoded using 𝖤
+⃖⃖⃗𝑋 . In practice the run-time implementations of lists and arrays may differ and some extra
+decoded using 𝖣
+work may be required to convert arrays to lists before encoding and lists to arrays after decoding.
+BLS12-381 elements. We do not provide serialisation and deserialisation methods for constants of
+type 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟷_𝚎𝚕𝚎𝚖𝚎𝚗𝚝, 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝙶𝟸_𝚎𝚕𝚎𝚖𝚎𝚗𝚝, or 𝚋𝚕𝚜𝟷𝟸_𝟹𝟾𝟷_𝚖𝚕𝚛𝚎𝚜𝚞𝚕𝚝. We have specified tags for these types, but if one of these tags is encountered during deserialisation then deserialisation fails and any subsequent input is ignored. Note however that constants of the first two types can
+be serialised by using the compression functions defined in Section 4.3.4.3 and serialising the resulting
+bytestrings. Decoding can similarly be performed indirectly by using bls12_381_G1_uncompress and
+bls12_381_G2_uncompress on bytestring constants during program execution.
+
+C.3.5
+
+Built-in functions
+
+Built-in functions are represented by seven-bit integer tags and encoded and decoded using 𝖤7 and 𝖣7 .
+The tags are specified in Tables C.3–C.8. We assume that there are (partial) functions 𝗍𝖺𝗀 and 𝗍𝖺𝗀−1 which
+convert back and forth between builtin names and their tags.
+𝖤𝖻𝗎𝗂𝗅𝗍𝗂𝗇 (𝑠, 𝑏) = 𝖤7 (𝑠, 𝗍𝖺𝗀(𝑏))
+𝖣𝖻𝗎𝗂𝗅𝗍𝗂𝗇 (𝑠)
+
+= (𝑠′ , 𝗍𝖺𝗀−1 (𝑛))
+
+68
+
+if 𝖣7 (𝑠) = (𝑠′ , 𝑛).
+
+Builtin
+
+Binary
+
+Decimal
+
+Builtin
+
+Binary
+
+Decimal
+
+addInteger
+
+𝟶𝟶𝟶𝟶𝟶𝟶𝟶
+
+0
+
+ifThenElse
+
+𝟶𝟶𝟷𝟷𝟶𝟷𝟶
+
+26
+
+subtractInteger
+multiplyInteger
+
+𝟶𝟶𝟶𝟶𝟶𝟶𝟷
+
+1
+
+chooseUnit
+
+𝟶𝟶𝟷𝟷𝟶𝟷𝟷
+
+27
+
+𝟶𝟶𝟶𝟶𝟶𝟷𝟶
+
+2
+
+trace
+
+𝟶𝟶𝟷𝟷𝟷𝟶𝟶
+
+28
+
+divideInteger
+quotientInteger
+
+𝟶𝟶𝟶𝟶𝟶𝟷𝟷
+𝟶𝟶𝟶𝟶𝟷𝟶𝟶
+
+3
+4
+
+fstPair
+sndPair
+
+𝟶𝟶𝟷𝟷𝟷𝟶𝟷
+𝟶𝟶𝟷𝟷𝟷𝟷𝟶
+
+29
+30
+
+remainderInteger
+
+𝟶𝟶𝟶𝟶𝟷𝟶𝟷
+
+5
+
+chooseList
+
+𝟶𝟶𝟷𝟷𝟷𝟷𝟷
+
+31
+
+modInteger
+
+𝟶𝟶𝟶𝟶𝟷𝟷𝟶
+
+6
+
+mkCons
+
+𝟶𝟷𝟶𝟶𝟶𝟶𝟶
+
+32
+
+equalsInteger
+
+𝟶𝟶𝟶𝟶𝟷𝟷𝟷
+
+7
+
+headList
+
+𝟶𝟷𝟶𝟶𝟶𝟶𝟷
+
+33
+
+lessThanInteger
+
+𝟶𝟶𝟶𝟷𝟶𝟶𝟶
+
+8
+
+tailList
+
+𝟶𝟷𝟶𝟶𝟶𝟷𝟶
+
+34
+
+lessThanEqualsInteger
+
+𝟶𝟶𝟶𝟷𝟶𝟶𝟷
+
+9
+
+nullList
+
+𝟶𝟷𝟶𝟶𝟶𝟷𝟷
+
+35
+
+appendByteString
+
+𝟶𝟶𝟶𝟷𝟶𝟷𝟶
+
+10
+
+chooseData
+
+𝟶𝟷𝟶𝟶𝟷𝟶𝟶
+
+36
+
+consByteString
+
+𝟶𝟶𝟶𝟷𝟶𝟷𝟷
+
+11
+
+constrData
+
+𝟶𝟷𝟶𝟶𝟷𝟶𝟷
+
+37
+
+sliceByteString
+
+𝟶𝟶𝟶𝟷𝟷𝟶𝟶
+
+12
+
+mapData
+
+𝟶𝟷𝟶𝟶𝟷𝟷𝟶
+
+38
+
+lengthOfByteString
+
+𝟶𝟶𝟶𝟷𝟷𝟶𝟷
+
+13
+
+listData
+
+𝟶𝟷𝟶𝟶𝟷𝟷𝟷
+
+39
+
+indexByteString
+
+𝟶𝟶𝟶𝟷𝟷𝟷𝟶
+
+14
+
+iData
+
+𝟶𝟷𝟶𝟷𝟶𝟶𝟶
+
+40
+
+equalsByteString
+
+𝟶𝟶𝟶𝟷𝟷𝟷𝟷
+
+15
+
+bData
+
+𝟶𝟷𝟶𝟷𝟶𝟶𝟷
+
+41
+
+lessThanByteString
+
+𝟶𝟶𝟷𝟶𝟶𝟶𝟶
+
+16
+
+unConstrData
+
+𝟶𝟷𝟶𝟷𝟶𝟷𝟶
+
+42
+
+lessThanEqualsByteString
+
+𝟶𝟶𝟷𝟶𝟶𝟶𝟷
+
+17
+
+unMapData
+
+𝟶𝟷𝟶𝟷𝟶𝟷𝟷
+
+43
+
+sha2_256
+
+𝟶𝟶𝟷𝟶𝟶𝟷𝟶
+
+18
+
+unListData
+
+𝟶𝟷𝟶𝟷𝟷𝟶𝟶
+
+44
+
+sha3_256
+
+𝟶𝟶𝟷𝟶𝟶𝟷𝟷
+
+19
+
+unIData
+
+𝟶𝟷𝟶𝟷𝟷𝟶𝟷
+
+45
+
+blake2b_256
+
+𝟶𝟶𝟷𝟶𝟷𝟶𝟶
+
+20
+
+unBData
+
+𝟶𝟷𝟶𝟷𝟷𝟷𝟶
+
+46
+
+verifyEd25519Signature
+
+𝟶𝟶𝟷𝟶𝟷𝟶𝟷
+
+21
+
+equalsData
+
+𝟶𝟷𝟶𝟷𝟷𝟷𝟷
+
+47
+
+appendString
+
+𝟶𝟶𝟷𝟶𝟷𝟷𝟶
+
+22
+
+mkPairData
+
+𝟶𝟷𝟷𝟶𝟶𝟶𝟶
+
+48
+
+equalsString
+
+𝟶𝟶𝟷𝟶𝟷𝟷𝟷
+
+23
+
+mkNilData
+
+𝟶𝟷𝟷𝟶𝟶𝟶𝟷
+
+49
+
+encodeUtf8
+
+𝟶𝟶𝟷𝟷𝟶𝟶𝟶
+
+24
+
+mkNilPairData
+
+𝟶𝟷𝟷𝟶𝟶𝟷𝟶
+
+50
+
+decodeUtf8
+
+𝟶𝟶𝟷𝟷𝟶𝟶𝟷
+
+25
+
+Table C.3: Tags for built-in functions (Batch 1)
+
+Builtin
+
+Binary
+
+Decimal
+
+serialiseData
+
+𝟶𝟷𝟷𝟶𝟶𝟷𝟷
+
+51
+
+Table C.4: Tags for built-in functions (Batch 2)
+
+69
+
+Builtin
+
+Binary
+
+Decimal
+
+verifyEcdsaSecp256k1Signature
+
+𝟶𝟷𝟷𝟶𝟷𝟶𝟶
+
+52
+
+verifySchnorrSecp256k1Signature
+
+𝟶𝟷𝟷𝟶𝟷𝟶𝟷
+
+53
+
+Table C.5: Tags for built-in functions (Batch 3)
+
+Builtin
+
+Binary
+
+Decimal
+
+bls12_381_G1_add
+
+𝟶𝟷𝟷𝟶𝟷𝟷𝟶
+
+54
+
+bls12_381_G1_neg
+
+𝟶𝟷𝟷𝟶𝟷𝟷𝟷
+
+55
+
+bls12_381_G1_scalarMul
+
+𝟶𝟷𝟷𝟷𝟶𝟶𝟶
+
+56
+
+bls12_381_G1_equal
+
+𝟶𝟷𝟷𝟷𝟶𝟶𝟷
+
+57
+
+bls12_381_G1_hashToGroup
+
+𝟶𝟷𝟷𝟷𝟶𝟷𝟶
+
+58
+
+bls12_381_G1_compress
+
+𝟶𝟷𝟷𝟷𝟶𝟷𝟷
+
+59
+
+bls12_381_G1_uncompress
+
+𝟶𝟷𝟷𝟷𝟷𝟶𝟶
+
+60
+
+bls12_381_G2_add
+
+𝟶𝟷𝟷𝟷𝟷𝟶𝟷
+
+61
+
+bls12_381_G2_neg
+
+𝟶𝟷𝟷𝟷𝟷𝟷𝟶
+
+62
+
+bls12_381_G2_scalarMul
+
+𝟶𝟷𝟷𝟷𝟷𝟷𝟷
+
+63
+
+bls12_381_G2_equal
+
+𝟷𝟶𝟶𝟶𝟶𝟶𝟶
+
+64
+
+bls12_381_G2_hashToGroup
+
+𝟷𝟶𝟶𝟶𝟶𝟶𝟷
+
+65
+
+bls12_381_G2_compress
+
+𝟷𝟶𝟶𝟶𝟶𝟷𝟶
+
+66
+
+bls12_381_G2_uncompress
+
+𝟷𝟶𝟶𝟶𝟶𝟷𝟷
+
+67
+
+bls12_381_millerLoop
+
+𝟷𝟶𝟶𝟶𝟷𝟶𝟶
+
+68
+
+bls12_381_mulMlResult
+
+𝟷𝟶𝟶𝟶𝟷𝟶𝟷
+
+69
+
+bls12_381_finalVerify
+
+𝟷𝟶𝟶𝟶𝟷𝟷𝟶
+
+70
+
+keccak_256
+
+𝟷𝟶𝟶𝟶𝟷𝟷𝟷
+
+71
+
+blake2b_224
+
+𝟷𝟶𝟶𝟷𝟶𝟶𝟶
+
+72
+
+integerToByteString
+
+𝟷𝟶𝟶𝟷𝟶𝟶𝟶
+
+73
+
+byteStringToInteger
+
+𝟷𝟶𝟶𝟷𝟶𝟶𝟶
+
+74
+
+Table C.6: Tags for built-in functions (Batch 4)
+
+70
+
+Builtin
+
+Binary
+
+Decimal
+
+andByteString
+
+𝟷𝟶𝟶𝟷𝟶𝟷𝟷
+
+75
+
+orByteString
+
+𝟷𝟶𝟶𝟷𝟷𝟶𝟶
+
+76
+
+xorByteString
+
+𝟷𝟶𝟶𝟷𝟷𝟶𝟷
+
+77
+
+complementByteString
+readBit
+
+𝟷𝟶𝟶𝟷𝟷𝟷𝟶
+𝟷𝟶𝟶𝟷𝟷𝟷𝟷
+
+78
+79
+
+writeBits
+
+𝟷𝟶𝟷𝟶𝟶𝟶𝟶
+
+80
+
+replicateByte
+
+𝟷𝟶𝟷𝟶𝟶𝟶𝟷
+
+81
+
+shiftByteString
+
+𝟷𝟶𝟷𝟶𝟶𝟷𝟶
+
+82
+
+rotateByteString
+
+𝟷𝟶𝟷𝟶𝟶𝟷𝟷
+
+83
+
+countSetBits
+
+𝟷𝟶𝟷𝟶𝟷𝟶𝟶
+
+84
+
+findFirstSetBit
+
+𝟷𝟶𝟷𝟶𝟷𝟶𝟷
+
+85
+
+ripemd_160
+
+𝟷𝟶𝟷𝟶𝟷𝟷𝟶
+
+86
+
+Table C.7: Tags for built-in functions (Batch 5)
+
+Builtin
+
+Binary
+
+Decimal
+
+expModInteger
+
+𝟷𝟶𝟷𝟶𝟷𝟷𝟷
+
+87
+
+dropList
+
+𝟷𝟶𝟷𝟷𝟶𝟶𝟶
+
+88
+
+lengthOfArray
+
+𝟷𝟶𝟷𝟷𝟶𝟶𝟷
+
+89
+
+listToArray
+
+𝟷𝟶𝟷𝟷𝟶𝟷𝟶
+
+90
+
+indexArray
+
+𝟷𝟶𝟷𝟷𝟶𝟷𝟷
+
+91
+
+bls12_381_G1_multiScalarMul
+
+𝟷𝟶𝟷𝟷𝟷𝟶𝟶
+
+92
+
+bls12_381_G2_multiScalarMul
+
+𝟷𝟶𝟷𝟷𝟷𝟶𝟷
+
+93
+
+Table C.8: Tags for built-in functions (Batch 6)
+
+C.3.6
+
+Variable names
+
+Variable names are encoded and decoded using the 𝖤𝗇𝖺𝗆𝖾 and 𝖣𝗇𝖺𝗆𝖾 functions, and variables bound in lam
+expressions are encoded and decoded by the 𝖤𝜆𝗏𝖺𝗋 and 𝖣𝜆𝗏𝖺𝗋 functions.
+De Bruijn indices. We use serialised de Bruijn-indexed terms for script transmission because this makes
+serialised scripts significantly smaller. Recall from Section 2.1.3 that when we want to use our syntax with
+de Bruijn indices we replace names with natural numbers and the bound variable in a lam expression with
+0. During serialisation the zero is ignored, and during deserialisation no input is consumed and the index
+0 is always returned:
+𝖤𝜆𝗏𝖺𝗋 (𝑠, 𝑛) = 𝑠
+𝖣𝜆𝗏𝖺𝗋 (𝑠) = 0.
+
+71
+
+For variables we always use indices which are greater than zero, and our encoder and decoder for names
+are given by
+𝖤𝗇𝖺𝗆𝖾 = 𝖤ℕ
+and
+
+𝖣𝗇𝖺𝗆𝖾 (𝑠) = (𝑠′ , 𝑛)
+
+if 𝖣ℕ = (𝑠′ , 𝑛) and 𝑛 > 0.
+
+Other types of name. One can serialise code involving other types of name by providing suitable encoders and decoders for name. For example, for textual names one could use 𝖤𝜆𝗏𝖺𝗋 = 𝖤𝗇𝖺𝗆𝖾 = 𝖤𝕌∗ and
+𝖣𝜆𝗏𝖺𝗋 = 𝖣𝗇𝖺𝗆𝖾 = 𝖣𝕌∗ . Depending on the method used to represent variable names it may also be necessary to check during deserialisation the more general requirement that variables are well-scoped, but this
+problem will not arise if de Bruijn indices are used.
+
+C.4
+
+Cardano-specific serialisation issues
+
+C.4.1
+
+Scope checking
+
+To execute a Plutus Core program on the blockchain it will be necessary to deserialise it to some inmemory representation, and during or immediately after deserialisation it should be checked that the body
+of the program is a closed term (see the requirement in Section 2.1.3); if this is not the case then evaluation
+should fail immediately.
+
+C.4.2
+
+CBOR wrapping
+
+Plutus Core programs are not stored on the Cardano chain directly as flat bytestrings; for consistency
+with other objects used on the chain, the flat bytestrings are in fact wrapped in a CBOR encoding. This
+should not concern most users, but we mention it here to avoid possible confusion.
+
+C.5
+
+Example
+
+Consider the program
+(program 5.0.2
+[
+[(builtin indexByteString)(con bytestring #1a5f783625ee8c)]
+(con integer 54321)
+])
+Suppose this is stored in index.uplc. We can convert it to flat by running
+$ cabal run exec uplc convert -- -i index.uplc --of flat -o index.flat
+The serialised program looks like this:
+$ xxd -b index.flat
+00000000: 00000101 00000000 00000010 00110011 01110001 11001001
+00000006: 00010001 00000111 00011010 01011111 01111000 00110110
+0000000c: 00100101 11101110 10001100 00000000 01001000 00111000
+00000012: 10110100 00000001 10000001
+
+72
+
+...3q.
+..._x6
+%...H8
+
+Figure C.1 shows how this encodes the original program. Sequences of bits are followed by explanatory
+comments and lines beginning with # provide further commentary on preceding bit sequences.
+00000101 : Final integer chunk: 0000101 → 5
+00000000 : Final integer chunk: 0000000 → 0
+00000010 : Final integer chunk: 0000000 → 2
+# Version: 5.0.2
+0011
+: Term tag 3: apply
+0011
+: Term tag 3: apply
+0111
+: Term tag 7: builtin
+0001110 : Builtin tag 14
+# builtin indexByteString
+0100
+: Term tag 4: constant
+1
+: Start of type tag list
+0001
+: Type tag 1
+0
+: End of list
+# Type tags: [1] → bytestring
+001
+: Padding before bytestring
+00000111 : Bytestring chunk size: 7
+00011010 : 0x1a
+01011111 : 0x5f
+01111000 : 0x78
+00110110 : 0x36
+00100101 : 0x25
+11101110 : 0xee
+10001100 : 0x8c
+00000000 : Bytestring chunk size: 0 (end of list of chunks)
+# con bytestring #1a5f783625ee8c
+0100
+: Term tag 4: constant
+1
+: Start of type tag list
+0000
+: Type tag 0
+0
+: End of list
+# Type tags: [0] → integer
+11100010 : Integer chunk 1100010 (least significant)
+11010000 : Integer chunk 1010000
+00000110 : Final integer chunk 0000110 (most significant)
+# 0000110 ⋅ 1010000 ⋅ 1100010 → 108642 decimal
+# Zigzag encoding: 108642/2 → +54321
+# con integer 54321
+000001
+: Padding
+
+Figure C.1: flat encoding of index.uplc
+
+73
+
+Bibliography
+[1] Cardano Improvement Proposal 0035 (CIP 0035) – Changes to Plutus Core. https://cips.
+cardano.org/cip/CIP-0035/.
+[2] Cardano Improvement Proposal 0042 (CIP 0042) – New Plutus Builtin serialiseData. https://
+cips.cardano.org/cip/CIP-0042/.
+[3] Cardano Improvement Proposal 0049 (CIP 0049) – ECDSA and Schnorr signatures in Plutus Core.
+https://cips.cardano.org/cip/CIP-0049/.
+[4] Cardano Improvement Proposal 0101 (CIP 0101) – Integration of keccak256 into Plutus. https:
+//cips.cardano.org/cip/CIP-0101/.
+[5] Cardano Improvement Proposal 0381 (CIP 0381) – Plutus support for Pairings over BLS12_381.
+https://cips.cardano.org/cips/cip0381/.
+[6] Draft Cardano Improvement Proposal 0121 (CIP 0121) – Integer-Bytestring conversions. https:
+//github.com/cardano-foundation/CIPs/tree/master/CIP-0121.
+[7] Draft Cardano Improvement Proposal 0122 (CIP 0122) – Logical operations over BuiltinByteString.
+https://github.com/cardano-foundation/CIPs/tree/master/CIP-0122.
+[8] Draft Cardano Improvement Proposal 0123 (CIP 0123) – Bitwise operations over BuiltinByteString.
+https://github.com/cardano-foundation/CIPs/tree/master/CIP-0123.
+[9] ANSI. X9.62: Public Key Cryptography for the Financial Services Industry: the Elliptic Curve
+Digital Signature Algorithm (ECDSA), 2005.
+[10] ANSI. X9.142: Public Key Cryptography for the Financial Services Industry: the Elliptic Curve
+Digital Signature Algorithm (ECDSA), 2020.
+[11] Pasqualino ‘Titto’ Assini. Flat format specification. http://quid2.org/docs/Flat.pdf.
+[12] Hendrik Pieter Barendregt. The Lambda Calculus - its Syntax and Semantics, volume 103 of Studies
+in Logic and the Foundations of Mathematics. North-Holland, 1985.
+[13] Daniel J. Bernstein, Niels Duif, Tanja Lange, Peter Schwabe, and Bo-Yin Yang. High-speed highsecurity signatures. In CHES, volume 6917 of Lecture Notes in Computer Science, pages 124–142.
+Springer, 2011.
+[14] G. Bertoni, J. Daemen, M. Peeters, and G. Van Assche. The Keccak Reference. Submission to NIST
+(Round 3), January 2011.
+[15] Bitcoin Wiki. Elliptic Curve Digital Signature Algorithm, 2022.
+74
+
+[16] Carsten Bormann. Notable CBOR Tags.
+bormann-cbor-notable-tags-06.html.
+
+https://www.ietf.org/archive/id/draft-
+
+[17] Carsten Bormann and Paul E. Hoffman. RFC 8949: Concise Binary Object Representation (CBOR).
+https://datatracker.ietf.org/doc/html/rfc8949, December 2020.
+[18] Antoon Bosselaers. The hash function RIPEMD-160. https://homes.esat.kuleuven.be/
+~bosselae/ripemd160.html, 2012.
+[19] Sean Bowe. BLS12-381: New zk-SNARK Elliptic Curve Construction. https://electriccoin.
+co/blog/new-snark-curve/, March 2017.
+[20] Certicom Research. Standards for Efficient Cryptography 2 (SEC 2). https://www.secg.org/
+SEC2-Ver-2.0.pdf, 2010.
+[21] Craig Costello.
+Pairings for beginners.
+https://static1.squarespace.com/
+static/5fdbb09f31d71c1227082339/t/5ff394720493bd28278889c6/1609798774687/
+PairingsForBeginners.pdf.
+[22] Duncan Coutts, Michael Peyton Jones, and Carsten Bormann. CBOR Tags for Discriminated Unions.
+https://github.com/cabo/cbor-discriminated-unions/.
+[23] Quynh Dang. Secure Hash Standard (SHS). FIPS PUB 180-4, https://www.nist.gov/
+publications/secure-hash-standard, March 2012.
+[24] N.G de Bruijn. Lambda calculus notation with nameless dummies, a tool for automatic formula
+manipulation, with application to the Church-Rosser theorem. Indagationes Mathematicae (Proceedings), 75(5):381–392, 1972.
+[25] Hans Dobbertin, Antoon Bosselaers, and Bart Preneel. RIPEMD-160: A strengthened version of
+RIPEMD. In Fast Software Encryption, Third International Workshop, Cambridge, UK, February 21-23, 1996, Proceedings, volume 1039 of Lecture Notes in Computer Science, pages 71–82.
+Springer, 1996.
+[26] Morris Dworkin. SHA-3 Standard: Permutation-Based Hash and Extendable-Output Functions.
+FIPS PUB 202, https://www.nist.gov/publications/sha-3-standard-permutationbased-hash-and-extendable-output-functions, August 2015.
+[27] A. Faz-Hernandez, S. Scott, N. Sullivan, and R.S. Wahby. Hashing to Elliptic Curves (Version
+16). https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hash-to-curve, June
+2022.
+[28] Matthias Felleisen. Programming languages and lambda calculi, 2007.
+[29] Matthias Felleisen, Robert Bruce Findler, and Matthew Flatt. Semantics Engineering with PLT
+Redex. MIT Press, 2009.
+[30] Matthias Felleisen and Daniel P. Friedman. Control operators, the SECD-machine, and the lambdacalculus. In 3rd Working Conference on the Formal Description of Programming Concepts, August
+1986.
+[31] Matthias Felleisen and Robert Hieb. The revised report on the syntactic theories of sequential control
+and state. Theor. Comput. Sci., 103(2):235–271, September 1992.
+
+75
+
+[32] Robert Harper. Practical Foundations for Programming Languages. Cambridge University Press,
+New York, NY, USA, 2012.
+[33] Don Johnson, Alfred Menezes, and Scott A. Vanstone. The elliptic curve digital signature algorithm
+(ECDSA). Int. J. Inf. Sec., 1(1):36–63, 2001.
+[34] Simon Josefsson and Ilari Liusvaara. RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA). https://datatracker.ietf.org/doc/html/rfc8032, January 2017.
+[35] Neal Koblitz. A Course in Number Theory and Cryptography, volume 114 of Graduate Texts in
+Mathematics. Springer-Verlag, 2nd edition, 1994.
+[36] Johnson Lau, Jonas Nick, and Tim Ruffing. Bitcoin Improvement Proposal 340: Schnorr Signatures
+for secp256k1. https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki,
+2020.
+[37] Johnson Lau and Pieter Wuille. Bitcoin Improvement Proposal 146: Dealing with signature encoding malleability. https://github.com/bitcoin/bips/blob/master/bip-0146.mediawiki,
+2016.
+[38] Supranational LLC. blst library. https://github.com/supranational/blst.
+[39] Gordon D. Plotkin. Call-by-name, call-by-value and the lambda-calculus. Theor. Comput. Sci.,
+1(2):125–159, 1975.
+[40] John C. Reynolds. Types, abstraction and parametric polymorphism. In R. E. A. Mason, editor,
+Information Processing 83, Proceedings of the IFIP 9th World Computer Congress, Paris, France,
+September 19-23, 1983, pages 513–523. North-Holland/IFIP, 1983.
+[41] Markku-Juhani O. Saarinen and Jean-Philippe Aumasson. The BLAKE2 Cryptographic Hash
+and Message Authentication Code (MAC). RFC 7693, https://datatracker.ietf.org/doc/
+html/rfc7693, November 2015.
+[42] Y. Sakemi, T. Kobayashi, T. Saito, and R. Wahby.
+Pairing-Friendly Curves (Version
+11). https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-pairing-friendlycurves-11, November 2022.
+[43] Claus-Peter Schnorr. Efficient identification and signatures for smart cards. In Gilles Brassard, editor,
+CRYPTO, volume 435 of Lecture Notes in Computer Science, pages 239–252. Springer, 1989.
+[44] Joseph H Silverman. The Arithmetic of Elliptic Curves, volume 106 of Graduate Texts in Mathematics. Springer-Verlag, 2009.
+[45] The Unicode Consortium. The Unicode Standard. https://www.unicode.org/versions/
+latest/.
+[46] F. Vercauteren. Optimal pairings. Cryptology ePrint Archive, Paper 2008/096, 2008. https:
+//eprint.iacr.org/2008/096.
+[47] Philip Wadler. Theorems for free! In FPCA ’89: Proceedings of the fourth international conference
+on Functional programming languages and computer architecture, pages 347–359, New York, NY,
+USA, 1989. ACM.
+[48] Zcash. Zcash BLS12-381 serialization format. https://github.com/zcash/librustzcash/
+blob/6e0364cd42a2b3d2b958a54771ef51a8db79dd29/pairing/src/bls12_381/README.
+md#serialization.
+76
+
+Index of Notation
+Sets
+⊎
+𝑋∗
+𝑋+
+(𝑥|𝑥1 , … , 𝑥𝑛 )
+ℕ
+ℕ+
+ℕ[𝑎,𝑏]
+𝔹
+𝔹∗
+𝕓
+𝕓∗
+𝔽𝑞
+𝔽𝑞×
+𝕌
+𝕌∗
+ℤ
+𝑆×
+𝖽𝗂𝗏, 𝗆𝗈𝖽
+𝗊𝗎𝗈𝗍, 𝗋𝖾𝗆
+
+Disjoint union of sets, 4
+The set of all finite sequences of elements of a set 𝑋, 4
+The set of all nonempty finite sequences of elements of a set 𝑋, 4
+A member of 𝑋 + , 4
+{0, 1, 2, 3, …}, 4
+{1, 2, 3, …}, 4
+{𝑛 ∈ ℕ ∶ 𝑎 ≤ 𝑛 ≤ 𝑏}, 5
+{𝑛 ∈ ℤ ∶ 0 ≤ 𝑛 ≤ 255}, 5
+The set of all bytestrings, 5
+{𝟶, 𝟷}, 5
+The set of all bitstrings, 5
+The finite field with 𝑞 elements, 5
+The multiplicative group of 𝔽𝑞 , 5
+The set of Unicode scalar values, 5
+The set of Unicode strings, 5
+{… , −2, −1, 0, 1, 2, …}, 5
+𝑆 ⊎ {×} (𝑆 a set), 5
+Integer division operations, 34
+Integer division operations, 34
+
+Lists
+[]
+𝐿 ⋅ 𝐿′
+𝑥⋅𝐿
+𝐿⋅𝑥
+𝑉
+𝓁(⋅)
+𝜖
+
+The empty list, 5
+Concatenation of lists 𝐿 and 𝐿′ , 5
+[𝑥] ⋅ 𝐿, 5
+𝐿 ⋅ [𝑥], 5
+A sequence [𝑉1 , … , 𝑉𝑛 ], 5
+Length of a list or bytestring, 5
+The empty bytestring, 53
+
+Plutus Core grammar
+𝑏𝑛, 𝑏
+The name of a built-in function, 7
+𝑐
+A literal constant, 7
+𝐿, 𝑀, 𝑁
+A term, 7
+𝑛
+A name, 7
+77
+
+𝑛
+𝑃
+𝑣
+𝑥
+
+A natural number, 7
+A Plutus Core program, 7
+Plutus Core version, 7
+A variable name, 7
+
+Built-in types
+CT
+Constants of built-in type 𝑇 , 12
+O
+The set of built-in type operator names, 10
+U
+The universe of built-in types, 10
+U0
+The set of atomic type names, 10
+U#
+The set of builtin-polymorphic types, 11
+V
+The set of all type variables, V# ∪ {∗}, 10
+V#
+The set of builtin-polymorphic type variables, 10
+op
+A built-in type operator (an element of O), 10
+∗
+The unique fully-polymorphic type variable, 10
+𝑣#
+A builtin-polymorphic type variable, 10
+𝑇
+A built-in type (an element of U), 10
+J𝑇 K
+The denotation of a type name 𝑇 , 10
+⨄
+JUK
+{J𝑇 K ∶ 𝑇 ∈ U}, 10
+𝑆
+A type assignment, 11
+𝑆̂
+The extension of a type assignment 𝑆 to U# ∪ {∗}, 11
+𝑃
+A builtin-polymorphic type, 11
+𝖥𝖵# (𝑃 )
+Free #-variables of a polymorphic type 𝑃 ∈ U# , 11
+𝑇 ⪯𝑆 𝑃
+𝑇 is an instance of 𝑃 via 𝑆 and dom 𝑆 = 𝖥𝖵# (𝑃 ), 11
+J⋅K𝑇
+Denotation of constants of type 𝑇 , 12
+⦃⋅⦄𝑇
+Reification of constants of type 𝑇 , 12
+⦃⋅⦄
+Reification of the result of a built-in function application, 15
+Built-in functions
+B
+The set of built-in functions, 9
+I
+The set of inputs to built-in functions, 12
+Q
+The set of all type quantifications, 13
+R
+The set of single values returned by built-in functions, 13
+R+
+The set of sequences of values returned by built-in functions, 13
+𝛼
+Arity of built-in function, 14
+𝛼̄
+Reduced arity, 14
+𝜒
+Number of arguments of built-in function, 14
+𝜄
+Signature item, 13
+𝜔
+Return type of built-in function, 13
+𝜎
+Signature of built-in function, 13
+𝜎̄
+Reduced signature, 14
+𝜏
+A member of U# ⊎ {∗}, ie a type or type variable, 13
+≈𝑆
+Compatibility of built-in function arguments with function arity via 𝑆, 16
+∀𝑣
+Type quantification, 13
+J𝑏K𝑆
+The denotation of the built-in function 𝑏 at the type assignment 𝑆, 15
+78
+
+𝖤𝗏𝖺𝗅
+
+Evaluation of built-in functions, 16
+
+Term reduction
+𝐴
+Well-formed partial built-in function application, 17
+𝐵
+Partial built-in function application (possibly ill-formed), 17
+𝖡
+Set of all partial built-in function applications, 17
+𝑉
+Plutus Core value, 17
+𝛽(𝐵)
+Function in partial builtin application 𝐵, 18
+‖𝐵‖
+Size of partial builtin application 𝐵, 18
+𝗇𝖾𝗑𝗍(𝐴)
+Next argument type (or force) required by a partial builtin application 𝐴, 18
+𝖺𝗋𝗀𝗌(𝐴)
+Term arguments received so far by partial builtin application 𝐴, 18
+[𝑉 ∕𝑥]𝑀
+Capture-avoiding substitution of value 𝑉 for variable 𝑥 in term 𝑀, 19
+𝑓
+Reduction frame for contextual semantics: [_ 𝑀], [𝑉 _], (force _), 20
+CEK machine
+⊳
+CEK compute phase, 21
+⊲
+CEK return phase, 21
+⬥
+CEK error state, 21
+◻
+CEK halting state, 21
+Σ
+CEK machine state, 21
+𝑠
+CEK machine stack, 21
+𝑓
+CEK stack frame: (force _), [_ (𝑀, 𝜌)], [𝑉 _], (constr 𝑖 𝑀1 … 𝑀𝑗−1 _ 𝑉𝑗+1 … 𝑉𝑛 ), (case _ 𝑀1 … 𝑀𝑛 ),
+21
+𝑉
+CEK value: 〈con T 𝑐〉, 〈delay 𝑀 𝜌〉, 〈lam 𝑥 𝑀 𝜌〉, 〈builtin 𝑏 𝑉 𝜂〉, 21
+𝜌
+CEK environment, 21
+𝜌[𝑥]
+Value bound to variable 𝑥 in environment 𝜌, 21
+𝜂
+Arguments expected by partial builtin application, 21
+U(𝑉 )
+Discharge a CEK value 𝑉 to obtain a Plutus Core term, 24
+𝑀@𝜌
+Discharge all variables bound by 𝜌 in the term 𝑀, 24
+Concrete syntax
+𝐂𝑇
+Set of strings used for the concrete syntax of constants of built-in type 𝑇 , 29
+Serialisation and deserialisation
+D𝑋
+CBOR decoder for data, 53
+E𝑋
+CBOR encoder for data, 53
+𝖣𝑋
+Flat decoder, 59
+𝖤𝑋
+Flat encoder, 59
+
+79
+
+

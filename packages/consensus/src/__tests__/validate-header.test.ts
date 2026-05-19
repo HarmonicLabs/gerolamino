@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Exit, HashMap } from "effect";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 import { validateHeader, HeaderValidationError } from "../validate/header";
 import type { BlockHeader, LedgerView } from "../validate/header";
 import { CryptoStub } from "./crypto-stub";
@@ -205,6 +205,128 @@ describe("validateHeader", () => {
       const header = makeHeader();
       const result = yield* Effect.exit(provide(validateHeader(header, makeView(header))));
       expect(Exit.isSuccess(result)).toBe(true);
+    }),
+  );
+
+  // --- Opcert counter monotonicity (Haskell Praos.hs:645-648) ---
+  //
+  // Per the spec, a header's opcert sequence number must satisfy
+  //   lastSeqNo <= opcertSeqNo <= lastSeqNo + 1
+  // CounterTooSmall  : opcertSeqNo < lastSeqNo
+  // CounterOverIncremented : opcertSeqNo > lastSeqNo + 1
+  // Test-coverage gap #3 (TRIVIAL HIGH).
+
+  it.effect("CounterTooSmall — fails when opcertSeqNo < lastSeqNo", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ opcertSeqNo: 3 });
+      const poolId = poolIdFromVk(header.issuerVk);
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(header, makeView(header, { ocertCounters: HashMap.make([poolId, 5]) })),
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("CounterOverIncremented — fails when opcertSeqNo > lastSeqNo + 1", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ opcertSeqNo: 7 });
+      const poolId = poolIdFromVk(header.issuerVk);
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(header, makeView(header, { ocertCounters: HashMap.make([poolId, 5]) })),
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("boundary — passes when opcertSeqNo == lastSeqNo + 1", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ opcertSeqNo: 6 });
+      const poolId = poolIdFromVk(header.issuerVk);
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(header, makeView(header, { ocertCounters: HashMap.make([poolId, 5]) })),
+        ),
+      );
+      expect(Exit.isSuccess(result)).toBe(true);
+    }),
+  );
+
+  // --- Envelope failure modes (Haskell HeaderValidation.hs ValidateEnvelope) ---
+  //
+  // Envelope checks compare a candidate header against the previous tip;
+  // each predicate maps to a Haskell `UnexpectedX` constructor.
+  // Test-coverage gap #4 (TRIVIAL HIGH).
+
+  it.effect("envelope BlockNo gap — fails when blockNo !== prevTip.blockNo + 1", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ blockNo: 60n, slot: 200n });
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(header, makeView(header), {
+            slot: 100n,
+            blockNo: 50n,
+            hash: header.prevHash,
+          }),
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("envelope slot regression — fails when slot <= prevTip.slot", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ blockNo: 51n, slot: 100n });
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(header, makeView(header), {
+            slot: 100n,
+            blockNo: 50n,
+            hash: header.prevHash,
+          }),
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("envelope prevHash mismatch — fails when prevHash != prevTip.hash", () =>
+    Effect.gen(function* () {
+      const wrongPrevHash = new Uint8Array(32).fill(0xff);
+      const header = makeHeader({ blockNo: 51n, slot: 200n });
+      const result = yield* Effect.exit(
+        provide(
+          validateHeader(header, makeView(header), {
+            slot: 100n,
+            blockNo: 50n,
+            hash: wrongPrevHash,
+          }),
+        ),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("envelope maxHeaderSize — fails when headerBodyCbor exceeds limit", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ headerBodyCbor: new Uint8Array(1500) });
+      const result = yield* Effect.exit(
+        provide(validateHeader(header, makeView(header, { maxHeaderSize: 1100 }))),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("envelope maxBlockBodySize — fails when bodySize exceeds limit", () =>
+    Effect.gen(function* () {
+      const header = makeHeader({ bodySize: 100_000 });
+      const result = yield* Effect.exit(
+        provide(validateHeader(header, makeView(header, { maxBlockBodySize: 90_112 }))),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
     }),
   );
 });

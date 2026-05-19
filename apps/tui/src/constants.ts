@@ -5,12 +5,6 @@
  * inline literals across `index.ts` and `dashboard/webview.ts`.
  */
 
-/** Log a "UTxO entries received" line every N entries during bootstrap. */
-export const UTXO_LOG_INTERVAL = 50_000;
-
-/** Log a "Blocks received" line every N blocks during bootstrap. */
-export const BLOCK_LOG_INTERVAL = 10_000;
-
 /** `Bun.WebView` viewport defaults. The webview is headless on Linux/macOS
  *  alike (Bun does not yet expose `headless: false`) — these dimensions
  *  define the page's logical viewport for CSS / layout calculations. */

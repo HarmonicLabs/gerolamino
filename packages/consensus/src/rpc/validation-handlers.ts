@@ -19,7 +19,7 @@
  *     same handlers across a MessagePort boundary
  */
 import { Effect } from "effect";
-import { Crypto } from "wasm-utils";
+import { Crypto } from "wasm-utils/service.ts";
 import { makeLocalValidationOps } from "./validation-client.ts";
 import { ValidationRpcGroup } from "./validation-rpc-group.ts";
 

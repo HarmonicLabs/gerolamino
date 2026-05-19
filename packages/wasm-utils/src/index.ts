@@ -8,10 +8,39 @@
 
 import init from "../pkg/wasm_utils.js";
 
-export * from "./errors.ts";
-export * from "./init.ts";
-export * from "./rpc/index.ts";
-export * from "./service.ts";
+// Named re-exports rather than `export * from "./X.ts"` — tsgo's
+// cross-package re-export resolution silently drops `export *`
+// chains, leaving downstream packages unable to see `Crypto`,
+// `CryptoOpError`, `WasmBytes`, etc. through the barrel even though
+// Rolldown bundles them correctly at runtime. Explicit named
+// re-exports survive the cross-package boundary. Keep this list in
+// sync with the source files' exports — adding a new symbol there
+// also requires adding it here.
+export {
+  CryptoErrorKind,
+  CryptoOperation,
+  CryptoOpError,
+  fromWasmError,
+} from "./errors.ts";
+export { initWasm } from "./init.ts";
+export {
+  WasmBytes,
+  WasmBytesFsLayer,
+  WasmBytesUrlLayer,
+} from "./loader.ts";
+export { lsmTreeJsffiUrl, lsmTreeWasmUrl } from "./lsm-shim/urls.ts";
+export { CryptoFromRpc, CryptoRpcClient } from "./rpc/crypto-client.ts";
+export { CryptoHandlersLive } from "./rpc/crypto-handlers.ts";
+export {
+  Blake2b256,
+  CheckVrfLeader,
+  CryptoRpcGroup,
+  Ed25519Verify,
+  KesSum6Verify,
+  VrfProofToHash,
+  VrfVerifyProof,
+} from "./rpc/crypto-rpc.ts";
+export { Crypto, CryptoDirect } from "./service.ts";
 
 export { init };
 export default init;

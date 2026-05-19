@@ -24,6 +24,7 @@
  */
 import { Context, Effect, HashSet, Layer, Option, Ref, Schema, Stream } from "effect";
 import { KeyValueStore } from "effect/unstable/persistence";
+import { orderBy } from "es-toolkit";
 import { ChainEvent, ChainEventStream } from "../chain/event-log.ts";
 import { MempoolRuleError } from "./conway-predicates.ts";
 
@@ -193,10 +194,10 @@ export class Mempool extends Context.Service<
             (key) => store.get(key).pipe(Effect.mapError(toMempoolError("snapshot.get"))),
             { concurrency: "unbounded" },
           );
-          // Keep only `Some`, sort highest-fee-rate first. `.flatMap(Option.toArray)`
-          // is the canonical filter-Some-and-unwrap idiom ([x] for Some(x), []
-          // for None); preserved in a single pass with no branching.
-          return fetches.flatMap(Option.toArray).toSorted((a, b) => b.feePerByte - a.feePerByte);
+          // Keep only `Some`, then `orderBy(.., [keyFn], ["desc"])` declares
+          // "highest-fee-rate first" without the manual `b - a` subtraction
+          // that's easy to flip backwards.
+          return orderBy(fetches.flatMap(Option.toArray), [(e) => e.feePerByte], ["desc"]);
         }),
 
         removeByHash: (txId) =>

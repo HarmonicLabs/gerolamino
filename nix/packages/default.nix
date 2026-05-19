@@ -11,6 +11,7 @@
     ./download-mithril-lsm-snapshot.nix
     ./ts-packages.nix
     ./bun.nix
+    ./bun2nix.nix
     ./run-apps.nix
     ./tui-image.nix
   ];

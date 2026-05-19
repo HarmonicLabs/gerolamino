@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "postinstall": "command -v bun2nix >/dev/null && bun2nix -o bun.nix || true",
+    "regen-bun-nix": "nix run .#bun2nix -- -o bun.nix",
     "type-check": "bun run --filter '*' type-check"
   },
   "dependencies": {

@@ -196,8 +196,12 @@
               packages = [
                 pkgs.sqlite
                 pkgs.poppler-utils
+                pkgs.python3Packages.websockify
                 pkgs.wasm-pack
                 pkgs.binaryen
+                # Keep Chromium on PATH for Playwright extension tests and
+                # manual chrome-ext debugging from inside `nix develop`.
+                pkgs.chromium
                 # Standalone Tailwind v4 CLI (nixpkgs-built, RPATH-patched).
                 # Used by `packages/dashboard/build.ts` instead of
                 # `bunx @tailwindcss/cli` — that path's `.node` bindings
@@ -205,7 +209,6 @@
                 # NixOS. The standalone binary has no `@parcel/watcher`
                 # native dep and resolves its libstdc++ via RPATH.
                 pkgs.tailwindcss_4
-                # pkgs.chromium
                 (inputs'.mithril.packages.mithril-client-cli.overrideAttrs (_: { doCheck = false; }))
                 # snapshot-converter
                 config.flake-root.package
@@ -248,6 +251,10 @@
               # --- Environment ---
               env = {
                 BOOTSTRAP_SERVER_URL = "http://decentralizationmaxi.io:3040";
+                # chrome-ext offscreen connects to `ws://<host>/relay` (path ignored).
+                # Override for local cardano-node: RELAY_TCP_TARGET=127.0.0.1:3001
+                RELAY_WS_BIND = "127.0.0.1:3040";
+                RELAY_TCP_TARGET = "preprod-node.world.dev.cardano.org:3001";
                 LIBLSM_BRIDGE_PATH = "${config.packages.lsm-bridge}/lib/liblsm-bridge.so";
                 # Bun.WebView's Linux backend (`backend: "chrome"`) spawns
                 # Chrome over `--remote-debugging-pipe`. Bun's auto-detect
@@ -260,6 +267,9 @@
                 # precedence: `backend.path` > `BUN_CHROME_PATH` > `$PATH`
                 # > hardcoded > playwright cache).
                 BUN_CHROME_PATH = "${pkgs.chromium}/bin/chromium";
+                # Playwright fixtures resolve this first; point it at the
+                # same nixpkgs Chromium wrapper used by Bun.
+                CHROMIUM_PATH = "${pkgs.chromium}/bin/chromium";
               };
 
               # --- Tasks ---
@@ -317,6 +327,33 @@
               #   '';
               # };
 
+              # WS→TCP relay for chrome-ext / Playwright integration tests.
+              # Matches production `nix/machine-configs/production.nix` (port 3040)
+              # but targets IOG preprod directly — no local cardano-node required.
+              #
+              #   devenv tasks run relay:websockify
+              #   devenv tasks run relay:websockify --mode single   # skip deps
+              #
+              # Playwright `e2e/global-setup.ts` probes http://127.0.0.1:3040/.
+              tasks."relay:websockify" = {
+                description = "websockify WS relay for chrome-ext sync (preprod N2N via :3040)";
+                type = "process";
+                package = pkgs.python3Packages.websockify;
+                showOutput = true;
+                exec = ''
+                  echo "==> relay:websockify WS ''${RELAY_WS_BIND} → TCP ''${RELAY_TCP_TARGET}"
+                  exec websockify --heartbeat=30 "''${RELAY_WS_BIND}" "''${RELAY_TCP_TARGET}"
+                '';
+                process = {
+                  ready.http.get = {
+                    host = "127.0.0.1";
+                    port = 3040;
+                    path = "/";
+                  };
+                  restart.on = "on_failure";
+                };
+              };
+
               # --- Processes (managed by process-compose TUI via `devenv up`) ---
 
               # Local cardano-node (preprod, V2LSM).
@@ -339,12 +376,12 @@
               #     configFile = pkgs.writeText "preprod-config.json" nodeConfigJson;
               #     topologyFile = preprodEnv.topology or (pkgs.writeText "preprod-topology.json" (builtins.toJSON {
               #       bootstrapPeers = [
-              #         { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+              #         { address = "preprod-node.world.dev.cardano.org"; port = 3001; }
               #       ];
               #       localRoots = [ ];
               #       publicRoots = [{
               #         accessPoints = [
-              #           { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+              #           { address = "preprod-node.world.dev.cardano.org"; port = 3001; }
               #         ];
               #         advertise = false;
               #         valency = 1;

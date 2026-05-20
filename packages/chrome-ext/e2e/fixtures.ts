@@ -26,6 +26,7 @@
  *      Bun.WebView in apps/tui)
  *   3. `which chromium` / `chromium-browser`
  *   4. `nix shell nixpkgs#chromium -c which chromium`
+ *   5. `nix shell nixpkgs#ungoogled-chromium -c which chromium`
  *
  * Fail loudly if none resolve — silent fallback to a non-existent
  * binary surfaces as cryptic Playwright launch errors.
@@ -86,6 +87,7 @@ const resolveChromium = (): string => {
     tryExecSync(["which", "chromium"]),
     tryExecSync(["which", "chromium-browser"]),
     tryExecSync(["nix", "shell", "nixpkgs#chromium", "-c", "which", "chromium"], 15_000),
+    tryExecSync(["nix", "shell", "nixpkgs#ungoogled-chromium", "-c", "which", "chromium"], 15_000),
   ]
     .filter(isNotNil)
     .filter((p) => p.length > 0);
@@ -137,12 +139,20 @@ export const test = base.extend<{
   serviceWorker: Worker;
   swLogs: SwLog[];
   openPopup: () => Promise<Page>;
+  /** Set by `e2e/global-setup.ts` — true when `localhost:3040` relay responds. */
+  relayAvailable: boolean;
 }>({
-  // The context fixture seeds the swLogs buffer so the listener
-  // attaches before the SW boots, eliminating the early-boot log race.
   // eslint-disable-next-line no-empty-pattern
-  context: async ({}, use) => {
-    const context = await chromium.launchPersistentContext("", {
+  relayAvailable: async ({}, use) => {
+    await use(process.env.GEROLAMINO_RELAY_E2E === "1");
+  },
+
+  // Per-test profile dir (Playwright `testInfo.outputPath`) — parallel-safe.
+  // Reference: `tests/extension/extension-fixtures.ts` uses
+  // `testInfo.outputPath('extension-user-data-dir')` instead of `""`.
+  context: async ({}, use, testInfo) => {
+    const userDataDir = testInfo.outputPath("chromium-profile");
+    const context = await chromium.launchPersistentContext(userDataDir, {
       executablePath: CHROMIUM_PATH,
       args: [
         `--disable-extensions-except=${EXTENSION_PATH}`,

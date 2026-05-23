@@ -3,5 +3,6 @@
 {
   imports = [
     ./production.nix
+    ./relay-proxy.nix
   ];
 }

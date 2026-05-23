@@ -36,6 +36,14 @@ class BroadcastDeltas extends Rpc.make("BroadcastDeltas", {
   stream: true,
 }) {}
 
+/** Round-trip health check — relays to offscreen `Ping` (no lsm-worker / OPFS). */
+class Ping extends Rpc.make("Ping", {
+  success: Schema.Struct({
+    ok: Schema.Boolean,
+    timeMs: Schema.Number,
+  }),
+}) {}
+
 /** Control endpoint: forces a bootstrap-sync restart. */
 class StartSync extends Rpc.make("StartSync", {
   success: Schema.Struct({ ok: Schema.Boolean }),
@@ -79,6 +87,7 @@ class InspectOpfsSnapshot extends Rpc.make("InspectOpfsSnapshot", {
  *  implements the client. */
 export const NodeRpcs = RpcGroup.make(
   BroadcastDeltas,
+  Ping,
   StartSync,
   UploadSnapshotChunk,
   ReopenAfterSnapshot,

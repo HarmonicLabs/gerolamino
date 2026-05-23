@@ -8,13 +8,24 @@
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",
+    "build:dev": "nix run github:0xbigboss/bun-overlay# -- x --bun wxt build --mode development",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "type-check": "tsgo --noEmit",
     "postinstall": "wxt prepare",
-    "test": "vitest run",
-    "e2e": "bunx playwright test"
+    "test": "vitest run -c vitest.config.ts",
+    "test:watch": "vitest -c vitest.config.ts",
+    "e2e": "nix run github:0xbigboss/bun-overlay# -- x --bun playwright test",
+    "e2e:fast": "nix run github:0xbigboss/bun-overlay# -- x --bun playwright test --project=fast",
+    "e2e:ui": "nix run github:0xbigboss/bun-overlay# -- x --bun playwright test --project=ui",
+    "e2e:ui-headed": "nix run github:0xbigboss/bun-overlay# -- x --bun playwright test --project=ui-headed",
+    "e2e:upload": "nix run github:0xbigboss/bun-overlay# -- x --bun playwright test --project=upload",
+    "e2e:integration": "nix run github:0xbigboss/bun-overlay# -- x --bun playwright test --project=integration",
+    "build:relay-proxy": "BOOTSTRAP_URL=ws://87.99.129.190:3040 nix run github:0xbigboss/bun-overlay# -- x --bun wxt build --mode development",
+    "zip:relay-proxy": "BOOTSTRAP_URL=ws://87.99.129.190:3040 nix run github:0xbigboss/bun-overlay# -- x --bun wxt zip --mode development",
+    "e2e:relay-proxy": "GEROLAMINO_RELAY_URL=ws://87.99.129.190:3040 nix run github:0xbigboss/bun-overlay# -- x --bun playwright test --project=integration-relay",
+    "smoke": "bash scripts/chrome-ext-smoke.sh"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.2",
@@ -37,12 +48,17 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@solidjs/testing-library": "^0.8.10",
     "@tailwindcss/postcss": "^4.3.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/user-event": "^14.6.1",
     "@types/chrome": "^0.1.42",
     "@webext-core/fake-browser": "^1.4.0",
     "@wxt-dev/module-solid": "^1.1.4",
+    "jsdom": "^26.1.0",
     "playwright": "^1.60.0",
     "tailwindcss": "^4.3.0",
+    "vite-plugin-solid": "^2.11.12",
     "wxt": "^0.20.26"
   }
 }

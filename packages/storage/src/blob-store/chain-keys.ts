@@ -2,11 +2,9 @@
  * Inverted-index key encoders for the BlobStore-only ChainDB backend.
  *
  * Why these exist:
- *   chrome-ext SW can't run SQL durably (PgLite uses IndexedDB v1 +
- *   whole-file flush; SQLite-WASM `:memory:` loses state on every SW
- *   eviction). The verdict from the storage-architecture research wave
- *   is: skip SQL, store everything as key-value in `BlobStore`
- *   (IndexedDB-backed in chrome-ext, LSM-backed on Bun).
+ *   chrome-ext can't run SQL durably in the MV3 service worker lifecycle.
+ *   Skip SQL — store everything as key-value in `BlobStore` (OPFS-backed
+ *   LSM WASM in chrome-ext via dedicated Worker; Zig/Haskell LSM on Bun).
  *
  *   This module adds the five new key prefixes the BlobStore-only
  *   ChainDB needs on top of the existing seven (`utxo`/`blk:`/`bidx`/
@@ -28,9 +26,7 @@
  * Atomicity:
  *   `addBlock` writes three keys (vmet, succ, vtip) in a single
  *   `BlobStore.putBatch(...)`. Rollback / promote / GC use the same
- *   batch primitive. IndexedDB's per-batch transaction scope (and
- *   LSM's batch interface on Bun) provides the all-or-nothing
- *   guarantee.
+ *   batch primitive. LSM write batches provide the all-or-nothing guarantee.
  *
  * Genesis handling:
  *   prevHash for the genesis block is `null`. We encode it as 32 zero
@@ -60,8 +56,8 @@ export const PREFIX_VTIP = TEXT_ENCODER.encode("vtip");
 /** Immutable tip pointer prefix — `itip`. Singleton; same as `vtip`. */
 export const PREFIX_ITIP = TEXT_ENCODER.encode("itip");
 
-/** Singleton-key sentinel suffix. IndexedDB rejects empty bytes-keys; one
- *  zero byte is the canonical "no further discriminator" suffix. */
+/** Singleton-key sentinel suffix — one zero byte is the canonical
+ *  "no further discriminator" suffix for tip-pointer keys. */
 const SENTINEL = new Uint8Array([0x00]);
 
 /** All-zero 32-byte sentinel for the genesis block's `prevHash`. Hoisted

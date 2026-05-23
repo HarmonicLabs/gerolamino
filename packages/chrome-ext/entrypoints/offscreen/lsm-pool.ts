@@ -29,25 +29,36 @@ import * as BrowserWorker from "@effect/platform-browser/BrowserWorker";
 import type { WorkerError } from "effect/unstable/workers/WorkerError";
 import { type BlobEntry, BlobStore, BlobStoreError } from "lsm-ffi";
 import { LsmRpcGroup } from "./lsm-rpc.ts";
+import { layerLsmSingleWorkerProtocol } from "./lsm-worker-protocol.ts";
 
 // Vite's `?worker` import suffix — Vite bundles `lsm-worker.ts` as a
 // proper Web Worker chunk and returns a constructor. See the same
 // pattern + the longer rationale in `crypto-pool.ts`.
 import LsmWorker from "./workers/lsm-worker.ts?worker";
 
-/** Pool configuration. lsm-tree is single-writer — `maxSize: 1` is a
- *  hard correctness invariant (two workers writing the same OPFS
- *  session would corrupt the tree). `minSize: 1` keeps the writer
- *  warm; `timeToLive` lets Effect tear it down after idle so the
- *  WASM instance can release its linear-memory pages if the user
- *  closes the popup. Concurrency 1 + size 1 = serialised requests
- *  through one worker. */
-const POOL_OPTIONS = {
-  minSize: 1,
-  maxSize: 1,
-  concurrency: 1,
-  timeToLive: "60 seconds",
-} as const;
+declare global {
+  // eslint-disable-next-line no-var
+  var __GEROLAMINO_LSM_WORKER_SINGLETON__: InstanceType<typeof LsmWorker> | undefined;
+}
+
+/** One physical Worker for the offscreen document. Module-level `let` is
+ *  insufficient when Rolldown splits `lsm-pool` across chunks — each copy
+ *  gets its own singleton and spawns another Worker (3× `writeChunk enter`). */
+/** Terminate the singleton worker (E2E hermetic reset / recover wedged OPFS sync). */
+export const terminateLsmWorkerSingleton = (): void => {
+  const worker = globalThis.__GEROLAMINO_LSM_WORKER_SINGLETON__;
+  if (worker !== undefined) {
+    worker.terminate();
+    globalThis.__GEROLAMINO_LSM_WORKER_SINGLETON__ = undefined;
+  }
+};
+
+const spawnLsmWorker = (_id: number): InstanceType<typeof LsmWorker> => {
+  if (globalThis.__GEROLAMINO_LSM_WORKER_SINGLETON__ === undefined) {
+    globalThis.__GEROLAMINO_LSM_WORKER_SINGLETON__ = new LsmWorker();
+  }
+  return globalThis.__GEROLAMINO_LSM_WORKER_SINGLETON__;
+};
 
 /**
  * Service tag for the BlobStore-shaped RpcClient. Bound to the
@@ -152,7 +163,7 @@ export const BlobStoreFromWorker: Layer.Layer<BlobStore, never, LsmRpcClient> = 
 export const LsmWorkerBrowser: Layer.Layer<BlobStore | LsmRpcClient, WorkerError> =
   BlobStoreFromWorker.pipe(
     Layer.provideMerge(LsmRpcClient.layer),
-    Layer.provide(RpcClient.layerProtocolWorker(POOL_OPTIONS)),
+    Layer.provide(layerLsmSingleWorkerProtocol),
     Layer.provide(RpcSerialization.layerNdjson),
-    Layer.provide(BrowserWorker.layer(() => new LsmWorker())),
+    Layer.provide(BrowserWorker.layer(spawnLsmWorker)),
   );

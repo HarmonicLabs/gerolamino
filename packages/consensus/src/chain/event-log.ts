@@ -210,8 +210,18 @@ export class ChainEventStream extends Context.Service<
 // decoded payload to the fan-out PubSub. Registered via `EventLog.group`.
 // ---------------------------------------------------------------------------
 
+/** Fan-out to live subscribers. `PubSub.publish` returns `false` when the
+ *  bounded queue is full (message dropped) or after `PubSub.shutdown`. */
 const publishTo = (event: ChainEventType) =>
-  ChainEventPubSub.use((pubsub) => PubSub.publish(pubsub, event));
+  Effect.gen(function* () {
+    const pubsub = yield* ChainEventPubSub;
+    const published = yield* PubSub.publish(pubsub, event);
+    if (!published) {
+      yield* Effect.logWarning(
+        `ChainEventPubSub: dropped ${event._tag} (queue full or shutdown)`,
+      );
+    }
+  });
 
 const handlerLayer = EventLog.group(ChainEventGroup, (handlers) =>
   handlers
@@ -259,9 +269,12 @@ const ChainEventStreamLive = Layer.effect(
     return ChainEventStream.of({
       subscribe: PubSub.subscribe(pubsub),
       stream: Stream.fromPubSub(pubsub),
-      history: Effect.flatMap(log.entries, (entries) =>
-        Effect.forEach(entries, (entry) => decodeByTag(entry.event, entry.payload)),
-      ),
+      history: Effect.gen(function* () {
+        const entries = yield* log.entries;
+        return yield* Effect.forEach(entries, (entry) =>
+          decodeByTag(entry.event, entry.payload),
+        );
+      }),
     });
   }),
 );

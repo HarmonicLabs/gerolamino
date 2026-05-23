@@ -9,7 +9,7 @@ import {
   vrf_verify_proof,
 } from "../pkg/wasm_utils.js";
 
-import { CryptoOpError, type CryptoOperation, fromWasmError } from "./errors.ts";
+import { CryptoOpError, wrapCryptoOp } from "./errors.ts";
 import { initWasm } from "./init.ts";
 
 /**
@@ -50,18 +50,6 @@ export class Crypto extends Context.Service<
   }
 >()("wasm-utils/Crypto") {}
 
-/** Wrap a sync wasm-bindgen call into an Effect with a typed CryptoOpError.
- *  Hoisted to module scope so it doesn't capture closure state — keeps the
- *  Layer body a pure single-Effect pipeline (no nested `Effect.gen`). */
-const wrap = <A>(
-  operation: CryptoOperation,
-  tryFn: () => A,
-): Effect.Effect<A, CryptoOpError> =>
-  Effect.try({
-    try: tryFn,
-    catch: (err) => fromWasmError(operation, err),
-  });
-
 /**
  * Direct in-process Crypto layer — synchronous WASM calls on the caller's
  * thread. Used by tests, unit benches, and any hot path where worker
@@ -75,11 +63,13 @@ export const CryptoDirect: Layer.Layer<Crypto> = Layer.effect(
   // available in the browser and must not appear in shared-package source.
   initWasm.pipe(
     Effect.as<Crypto["Service"]>({
-      blake2b256: (data) => wrap("blake2b256", () => blake2b_256(data)),
+      blake2b256: (data) => wrapCryptoOp("blake2b256", () => blake2b_256(data)),
       ed25519Verify: (message, signature, publicKey) =>
-        wrap("ed25519Verify", () => ed25519_verify(message, signature, publicKey)),
+        wrapCryptoOp("ed25519Verify", () => ed25519_verify(message, signature, publicKey)),
       kesSum6Verify: (signature, period, publicKey, message) =>
-        wrap("kesSum6Verify", () => kes_sum6_verify(signature, period, publicKey, message)),
+        wrapCryptoOp("kesSum6Verify", () =>
+          kes_sum6_verify(signature, period, publicKey, message),
+        ),
       checkVrfLeader: (
         vrfOutputHex,
         sigmaNumerator,
@@ -87,7 +77,7 @@ export const CryptoDirect: Layer.Layer<Crypto> = Layer.effect(
         activeSlotCoeffNum,
         activeSlotCoeffDen,
       ) =>
-        wrap("checkVrfLeader", () =>
+        wrapCryptoOp("checkVrfLeader", () =>
           check_vrf_leader(
             vrfOutputHex,
             sigmaNumerator,
@@ -97,8 +87,9 @@ export const CryptoDirect: Layer.Layer<Crypto> = Layer.effect(
           ),
         ),
       vrfVerifyProof: (vrfVkey, vrfProof, vrfInput) =>
-        wrap("vrfVerifyProof", () => vrf_verify_proof(vrfVkey, vrfProof, vrfInput)),
-      vrfProofToHash: (vrfProof) => wrap("vrfProofToHash", () => vrf_proof_to_hash(vrfProof)),
+        wrapCryptoOp("vrfVerifyProof", () => vrf_verify_proof(vrfVkey, vrfProof, vrfInput)),
+      vrfProofToHash: (vrfProof) =>
+        wrapCryptoOp("vrfProofToHash", () => vrf_proof_to_hash(vrfProof)),
     }),
   ),
 );

@@ -3,8 +3,9 @@
 Render-backend-agnostic Cardano node dashboard. Solid.js components backed
 by Effect `Atom` reactive state; same component tree renders in:
 
-- A web browser (DOM / `solid-js/web`)
-- Bun.WebView in apps/tui (future Phase 5 — Kitty-graphics screenshot loop)
+- A web browser (DOM / `solid-js/web`) — `packages/dashboard/dist-spa/`
+- `apps/tui` HTTP+WS host serving the SPA + optional Bun.WebView
+- `packages/chrome-ext` popup (`createDomPrimitives` + delta over Port RPC)
 
 ## Structure
 
@@ -12,50 +13,52 @@ by Effect `Atom` reactive state; same component tree renders in:
 src/
   index.ts           <- barrel
   primitives.ts      <- DashboardPrimitives context (render-backend abstraction)
+  primitives/dom/    <- Kobalte + Corvu + uPlot DOM adapter (`createDomPrimitives`)
   atoms/
     index.ts
-    node-state.ts    <- chain tip, peer count, mempool size, sync progress atoms
+    node-state.ts    <- chain tip, peer count, mempool, sync sparkline atoms
   components/
     index.ts
-    Dashboard.tsx    <- top-level layout
-    NetworkPanel.tsx <- network-magic, tip, sync status
-    PeerTable.tsx    <- per-peer rows
-    SyncOverview.tsx <- slot progress + GSM state
+    Dashboard.tsx    <- top-level 3-panel layout
+    NetworkPanel.tsx <- network-magic, relay, GSM
+    PeerTable.tsx    <- TanStack solid-table (peers)
+    MempoolTable.tsx <- TanStack table + solid-virtual (mempool)
+    SyncOverview.tsx <- slot progress + bootstrap + sparkline
+    ChainEventLog.tsx
+  delta.ts           <- wire format (replacer/reviver, applyDelta)
+  broadcast.ts       <- identity dedup broadcast fiber
+  page.tsx           <- SPA entry (WS client)
+  styles.css         <- Tailwind v4 tokens + uPlot import
+build.ts             <- dist-spa bundle for tui host
 ```
 
 ## Dependencies
 
-- `solid-js` ^1.9.12 — reactive renderer (the Atom bridge lives in
-  `@effect/atom-solid` when it's added; until then the atoms expose their
-  raw `Atom<A>` for manual bridging).
+- `solid-js` ^1.9 — reactive renderer
+- `@effect/atom-solid` — `useAtomValue` in components (workspace root)
+- `effect` — `delta.ts` / `broadcast.ts` only (Schema + AtomRegistry)
 
-Intentionally NOT depending on:
-
-- `effect` directly — atoms are consumed as opaque read-only handles;
-  consumers (apps/tui, browser bundle) provide the AtomRegistry Layer.
-- Any HTTP / WS client — remote data flows in through the parent's Layer.
+Components do not import `effect` directly; hosts provide `AtomRegistry` +
+`RegistryContext`.
 
 ## DashboardPrimitives abstraction
 
-`primitives.ts` exports a `PrimitivesProvider` Solid context + a
-`DashboardPrimitives` type. Consumers implement the type per backend:
+`primitives.ts` exports `PrimitivesProvider` + `DashboardPrimitives`.
+Components call `usePrimitives()` only — never `@kobalte` / `@corvu` directly.
+The DOM adapter is `createDomPrimitives()` in `primitives/dom/`.
 
-- Browser: DOM nodes via `solid-js/web`
-- OpenTUI (deprecated): terminal glyph primitives
-- Bun.WebView (future): DOM nodes inside the WebView
+## Delta wire format
 
-Components never touch a render API directly — they call into the
-primitives context, which the backend-specific adapter supplies.
-
-## Current consumers
-
-- `apps/tui/src/dashboard/` renders this package via the OpenTUI adapter
-  (scheduled for replacement by Bun.WebView + DOM adapter in Phase 5).
-- `packages/chrome-ext` (deferred) would consume the DOM adapter directly.
+`buildDeltaJson` / `applyDelta` with bigint + Uint8Array tagging. Wire shape
+validated via `Schema.is(DeltaSchema)`. Do not change tag keys (`__t`, `v`)
+without coordinating `apps/tui` and `packages/chrome-ext`.
 
 ## Testing
 
-No tests currently ship with this package — dashboard behaviour is
-exercised through `apps/tui`'s integration tests once the WebView rendering
-wave lands. Unit tests for pure components + atom helpers welcome, but
-aren't load-bearing for the plan's current phase.
+```sh
+bunx --bun vitest run packages/dashboard
+bunx --bun tsgo --noEmit -p packages/dashboard/tsconfig.json
+bun packages/dashboard/build.ts
+```
+
+Pure wire-format tests live in `src/__tests__/delta.test.ts`.

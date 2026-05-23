@@ -11,7 +11,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { Socket } from "effect/unstable/socket";
+import * as Socket from "effect/unstable/socket/Socket";
 import { TimeoutError } from "effect/Cause";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";

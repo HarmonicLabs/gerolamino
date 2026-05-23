@@ -145,7 +145,7 @@ describe("Credential property round-trip", () => {
       FastCheck.property(arb, (cred) => {
         const encoded = Schema.encodeUnknownSync(CredentialBytes)(cred);
         const decoded = Schema.decodeUnknownSync(CredentialBytes)(encoded);
-        return decoded._tag === cred._tag && Equal.equals(decoded.hash, cred.hash);
+        return Equal.equals(decoded, cred);
       }),
       { numRuns: 500 },
     );
@@ -157,7 +157,7 @@ describe("Credential property round-trip", () => {
       FastCheck.property(arb, (cred) => {
         const encoded = Schema.encodeUnknownSync(StateCredentialBytes)(cred);
         const decoded = Schema.decodeUnknownSync(StateCredentialBytes)(encoded);
-        return decoded._tag === cred._tag && Equal.equals(decoded.hash, cred.hash);
+        return Equal.equals(decoded, cred);
       }),
       { numRuns: 500 },
     );

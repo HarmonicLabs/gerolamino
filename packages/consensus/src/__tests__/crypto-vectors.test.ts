@@ -7,7 +7,7 @@
  * Requires WASM crypto (CryptoDirect) — skip in environments without it.
  */
 import { describe, it, expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { Crypto, CryptoDirect } from "wasm-utils/service.ts";
 import {
   ed25519_public_key,
@@ -166,7 +166,7 @@ describe("Golden crypto vectors (WASM)", () => {
               new Uint8Array(32).fill(0x03),
             ),
           );
-          expect(exit._tag).toBe("Failure");
+          expect(Exit.isFailure(exit)).toBe(true);
         }),
       ),
     );
@@ -176,7 +176,7 @@ describe("Golden crypto vectors (WASM)", () => {
         Effect.gen(function* () {
           const crypto = yield* Crypto;
           const exit = yield* Effect.exit(crypto.vrfProofToHash(new Uint8Array(80)));
-          const byteLength = exit._tag === "Success" ? exit.value.byteLength : -1;
+          const byteLength = Exit.isSuccess(exit) ? exit.value.byteLength : -1;
           expect(byteLength === 64 || byteLength === -1).toBe(true);
         }),
       ),

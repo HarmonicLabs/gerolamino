@@ -214,11 +214,7 @@ export interface DashboardPrimitives {
   readonly ScrollArea: ParentComponent<ScrollAreaProps>;
   readonly Separator: Component<SeparatorProps>;
 
-  // New (this wave) — additive on the DashboardPrimitives interface so
-  // existing OpenTUI / browser-primitives implementations that haven't
-  // been migrated yet would surface a missing-key TypeScript error
-  // (intentional — the legacy chrome-ext browser-primitives.tsx was
-  // deleted in this same wave; no other consumers).
+  // Layout / Sparkline / LogRow — DOM adapter only (`createDomPrimitives`).
   readonly Layout: Component<LayoutProps>;
   readonly Tooltip: Component<TooltipProps>;
   readonly IconButton: Component<IconButtonProps>;

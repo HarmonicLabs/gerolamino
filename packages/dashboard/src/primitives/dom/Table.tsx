@@ -4,10 +4,8 @@
  * align direction. Coerces accessor results via `String(...)` to handle
  * `bigint` / `number` cells uniformly.
  *
- * For now this is a plain HTML table. Virtualization (TanStack
- * solid-virtual) lands per-component when MempoolTable / PeerTable
- * are refactored; the primitive itself stays simple so cards inside
- * the dashboard don't pay the virtualizer cost.
+ * Plain HTML table for simple card layouts. TanStack virtualization lives
+ * in `MempoolTable` / `PeerTable` — this primitive stays lightweight.
  */
 import { For, type JSX } from "solid-js";
 import { cn } from "../../lib/cn";

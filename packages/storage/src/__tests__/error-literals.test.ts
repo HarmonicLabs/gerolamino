@@ -18,6 +18,7 @@ import { Schema } from "effect";
 import { ChainDBError, ChainDBOperation } from "../services/chain-db.ts";
 import {
   LedgerSnapshotError,
+  LedgerSnapshotOperation,
 } from "../services/ledger-snapshot-store.ts";
 
 const isChainDBOperation = Schema.is(ChainDBOperation);
@@ -57,30 +58,30 @@ describe("ChainDBError — operation literal coverage", () => {
   });
 });
 
-// LedgerSnapshotError doesn't export a standalone `LedgerSnapshotOperation`
-// schema (the literal union is inlined at the class declaration), so we
-// can't `Schema.is(LedgerSnapshotOperation)` it. Test the constructor
-// path + the 4 known values directly.
-const ALL_LEDGER_SNAPSHOT_OPS = [
+const isLedgerSnapshotOperation = Schema.is(LedgerSnapshotOperation);
+
+const ALL_LEDGER_SNAPSHOT_OPS: ReadonlyArray<LedgerSnapshotOperation> = [
   "writeLedgerSnapshot",
   "readLatestLedgerSnapshot",
   "writeNonces",
   "readNonces",
-] as const;
+];
 
 describe("LedgerSnapshotError — operation literal coverage", () => {
   for (const operation of ALL_LEDGER_SNAPSHOT_OPS) {
-    it(`constructs literal "${operation}"`, () => {
+    it(`constructs + round-trips literal "${operation}"`, () => {
       const err = new LedgerSnapshotError({ operation, cause: "test fixture" });
       expect(err._tag).toBe("LedgerSnapshotError");
       expect(err.operation).toBe(operation);
+      expect(isLedgerSnapshotOperation(operation)).toBe(true);
     });
   }
 
-  it("the literal list size is 4 (writeLedgerSnapshot/readLatest/writeNonces/readNonces)", () => {
-    // Pin the known size — adding/removing a literal in
-    // `ledger-snapshot-store.ts:54-59` requires bumping this assertion
-    // (and the array above), forcing a deliberate change.
-    expect(ALL_LEDGER_SNAPSHOT_OPS.length).toBe(4);
+  it("rejects an unknown operation literal at the schema boundary", () => {
+    expect(isLedgerSnapshotOperation("nonexistent.op")).toBe(false);
+  });
+
+  it("the test's literal list matches the runtime literal set 1:1", () => {
+    expect(ALL_LEDGER_SNAPSHOT_OPS.length).toBe(LedgerSnapshotOperation.literals.length);
   });
 });

@@ -11,7 +11,8 @@
  *                                      ↓
  *                              validateHeader + ChainDB
  */
-import { Deferred, Effect, Layer, Metric, Option, Ref, Schedule, Schema, Stream } from "effect";
+import { Deferred, Duration, Effect, Layer, Metric, Option, Ref, Schedule, Schema, Stream } from "effect";
+import * as Socket from "effect/unstable/socket/Socket";
 import { BlockFetchError } from "../observability.ts";
 import {
   Multiplexer,
@@ -44,6 +45,7 @@ import { SlotClock } from "../praos/clock";
 import { Nonces } from "../praos/nonce";
 import { handleRollForward, handleRollBackward, initialVolatileState } from "./driver";
 import type { VolatileState } from "./driver";
+import { maybePromoteVolatile } from "./storage-lifecycle.ts";
 import type { LedgerView } from "../validate/header";
 
 /** Network magic for known Cardano networks. */
@@ -110,6 +112,30 @@ const mapCryptoErr =
   (cause: CryptoOpError): RelayError =>
     new RelayError({ message: `${operation}: ${String(cause)}` });
 
+const formatSyncFailure = (err: unknown): string => {
+  if (typeof err === "object" && err !== null && "_tag" in err) {
+    const tagged = err as {
+      readonly _tag: string;
+      readonly operation?: string;
+      readonly cause?: unknown;
+    };
+    if (tagged._tag === "ChainDBError" && tagged.operation !== undefined) {
+      const inner = tagged.cause;
+      if (
+        typeof inner === "object" &&
+        inner !== null &&
+        "_tag" in inner &&
+        (inner as { readonly _tag: string })._tag === "BlobStoreError"
+      ) {
+        const blob = inner as { readonly operation?: string; readonly cause?: unknown };
+        return `ChainDBError(${tagged.operation}): BlobStoreError(${blob.operation ?? "lsm"}): ${String(blob.cause)}`;
+      }
+      return `ChainDBError(${tagged.operation}): ${String(tagged.cause)}`;
+    }
+  }
+  return String(err);
+};
+
 /** Encode a CBOR tx-offset entry as an 8-byte big-endian buffer:
  *  `[0..4)` = offset (u32 BE), `[4..8)` = size (u32 BE). Hoisted out of
  *  `fetchAndStoreFullBlock` so the `analysis.txOffsets.map(...)` call
@@ -122,12 +148,24 @@ const encodeTxOffset = (offset: number, size: number): Uint8Array => {
   return buf;
 };
 
+/** Max delay between relay reconnection attempts (effect-smol `Schedule.modifyDelay`). */
+const RELAY_RETRY_MAX_DELAY = Duration.fromInputUnsafe("60 seconds");
+
 /**
  * Exponential backoff schedule for relay reconnection.
  * 1s → 2s → 4s → 8s → ... capped at 60s, with ±25% jitter.
+ *
+ * Cap uses `modifyDelay` + `Duration.min` (same min-delay semantics as
+ * `Schedule.either(Schedule.spaced("60 seconds"))` per effect-smol
+ * `Schedule.ts:1591`). `Schedule.both` would take the *maximum* delay and
+ * stall at 60s from the first attempt — wrong for backoff capping.
  */
 export const RelayRetrySchedule = Schedule.exponential("1 second", 2).pipe(
-  Schedule.either(Schedule.spaced("60 seconds")),
+  Schedule.modifyDelay((_, delay) =>
+    Effect.succeed(
+      Duration.min(Duration.fromInputUnsafe(delay), RELAY_RETRY_MAX_DELAY),
+    ),
+  ),
   Schedule.jittered,
 );
 
@@ -319,6 +357,9 @@ const chainSyncLoop = (
 
     // All mutable state managed via Ref (no mutable `let`)
     const stateRef = yield* Ref.make(initialVolatileState(initialTip, initialNonces));
+    const volatileLenRef = yield* Ref.make(0);
+    const chainDb = yield* ChainDB;
+    const slotClock = yield* SlotClock;
 
     // Commit a new VolatileState into both the loop-local `stateRef` and
     // the optional shared `volatileStateRef` from the caller. Centralizing
@@ -326,7 +367,7 @@ const chainSyncLoop = (
     // single `commitState(...)` op rather than a paired `Ref.set` + guard.
     const commitState = (s: VolatileState): Effect.Effect<void> =>
       volatileStateRef
-        ? Ref.set(stateRef, s).pipe(Effect.andThen(Ref.set(volatileStateRef, s)))
+        ? Effect.all([Ref.set(stateRef, s), Ref.set(volatileStateRef, s)], { discard: true })
         : Ref.set(stateRef, s);
 
     // Deferred commit gate chain — ensures sequential nonce evolution
@@ -379,9 +420,10 @@ const chainSyncLoop = (
                     yield* fetchAndStoreFullBlock(currentState.tip).pipe(
                       Effect.scoped,
                       Effect.catch((err) =>
-                        Metric.update(BlockFetchError, 1).pipe(
-                          Effect.andThen(Effect.logWarning(`[sync] BlockFetch skipped: ${err}`)),
-                        ),
+                        Effect.gen(function* () {
+                          yield* Metric.update(BlockFetchError, 1);
+                          yield* Effect.logWarning(`[sync] BlockFetch skipped: ${err}`);
+                        }),
                       ),
                     );
                   }
@@ -389,7 +431,7 @@ const chainSyncLoop = (
               onFailure: (err) =>
                 Effect.gen(function* () {
                   yield* Effect.logWarning(
-                    `[sync] Block processing failed (era ${msg.eraVariant}, tip ${serverTip.slot}): ${err}`,
+                    `[sync] Block processing failed (era ${msg.eraVariant}, tip ${serverTip.slot}): ${formatSyncFailure(err)}`,
                   );
                   // Clear tip to prevent cascading envelope validation failures.
                   // The next block will skip envelope checks, trusting ChainSync ordering.
@@ -402,6 +444,22 @@ const chainSyncLoop = (
           );
 
           const currentState = yield* Ref.get(stateRef);
+          const volatileLength = yield* Ref.updateAndGet(volatileLenRef, (n) => n + 1);
+          const k = slotClock.config.securityParam;
+          if (volatileLength > k) {
+            const immutableTip = yield* chainDb.getImmutableTip;
+            const adjusted = yield* maybePromoteVolatile(k, volatileLength, immutableTip).pipe(
+              Effect.catch((e) =>
+                Effect.gen(function* () {
+                  yield* Effect.logWarning(`[sync] promoteToImmutable: ${e}`);
+                  return volatileLength;
+                }),
+              ),
+            );
+            if (adjusted < volatileLength) {
+              yield* Ref.set(volatileLenRef, adjusted);
+            }
+          }
           if (currentState.blocksProcessed % 1000 === 0 && currentState.blocksProcessed > 0) {
             yield* Effect.log(
               `[sync] ${currentState.blocksProcessed} blocks, tip slot ${currentState.tip?.slot ?? 0n}`,
@@ -421,6 +479,7 @@ const chainSyncLoop = (
           const state = yield* Ref.get(stateRef);
           const newState = yield* handleRollBackward(rollbackPoint, serverTip, state, peerId);
           yield* commitState(newState);
+          yield* Ref.set(volatileLenRef, 0);
 
           // Reset commit gate for new chain after rollback
           const freshGate = yield* Deferred.make<void>();
@@ -433,12 +492,37 @@ const chainSyncLoop = (
   });
 
 /**
+ * N2N client layers over a socket layer (canonical miniprotocols topology).
+ *
+ * `Layer.mergeAll(Handshake, …, Multiplexer)` is wrong: clients `yield* Multiplexer`
+ * at layer construction time, so Multiplexer must be supplied via `Layer.provide`
+ * (see `packages/miniprotocols/src/__tests__/preprod-e2e.ts`, `peer/handler.ts`).
+ */
+export const relayMiniprotocolLayers = (
+  socketLayer: Layer.Layer<Socket.Socket, unknown, unknown>,
+) =>
+  Layer.mergeAll(
+    HandshakeClient.layer,
+    ChainSyncClient.layer,
+    KeepAliveClient.layer,
+    BlockFetchClient.layer,
+  ).pipe(
+    Layer.provide(
+      Multiplexer.layer.pipe(
+        Layer.provide(MultiplexerBuffer.layer),
+        Layer.provide(socketLayer),
+      ),
+    ),
+  );
+
+/**
  * Connect to an upstream Cardano relay and sync the chain.
  *
  * This creates the full N2N connection stack:
  *   Socket → Multiplexer → Handshake → ChainSync + KeepAlive
  *
- * Requires: Crypto, ChainDB, SlotClock, PeerManager, Socket, Scope
+ * Requires: Crypto, ChainDB, SlotClock, PeerManager, Socket, Scope.
+ * Compose with `relayMiniprotocolLayers(socketLayer)` via `Effect.provide(…, { local: true })`.
  */
 export const connectToRelay = (
   peerId: string,
@@ -472,7 +556,9 @@ export const connectToRelay = (
     // `readNonces` returns a plain decoded struct (not a `Nonces` class
     // instance), so reconstruct via `new Nonces(...)` to surface the
     // class methods downstream consumers rely on.
-    const persistedNonces = yield* ledgerSnapshots.readNonces;
+    const persistedNonces = yield* ledgerSnapshots.readNonces.pipe(
+      Effect.catch(() => Effect.succeed(Option.none())),
+    );
     const nonces = Option.isSome(persistedNonces)
       ? new Nonces({
           active: persistedNonces.value.active,
@@ -501,16 +587,33 @@ export const connectToRelay = (
       ],
       { concurrency: "unbounded" },
     );
-  }).pipe(
-    // Provide protocol client layers (require Multiplexer in environment)
-    Effect.provide(
-      Layer.mergeAll(
-        HandshakeClient.layer,
-        ChainSyncClient.layer,
-        KeepAliveClient.layer,
-        BlockFetchClient.layer,
-      ),
-    ),
-    // Provide Multiplexer + Buffer layers (requires Socket in environment)
-    Effect.provide(Multiplexer.layer.pipe(Layer.provide(MultiplexerBuffer.layer))),
+  });
+
+/**
+ * Run `connectToRelay` on an already-open WebSocket (chrome-ext offscreen).
+ * Socket is registered before miniprotocol layers build the Multiplexer.
+ */
+/** Browser / test harness: miniprotocol stack over an already-open WebSocket. */
+export const relaySessionLayer = (socket: Socket.Socket) =>
+  relayMiniprotocolLayers(Layer.succeed(Socket.Socket)(socket));
+
+/**
+ * Run `connectToRelay` on an open WebSocket (chrome-ext offscreen).
+ *
+ * Mirrors `preprod-proxy-e2e.ts`: `Effect.provide(protocols)` + socket in the
+ * multiplexer layer stack. `Effect.provide` already opens a scope via `scopedWith`.
+ */
+export const connectToRelayOnSocket = (
+  socket: Socket.Socket,
+  peerId: string,
+  networkMagic: number,
+  ledgerView: LedgerView,
+  snapshotState?: {
+    tip: { slot: bigint; hash: Uint8Array } | undefined;
+    nonces: Nonces;
+  },
+  volatileStateRef?: Ref.Ref<VolatileState>,
+) =>
+  connectToRelay(peerId, networkMagic, ledgerView, snapshotState, volatileStateRef).pipe(
+    Effect.provide(relaySessionLayer(socket), { local: true }),
   );

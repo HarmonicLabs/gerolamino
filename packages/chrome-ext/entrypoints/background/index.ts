@@ -16,9 +16,12 @@
  * connect, alarms tick, onStartup, onInstalled). The offscreen is the
  * persistent compute daemon.
  */
+import "./ensure-offscreen-handler.ts";
 import { Effect, Layer } from "effect";
 import { RpcServerLive } from "./rpc-server.ts";
 import { ensureOffscreen } from "./offscreen-client.ts";
+import { awaitChromePortServerListening } from "./rpc-transport.ts";
+import { OffscreenClientLive } from "./offscreen-rpc-client.ts";
 import { TestLogBufferLayer } from "../shared/test-log-buffer.ts";
 
 // ---------------------------------------------------------------------------
@@ -74,7 +77,15 @@ export default defineBackground({
       yield* ensureOffscreen;
 
       yield* Effect.log("[gerolamino] Launching RPC server (chrome.runtime.Port transport)");
-      yield* Effect.forkDetach(Layer.launch(RpcServerLive));
+      yield* Effect.forkDetach(
+        Layer.launch(RpcServerLive.pipe(Layer.provideMerge(OffscreenClientLive))),
+      );
+      yield* awaitChromePortServerListening;
+      yield* Effect.log("[gerolamino] Popup Port RPC transport listening");
+
+      // Bootstrap-sync is owned by the offscreen daemon (storage watcher +
+      // `RequestRestart` from popup upload). A second SW→offscreen client for
+      // boot-time `RequestRestart` duplicated BC listeners and broke upload Ping.
 
       yield* Effect.log(
         "[gerolamino] Bootstrap-sync runs in the offscreen daemon. " +

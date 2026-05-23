@@ -40,6 +40,14 @@ const mapTransportError = (operation: CryptoOperation) => (err: RpcClientError) 
     message: `rpc transport: ${err.message}`,
   });
 
+const catchTransport = <A>(
+  operation: CryptoOperation,
+  eff: Effect.Effect<A, CryptoOpError | RpcClientError>,
+): Effect.Effect<A, CryptoOpError> =>
+  eff.pipe(
+    Effect.catchTag("RpcClientError", (err) => Effect.fail(mapTransportError(operation)(err))),
+  );
+
 /**
  * `Crypto` service implementation that forwards every call through the
  * RPC client. Method signatures match `CryptoDirect` — call sites stay
@@ -55,13 +63,6 @@ export const CryptoFromRpc: Layer.Layer<Crypto, never, CryptoRpcClient> = Layer.
   Crypto,
   Effect.gen(function* () {
     const client = yield* CryptoRpcClient;
-    const catchTransport = <A>(
-      operation: CryptoOperation,
-      eff: Effect.Effect<A, CryptoOpError | RpcClientError>,
-    ): Effect.Effect<A, CryptoOpError> =>
-      eff.pipe(
-        Effect.catchTag("RpcClientError", (err) => Effect.fail(mapTransportError(operation)(err))),
-      );
 
     return {
       blake2b256: (data) => catchTransport("blake2b256", client.Blake2b256({ data })),

@@ -34,8 +34,8 @@ src/
     index.ts
   praos/
     clock.ts           <- SlotClock service (slot/epoch from wallclock)
-    engine.ts          <- ConsensusEngine service (composes validation + selection)
     nonce.ts           <- Nonce evolution + epoch nonce derivation (yields Crypto)
+    constants.ts       <- Security param / slot-length constants
     index.ts
   hard-fork/
     era-transition.ts  <- EraBoundary + EraHistory + eraAtSlot + crossesEraBoundary
@@ -101,9 +101,10 @@ boundary.
 - **Schema.TaggedClass** for types needing methods (Nonces, SlotConfig, ChainTip)
 - **Schema.TaggedErrorClass** for all errors
 - **Schema.Literals([...])** for string unions (GsmState, PeerStatus)
-- **Context.Service** for all services (ConsensusEngine, PeerManager,
-  SlotClock). Crypto primitives come from `wasm-utils` (`Crypto` tag +
-  `CryptoDirect` / `CryptoWorkerBun` layers).
+- **Context.Service** for all services (PeerManager, SlotClock,
+  ChainEventStream, Mempool). Header validation + chain selection are pure
+  helpers (`validateHeader`, `preferCandidate`, `gsmState`); crypto comes
+  from `wasm-utils` (`Crypto` tag + `CryptoDirect` / `CryptoWorkerBun` layers).
 - **Effect.all** with concurrency for parallel validation assertions
 - **Ref** for atomic mutable state (peer map)
 - **Config** for all tunable parameters (stall timeout, KES period, etc.)

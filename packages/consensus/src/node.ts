@@ -15,9 +15,8 @@ import { clamp } from "es-toolkit";
 import { SlotClock } from "./praos/clock";
 import { PeerManager } from "./peer/manager";
 import { ConsensusEvents, ConsensusEventKind } from "./peer/events";
-import { getSyncState } from "./sync/bootstrap";
 import { ChainDB } from "storage";
-import { GsmState } from "./chain/selection";
+import { GsmState, gsmState } from "./chain/selection";
 import type { VolatileState } from "./sync/driver";
 
 export const NodeStatus = Schema.Struct({
@@ -50,11 +49,24 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
     // counter atomically with add/remove.
     const activePeers = yield* peerManager.getActiveCount;
 
-    const tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
+    let tipSlot = Option.isSome(tipOpt) ? tipOpt.value.slot : 0n;
     const tipBlock = Option.isSome(tipOpt)
       ? yield* chainDb.getBlockAt(tipOpt.value)
       : Option.none();
-    const tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
+    let tipBlockNo = Option.isSome(tipBlock) ? tipBlock.value.blockNo : 0n;
+
+    // While ChainDB writes are still failing (e.g. browser LSM warmup),
+    // reflect the upstream relay tip from PeerManager so the dashboard
+    // and E2E harness see live sync progress.
+    if (tipSlot === 0n) {
+      const peers = yield* peerManager.getPeers;
+      for (const peer of peers) {
+        if (peer.tip !== undefined && peer.tip.slot > tipSlot) {
+          tipSlot = peer.tip.slot;
+          tipBlockNo = peer.tip.blockNo;
+        }
+      }
+    }
     // Sync ratio as a percentage of historical chain coverage. Computed
     // in 1000-ths so a sub-1% genesis-mode sync (typical at startup) shows
     // a non-zero value instead of integer-truncating to 0. `clamp` bounds
@@ -73,7 +85,7 @@ export const getNodeStatus = (volatileStateRef?: Ref.Ref<VolatileState>) =>
       tipBlockNo,
       currentSlot,
       epochNumber: epoch,
-      gsmState: currentSlot - tipSlot <= slotClock.stabilityWindow ? "CaughtUp" : "Syncing",
+      gsmState: gsmState(tipSlot, currentSlot, slotClock.stabilityWindow),
       peerCount: activePeers,
       blocksProcessed,
       syncPercent,

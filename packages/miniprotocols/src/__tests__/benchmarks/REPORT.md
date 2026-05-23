@@ -6,7 +6,7 @@ Benchmarking suite comparing the Effect-TS v4 beta implementation against the
 legacy EventEmitter/Promise-based implementation
 (`@harmoniclabs/ouroboros-miniprotocols-ts@0.0.5-dev7`).
 
-**Target node:** `preprod-node.play.dev.cardano.org:3001` (Cardano Preprod
+**Target node:** `preprod-node.world.dev.cardano.org:3001` (Cardano Preprod
 testnet)
 
 ## Results (representative run)
@@ -137,7 +137,7 @@ bunx --bun vitest bench src/__tests__/benchmarks/handshake.bench.ts --run
 bunx --bun vitest bench --run
 ```
 
-**Note:** The preprod testnet node (`preprod-node.play.dev.cardano.org:3001`)
+**Note:** The preprod testnet node (`preprod-node.world.dev.cardano.org:3001`)
 applies rate-limiting. If benchmarks time out, wait 30-60 seconds between runs.
 
 ## Benchmark files

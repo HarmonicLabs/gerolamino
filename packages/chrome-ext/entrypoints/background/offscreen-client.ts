@@ -6,7 +6,11 @@
  */
 import { Effect } from "effect";
 
-const OFFSCREEN_URL = "offscreen.html";
+/** Dev/Playwright builds defer bootstrap via query param — SW boots offscreen
+ *  before `addInitScript` can write `chrome.storage.session`. */
+const OFFSCREEN_URL = import.meta.env.DEV
+  ? "offscreen.html?deferBootstrapSync=1"
+  : "offscreen.html";
 
 const offscreenExists = Effect.tryPromise({
   try: () =>

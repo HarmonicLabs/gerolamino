@@ -5,4 +5,6 @@ export {
   LedgerSnapshotStore,
   LedgerSnapshotStoreLive,
   LedgerSnapshotError,
+  LedgerSnapshotOperation,
 } from "./ledger-snapshot-store.ts";
+export { ChainDBOperation } from "./chain-db.ts";

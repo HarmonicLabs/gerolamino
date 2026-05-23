@@ -3,8 +3,7 @@
  *
  * Headless table via `@tanstack/solid-table` (v8 API), same shape as
  * `MempoolTable.tsx` so the two surfaces share a render idiom:
- *   - Reactive `data` getter unifies into a single `mempoolSnapshotAtom`
- *     subscription via `createMemo`.
+ *   - Reactive `data` memo unifies into a single `peersAtom` subscription.
  *   - `getRowId: peer => peer.id` — peer ids are unique stable strings,
  *     ideal for keyed-diff stability across status / tip updates.
  *   - Default sort: tip slot desc (most-progressed peer first).
@@ -24,6 +23,7 @@ import {
 } from "@tanstack/solid-table";
 import { peersAtom, type PeerInfo } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
+import { SortableTh } from "./SortableTh.tsx";
 
 const columnHelper = createColumnHelper<PeerInfo>();
 
@@ -68,25 +68,12 @@ export const PeerTable = () => {
   return (
     <Section title={`Peers (${peers().length})`}>
       <div class="relative w-full overflow-auto rounded-md border">
-        <table class="w-full caption-bottom text-sm">
+        <table class="w-full caption-bottom text-sm" aria-label="Connected peers">
           <thead>
             <For each={table.getHeaderGroups()}>
               {(hg) => (
                 <tr class="border-b">
-                  <For each={hg.headers}>
-                    {(header) => {
-                      const sorted = createMemo(() => header.column.getIsSorted());
-                      return (
-                        <th
-                          class="h-10 cursor-pointer select-none px-2 text-left align-middle font-medium text-muted-foreground hover:text-foreground"
-                          onClick={header.column.getToggleSortingHandler()}
-                        >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          <span>{sorted() === "asc" ? " ▲" : sorted() === "desc" ? " ▼" : ""}</span>
-                        </th>
-                      );
-                    }}
-                  </For>
+                  <For each={hg.headers}>{(header) => <SortableTh header={header} />}</For>
                 </tr>
               )}
             </For>

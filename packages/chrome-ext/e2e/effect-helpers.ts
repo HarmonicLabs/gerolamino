@@ -114,7 +114,7 @@ export type SwLog = typeof SwLog.Type;
  * persists across MV3 SW idle-restarts, so this works even if the SW
  * was torn down between log emission and test read.
  */
-const LOG_STORAGE_KEY = "__gerolamino_logs__";
+const LOG_STORAGE_KEY = "__gerolamino_logs__:sw";
 
 /**
  * Schema for the log buffer payload. Decoding the storage result through

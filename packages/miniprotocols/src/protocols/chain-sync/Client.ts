@@ -1,5 +1,5 @@
 import { Cause, Config, Context, Duration, Effect, Layer, Schema, Scope, Stream } from "effect";
-import { Socket } from "effect/unstable/socket";
+import * as Socket from "effect/unstable/socket/Socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";
@@ -100,39 +100,33 @@ export class ChainSyncClient extends Context.Service<
       return ChainSyncClient.of({
         requestNext: () =>
           sendMessage(Schemas.ChainSyncMessage.cases.RequestNext.make({})).pipe(
-            Effect.andThen(
-              // StCanAwait: server must respond within 10s
-              requireReply(messages, makeError, "StCanAwait").pipe(
-                Effect.flatMap((msg) =>
-                  Schemas.ChainSyncMessage.guards.AwaitReply(msg)
-                    ? // StMustReply: at tip, wait for new block. Timeout
-                      // draws from the per-session constant above.
-                      requireReply(
-                        messages,
-                        makeError,
-                        "StMustReply",
-                        mustReplySessionTimeout,
-                      ).pipe(Effect.flatMap(matchRollResult))
-                    : matchRollResult(msg),
-                ),
-              ),
+            // StCanAwait: server must respond within 10s
+            Effect.andThen(requireReply(messages, makeError, "StCanAwait")),
+            Effect.flatMap((msg) =>
+              Schemas.ChainSyncMessage.guards.AwaitReply(msg)
+                ? // StMustReply: at tip, wait for new block. Timeout
+                  // draws from the per-session constant above.
+                  requireReply(
+                    messages,
+                    makeError,
+                    "StMustReply",
+                    mustReplySessionTimeout,
+                  ).pipe(Effect.flatMap(matchRollResult))
+                : matchRollResult(msg),
             ),
           ),
         findIntersect: (points) =>
           sendMessage(
             Schemas.ChainSyncMessage.cases.FindIntersect.make({ points: [...points] }),
           ).pipe(
-            Effect.andThen(
-              requireReply(messages, makeError, "FindIntersect").pipe(
-                Effect.flatMap((v) =>
-                  Schemas.ChainSyncMessage.isAnyOf([
-                    Schemas.ChainSyncMessageType.IntersectFound,
-                    Schemas.ChainSyncMessageType.IntersectNotFound,
-                  ])(v)
-                    ? Effect.succeed(v)
-                    : unexpected(v._tag),
-                ),
-              ),
+            Effect.andThen(requireReply(messages, makeError, "FindIntersect")),
+            Effect.flatMap((v) =>
+              Schemas.ChainSyncMessage.isAnyOf([
+                Schemas.ChainSyncMessageType.IntersectFound,
+                Schemas.ChainSyncMessageType.IntersectNotFound,
+              ])(v)
+                ? Effect.succeed(v)
+                : unexpected(v._tag),
             ),
           ),
         done: () => sendMessage(Schemas.ChainSyncMessage.cases.Done.make({})),

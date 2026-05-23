@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { CryptoError as WasmCryptoError } from "../pkg/wasm_utils.js";
 
@@ -46,6 +46,16 @@ export class CryptoOpError extends Schema.TaggedErrorClass<CryptoOpError>()(
     message: Schema.String,
   },
 ) {}
+
+/** Wrap a sync wasm-bindgen call in `Effect` with a typed `CryptoOpError`. */
+export const wrapCryptoOp = <A>(
+  operation: CryptoOperation,
+  tryFn: () => A,
+): Effect.Effect<A, CryptoOpError> =>
+  Effect.try({
+    try: tryFn,
+    catch: (err) => fromWasmError(operation, err),
+  });
 
 export const fromWasmError = (operation: CryptoOperation, err: unknown): CryptoOpError => {
   if (err instanceof WasmCryptoError) {

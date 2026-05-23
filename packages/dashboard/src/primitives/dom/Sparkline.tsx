@@ -64,6 +64,11 @@ export const Sparkline: Component<SparklineProps> = (props) => {
     return xs.slice();
   };
 
+  const toAlignedData = (xs: number[], ys: readonly number[]): uPlot.AlignedData => {
+    const yCopy: number[] = [...ys];
+    return [xs, yCopy];
+  };
+
   const buildOpts = (): uPlot.Options => {
     const accent = colorVar();
     return {
@@ -93,7 +98,7 @@ export const Sparkline: Component<SparklineProps> = (props) => {
   const createPlot = (initialData: readonly number[], period: number): uPlot =>
     new uPlot(
       buildOpts(),
-      [ensureXs(initialData.length, period), [...initialData]] as uPlot.AlignedData,
+      toAlignedData(ensureXs(initialData.length, period), initialData),
       containerRef,
     );
 
@@ -137,7 +142,7 @@ export const Sparkline: Component<SparklineProps> = (props) => {
       return;
     }
 
-    plot.setData([ensureXs(data.length, period), [...data]] as uPlot.AlignedData);
+    plot.setData(toAlignedData(ensureXs(data.length, period), data));
   });
 
   return (

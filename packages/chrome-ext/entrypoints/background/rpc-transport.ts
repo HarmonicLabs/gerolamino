@@ -14,6 +14,23 @@ import { RpcClientError, RpcClientDefect } from "effect/unstable/rpc/RpcClientEr
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
 import type { FromClientEncoded, FromServerEncoded } from "effect/unstable/rpc/RpcMessage";
 
+/** Set when `makeServerProtocolChromePort` registers `onConnect` (SW boot gate). */
+let chromePortServerListening = false;
+
+/** Block SW boot until popup `chrome.runtime.connect` has a listener. */
+export const awaitChromePortServerListening: Effect.Effect<void> = Effect.gen(
+  function* () {
+    for (let i = 0; i < 600 && !chromePortServerListening; i++) {
+      yield* Effect.sleep("25 millis");
+    }
+    if (!chromePortServerListening) {
+      return yield* Effect.dieMessage(
+        "[rpc-transport] chrome.runtime.onConnect listener not registered within 15s",
+      );
+    }
+  },
+);
+
 // ---------------------------------------------------------------------------
 // Client Protocol — popup side (connects to background service worker)
 // ---------------------------------------------------------------------------
@@ -135,9 +152,11 @@ export const makeServerProtocolChromePort: Effect.Effect<
     };
 
     globalThis.chrome.runtime.onConnect.addListener(onConnect);
+    chromePortServerListening = true;
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
+        chromePortServerListening = false;
         globalThis.chrome.runtime.onConnect.removeListener(onConnect);
         for (const port of clients.values()) {
           port.disconnect();

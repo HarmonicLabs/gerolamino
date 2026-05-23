@@ -72,7 +72,7 @@ describe("ConsensusEvents service", () => {
         const sub = yield* events.subscribe;
         const evt: ConsensusEventType = {
           _tag: ConsensusEventKind.PeerStalled,
-          peerId: "preprod-node.play.dev.cardano.org:3001",
+          peerId: "preprod-node.world.dev.cardano.org:3001",
         };
         yield* events.emit(evt);
         const received = yield* PubSub.take(sub);

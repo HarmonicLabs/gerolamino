@@ -18,7 +18,7 @@ const decodeFrames = Schema.decodeUnknownEffect(WrappedFrameArray);
 const toFramingError =
   (operation: FramingOperation) =>
   (cause: unknown): FramingOpError => {
-    if (cause instanceof Object && "_tag" in cause && cause._tag === "SchemaError") {
+    if (Schema.isSchemaError(cause)) {
       return new FramingOpError({
         operation,
         kind: "Unknown",

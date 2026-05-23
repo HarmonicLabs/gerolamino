@@ -6,6 +6,12 @@
  * hooks (`useAtomValue`, `useAtom`); each host provides its own
  * `AtomRegistry` Layer + push pipeline (TUI: in-memory + Bun.WebView delta
  * batching; chrome-ext: SyncStateRef → chrome.storage.session → StorageBridge).
+ *
+ * Writable atoms publish by replacement (full snapshot per delta). UI hosts may
+ * wrap hot derived reads with `Atom.debounce(source, "16 millis")` to bound
+ * render cadence — `Duration.Input` string form per
+ * `effect/unstable/reactivity/Atom.ts:1673-1698`; this module publishes
+ * unconstrained so the wire snapshot stays authoritative.
  */
 import * as AtomRegistryModule from "effect/unstable/reactivity/AtomRegistry";
 import * as Atom from "effect/unstable/reactivity/Atom";

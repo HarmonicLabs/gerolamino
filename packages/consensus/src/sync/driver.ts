@@ -34,7 +34,9 @@ import { RollForwardLatencyMs } from "../observability.ts";
 // progress even if the journal goes degraded.
 const emitChainEvent = (event: Parameters<typeof writeChainEvent>[0]) =>
   writeChainEvent(event).pipe(
-    Effect.catch((cause) => Effect.logWarning(`writeChainEvent ${event._tag} failed: ${cause}`)),
+    Effect.catch((cause) =>
+      Effect.logWarning(`writeChainEvent ${event._tag} failed: ${cause}`),
+    ),
   );
 
 export class ChainSyncDriverError extends Schema.TaggedErrorClass<ChainSyncDriverError>()(
@@ -349,20 +351,14 @@ export const handleRollForward = (
     };
     return result;
   }).pipe(
-    // Per-block latency histogram + OTLP span. The driver path is the
-    // primary per-block hot-path; without the histogram we can't tell
-    // whether crypto dispatch, storage I/O, or event emission dominates
-    // the wallclock cost. `Effect.timed` only fires on success — failure
-    // latency lands implicitly through the parent span and the
-    // `BlockValidationFailed` counter, so we don't double-count.
+    // Per-block latency histogram + OTLP span (`Effect.timed` + `Metric.update`,
+    // not `Metric.trackDuration` — see effect-v4-coding-standards.md). Timed
+    // only fires on success; failure latency lands through the parent span and
+    // `BlockValidationFailed` counter.
     Effect.timed,
-    Effect.tap(([dur]) =>
-      Metric.update(RollForwardLatencyMs, Duration.toMillis(dur)),
-    ),
+    Effect.tap(([dur]) => Metric.update(RollForwardLatencyMs, Duration.toMillis(dur))),
     Effect.map(([, value]) => value),
-    Effect.withSpan("consensus.sync.roll_forward", {
-      attributes: { "peer.id": peerId },
-    }),
+    Effect.withSpan("consensus.sync.roll_forward", { attributes: { "peer.id": peerId } }),
   );
 
 /**

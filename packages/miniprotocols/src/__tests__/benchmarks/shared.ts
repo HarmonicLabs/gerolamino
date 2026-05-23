@@ -12,7 +12,7 @@ import { KeepAliveClient } from "../../protocols/keep-alive/Client";
 import { ChainSyncClient } from "../../protocols/chain-sync/Client";
 import { BlockFetchClient } from "../../protocols/block-fetch/Client";
 
-export const HOST = "preprod-node.play.dev.cardano.org";
+export const HOST = "preprod-node.world.dev.cardano.org";
 export const PORT = 3001;
 
 // ── Effect-TS layers ──

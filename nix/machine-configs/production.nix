@@ -27,12 +27,12 @@ let
       # Preprod topology (P2P format)
       topologyFile = pkgs.writeText "preprod-topology.json" (builtins.toJSON {
         bootstrapPeers = [
-          { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+          { address = "preprod-node.world.dev.cardano.org"; port = 3001; }
         ];
         localRoots = [ ];
         publicRoots = [{
           accessPoints = [
-            { address = "preprod-node.play.dev.cardano.org"; port = 3001; }
+            { address = "preprod-node.world.dev.cardano.org"; port = 3001; }
           ];
           advertise = false;
           valency = 1;

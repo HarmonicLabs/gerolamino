@@ -150,65 +150,54 @@ export const PeerManagerLive = Effect.gen(function* () {
 
   return {
     addPeer: (peerId: string, address?: string) =>
-      Clock.currentTimeMillis.pipe(
-        Effect.flatMap((now) =>
-          Ref.modify(peers, (m) => {
-            const delta = activeCountDelta(m, peerId, "connecting");
-            const next = HashMap.set(m, peerId, {
-              peerId,
-              address: address ?? peerId,
-              status: "connecting",
-              tip: undefined,
-              lastActivityMs: Number(now),
-              headersReceived: 0,
-            });
-            return [delta, next] as const;
-          }),
-        ),
-        Effect.flatMap((delta) =>
-          Ref.updateAndGet(activeCount, (c) => c + delta).pipe(
-            Effect.flatMap((c) => Metric.update(PeerCount, c)),
-          ),
-        ),
-        Effect.withSpan(SPAN.PeerConnect, { attributes: { "peer.id": peerId } }),
-      ),
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const delta = yield* Ref.modify(peers, (m) => {
+          const d = activeCountDelta(m, peerId, "connecting");
+          const next = HashMap.set(m, peerId, {
+            peerId,
+            address: address ?? peerId,
+            status: "connecting",
+            tip: undefined,
+            lastActivityMs: Number(now),
+            headersReceived: 0,
+          });
+          return [d, next] as const;
+        });
+        const count = yield* Ref.updateAndGet(activeCount, (c) => c + delta);
+        yield* Metric.update(PeerCount, count);
+      }).pipe(Effect.withSpan(SPAN.PeerConnect, { attributes: { "peer.id": peerId } })),
 
     updatePeerTip: (peerId: string, tip: ChainTip) =>
-      Clock.currentTimeMillis.pipe(
-        Effect.flatMap((now) =>
-          // `HashMap.modify` is a no-op when the peer isn't tracked, so
-          // unregistered tip notifications drop silently — same semantics
-          // as the previous `mapUpdate(...) ?? m` guard. Status moves
-          // "connecting" → "syncing" (both active), so `activeCount`
-          // doesn't change.
-          Ref.update(peers, (m) =>
-            HashMap.modify(m, peerId, (peer) => ({
-              ...peer,
-              tip,
-              status: "syncing",
-              lastActivityMs: Number(now),
-              headersReceived: peer.headersReceived + 1,
-            })),
-          ),
-        ),
-      ),
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        // `HashMap.modify` is a no-op when the peer isn't tracked, so
+        // unregistered tip notifications drop silently. Status moves
+        // "connecting" → "syncing" (both active), so `activeCount` is unchanged.
+        yield* Ref.update(peers, (m) =>
+          HashMap.modify(m, peerId, (peer) => ({
+            ...peer,
+            tip,
+            status: "syncing",
+            lastActivityMs: Number(now),
+            headersReceived: peer.headersReceived + 1,
+          })),
+        );
+      }),
 
     removePeer: (peerId: string) =>
-      Ref.modify(peers, (m) => {
-        const delta = activeCountDelta(m, peerId, "disconnected");
-        const next = HashMap.modify(m, peerId, (peer) => ({
-          ...peer,
-          status: "disconnected" as const,
-        }));
-        return [delta, next] as const;
-      }).pipe(
-        Effect.flatMap((delta) =>
-          Ref.updateAndGet(activeCount, (c) => c + delta).pipe(
-            Effect.flatMap((c) => Metric.update(PeerCount, c)),
-          ),
-        ),
-        Effect.withSpan(SPAN.PeerDisconnect, { attributes: { "peer.id": peerId } }),
-      ),
+      Effect.gen(function* () {
+        const delta = yield* Ref.modify(peers, (m) => {
+          const d = activeCountDelta(m, peerId, "disconnected");
+          const next = HashMap.modify(m, peerId, (peer) => ({
+            ...peer,
+            status: "disconnected" as const,
+          }));
+          return [d, next] as const;
+        });
+        const count = yield* Ref.updateAndGet(activeCount, (c) => c + delta);
+        yield* Metric.update(PeerCount, count);
+      }).pipe(Effect.withSpan(SPAN.PeerDisconnect, { attributes: { "peer.id": peerId } })),
 
     getBestPeer: Ref.get(peers).pipe(
       Effect.map((m) => {
@@ -230,38 +219,29 @@ export const PeerManagerLive = Effect.gen(function* () {
 
     getPeers: Ref.get(peers).pipe(Effect.map((m) => [...HashMap.values(m)])),
 
-    detectStalls: Clock.currentTimeMillis.pipe(
-      Effect.flatMap((now) => {
-        const nowMs = Number(now);
-        return Ref.modify(peers, (m) => {
-          // Filter eligible-and-past-timeout entries once, then reduce them
-          // into the new HashMap. Each `HashMap.set` is an O(log n)
-          // structural-sharing update, so k stalled peers cost O(k log n).
-          // Stalls are rare (typically 0 per tick) so the filter result
-          // stays tiny; replaces the prior `let next = m` accumulator that
-          // the CLAUDE.md `.reduce` / `Array.from` rule discourages.
-          const stalledEntries = [...HashMap.entries(m)].filter(
-            ([, peer]) =>
-              isEligibleForStall(peer) && nowMs - peer.lastActivityMs > stallTimeoutMs,
-          );
-          const next = stalledEntries.reduce(
-            (acc, [id, peer]) => HashMap.set(acc, id, { ...peer, status: "stalled" }),
-            m,
-          );
-          const stalled: ReadonlyArray<string> = stalledEntries.map(([id]) => id);
-          return [stalled, next] as const;
-        });
-      }),
-      Effect.tap((stalled) =>
-        stalled.length > 0
-          ? Metric.update(PeerStalledCount, stalled.length).pipe(
-              Effect.withSpan(SPAN.PeerStalled, {
-                attributes: { "peer.stall_count": stalled.length },
-              }),
-            )
-          : Effect.void,
-      ),
-    ),
+    detectStalls: Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      const nowMs = Number(now);
+      const stalled = yield* Ref.modify(peers, (m) => {
+        const stalledEntries = [...HashMap.entries(m)].filter(
+          ([, peer]) =>
+            isEligibleForStall(peer) && nowMs - peer.lastActivityMs > stallTimeoutMs,
+        );
+        const next = stalledEntries.reduce(
+          (acc, [id, peer]) => HashMap.set(acc, id, { ...peer, status: "stalled" }),
+          m,
+        );
+        return [stalledEntries.map(([id]) => id), next] as const;
+      });
+      if (stalled.length > 0) {
+        yield* Metric.update(PeerStalledCount, stalled.length).pipe(
+          Effect.withSpan(SPAN.PeerStalled, {
+            attributes: { "peer.stall_count": stalled.length },
+          }),
+        );
+      }
+      return stalled;
+    }),
 
     getStatusCounts: Ref.get(peers).pipe(
       // Single O(n) histogram merged with the zero-seed so downstream

@@ -7,6 +7,8 @@ import {
   type MemPackDerivationLink,
   MemPackEncodeError,
 } from "../MemPackError";
+import "./annotations";
+import { bool, float64, list, tag, text, tuple, varLen } from "../primitives";
 
 /** Typed walker-error helper — schema-author bugs caught at load time. */
 const derivationErr = (
@@ -14,8 +16,6 @@ const derivationErr = (
   message: string,
   astTag?: string,
 ): MemPackDerivationError => new MemPackDerivationError({ link, astTag, message });
-import { bool, float64, list, tag, text, tuple, varLen } from "../primitives";
-import { readMemPackAnnotation } from "./annotations";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Architecture B — function-producing derivation (mirrors Effect's own
@@ -61,6 +61,17 @@ const reify = <T>(codec: MemPackCodec<unknown>): MemPackCodec<T> =>
   codec as unknown as MemPackCodec<T>;
 
 const memPackMemoMap = new WeakMap<AST.AST, MemPackCodec<unknown>>();
+
+type MemPackAnnotationFn = (typeParameters: ReadonlyArray<MemPackCodec<unknown>>) => MemPackCodec<unknown>;
+
+const isMemPackAnnotationFn = (u: unknown): u is MemPackAnnotationFn => Predicate.isFunction(u);
+
+/** Mirrors `toCodecCbor`'s Declaration annotation read — no `as` cast. */
+const readMemPackAnnotation = (ast: AST.AST): MemPackAnnotationFn | undefined => {
+  if (!AST.isDeclaration(ast)) return undefined;
+  const ann: unknown = ast.annotations?.toCodecMemPack;
+  return isMemPackAnnotationFn(ann) ? ann : undefined;
+};
 
 const constantCodec = <T>(typeName: string, value: T): MemPackCodec<T> => ({
   typeName,
@@ -260,8 +271,8 @@ const walk = (ast: AST.AST): MemPackCodec<unknown> => {
   const memo = memPackMemoMap.get(ast);
   if (memo) return memo;
 
-  const annotation = readMemPackAnnotation(ast.annotations);
-  if (Predicate.isFunction(annotation)) {
+  const annotation = readMemPackAnnotation(ast);
+  if (annotation !== undefined) {
     const typeParameters: ReadonlyArray<MemPackCodec<unknown>> = AST.isDeclaration(ast)
       ? ast.typeParameters.map((tp) => walk(tp))
       : [];

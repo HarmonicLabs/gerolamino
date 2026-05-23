@@ -12,9 +12,11 @@
  *     state shape. They are identity-stable so consumers can import
  *     the same atom symbol from anywhere.
  *   - A daemon fiber subscribes to `ChainEventStream.stream` and calls
- *     `AtomRegistry.set(atom, value)` — the idiomatic external mutation
- *     path per `AtomRegistry.ts:50` (the Writable's own `.write(ctx)`
- *     is reserved for derived atoms running inside a reactivity pass).
+ *     `AtomRegistry.set(atom, value)` inside `Atom.batch(...)` — the
+ *     idiomatic external mutation path per `AtomRegistry.ts:50` (the
+ *     Writable's own `.write(ctx)` is reserved for derived atoms running
+ *     inside a reactivity pass). Batching defers derived-atom rebuilds
+ *     until every cell in a multi-field event (e.g. `BlockAccepted`) lands.
  *   - `EventLog.groupReactivity(ChainEventGroup, keys)` ALSO wires per-
  *     event invalidation so `Reactivity.query` / `Reactivity.stream`
  *     based derived computations (e.g., "validators this epoch",
@@ -138,20 +140,22 @@ const applyRollback = (
 
 const applyEvent = (registry: AtomRegistry, event: ChainEventType): Effect.Effect<void> =>
   Effect.sync(() =>
-    ChainEvent.match(event, {
-      BlockAccepted: (p) => {
-        registry.set(chainTipAtom, { slot: p.slot, blockNo: p.blockNo, hash: p.hash });
-        registry.update(chainLengthAtom, (n) => n + 1);
-      },
-      TipAdvanced: (p) => {
-        registry.set(chainTipAtom, { slot: p.slot, blockNo: p.blockNo, hash: p.hash });
-      },
-      RolledBack: (p) => applyRollback(registry, p),
-      EpochBoundary: (p) => {
-        registry.set(epochAtom, p.toEpoch);
-        registry.set(epochNonceAtom, p.epochNonce);
-      },
-    }),
+    Atom.batch(() =>
+      ChainEvent.match(event, {
+        BlockAccepted: (p) => {
+          registry.set(chainTipAtom, { slot: p.slot, blockNo: p.blockNo, hash: p.hash });
+          registry.update(chainLengthAtom, (n) => n + 1);
+        },
+        TipAdvanced: (p) => {
+          registry.set(chainTipAtom, { slot: p.slot, blockNo: p.blockNo, hash: p.hash });
+        },
+        RolledBack: (p) => applyRollback(registry, p),
+        EpochBoundary: (p) => {
+          registry.set(epochAtom, p.toEpoch);
+          registry.set(epochNonceAtom, p.epochNonce);
+        },
+      }),
+    ),
   );
 
 /**
@@ -177,7 +181,10 @@ export const ChainAtomsLive: Layer.Layer<never, never, ChainEventStream | AtomRe
       const subscription = yield* events.subscribe;
       yield* Effect.forkScoped(
         Effect.forever(
-          PubSub.take(subscription).pipe(Effect.flatMap((event) => applyEvent(registry, event))),
+          Effect.gen(function* () {
+            const event = yield* PubSub.take(subscription);
+            yield* applyEvent(registry, event);
+          }),
         ),
       );
     }),

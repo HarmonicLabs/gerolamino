@@ -514,21 +514,22 @@ export const applyBlock = (
   blockCbor: Uint8Array,
   txIds: readonly Uint8Array[],
 ): Effect.Effect<BlockDiff, ApplyBlockError> =>
-  analyzeBlockCbor(blockCbor).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ApplyBlockError({
-          reason: `block-analysis failed: ${cause.reason} @${cause.pos}`,
-        }),
-    ),
-    Effect.flatMap((analysis) =>
-      Effect.try({
-        try: () => applyBlockCore(analysis, blockCbor, txIds),
-        catch: (cause) =>
+  Effect.gen(function* () {
+    const analysis = yield* analyzeBlockCbor(blockCbor).pipe(
+      Effect.mapError(
+        (cause) =>
           new ApplyBlockError({
-            reason: `apply-block core failed: ${String(cause)}`,
+            reason: `block-analysis failed: ${cause.reason} @${cause.pos}`,
           }),
-      }),
-    ),
-    Effect.tap(() => Metric.update(BlockAccepted, 1)),
-  );
+      ),
+    );
+    const diff = yield* Effect.try({
+      try: () => applyBlockCore(analysis, blockCbor, txIds),
+      catch: (cause) =>
+        new ApplyBlockError({
+          reason: `apply-block core failed: ${String(cause)}`,
+        }),
+    });
+    yield* Metric.update(BlockAccepted, 1);
+    return diff;
+  });

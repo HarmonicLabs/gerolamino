@@ -53,7 +53,7 @@ import {
   SubscriptionRef,
 } from "effect";
 import type { Cause } from "effect";
-import type { Socket } from "effect/unstable/socket";
+import type * as Socket from "effect/unstable/socket/Socket";
 import { KeyValueStore } from "effect/unstable/persistence";
 
 import { peerCount, peerMessagesIn, peerMessagesOut } from "../Metrics";

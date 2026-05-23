@@ -24,6 +24,7 @@
  */
 import { Effect, Schema } from "effect";
 import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore";
+import { DEFAULT_RELAY_URL } from "./relay-url.ts";
 
 export const BootstrapMode = Schema.Literals(["local", "genesis"] as const);
 export type BootstrapMode = typeof BootstrapMode.Type;
@@ -38,11 +39,14 @@ export const BootstrapSettings = Schema.Struct({
 });
 export type BootstrapSettings = typeof BootstrapSettings.Type;
 
-const STORAGE_KEY = "gerolamino:bootstrap-settings";
+/** Raw `chrome.storage.local` key — keep in sync with Playwright seeds. */
+export const BOOTSTRAP_SETTINGS_STORAGE_KEY = "gerolamino:bootstrap-settings";
+
+const STORAGE_KEY = BOOTSTRAP_SETTINGS_STORAGE_KEY;
 
 export const DEFAULT_SETTINGS: BootstrapSettings = {
   mode: "genesis",
-  serverUrl: "ws://localhost:3040",
+  serverUrl: DEFAULT_RELAY_URL,
 };
 
 /**
@@ -54,6 +58,98 @@ const SettingsJsonCodec = Schema.fromJsonString(BootstrapSettings);
 const decodeFromJsonString = Schema.decodeUnknownEffect(SettingsJsonCodec);
 const encodeToJsonString = Schema.encodeUnknownEffect(SettingsJsonCodec);
 
+const decodeSettingsRaw = (
+  raw: unknown,
+): Effect.Effect<BootstrapSettings | undefined> => {
+  if (raw === undefined) return Effect.succeed(undefined);
+  const str = typeof raw === "string" ? raw : JSON.stringify(raw);
+  return decodeFromJsonString(str).pipe(Effect.orElseSucceed(() => undefined));
+};
+
+/** Callback `chrome.storage.*.get` with timeout — Promise `.get()` can hang in offscreen. */
+const chromeStorageGet = (
+  area: "local" | "session",
+  key: string,
+  timeoutMs: number = 1_000,
+): Effect.Effect<unknown> =>
+  Effect.tryPromise({
+    try: () =>
+      new Promise<unknown>((resolve) => {
+        const storage =
+          area === "local"
+            ? globalThis.chrome.storage.local
+            : globalThis.chrome.storage.session;
+        const timer = globalThis.setTimeout(() => resolve(undefined), timeoutMs);
+        try {
+          if (storage === undefined) {
+            globalThis.clearTimeout(timer);
+            resolve(undefined);
+            return;
+          }
+          storage.get(key, (bag: Record<string, unknown>) => {
+            globalThis.clearTimeout(timer);
+            resolve(bag[key]);
+          });
+        } catch {
+          globalThis.clearTimeout(timer);
+          resolve(undefined);
+        }
+      }),
+    catch: () => undefined,
+  }).pipe(Effect.orElseSucceed(() => undefined));
+
+/** Block until `chrome.storage.local` acknowledges a write (Playwright E2E). */
+export const flushChromeLocalStorage = (
+  entries: Readonly<Record<string, unknown>>,
+): Effect.Effect<void> =>
+  Effect.tryPromise({
+    try: () =>
+      new Promise<void>((resolve, reject) => {
+        try {
+          globalThis.chrome.storage.local.set(entries, () => {
+            const err = globalThis.chrome.runtime?.lastError;
+            if (err !== undefined) reject(new Error(err.message));
+            else resolve();
+          });
+        } catch (cause) {
+          reject(cause);
+        }
+      }),
+    catch: (cause) => cause,
+  }).pipe(Effect.asVoid);
+
+/**
+ * Read settings directly from `chrome.storage.local` (no `KeyValueStore`).
+ * Used by offscreen `forkBootstrapSync` so RpcServer handler scopes always
+ * see the same persisted envelope Playwright seeds via `page.evaluate`.
+ */
+export const loadSettingsFromChromeStorage: Effect.Effect<BootstrapSettings | undefined> =
+  chromeStorageGet("local", STORAGE_KEY).pipe(
+    Effect.flatMap((raw) => decodeSettingsRaw(raw)),
+    Effect.orElseSucceed(() => undefined),
+  );
+
+/** Poll `chrome.storage.local` until settings decode or attempts exhaust. */
+export const loadSettingsFromChromeStorageWithRetry = (
+  attempts: number = 30,
+  delayMs: number = 100,
+): Effect.Effect<BootstrapSettings | undefined> =>
+  Effect.gen(function* () {
+    for (let i = 0; i < attempts; i++) {
+      const settings = yield* loadSettingsFromChromeStorage;
+      if (settings !== undefined) return settings;
+      if (i < attempts - 1) yield* Effect.sleep(`${delayMs} millis`);
+    }
+    return undefined;
+  });
+
+/** E2E session flag — `installE2eDeferBootstrap` in Playwright specs. */
+export const readE2eDeferBootstrapFlag: Effect.Effect<boolean> =
+  chromeStorageGet("session", "gerolamino:e2e-defer-bootstrap", 2_000).pipe(
+    Effect.map((raw) => raw === true),
+    Effect.orElseSucceed(() => false),
+  );
+
 /**
  * Read the persisted settings; resolve to `undefined` on first open or
  * decode failure. Pipeline-composed (no nested `Effect.gen`).
@@ -64,11 +160,7 @@ export const loadSettings: Effect.Effect<
   KeyValueStore.KeyValueStore
 > = Effect.flatMap(KeyValueStore.KeyValueStore, (kvs) =>
   kvs.get(STORAGE_KEY).pipe(
-    Effect.flatMap((raw) =>
-      raw === undefined
-        ? Effect.succeed<BootstrapSettings | undefined>(undefined)
-        : decodeFromJsonString(raw).pipe(Effect.orElseSucceed(() => undefined)),
-    ),
+    Effect.flatMap((raw) => decodeSettingsRaw(raw)),
     Effect.orElseSucceed(() => undefined),
   ),
 );

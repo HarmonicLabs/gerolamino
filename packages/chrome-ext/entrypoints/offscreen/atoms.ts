@@ -1,13 +1,10 @@
 /**
  * Offscreen-side atom registry for the chrome-ext compute daemon.
  *
- * Phase D Step 3 stage 3a: this module mirrors
- * `entrypoints/background/dashboard/atoms.ts` with an independent
- * `AtomRegistry` instance. The migration plan calls for the SW's atom
- * registry to deprecate once the offscreen-side bootstrap-sync writes
- * the canonical state here; until that switch lands (stage 3b), this
- * registry stays at the INITIAL_* defaults defined in
- * `dashboard/atoms` — no producer is wired yet.
+ * Offscreen-local `AtomRegistry` — canonical dashboard state for the
+ * chrome-ext. `bootstrap-sync.ts` pushes node/peers/bootstrap metrics;
+ * `ChainEventStream` drain appends chain events. The broadcast fiber
+ * (`./broadcast.ts`) publishes deduped JSON deltas to popups via RPC.
  *
  * The push-helper signatures match the SW version 1:1 so the
  * eventually-moved bootstrap-sync.ts can be relocated by changing

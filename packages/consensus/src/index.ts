@@ -7,7 +7,7 @@
  *   hard-fork/  — era history + validator routing
  *   mempool/    — Mempool service + 63-predicate Conway UTXOW surface
  *   peer/       — peer manager + UI-facing ConsensusEvents PubSub
- *   praos/      — clock + nonce + composed consensus engine
+ *   praos/      — slot clock + nonce evolution
  *   rpc/        — ValidationRpcGroup (12 methods) + NodeRpcGroup (7 methods)
  *   stage/      — SyncStage pipeline primitive
  *   sync/       — N2N sync driver + bootstrap pipeline + relay connection
@@ -81,6 +81,9 @@ export { processBlock, getSyncState, syncFromStream, SyncError, SyncState } from
 export { VolatileState, initialVolatileState } from "./sync/driver";
 export {
   connectToRelay,
+  connectToRelayOnSocket,
+  relayMiniprotocolLayers,
+  relaySessionLayer,
   PREPROD_MAGIC,
   MAINNET_MAGIC,
   PREVIEW_MAGIC,

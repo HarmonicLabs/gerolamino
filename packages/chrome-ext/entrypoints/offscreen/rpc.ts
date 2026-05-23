@@ -45,12 +45,22 @@ export class Ping extends Rpc.make("Ping", {
   }),
 }) {}
 
+/** Optional bootstrap settings relayed by the SW/popup when offscreen
+ *  `chrome.storage.local` reads are flaky (Playwright MV3). */
+export const BootstrapSettingsPayload = Schema.Struct({
+  mode: Schema.Literals(["local", "genesis"] as const),
+  serverUrl: Schema.String,
+});
+
 /** Re-trigger the bootstrap-sync pipeline. Idempotent: if a sync is
  *  already in flight the offscreen returns `{ alreadyRunning: true }`
  *  without restarting; otherwise returns `{ alreadyRunning: false,
  *  requestId }` and starts a fresh attempt. Progress events are
  *  observed via `SubscribeAtomDeltas`. */
 export class RequestRestart extends Rpc.make("RequestRestart", {
+  payload: {
+    settings: Schema.optional(BootstrapSettingsPayload),
+  },
   success: Schema.Struct({
     alreadyRunning: Schema.Boolean,
     requestId: Schema.optional(Schema.String),

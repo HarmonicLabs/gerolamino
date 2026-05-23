@@ -1,7 +1,7 @@
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
-import { CborBytes, CborKinds, CborValue } from "codecs";
+import { CborBytes, CborKinds, CborValue, CborValue as CborValueSchema } from "codecs";
 
 const __dir = import.meta.dirname;
 const fixtureDir = `${__dir}/golden/fixtures`;
@@ -34,7 +34,7 @@ const decodeCborBytes = Schema.decodeUnknownEffect(CborBytes);
  */
 
 const isDefiniteArray = (v: CborValue): v is Extract<CborValue, { _tag: CborKinds.Array }> =>
-  v._tag === CborKinds.Array;
+  CborValueSchema.guards[CborKinds.Array](v);
 
 /**
  * Per-era tuple arity for `TranslationInstance`.

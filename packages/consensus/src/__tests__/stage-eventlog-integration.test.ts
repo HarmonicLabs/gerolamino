@@ -96,7 +96,12 @@ describe("SyncStage + EventLog integration", () => {
       // not strictly guaranteed under concurrency > 1 in validate; the count
       // + identity is invariant. Extract stable keys for set comparison.
       const key = (e: ChainEventType): string =>
-        e._tag === "BlockAccepted" ? e.hash.toString() : `${e._tag}-other`;
+        ChainEvent.match(e, {
+          BlockAccepted: (p) => p.hash.toString(),
+          RolledBack: () => "RolledBack-other",
+          TipAdvanced: () => "TipAdvanced-other",
+          EpochBoundary: () => "EpochBoundary-other",
+        });
       expect(new Set(received.map(key))).toEqual(new Set(emitted.map(key)));
     }).pipe(Effect.provide(ChainEventsLive)),
   );
@@ -111,7 +116,7 @@ describe("SyncStage + EventLog integration", () => {
       // Every emitted BlockAccepted was journaled; count matches input.
       expect(history.length).toBe(blocks.length);
       for (const event of history) {
-        expect(event._tag).toBe("BlockAccepted");
+        expect(ChainEvent.guards.BlockAccepted(event)).toBe(true);
       }
     }).pipe(Effect.provide(ChainEventsLive)),
   );
@@ -124,7 +129,7 @@ describe("SyncStage + EventLog integration", () => {
       for (const event of emitted) {
         // Re-make forces schema validation
         const reEncoded = ChainEvent.make(event);
-        expect(reEncoded._tag).toBe("BlockAccepted");
+        expect(ChainEvent.guards.BlockAccepted(reEncoded)).toBe(true);
       }
     }).pipe(Effect.provide(ChainEventsLive)),
   );

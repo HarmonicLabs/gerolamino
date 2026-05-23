@@ -21,12 +21,14 @@ export {
   CryptoOperation,
   CryptoOpError,
   fromWasmError,
+  wrapCryptoOp,
 } from "./errors.ts";
 export { initWasm } from "./init.ts";
 export {
   WasmBytes,
   WasmBytesFsLayer,
   WasmBytesUrlLayer,
+  WasmLoadError,
 } from "./loader.ts";
 export { lsmTreeJsffiUrl, lsmTreeWasmUrl } from "./lsm-shim/urls.ts";
 export { CryptoFromRpc, CryptoRpcClient } from "./rpc/crypto-client.ts";

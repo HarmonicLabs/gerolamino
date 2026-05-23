@@ -67,6 +67,29 @@ const workspaceAliases = [
   },
 ];
 
+const bootstrapUrl = process.env.BOOTSTRAP_URL ?? "ws://localhost:3040";
+
+/** MV3 `host_permissions` entry for the relay WS origin (e.g. Hetzner VPS). */
+const relayHostPermission = (() => {
+  try {
+    const httpOrigin = bootstrapUrl.replace(/^ws/, "http").replace(/^wss/, "https");
+    const { host } = new URL(httpOrigin);
+    return `*://${host}/*`;
+  } catch {
+    return undefined;
+  }
+})();
+
+const hostPermissions = [
+  "*://localhost/*",
+  "*://127.0.0.1/*",
+  ...(relayHostPermission !== undefined &&
+  !relayHostPermission.includes("localhost") &&
+  !relayHostPermission.includes("127.0.0.1")
+    ? [relayHostPermission]
+    : []),
+];
+
 export default defineConfig({
   modules: ["@wxt-dev/module-solid"],
   manifest: {
@@ -95,7 +118,7 @@ export default defineConfig({
     // `define` block below). Browsers require explicit
     // `host_permissions` for WS connections to a different origin
     // from a service worker.
-    host_permissions: ["*://localhost/*", "*://127.0.0.1/*"],
+    host_permissions: hostPermissions,
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
     },
@@ -111,9 +134,7 @@ export default defineConfig({
       alias: workspaceAliases,
     },
     define: {
-      __BOOTSTRAP_URL__: JSON.stringify(
-        process.env.BOOTSTRAP_URL ?? "ws://localhost:3040",
-      ),
+      __BOOTSTRAP_URL__: JSON.stringify(bootstrapUrl),
     },
     // Worker bundling — emit each `new Worker(new URL("./workers/X.ts",
     // import.meta.url), { type: "module" })` as a separate ES-module

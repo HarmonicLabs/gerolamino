@@ -1,10 +1,8 @@
-// Browser-safe surface: the BlobStore service + key encoders + the
-// WASM lsm-tree adapter. The Bun-only LSM layer (`bun:ffi`-backed
-// `layerLsm`, `LsmAdmin`) lives in the `./lsm` sub-path; consumers
-// that run in a Bun runtime import it as `from "lsm-ffi/lsm"`.
-// Chrome-extension hosts stick to this barrel + the `lsm-wasm`
-// re-exports so rolldown doesn't drag `bun:ffi` into the browser bundle.
+// Browser-safe surface: BlobStore key encoders + WASM lsm-tree adapter.
+// Chrome-extension and Bun TUI both use `layerLsmWasm` / `loadLsmModule`;
+// the Haskell-compiled reactor lives under `haskell-lsm/lsm-tree-wasm-shim/`.
 export { BlobStore, BlobStoreError, BlobEntry, BlobStoreOperation } from "./blob-store.ts";
+export { LsmAdmin, LsmAdminError, LsmAdminOperation } from "./admin.ts";
 export {
   utxoKey,
   blockKey,
@@ -36,3 +34,4 @@ export {
   type LsmModule,
   type WasiAdapter,
 } from "./wasm/index.ts";
+export { lsmTreeWasmUrl, lsmTreeJsffiUrl } from "../lsm-shim/urls.ts";

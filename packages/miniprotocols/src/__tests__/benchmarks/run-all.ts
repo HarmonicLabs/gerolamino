@@ -386,7 +386,7 @@ async function main() {
   console.log("╔══════════════════════════════════════════════════════════╗");
   console.log("║  Ouroboros Miniprotocols Benchmark Suite                ║");
   console.log("║  Effect-TS (v4 beta) vs Legacy (EventEmitter/Promise)  ║");
-  console.log("║  Target: preprod-node.play.dev.cardano.org:3001        ║");
+  console.log("║  Target: preprod-node.world.dev.cardano.org:3001        ║");
   console.log("╚══════════════════════════════════════════════════════════╝");
 
   const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));

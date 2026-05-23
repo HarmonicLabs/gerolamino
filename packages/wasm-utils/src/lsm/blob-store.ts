@@ -6,9 +6,8 @@
  * thin re-export (`storage/src/blob-store/service.ts`).
  *
  * Platform layers:
- *   - layerLsm / layerLsmFromSnapshot: V2LSM via native FFI (Bun TUI + bootstrap)
+ *   - layerLsmWasm: V2LSM via Haskell-compiled lsm-tree WASM (Bun TUI + chrome-ext)
  *   - layerInMemory (in `storage`): Effect KeyValueStore backing, for tests
- *   - layerIndexedDb (future): IndexedDB, LSM-based internally (Chrome ext)
  *
  * All storage logic uses `yield* BlobStore` — never imports a platform module.
  */

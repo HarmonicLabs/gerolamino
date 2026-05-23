@@ -9,7 +9,7 @@ import {
   vrf_verify_proof,
 } from "../../pkg/wasm_utils.js";
 
-import { fromWasmError } from "../errors.ts";
+import { wrapCryptoOp } from "../errors.ts";
 import { initWasm } from "../init.ts";
 
 import { CryptoRpcGroup } from "./crypto-rpc.ts";
@@ -27,15 +27,11 @@ export const CryptoHandlersLive = CryptoRpcGroup.toLayer(
     Effect.as(
       CryptoRpcGroup.of({
         Ed25519Verify: ({ message, publicKey, signature }) =>
-          Effect.try({
-            try: () => ed25519_verify(message, signature, publicKey),
-            catch: (err) => fromWasmError("ed25519Verify", err),
-          }),
+          wrapCryptoOp("ed25519Verify", () => ed25519_verify(message, signature, publicKey)),
         KesSum6Verify: ({ message, period, publicKey, signature }) =>
-          Effect.try({
-            try: () => kes_sum6_verify(signature, period, publicKey, message),
-            catch: (err) => fromWasmError("kesSum6Verify", err),
-          }),
+          wrapCryptoOp("kesSum6Verify", () =>
+            kes_sum6_verify(signature, period, publicKey, message),
+          ),
         CheckVrfLeader: ({
           activeSlotCoeffDen,
           activeSlotCoeffNum,
@@ -43,32 +39,20 @@ export const CryptoHandlersLive = CryptoRpcGroup.toLayer(
           sigmaNumerator,
           vrfOutputHex,
         }) =>
-          Effect.try({
-            try: () =>
-              check_vrf_leader(
-                vrfOutputHex,
-                sigmaNumerator,
-                sigmaDenominator,
-                activeSlotCoeffNum,
-                activeSlotCoeffDen,
-              ),
-            catch: (err) => fromWasmError("checkVrfLeader", err),
-          }),
+          wrapCryptoOp("checkVrfLeader", () =>
+            check_vrf_leader(
+              vrfOutputHex,
+              sigmaNumerator,
+              sigmaDenominator,
+              activeSlotCoeffNum,
+              activeSlotCoeffDen,
+            ),
+          ),
         VrfVerifyProof: ({ vrfInput, vrfProof, vrfVkey }) =>
-          Effect.try({
-            try: () => vrf_verify_proof(vrfVkey, vrfProof, vrfInput),
-            catch: (err) => fromWasmError("vrfVerifyProof", err),
-          }),
+          wrapCryptoOp("vrfVerifyProof", () => vrf_verify_proof(vrfVkey, vrfProof, vrfInput)),
         VrfProofToHash: ({ vrfProof }) =>
-          Effect.try({
-            try: () => vrf_proof_to_hash(vrfProof),
-            catch: (err) => fromWasmError("vrfProofToHash", err),
-          }),
-        Blake2b256: ({ data }) =>
-          Effect.try({
-            try: () => blake2b_256(data),
-            catch: (err) => fromWasmError("blake2b256", err),
-          }),
+          wrapCryptoOp("vrfProofToHash", () => vrf_proof_to_hash(vrfProof)),
+        Blake2b256: ({ data }) => wrapCryptoOp("blake2b256", () => blake2b_256(data)),
       }),
     ),
   ),

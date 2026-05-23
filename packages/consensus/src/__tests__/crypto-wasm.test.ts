@@ -5,7 +5,7 @@
  * functions produce correct results.
  */
 import { describe, it, expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { Crypto, CryptoDirect } from "wasm-utils/service.ts";
 import {
   ed25519_public_key,
@@ -101,7 +101,7 @@ describe("CryptoDirect (WASM)", () => {
             new Uint8Array(32).fill(3),
           ),
         );
-        expect(exit._tag).toBe("Failure");
+        expect(Exit.isFailure(exit)).toBe(true);
       }),
     ),
   );
@@ -114,7 +114,7 @@ describe("CryptoDirect (WASM)", () => {
         // We test the basic contract: 80 bytes in → 64 bytes out or error.
         const crypto = yield* Crypto;
         const exit = yield* Effect.exit(crypto.vrfProofToHash(new Uint8Array(80)));
-        const result = exit._tag === "Success" ? exit.value.byteLength : -1;
+        const result = Exit.isSuccess(exit) ? exit.value.byteLength : -1;
         // Either 64-byte output or decompression error — both are valid
         expect(result === 64 || result === -1).toBe(true);
       }),

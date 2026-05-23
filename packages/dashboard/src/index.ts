@@ -1,7 +1,7 @@
 /**
  * packages/dashboard — shared dashboard for Gerolamino node.
  *
- * Works in both OpenTUI (apps/tui) and Chrome extension (packages/chrome-ext).
+ * Works in apps/tui (HTTP+WS SPA / Bun.WebView) and Chrome extension popup.
  * UI rendering is abstracted via DashboardPrimitives context — each platform
  * provides its own implementation.
  *

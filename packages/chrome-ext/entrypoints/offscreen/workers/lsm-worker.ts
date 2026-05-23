@@ -16,168 +16,60 @@
  *      `LsmRpcGroup` methods by forwarding to the loaded
  *      `LsmModule`'s typed ops.
  *
- * The OPFS root is mounted at `/data` so the lsm-tree session uses
- * `/data/lsm/<session>` paths. The popup's drag-drop uploader streams
- * snapshot bytes to `/data/lsm/` via the `LsmUploadChunk` RPC, then
- * the worker reopens its session against the populated OPFS tree.
+ * OPFS I/O goes through Effect `FileSystem` (`OpfsFileSystem.layer`);
+ * WASI preopen is built separately for the Haskell runtime only.
  */
 import * as BrowserWorkerRunner from "@effect/platform-browser/BrowserWorkerRunner";
 import { Effect, Layer, Option, Ref } from "effect";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
-import {
-  Directory,
-  type Inode,
-  PreopenDirectory,
-  SyncOPFSFile,
-  WASI,
-} from "@bjorn3/browser_wasi_shim";
+import { type PreopenDirectory, WASI } from "@bjorn3/browser_wasi_shim";
+import { layer as OpfsFileSystemLayer, writeOpfsFileSlice } from "../../../src/opfs/file-system.ts";
+import { buildWasiPreopen } from "../../../src/opfs/wasi-preopen.ts";
+import { inspectOpfsLsm } from "../../../src/opfs/inspect.ts";
 import {
   BlobStoreError,
   loadLsmModule,
   type LsmModule,
-  type LsmWasmError,
   type WasiAdapter,
 } from "lsm-ffi";
-// Subpath imports — tsgo's cross-package barrel re-export resolution
-// silently drops these names when imported from chrome-ext. The path
-// alias `wasm-utils/* → ../wasm-utils/src/*` in tsconfig resolves the
-// inner modules; Rolldown handles both forms identically at runtime.
+import { LsmWasmError } from "wasm-utils/lsm/wasm/errors.ts";
 import { lsmTreeJsffiUrl, lsmTreeWasmUrl } from "wasm-utils/lsm-shim/urls.ts";
 import { WasmBytes, WasmBytesUrlLayer } from "wasm-utils/loader.ts";
 import { LsmRpcGroup } from "../lsm-rpc.ts";
 
-// WASM artifact URLs come from the wasm-utils barrel — see
-// `wasm-utils/src/lsm-shim/urls.ts` for the canonical `new URL(...)`
-// resolution. Imported via the barrel so the deep path is centralised.
 const wasmUrl = lsmTreeWasmUrl;
 const jsffiUrl = lsmTreeJsffiUrl;
 
-// ───────────────────────────────────────────────────────────────────
-// Log relay. The Worker can't `Effect.log` to its parent offscreen
-// page — `BrowserWorkerRunner` owns the postMessage channel for RPC.
-// Workers' own `console.log` lands in Chrome DevTools' Web Worker
-// inspector but does NOT propagate to Playwright's
-// `page.on("console", ...)` listener on the parent.
-//
-// To get diagnostic visibility (e.g. while debugging the
-// `upload-synthetic.spec.ts` hang), broadcast log lines over a
-// dedicated `BroadcastChannel`. The offscreen page subscribes via
-// `entrypoints/offscreen/main.ts` and forks each message into
-// `Effect.logInfo` — Playwright then captures them as offscreen logs.
-//
-// BroadcastChannel is same-origin pub-sub; the channel name is fixed
-// per-worker because there's only one lsm-worker at a time (pool
-// `maxSize: 1` invariant).
-// ───────────────────────────────────────────────────────────────────
-
 const LSM_WORKER_LOG_CHANNEL = "gerolamino/lsm-worker-log";
+const LSM_WORKER_CONTROL_CHANNEL = "gerolamino/lsm-worker-control";
 const logChannel = new BroadcastChannel(LSM_WORKER_LOG_CHANNEL);
 const workerStartMs = Date.now();
 const lsmLog = (message: string): void => {
   const t = (Date.now() - workerStartMs).toString().padStart(5, " ");
-  const stamped = `+${t}ms ${message}`;
-  // Also emit to the Worker's own console for live DevTools inspection.
-  console.log(`[lsm-worker] ${stamped}`);
-  logChannel.postMessage(stamped);
+  logChannel.postMessage(`+${t}ms ${message}`);
 };
 
-// Fires once per Worker module-load. If multiple lines appear in the
-// offscreen page log, Effect's Pool has spawned > 1 worker instance —
-// each gets its own JS module + its own workerStartMs. Critical
-// diagnostic for the synthetic-spec May-2026 release-loop debugging.
 lsmLog(`module loaded (startMs=${workerStartMs}, channel=${LSM_WORKER_LOG_CHANNEL})`);
 
-// ───────────────────────────────────────────────────────────────────
-// OPFS-backed WASI filesystem.
-//
-// `@bjorn3/browser_wasi_shim`'s `PreopenDirectory` builds an
-// in-memory directory tree where each `File` entry can be backed by
-// either `MemoryFile` (default) or `SyncOPFSFile` (persistent). We
-// lazily wrap each OPFS file we encounter via `SyncOPFSFile`; the
-// in-memory directory tree itself is rebuilt on every worker boot
-// from a recursive walk of `navigator.storage.getDirectory()`.
-//
-// Memory cost: ~16 bytes per directory entry (string + node ref).
-// For the lsm-tree session dir (a few thousand files at most),
-// this is negligible vs. the bytes the WASM module itself reads.
-// ───────────────────────────────────────────────────────────────────
+const controlChannel = new BroadcastChannel(LSM_WORKER_CONTROL_CHANNEL);
+controlChannel.onmessage = (event: MessageEvent) => {
+  if (event.data === "terminate") {
+    lsmLog("control: terminate — closing worker");
+    self.close();
+  }
+};
 
 const SESSION_MOUNT = "/data";
 const LSM_SESSION_SUBDIR = "lsm";
 
-/** Recursively walk only the `lsm/` subtree of OPFS, building a
- *  Directory tree of `SyncOPFSFile` wrappers. Called once at worker
- *  boot and again after every snapshot upload to refresh the tree.
- *
- *  We restrict the walk to the lsm session subdirectory (instead of
- *  walking OPFS root) because only lsm-tree session files need to be
- *  reachable from the WASI shim — other OPFS files (the popup's
- *  upload sink at root, the snapshot-ingest's `ledger/<slot>/state`,
- *  etc.) are accessed exclusively via the native `FileSystem*Handle`
- *  API from `writeChunk` / `LsmInspectOpfs`. Eagerly opening
- *  `createSyncAccessHandle` for every OPFS file blocks the popup's
- *  subsequent upload writes — Chromium forbids concurrent sync /
- *  writable handles on the same `FileSystemFileHandle`. */
-const buildOpfsRoot = async (): Promise<PreopenDirectory> => {
-  const root = await navigator.storage.getDirectory();
-  const buildDir = async (handle: FileSystemDirectoryHandle): Promise<Directory> => {
-    const entries = new Map<string, Inode>();
-    // `entries()` is async-iterator-only on FileSystemDirectoryHandle.
-    // The unionised `for await...of` is the standard traversal idiom
-    // per the OPFS spec.
-    for await (const [name, child] of handle.entries()) {
-      if (child.kind === "directory") {
-        entries.set(name, await buildDir(child));
-      } else {
-        const sync = await child.createSyncAccessHandle();
-        entries.set(name, new SyncOPFSFile(sync));
-      }
-    }
-    return new Directory(entries);
-  };
-  // Only walk `/lsm/` (if present). If absent — first-boot or
-  // upload-pending — fall back to an empty directory; the WASI shim
-  // accepts an empty preopen and the lsm-tree session is opened
-  // lazily after `LsmReopenAfterUpload`.
-  const lsmDir = await root
-    .getDirectoryHandle(LSM_SESSION_SUBDIR, { create: false })
-    .catch(() => null);
-  const treeRoot =
-    lsmDir === null
-      ? new Directory(new Map<string, Inode>())
-      : await buildDir(lsmDir);
-  // The preopen presents the lsm tree at `/data/lsm` (matching where
-  // `LsmReopenAfterUpload` calls `openSession(`${SESSION_MOUNT}/${LSM_SESSION_SUBDIR}`)`),
-  // so the inner contents are wrapped in a `lsm` entry rather than
-  // exposed directly under the preopen root.
-  const entries = new Map<string, Inode>();
-  entries.set(LSM_SESSION_SUBDIR, treeRoot);
-  return new PreopenDirectory(SESSION_MOUNT, entries);
-};
-
-/** Build a `WasiAdapter` from a fresh `WASI` instance over the OPFS
- *  preopen. The adapter is what `loadLsmModule` consumes.
- *
- *  The shim's `WASI.initialize` requires a structural type with
- *  `memory: WebAssembly.Memory` and optional `_initialize` —
- *  `WebAssembly.Instance` carries both but lib.dom types them as
- *  `Record<string, ExportValue>`. We re-extract the two fields via
- *  typeof / instanceof checks and pass a typed projection. No `as`
- *  cast; the runtime values are unchanged. */
-const makeWasiAdapter = async (): Promise<WasiAdapter> => {
-  const preopen = await buildOpfsRoot();
+const makeWasiAdapterFromPreopen = (preopen: PreopenDirectory): WasiAdapter => {
   const wasi = new WASI([], [], [preopen]);
   return {
     wasiImport: wasi.wasiImport,
     initialize: (instance) => {
       const memory = instance.exports.memory;
       if (!(memory instanceof WebAssembly.Memory)) {
-        // Surface as a typed `BlobStoreError` rather than a generic
-        // `Error` — the surrounding `Effect.try` in `module-loader.ts`
-        // passes typed errors through via `instanceof` check, so the
-        // upstream consumer sees a structured error with operation
-        // metadata instead of a stringly-typed message.
         throw new BlobStoreError({
           operation: "lsm",
           cause: "lsm-worker: WASM module missing required `memory` export",
@@ -193,340 +85,324 @@ const makeWasiAdapter = async (): Promise<WasiAdapter> => {
   };
 };
 
-// ───────────────────────────────────────────────────────────────────
-// Module loader. Builds the `LsmModule` against the OPFS-backed
-// WASI host, opens a session at `/data/lsm`, opens a default table,
-// and returns the handles for the RPC handlers to close over.
-// ───────────────────────────────────────────────────────────────────
+type JsffiFactory = (exports: Record<string, unknown>) => WebAssembly.ModuleImports;
 
 interface WorkerState {
-  readonly lsm: LsmModule;
-  /** Open lsm-tree session handle, or `undefined` until first
-   *  `LsmReopenAfterUpload` call. Session can't be opened at worker
-   *  boot because `/data/lsm/` doesn't exist in OPFS yet — the popup
-   *  drag-drop uploader populates it AFTER the worker starts. Opening
-   *  eagerly here hangs the entire `HandlersLive` Layer build → the
-   *  RpcServer never registers handlers → every popup→worker RPC
-   *  queues indefinitely. Lazy-init via Reopen is the correct flow. */
+  readonly wasmBytes: Uint8Array;
+  readonly jsffiFactory: JsffiFactory;
+  readonly lsmRef: Ref.Ref<LsmModule | undefined>;
   readonly sessionHandle: Ref.Ref<number | undefined>;
   readonly tableHandle: Ref.Ref<number | undefined>;
 }
 
+const mapLoadLsmError = (e: LsmWasmError) =>
+  new BlobStoreError({ operation: "lsm", cause: e });
+
 const makeWorkerState = Effect.gen(function* () {
-  // WASM bytes now flow through the shared `WasmBytes` service (per
-  // platform unification iter A) — fetch + arrayBuffer is the
-  // adapter's job, not this caller's.
   const wasm = yield* WasmBytes;
   const wasmBytes = yield* wasm.load("lsm-tree").pipe(
     Effect.mapError((cause) => new BlobStoreError({ operation: "lsm", cause })),
   );
-  const [jsffiFactory, wasi] = yield* Effect.tryPromise({
+  const jsffiFactory = yield* Effect.tryPromise({
     try: async () => {
       const m = await import(jsffiUrl.href);
-      const a = await makeWasiAdapter();
-      return [m.default, a] as const;
+      return m.default;
     },
     catch: (cause) => new BlobStoreError({ operation: "lsm", cause }),
   });
-  // `wasmBytes` is `Uint8Array<ArrayBufferLike>`. `loadLsmModule` declares
-  // its first arg as `BufferSource` which (under lib.dom 2026)
-  // narrowly requires `ArrayBufferView<ArrayBuffer>` — `ArrayBufferLike`
-  // is rejected because it could be `SharedArrayBuffer`. Re-wrap into
-  // a fresh `Uint8Array` whose backing buffer is statically known to
-  // be `ArrayBuffer` so the structural check passes.
   const wasmBytesAB = new Uint8Array(wasmBytes);
-  const lsm: LsmModule = yield* loadLsmModule({
-    wasmBytes: wasmBytesAB,
-    jsffiFactory,
-    wasi,
-  }).pipe(
-    Effect.mapError((e: LsmWasmError) =>
-      new BlobStoreError({ operation: "lsm", cause: e }),
-    ),
-  );
+  const lsmRef = yield* Ref.make<LsmModule | undefined>(undefined);
   const sessionHandle = yield* Ref.make<number | undefined>(undefined);
   const tableHandle = yield* Ref.make<number | undefined>(undefined);
-  return { lsm, sessionHandle, tableHandle };
+  return { wasmBytes: wasmBytesAB, jsffiFactory, lsmRef, sessionHandle, tableHandle };
 });
 
-/** Resolve the open table handle or fail with a clear typed error.
- *  Used by every lsm-tree-operation handler (`LsmGet`/`LsmPut`/etc.)
- *  that requires a populated OPFS lsm-tree session. */
-const requireTable = (state: WorkerState): Effect.Effect<number, BlobStoreError> =>
-  Ref.get(state.tableHandle).pipe(
-    Effect.flatMap((h) =>
-      h === undefined
-        ? Effect.fail(
-            new BlobStoreError({
-              operation: "lsm",
-              cause:
-                "lsm-tree session not open — call LsmReopenAfterUpload after populating OPFS",
-            }),
-          )
-        : Effect.succeed(h),
-    ),
-  );
+const copyBytes = (bytes: Uint8Array): Uint8Array => new Uint8Array(bytes);
 
-// ───────────────────────────────────────────────────────────────────
-// OPFS upload sink. Tracks file handles by path so multi-chunk
-// uploads to the same file reuse a single `FileSystemSyncAccessHandle`.
-// The handle is closed when the chunk with `final: true` arrives.
-// ───────────────────────────────────────────────────────────────────
-
-interface UploadSink {
-  /** Path → open sync handle for in-progress uploads. */
-  readonly open: Map<string, FileSystemSyncAccessHandle>;
-  /** Path → tail-of-queue Promise. Concurrent `writeChunk` calls for
-   *  the same path chain off this promise so the OPFS sync-handle is
-   *  acquired exactly once. Worker pool / RPC retry cascades can cause
-   *  the same chunk to dispatch 3+ times concurrently; without this
-   *  serialisation each dispatch races `createSyncAccessHandle` and
-   *  deadlocks. The May-2026 release loop's `upload-synthetic.spec.ts`
-   *  worker-side log capture surfaced this. */
-  readonly queue: Map<string, Promise<void>>;
-}
-
-const newUploadSink = (): UploadSink => ({ open: new Map(), queue: new Map() });
+const formatLsmCause = (cause: unknown): unknown =>
+  cause instanceof LsmWasmError
+    ? `${cause.operation}: ${String(cause.cause)}`
+    : cause;
 
 const wrapBlobError = (cause: unknown) =>
-  new BlobStoreError({ operation: "lsm", cause });
+  new BlobStoreError({ operation: "lsm", cause: formatLsmCause(cause) });
 
-const writeChunk = (
-  sink: UploadSink,
-  path: string,
-  offset: number,
-  bytes: Uint8Array,
-  final: boolean,
-): Effect.Effect<void, BlobStoreError> =>
-  Effect.tryPromise({
-    try: async () => {
-      lsmLog(`writeChunk enter path=${path} offset=${offset} bytes=${bytes.length} final=${final}`);
-      // Per-path serialisation gate. Chain off the previous in-flight
-      // promise for this path so concurrent dispatches process one at
-      // a time. Resolves the "3 concurrent createSyncAccessHandle for
-      // the same OPFS file" race observed under upload-spec retries
-      // (Effect Worker pool / RPC layers can re-dispatch the same
-      // request 2-3× concurrently; without this gate each dispatch
-      // races `createSyncAccessHandle` and deadlocks).
-      const previous = sink.queue.get(path) ?? Promise.resolve();
-      const work = previous.then(() => writeChunkImpl(sink, path, offset, bytes, final));
-      const wrapped = work.catch(() => undefined);
-      sink.queue.set(path, wrapped);
-      try {
-        await work;
-      } finally {
-        if (final && sink.queue.get(path) === wrapped) {
-          sink.queue.delete(path);
-        }
-      }
-      lsmLog(`writeChunk exit path=${path}`);
-    },
-    catch: wrapBlobError,
+const closeOpenSession = (state: WorkerState): Effect.Effect<void, BlobStoreError> =>
+  Effect.gen(function* () {
+    const lsm = yield* Ref.get(state.lsmRef);
+    if (lsm === undefined) return;
+    const table = yield* Ref.get(state.tableHandle);
+    const session = yield* Ref.get(state.sessionHandle);
+    if (table !== undefined) {
+      yield* lsm.closeTable(table).pipe(Effect.mapError(wrapBlobError), Effect.ignore);
+    }
+    if (session !== undefined) {
+      yield* lsm.closeSession(session).pipe(Effect.mapError(wrapBlobError), Effect.ignore);
+    }
+    yield* Ref.set(state.tableHandle, undefined);
+    yield* Ref.set(state.sessionHandle, undefined);
   });
 
-/** Inner write — runs serially per path via `writeChunk`'s queue. */
-const writeChunkImpl = async (
-  sink: UploadSink,
-  path: string,
-  offset: number,
-  bytes: Uint8Array,
-  final: boolean,
-): Promise<void> => {
-  let handle = sink.open.get(path);
-  if (handle === undefined) {
-    // Resolve parent path + create directory chain. OPFS API only
-    // creates one level at a time, so we walk the split path.
-    lsmLog(`writeChunk[${path}]: getDirectory ...`);
-    const root = await navigator.storage.getDirectory();
-    lsmLog(`writeChunk[${path}]: getDirectory done`);
-    const segments = path.split("/").filter((s) => s.length > 0);
-    const filename = segments.pop();
-    if (filename === undefined) {
-      throw new BlobStoreError({
-        operation: "lsm",
-        cause: `LsmUploadChunk: empty path "${path}" — at least one segment required`,
-      });
+const loadLsmAgainstPreopen = (
+  state: WorkerState,
+  preopen: PreopenDirectory,
+): Effect.Effect<LsmModule, BlobStoreError> =>
+  Effect.gen(function* () {
+    const wasi = makeWasiAdapterFromPreopen(preopen);
+    const lsm = yield* loadLsmModule({
+      wasmBytes: state.wasmBytes,
+      jsffiFactory: state.jsffiFactory,
+      wasi,
+    }).pipe(Effect.mapError(mapLoadLsmError));
+    yield* Ref.set(state.lsmRef, lsm);
+    return lsm;
+  });
+
+const openLsmSession = (
+  state: WorkerState,
+  preopen: PreopenDirectory,
+): Effect.Effect<number, BlobStoreError> =>
+  Effect.gen(function* () {
+    yield* closeOpenSession(state);
+    yield* Ref.set(state.lsmRef, undefined);
+    const lsm = yield* loadLsmAgainstPreopen(state, preopen);
+    const sessionDir = `${SESSION_MOUNT}/${LSM_SESSION_SUBDIR}`;
+    const smokeRc = yield* lsm.smoke(sessionDir).pipe(Effect.mapError(wrapBlobError));
+    lsmLog(`lsm-tree smoke("${sessionDir}") rc=${smokeRc}`);
+    if (smokeRc !== 0) {
+      return yield* Effect.fail(
+        new BlobStoreError({
+          operation: "lsm",
+          cause: `lsm-tree smoke failed with rc=${smokeRc}`,
+        }),
+      );
     }
-    let dir = root;
-    for (const seg of segments) {
-      lsmLog(`writeChunk[${path}]: getDirectoryHandle("${seg}") ...`);
-      dir = await dir.getDirectoryHandle(seg, { create: true });
+    const session = yield* lsm.openSession(sessionDir).pipe(Effect.mapError(wrapBlobError));
+    const table = yield* lsm.openTable(session, "default").pipe(Effect.mapError(wrapBlobError));
+    yield* Ref.set(state.sessionHandle, session);
+    yield* Ref.set(state.tableHandle, table);
+    return table;
+  });
+
+type LsmHandlerR = import("effect/FileSystem").FileSystem | WasmBytes;
+
+const requireTable = (
+  state: WorkerState,
+): Effect.Effect<number, BlobStoreError, import("effect/FileSystem").FileSystem> =>
+  Effect.gen(function* () {
+    const existing = yield* Ref.get(state.tableHandle);
+    if (existing !== undefined) return existing;
+    const { preopen, filesMounted } = yield* buildWasiPreopen(
+      SESSION_MOUNT,
+      LSM_SESSION_SUBDIR,
+      4096,
+    ).pipe(Effect.mapError(wrapBlobError));
+    lsmLog(`WASI preopen ready (${filesMounted} lazy file inode(s) under /data/lsm)`);
+    const table = yield* openLsmSession(state, preopen);
+    lsmLog("opened lsm-tree session (OPFS-backed WASI)");
+    return table;
+  });
+
+const withLoadedLsm = <A>(
+  state: WorkerState,
+  use: (lsm: LsmModule) => Effect.Effect<A, BlobStoreError>,
+): Effect.Effect<A, BlobStoreError> =>
+  Effect.gen(function* () {
+    const lsm = yield* Ref.get(state.lsmRef);
+    if (lsm === undefined) {
+      return yield* Effect.fail(
+        new BlobStoreError({ operation: "lsm", cause: "lsm-tree module not loaded yet" }),
+      );
     }
-    lsmLog(`writeChunk[${path}]: getFileHandle("${filename}") ...`);
-    const file = await dir.getFileHandle(filename, { create: true });
-    lsmLog(`writeChunk[${path}]: createSyncAccessHandle ...`);
-    handle = await file.createSyncAccessHandle();
-    lsmLog(`writeChunk[${path}]: createSyncAccessHandle done`);
-    sink.open.set(path, handle);
-  }
-  handle.write(bytes, { at: offset });
-  if (final) {
-    handle.flush();
-    handle.close();
-    sink.open.delete(path);
-  }
+    return yield* use(lsm);
+  });
+
+const putBatchEntries = (
+  lsm: LsmModule,
+  table: number,
+  entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>,
+): Effect.Effect<void, BlobStoreError> => {
+  if (entries.length === 0) return Effect.void;
+  return Effect.gen(function* () {
+    for (const { key, value } of entries) {
+      yield* lsm
+        .put(table, copyBytes(key), copyBytes(value))
+        .pipe(Effect.mapError(wrapBlobError));
+    }
+  });
 };
 
-// ───────────────────────────────────────────────────────────────────
-// RPC handlers. Each method maps an RPC payload onto the
-// corresponding `LsmModule` op via the ref-tracked table handle.
-// ───────────────────────────────────────────────────────────────────
+const withTable = (
+  ensureState: () => Effect.Effect<WorkerState, BlobStoreError, WasmBytes>,
+  use: (state: WorkerState, table: number) => Effect.Effect<void, BlobStoreError>,
+): Effect.Effect<void, BlobStoreError, LsmHandlerR> =>
+  Effect.gen(function* () {
+    const state = yield* ensureState();
+    const table = yield* requireTable(state);
+    yield* use(state, table);
+  });
 
-const makeHandlers = (state: WorkerState, sink: UploadSink) => ({
+const makeHandlers = (
+  ensureState: () => Effect.Effect<WorkerState, BlobStoreError, WasmBytes>,
+) => ({
   LsmGet: ({ key }: { readonly key: Uint8Array }) =>
-    requireTable(state).pipe(
-      Effect.flatMap((h) => state.lsm.get(h, key).pipe(Effect.mapError(wrapBlobError))),
-      Effect.map((opt) => Option.getOrNull(opt)),
+    ensureState().pipe(
+      Effect.flatMap((state) =>
+        requireTable(state).pipe(
+          Effect.flatMap((h) =>
+            withLoadedLsm(state, (lsm) =>
+              lsm.get(h, copyBytes(key)).pipe(Effect.mapError(wrapBlobError)),
+            ),
+          ),
+          Effect.map((opt) => Option.getOrNull(opt)),
+        ),
+      ),
     ),
 
   LsmPut: ({ key, value }: { readonly key: Uint8Array; readonly value: Uint8Array }) =>
-    requireTable(state).pipe(
-      Effect.flatMap((h) => state.lsm.put(h, key, value).pipe(Effect.mapError(wrapBlobError))),
+    withTable(ensureState, (state, h) =>
+      withLoadedLsm(state, (lsm) =>
+        lsm.put(h, copyBytes(key), copyBytes(value)).pipe(Effect.mapError(wrapBlobError)),
+      ),
     ),
 
   LsmDelete: ({ key }: { readonly key: Uint8Array }) =>
-    requireTable(state).pipe(
-      Effect.flatMap((h) => state.lsm.delete(h, key).pipe(Effect.mapError(wrapBlobError))),
+    withTable(ensureState, (state, h) =>
+      withLoadedLsm(state, (lsm) =>
+        lsm.delete(h, copyBytes(key)).pipe(Effect.mapError(wrapBlobError)),
+      ),
     ),
 
   LsmHas: ({ key }: { readonly key: Uint8Array }) =>
-    requireTable(state).pipe(
-      Effect.flatMap((h) => state.lsm.has(h, key).pipe(Effect.mapError(wrapBlobError))),
+    ensureState().pipe(
+      Effect.flatMap((state) =>
+        requireTable(state).pipe(
+          Effect.flatMap((h) =>
+            withLoadedLsm(state, (lsm) =>
+              lsm.has(h, copyBytes(key)).pipe(Effect.mapError(wrapBlobError)),
+            ),
+          ),
+        ),
+      ),
     ),
 
   LsmScan: ({ prefix }: { readonly prefix: Uint8Array }) =>
-    Effect.gen(function* () {
-      const tableH = yield* requireTable(state);
-      const cursor = yield* state.lsm.cursorOpen(tableH, prefix);
-      try {
-        const collected: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> = [];
-        // Drain the cursor synchronously into an array. For large
-        // scans this could pull MBs into memory; the user-supplied
-        // snapshot bootstrap is the only ≥100k-entry caller today
-        // and it tolerates the buffering.
-        let done = false;
-        while (!done) {
-          const batch = yield* state.lsm.cursorRead(cursor, 256);
-          if (batch.entries.length === 0) {
-            done = true;
-            break;
-          }
-          for (const e of batch.entries) collected.push(e);
-        }
-        return collected;
-      } finally {
-        yield* state.lsm.cursorClose(cursor).pipe(Effect.ignore);
-      }
-    }).pipe(Effect.mapError(wrapBlobError)),
+    ensureState().pipe(
+      Effect.flatMap((state) =>
+        requireTable(state).pipe(
+          Effect.flatMap((tableH) =>
+            withLoadedLsm(state, (lsm) =>
+              Effect.gen(function* () {
+                const cursor = yield* lsm.cursorOpen(tableH, copyBytes(prefix)).pipe(
+                  Effect.mapError(wrapBlobError),
+                );
+                try {
+                  const collected: Array<{ readonly key: Uint8Array; readonly value: Uint8Array }> =
+                    [];
+                  let done = false;
+                  while (!done) {
+                    const batch = yield* lsm.cursorRead(cursor, 256).pipe(
+                      Effect.mapError(wrapBlobError),
+                    );
+                    if (batch.entries.length === 0) {
+                      done = true;
+                      break;
+                    }
+                    for (const e of batch.entries) collected.push(e);
+                  }
+                  return collected;
+                } finally {
+                  yield* lsm.cursorClose(cursor).pipe(Effect.mapError(wrapBlobError), Effect.ignore);
+                }
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.mapError(wrapBlobError),
+    ),
 
   LsmPutBatch: ({
     entries,
   }: {
     readonly entries: ReadonlyArray<{ readonly key: Uint8Array; readonly value: Uint8Array }>;
   }) =>
-    requireTable(state).pipe(
-      Effect.flatMap((h) => state.lsm.putBatch(h, entries).pipe(Effect.mapError(wrapBlobError))),
-    ),
+    withTable(ensureState, (state, h) => withLoadedLsm(state, (lsm) => putBatchEntries(lsm, h, entries))),
 
   LsmDeleteBatch: ({ keys }: { readonly keys: ReadonlyArray<Uint8Array> }) =>
-    requireTable(state).pipe(
-      Effect.flatMap((h) => state.lsm.deleteBatch(h, keys).pipe(Effect.mapError(wrapBlobError))),
+    withTable(ensureState, (state, h) =>
+      withLoadedLsm(state, (lsm) =>
+        lsm.deleteBatch(h, keys.map(copyBytes)).pipe(Effect.mapError(wrapBlobError)),
+      ),
     ),
 
-  LsmUploadChunk: ({
-    path,
-    offset,
-    bytes,
-    final,
-  }: {
+  LsmUploadChunk: (params: {
     readonly path: string;
     readonly offset: number;
     readonly bytes: Uint8Array;
     readonly final: boolean;
-  }) => writeChunk(sink, path, offset, bytes, final),
+  }) =>
+    writeOpfsFileSlice(
+      params.path,
+      params.offset,
+      copyBytes(params.bytes),
+      params.final,
+    ).pipe(
+      Effect.tap(() =>
+        Effect.sync(() =>
+          lsmLog(
+            `LsmUploadChunk path=${params.path} offset=${params.offset} bytes=${params.bytes.length} final=${params.final}`,
+          ),
+        ),
+      ),
+      Effect.mapError(wrapBlobError),
+    ),
 
   LsmReopenAfterUpload: () =>
-    Effect.gen(function* () {
-      // Close any prior session/table if they were already open
-      // (Reopen is idempotent — popup may call it multiple times,
-      // e.g., re-drop a corrected snapshot after a partial upload).
-      const oldTable = yield* Ref.get(state.tableHandle);
-      const oldSession = yield* Ref.get(state.sessionHandle);
-      if (oldTable !== undefined) {
-        yield* state.lsm.closeTable(oldTable).pipe(Effect.ignore);
-      }
-      if (oldSession !== undefined) {
-        yield* state.lsm.closeSession(oldSession).pipe(Effect.ignore);
-      }
-      // Open against the now-populated `/data/lsm/` tree. This is
-      // the FIRST time `openSession` runs across the worker's
-      // lifetime — moving it here (out of `makeWorkerState`)
-      // unblocks the boot path when OPFS is empty.
-      const sessionDir = `${SESSION_MOUNT}/${LSM_SESSION_SUBDIR}`;
-      const session = yield* state.lsm.openSession(sessionDir);
-      const table = yield* state.lsm.openTable(session, "default");
-      yield* Ref.set(state.sessionHandle, session);
-      yield* Ref.set(state.tableHandle, table);
-    }).pipe(Effect.mapError(wrapBlobError)),
+    ensureState().pipe(
+      Effect.flatMap((state) =>
+        buildWasiPreopen(SESSION_MOUNT, LSM_SESSION_SUBDIR, 4096).pipe(
+          Effect.mapError(wrapBlobError),
+          Effect.flatMap(({ preopen, filesMounted }) => {
+            lsmLog(`LsmReopenAfterUpload: WASI preopen (${filesMounted} file inode(s))`);
+            return openLsmSession(state, preopen).pipe(
+              Effect.tap(() =>
+                Effect.sync(() =>
+                  lsmLog("LsmReopenAfterUpload: session opened against native OPFS lsm/"),
+                ),
+              ),
+            );
+          }),
+          Effect.asVoid,
+        ),
+      ),
+    ),
 
-  // Inspect the OPFS tree under `/data/lsm/` to decide whether the
-  // popup can offer a "resume" affordance instead of forcing a
-  // fresh snapshot upload. Walks `navigator.storage.getDirectory()`
-  // ASYNCHRONOUSLY (not via the sync access handles) so we don't
-  // contend with in-flight session reads.
-  LsmInspectOpfs: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const root = await navigator.storage.getDirectory();
-        const lsm = await root
-          .getDirectoryHandle(LSM_SESSION_SUBDIR, { create: false })
-          .catch(() => null);
-        if (lsm === null) {
-          return { hasSession: false, hasSnapshots: false, byteCount: 0, lastModifiedMs: 0 };
-        }
-        const hasSession = await lsm
-          .getDirectoryHandle("active", { create: false })
-          .then(() => true)
-          .catch(() => false);
-        const hasSnapshots = await lsm
-          .getDirectoryHandle("snapshots", { create: false })
-          .then(() => true)
-          .catch(() => false);
-        let byteCount = 0;
-        let lastModifiedMs = 0;
-        const walk = async (dir: FileSystemDirectoryHandle): Promise<void> => {
-          for await (const [, child] of dir.entries()) {
-            if (child.kind === "file") {
-              const file = await child.getFile();
-              byteCount += file.size;
-              if (file.lastModified > lastModifiedMs) lastModifiedMs = file.lastModified;
-            } else {
-              await walk(child);
-            }
-          }
-        };
-        await walk(lsm);
-        return { hasSession, hasSnapshots, byteCount, lastModifiedMs };
-      },
-      catch: wrapBlobError,
-    }),
+  LsmInspectOpfs: () => inspectOpfsLsm.pipe(Effect.mapError(wrapBlobError)),
 });
-
-// ───────────────────────────────────────────────────────────────────
-// Worker bootstrap. The RpcServer reads from `BrowserWorkerRunner`
-// (postMessage transport); handlers are the closures built above.
-// ───────────────────────────────────────────────────────────────────
 
 const HandlersLive = LsmRpcGroup.toLayer(
   Effect.gen(function* () {
-    const state = yield* makeWorkerState;
-    const sink = newUploadSink();
-    return LsmRpcGroup.of(makeHandlers(state, sink));
+    const stateRef = yield* Ref.make<WorkerState | undefined>(undefined);
+    const stateInitRef = yield* Ref.make(makeWorkerState);
+    const ensureState = () =>
+      Effect.gen(function* () {
+        const cached = yield* Ref.get(stateRef);
+        if (cached !== undefined) return cached;
+        const ticket = yield* Ref.modify(stateInitRef, (prior) => {
+          const chained = prior.pipe(Effect.tap((s) => Ref.set(stateRef, s)));
+          return [chained, chained] as const;
+        });
+        return yield* ticket;
+      });
+    lsmLog("HandlersLive registered — LsmUploadChunk ready (WASM loads on first table op)");
+    return LsmRpcGroup.of(makeHandlers(ensureState));
   }),
 );
 
 const WorkerLive = RpcServer.layer(LsmRpcGroup).pipe(
   Layer.provide(HandlersLive),
+  Layer.provide(OpfsFileSystemLayer),
   Layer.provide(WasmBytesUrlLayer({ "lsm-tree": wasmUrl })),
   Layer.provide(RpcSerialization.layerNdjson),
   Layer.provide(RpcServer.layerProtocolWorkerRunner),

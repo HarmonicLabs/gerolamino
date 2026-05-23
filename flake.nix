@@ -255,7 +255,10 @@
                 # Override for local cardano-node: RELAY_TCP_TARGET=127.0.0.1:3001
                 RELAY_WS_BIND = "127.0.0.1:3040";
                 RELAY_TCP_TARGET = "preprod-node.world.dev.cardano.org:3001";
-                LIBLSM_BRIDGE_PATH = "${config.packages.lsm-bridge}/lib/liblsm-bridge.so";
+                WASM_LSM_MODULE_PATH =
+                  "${config.packages.ts-packages}/packages/wasm-utils/haskell-lsm/lsm-tree-wasm-shim/lsm-tree-wasm.wasm";
+                WASM_LSM_JSFFI_PATH =
+                  "${config.packages.ts-packages}/packages/wasm-utils/haskell-lsm/lsm-tree-wasm-shim/lsm-tree-wasm.js";
                 # Bun.WebView's Linux backend (`backend: "chrome"`) spawns
                 # Chrome over `--remote-debugging-pipe`. Bun's auto-detect
                 # walks `$PATH` (`google-chrome`, `chromium`, ...) and a

@@ -40,29 +40,28 @@ export class FramingOpError extends Schema.TaggedErrorClass<FramingOpError>()(
   },
 ) {}
 
-/** Schema for the wasm-bindgen `FramingError` instance shape. The bg.js
- *  shim doesn't ship a typed export, and `instanceof WasmFramingError`
- *  doesn't narrow through the `@ts-self-types` re-export chain — so we
- *  decode unknowns into this shape and read fields off the validated
- *  result, satisfying the project rule that bans `as Type` casts. */
-const WasmFramingErrorShape = Schema.Struct({
-  code: Schema.Number,
-  message: Schema.String,
-});
-const decodeWasmFramingError = Schema.decodeUnknownOption(WasmFramingErrorShape);
+const readWasmFramingFields = (
+  err: unknown,
+): { readonly code: number; readonly message: string } | undefined => {
+  if (!(err instanceof WasmFramingError)) return undefined;
+  const code = Reflect.get(Object(err), "code");
+  const message = Reflect.get(Object(err), "message");
+  if (typeof code !== "number" || typeof message !== "string") return undefined;
+  return { code, message };
+};
 
 export const fromWasmError = (operation: FramingOperation, err: unknown): FramingOpError => {
-  if (err instanceof WasmFramingError) {
-    const decoded = decodeWasmFramingError(err);
-    if (decoded._tag === "Some") {
-      const { code, message } = decoded.value;
-      return new FramingOpError({
-        operation,
-        kind: CODE_TO_KIND.get(code) ?? "Unknown",
-        code,
-        message,
-      });
-    }
+  // wasm-bindgen exposes `code` / `message` as prototype getters — only
+  // `__wbg_ptr` is an own property, so `Schema.decodeUnknown` cannot see
+  // them. `instanceof` + Reflect reads avoid `unknown` narrowing gaps in tsgo.
+  const fields = readWasmFramingFields(err);
+  if (fields !== undefined) {
+    return new FramingOpError({
+      operation,
+      kind: CODE_TO_KIND.get(fields.code) ?? "Unknown",
+      code: fields.code,
+      message: fields.message,
+    });
   }
   return new FramingOpError({
     operation,

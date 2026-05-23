@@ -35,6 +35,7 @@ import {
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { mempoolSnapshotAtom, type MempoolEntry } from "../atoms/node-state.ts";
 import { usePrimitives } from "../primitives.ts";
+import { SortableTh } from "./SortableTh.tsx";
 
 export interface MempoolTableProps {
   /** Pixel height of the scroll container. Defaults to 400. */
@@ -113,27 +114,12 @@ export const MempoolTable: Component<MempoolTableProps> = (props) => {
           {/* `min-w-[480px]` ensures the four columns stay readable when the
               dashboard is rendered in a narrow chrome-ext popup (~380px) —
               horizontal scroll engages instead of squishing column widths. */}
-          <table class="w-full min-w-[480px] caption-bottom text-sm">
+          <table class="w-full min-w-[480px] caption-bottom text-sm" aria-label="Mempool transactions">
             <thead class="sticky top-0 z-10 bg-card">
               <For each={table.getHeaderGroups()}>
                 {(hg) => (
                   <tr class="border-b">
-                    <For each={hg.headers}>
-                      {(header) => {
-                        const sorted = createMemo(() => header.column.getIsSorted());
-                        return (
-                          <th
-                            class="h-10 cursor-pointer select-none px-2 text-left align-middle font-medium text-muted-foreground hover:text-foreground"
-                            onClick={header.column.getToggleSortingHandler()}
-                          >
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                            <span>
-                              {sorted() === "asc" ? " ▲" : sorted() === "desc" ? " ▼" : ""}
-                            </span>
-                          </th>
-                        );
-                      }}
-                    </For>
+                    <For each={hg.headers}>{(header) => <SortableTh header={header} />}</For>
                   </tr>
                 )}
               </For>

@@ -15,7 +15,7 @@ import { ChainPointType } from "../protocols/types/ChainPoint";
 // ── Preprod testnet layer ──
 
 const PreprodSocket = BunSocket.layerNet({
-  host: "preprod-node.play.dev.cardano.org",
+  host: "preprod-node.world.dev.cardano.org",
   port: 3001,
 });
 

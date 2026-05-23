@@ -137,7 +137,7 @@ export class VrfCache extends Context.Service<
 // ---------------------------------------------------------------------------
 // Factory — lookup functions are injected at layer build time by the
 // integration point (consensus/validate/header.ts wires the real CBOR
-// decoder; consensus/praos/engine.ts wires the WASM VRF verifier).
+// decoder; `validate/header.ts` wires the WASM VRF verifier via `Crypto`).
 // For the default scaffold, both lookups fail loudly so a missing wire
 // shows up as a runtime error instead of a silent no-op.
 // ---------------------------------------------------------------------------

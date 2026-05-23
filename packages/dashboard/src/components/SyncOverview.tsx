@@ -181,6 +181,15 @@ export const SyncOverview = () => {
                     </Show>
                   </Text>
                 </Box>
+                <Show when={bootstrap().totalStakeEntries} keyed>
+                  {(total) => (
+                    <Progress
+                      value={bootstrap().stakeEntriesWritten}
+                      max={total}
+                      ariaLabel="Bootstrap stake entries written"
+                    />
+                  )}
+                </Show>
               </Box>
             </Show>
 

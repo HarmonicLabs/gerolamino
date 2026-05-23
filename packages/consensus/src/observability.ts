@@ -98,6 +98,7 @@ export const SPAN = {
   ValidateBody: "consensus.validate.body",
   ChainSelect: "consensus.chain.select",
   ChainRollback: "consensus.chain.rollback",
+  PromoteVolatile: "consensus.chain.promote_volatile",
   PeerConnect: "consensus.peer.connect",
   PeerDisconnect: "consensus.peer.disconnect",
   PeerStalled: "consensus.peer.stalled",

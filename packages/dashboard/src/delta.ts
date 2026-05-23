@@ -9,6 +9,12 @@
  *     `applyDelta(registry, raw)` to decode that string back into atom
  *     updates on its own mirror registry.
  *
+ * **Stable delta keys** (rename only with coordinated host updates):
+ *   `nodeState`, `peers`, `bootstrap`, `networkInfo`, `chainEventLog`,
+ *   `mempoolSnapshot`, `syncSparkline` — each maps 1:1 to the exported
+ *   atom in `atoms/node-state.ts`. Hosts always emit the full snapshot;
+ *   receivers fold unconditionally (no initial-vs-delta distinction).
+ *
  * Native types `bigint` and `Uint8Array` don't survive plain JSON, so we
  * tag them at encode time and re-hydrate at decode time:
  *
@@ -55,24 +61,25 @@ export const replacer = (_key: string, value: unknown): unknown => {
   return value;
 };
 
+const isWireTagged = (value: unknown): value is { readonly __t: string; readonly v: string } => {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("__t" in value) || !("v" in value)) return false;
+  const tag = Reflect.get(value, "__t");
+  const payload = Reflect.get(value, "v");
+  return typeof tag === "string" && typeof payload === "string";
+};
+
 /** `JSON.parse` reviver: tagged objects → BigInt + Uint8Array. */
 export const reviver = (_key: string, value: unknown): unknown => {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "__t" in value &&
-    "v" in value &&
-    typeof (value as { v: unknown }).v === "string"
-  ) {
-    const tagged = value as { __t: string; v: string };
-    switch (tagged.__t) {
-      case "bigint":
-        return BigInt(tagged.v);
-      case "bytes":
-        return Uint8Array.fromHex(tagged.v);
-    }
+  if (!isWireTagged(value)) return value;
+  switch (value.__t) {
+    case "bigint":
+      return BigInt(value.v);
+    case "bytes":
+      return Uint8Array.fromHex(value.v);
+    default:
+      return value;
   }
-  return value;
 };
 
 /**
@@ -94,6 +101,14 @@ const DeltaSchema = Schema.Struct({
 });
 export type Delta = typeof DeltaSchema.Type;
 
+const DELTA_SHAPE_ERROR =
+  "[delta.ts] applyDelta: wire-format drift — payload failed Delta shape check";
+
+const applyDeltaFailed = (cause: unknown) =>
+  new Error("[delta.ts] applyDelta: failed (registry may be partially updated)", {
+    cause,
+  });
+
 /** Hoisted shape guard — `Schema.is` is 5-10× faster than
  *  `decodeUnknownSync` because it skips transformations and only checks
  *  structure. The wire format already round-trips bigint/Uint8Array
@@ -102,6 +117,32 @@ export type Delta = typeof DeltaSchema.Type;
  *  re-parse it. Throwing on shape mismatch surfaces wire drift the same
  *  way the prior `decodeUnknownSync` did. */
 const isDelta = Schema.is(DeltaSchema);
+
+/** Parse wire JSON and shape-check against `DeltaSchema`. */
+const parseDeltaWire = (raw: string): Delta => {
+  const parsed: unknown = JSON.parse(raw, reviver);
+  if (!isDelta(parsed)) {
+    throw new Error(DELTA_SHAPE_ERROR);
+  }
+  return parsed;
+};
+
+/** Write a validated delta into `registry` inside a single `Atom.batch`. */
+const writeDeltaToRegistry = (registry: AtomRegistry.AtomRegistry, delta: Delta): void => {
+  Atom.batch(() => {
+    if (delta.nodeState !== undefined) registry.set(nodeStateAtom, delta.nodeState);
+    if (delta.peers !== undefined) registry.set(peersAtom, delta.peers);
+    if (delta.bootstrap !== undefined) registry.set(bootstrapAtom, delta.bootstrap);
+    if (delta.networkInfo !== undefined) registry.set(networkInfoAtom, delta.networkInfo);
+    if (delta.chainEventLog !== undefined) pushChainEventLog(registry, delta.chainEventLog);
+    if (delta.mempoolSnapshot !== undefined) {
+      pushMempoolSnapshot(registry, delta.mempoolSnapshot);
+    }
+    if (delta.syncSparkline !== undefined) {
+      registry.set(syncSparklineAtom, delta.syncSparkline);
+    }
+  });
+};
 
 /**
  * Snapshot every atom the renderer needs into a JSON string. Always emits
@@ -143,36 +184,13 @@ export const applyDelta = (
   registry: AtomRegistry.AtomRegistry,
   raw: string,
 ): Effect.Effect<void, Error> =>
-  // Both `JSON.parse(raw, reviver)` and any `registry.set(...)` inside the
-  // `Atom.batch` callback can throw — the former on malformed wire bytes,
-  // the latter if a setter rejects the schema-narrowed value. Wrap the
-  // whole pipeline in a single `Effect.try` so the failure surfaces as a
-  // typed `Error` (with cause-chain) on the Effect channel instead of
-  // bubbling synchronously through an `Effect.sync` boundary in the
-  // caller.
-  Effect.try({
-    try: () => {
-      const parsed: unknown = JSON.parse(raw, reviver);
-      if (!isDelta(parsed)) {
-        throw new Error(
-          "[delta.ts] applyDelta: wire-format drift — payload failed Delta shape check",
-        );
-      }
-      const delta = parsed;
-      Atom.batch(() => {
-        if (delta.nodeState !== undefined) registry.set(nodeStateAtom, delta.nodeState);
-        if (delta.peers !== undefined) registry.set(peersAtom, delta.peers);
-        if (delta.bootstrap !== undefined) registry.set(bootstrapAtom, delta.bootstrap);
-        if (delta.networkInfo !== undefined) registry.set(networkInfoAtom, delta.networkInfo);
-        if (delta.chainEventLog !== undefined) pushChainEventLog(registry, delta.chainEventLog);
-        if (delta.mempoolSnapshot !== undefined) {
-          pushMempoolSnapshot(registry, delta.mempoolSnapshot);
-        }
-        if (delta.syncSparkline !== undefined) {
-          registry.set(syncSparklineAtom, delta.syncSparkline);
-        }
-      });
-    },
-    catch: (cause) =>
-      new Error("[delta.ts] applyDelta: failed (registry may be partially updated)", { cause }),
+  Effect.gen(function* () {
+    const delta = yield* Effect.try({
+      try: () => parseDeltaWire(raw),
+      catch: applyDeltaFailed,
+    });
+    yield* Effect.try({
+      try: () => writeDeltaToRegistry(registry, delta),
+      catch: applyDeltaFailed,
+    });
   });

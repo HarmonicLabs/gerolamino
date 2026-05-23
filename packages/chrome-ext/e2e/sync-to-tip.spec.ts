@@ -10,114 +10,99 @@
  *         relay handlers (BroadcastDeltas, StartSync, ...)
  *     - offscreen document (chrome-extension://(...)/offscreen.html)
  *         bootstrap-sync pipeline (always-on daemon)
- *             WebSocket ws://localhost:3040/relay
- *               -> websockify (3040 -> preprod-node.play.dev.cardano.org:3001)
+ *             WebSocket ${RELAY_WS_URL}/relay (see e2e/relay-config.ts)
+ *               -> websockify (3040 -> preprod-node.world.dev.cardano.org:3001)
  *                 -> IOG preprod relay (Ouroboros N2N miniprotocol)
  *
  * Pass criteria:
  *   1. Offscreen logs `WebSocket connected` to the proxy URL.
  *   2. Offscreen logs `First tip observed: slot N` with N > 0.
- *   3. tipSlot advances over a 90 s observation window.
+ *   3. tipSlot advances over the observation window.
  *
  * Body is an Effect program; uses Effect's `Clock` + `sleep` for the
  * observation window, `Console.log` for the diagnostic dumps.
  */
-import { Clock, Console, Effect } from "effect";
+import { Console, Effect } from "effect";
 import { test, expect } from "./fixtures.ts";
 import {
-  dumpRecent,
-  pageEvaluate,
-  pollSync,
-  pollUntil,
-  runE,
-  sleep,
-  waitForLoadState,
-} from "./effect-helpers.ts";
+  clearOpfsRoot,
+  installE2eDeferBootstrap,
+  installE2eDirectOffscreenRpc,
+  readSessionLogs,
+  triggerGenesisStartSync,
+} from "./extension-helpers.ts";
+import { dumpRecent, pollUntil, runE } from "./effect-helpers.ts";
+import { RELAY_WS_URL } from "./relay-config.ts";
+import {
+  highestTipSlotFromLogs,
+  relaySyncErrorLines,
+} from "./sync-tip-log.ts";
 
 test.describe("sync-to-tip loop over websockify => preprod relay", () => {
-  test.setTimeout(4 * 60 * 1000);
+  test.setTimeout(6 * 60 * 1000);
 
   test("offscreen bootstraps + advances tip via the relay proxy", async ({
     context,
     extensionId,
-  }) =>
-    runE(
+    relayAvailable,
+  }) => {
+    test.skip(
+      !relayAvailable,
+      `relay proxy not reachable at ${RELAY_WS_URL} (see e2e/global-setup.ts)`,
+    );
+    return runE(
       Effect.gen(function* () {
-        const offscreen = yield* Effect.promise(() => context.newPage());
-        const logs: Array<string> = [];
-        offscreen.on("console", (m) => logs.push(`[${m.type()}] ${m.text()}`));
-        offscreen.on("pageerror", (e) => logs.push(`[pageerror] ${e.message}`));
+        yield* installE2eDeferBootstrap(context);
+        yield* installE2eDirectOffscreenRpc(context);
+        const probe = yield* Effect.promise(() => context.newPage());
         yield* Effect.promise(() =>
-          offscreen.goto(`chrome-extension://${extensionId}/offscreen.html`),
+          probe.goto(`chrome-extension://${extensionId}/popup.html`),
         );
-
-        yield* pageEvaluate(offscreen, async () => {
-          await globalThis.chrome.storage.local.set({
-            "gerolamino:bootstrap-settings": {
-              mode: "genesis",
-              serverUrl: "ws://localhost:3040",
-            },
-          });
-        });
-
-        logs.length = 0;
-        yield* Effect.promise(() => offscreen.reload());
-        yield* waitForLoadState(offscreen);
-
-        yield* pollUntil(
-          pollSync(() =>
-            logs.some((t) => /\[offscreen-sync\] WebSocket connected/i.test(t)),
-          ),
-          { timeoutMs: 30_000, description: "offscreen WebSocket connected" },
-        );
-
-        const popup = yield* Effect.promise(() => context.newPage());
-        const popupLogs: Array<string> = [];
-        popup.on("console", (m) => popupLogs.push(`[${m.type()}] ${m.text()}`));
-        popup.on("pageerror", (e) => popupLogs.push(`[pageerror] ${e.message}`));
-        yield* Effect.promise(() =>
-          popup.goto(`chrome-extension://${extensionId}/popup.html`),
-        );
-        yield* waitForLoadState(popup);
+        yield* clearOpfsRoot(probe);
+        yield* triggerGenesisStartSync(context, extensionId, probe);
+        // Keep probe alive for the full observation window — closing it must
+        // not tear down the offscreen daemon mid-sync.
+        let logs: Array<string> = yield* readSessionLogs(probe);
 
         yield* pollUntil(
           Effect.gen(function* () {
-            const html = yield* Effect.promise(() => popup.locator("#root").innerHTML());
-            return html.length > 0;
+            logs = yield* readSessionLogs(probe);
+            return logs.some((l) => /offscreen-sync.*WebSocket connected/i.test(l));
           }),
-          { timeoutMs: 15_000, description: "Popup root populated" },
+          { timeoutMs: 120_000, description: "offscreen WebSocket connected to relay proxy" },
+        ).pipe(
+          Effect.tapCause(() =>
+            dumpRecent("[sync-to-tip] session logs at WS-connect failure:", logs, 50),
+          ),
         );
 
-        const extractTip = (line: string): bigint | undefined => {
-          const m = /tip(?:=|\s+slot\s+)(\d+)/i.exec(line);
-          return m ? BigInt(m[1]!) : undefined;
-        };
+        yield* pollUntil(
+          Effect.gen(function* () {
+            logs = yield* readSessionLogs(probe);
+            return highestTipSlotFromLogs(logs) > 0n;
+          }),
+          {
+            timeoutMs: 240_000,
+            intervalMs: 5_000,
+            description: "offscreen tipSlot > 0 (live preprod relay)",
+          },
+        ).pipe(
+          Effect.tapCause(() =>
+            dumpRecent("[sync-to-tip] session logs at tip poll failure:", logs, 50),
+          ),
+        );
 
-        const observationStart = yield* Clock.currentTimeMillis;
-        const observationWindow = 90_000;
-        let highestTipSlot = 0n;
+        const highestTipSlot = highestTipSlotFromLogs(logs);
+        yield* Console.log(`[sync-to-tip] highest tipSlot=${highestTipSlot}`);
+        yield* dumpRecent("[sync-to-tip] Last 60 offscreen lines:", logs, 60);
 
-        for (;;) {
-          const now = yield* Clock.currentTimeMillis;
-          if (now - observationStart >= observationWindow) break;
-          yield* sleep(5_000);
-          for (const line of logs) {
-            const slot = extractTip(line);
-            if (slot !== undefined && slot > highestTipSlot) {
-              highestTipSlot = slot;
-            }
-          }
+        const relayErrors = relaySyncErrorLines(logs);
+        if (highestTipSlot === 0n && relayErrors.length > 0) {
+          yield* dumpRecent("[sync-to-tip] relay/sync errors:", relayErrors, 20);
         }
-
-        const elapsed = (yield* Clock.currentTimeMillis) - observationStart;
-        yield* Console.log(
-          `[sync-to-tip] window closed at ${Math.floor(
-            elapsed / 1000,
-          )}s; highest tipSlot=${highestTipSlot}`,
-        );
-        yield* dumpRecent("[sync-to-tip] Last 30 offscreen lines:", logs);
 
         expect(highestTipSlot).toBeGreaterThan(0n);
       }),
-    ));
+    );
+  });
 });

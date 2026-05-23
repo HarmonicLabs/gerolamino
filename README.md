@@ -22,7 +22,7 @@ bunx --bun vitest run
 
 All packages are built reproducibly. TypeScript packages use bun2nix (for
 dependency copy) + tsgo `--build` for type-checking. Rust packages use
-Crane. Zig code for the LSM FFI bridge uses zig2nix.
+Crane. Haskell lsm-tree is compiled to WASM (`lsm-tree-wasm-shim`).
 
 ```bash
 # TypeScript
@@ -32,8 +32,8 @@ nix build .#ts-packages
 nix build .#wasm-plexer
 nix build .#wasm-utils
 
-# Zig FFI bridge + Haskell LSM library
-nix build .#lsm-bridge
+# WASM crypto + Haskell LSM reactor shim
+nix build .#wasm-utils
 
 # Bootstrap server OCI image (streamLayeredImage via nix2container)
 nix build .#bootstrap-image
@@ -50,7 +50,7 @@ lsm/{active,metadata,snapshots}}` layout.
 
 Required at runtime for the TUI:
 
-- `LIBLSM_BRIDGE_PATH=/path/to/liblsm-bridge.so` (from `nix build .#lsm-bridge`)
+- WASM lsm-tree artefacts (defaults to `packages/wasm-utils/haskell-lsm/lsm-tree-wasm-shim/`; override with `WASM_LSM_MODULE_PATH` / `WASM_LSM_JSFFI_PATH`)
 - A V2LSM-format snapshot (Mithril distribution 2537.0+, or a local
   cardano-node 10.7.x database).
 
@@ -83,7 +83,7 @@ signer is registered (see `docs/deployment.md`).
 ```bash
 bun run apps/tui/src/index.ts start \
   --snapshot-path .devenv/state/prod-snapshot \
-  --relay-host preprod-node.play.dev.cardano.org --relay-port 3001 \
+  --relay-host preprod-node.world.dev.cardano.org --relay-port 3001 \
   --network preprod
 ```
 

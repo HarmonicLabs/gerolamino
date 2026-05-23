@@ -47,18 +47,6 @@ export type MemPackAnnotation<T, TypeParameters extends ReadonlyArray<unknown>> 
   readonly [K in keyof TypeParameters]: MemPackCodec<TypeParameters[K]>;
 }) => MemPackCodec<T>;
 
-/**
- * Private reader that retrieves the `toCodecMemPack` annotation without
- * widening the public annotation types. Returns `undefined` when the
- * annotation is absent.
- */
-export const readMemPackAnnotation = (
-  annotations: SchemaNS.Annotations.Bottom<unknown, ReadonlyArray<SchemaNS.Top>> | undefined,
-): MemPackAnnotation<unknown, ReadonlyArray<unknown>> | undefined =>
-  (annotations as { readonly toCodecMemPack?: unknown } | undefined)?.toCodecMemPack as
-    | MemPackAnnotation<unknown, ReadonlyArray<unknown>>
-    | undefined;
-
 // Marker constant so the module is treated as a value module (required for
 // the declare-module augmentations above to land in emitted `.d.ts` files).
 export const TO_CODEC_MEMPACK_ANNOTATION = "toCodecMemPack" as const;

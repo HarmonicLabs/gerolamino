@@ -1,43 +1,114 @@
 /**
- * Playwright configuration for the Gerolamino Chrome extension's
- * end-to-end test suite.
+ * Playwright configuration for the Gerolamino Chrome extension E2E suite.
  *
- * Extensions can only run in `chromium.launchPersistentContext`, so the
- * fixture in `e2e/fixtures.ts` opens that context manually — there's
- * nothing project-level to wire here. Tests run serially because each
- * Playwright run owns one persistent context, and inside that context
- * Chrome only allows one MV3 service worker per `--load-extension` arg.
+ * Architecture (aligned with `~/code/reference/playwright`):
+ *   - **Runner** (`packages/playwright`) schedules tests across worker processes;
+ *     each worker gets a `parallelIndex` (`TEST_PARALLEL_INDEX` env).
+ *   - **Browser** (`packages/playwright-core`) launches Chromium; extensions
+ *     require `chromium.launchPersistentContext` + `--load-extension` (see
+ *     `tests/library/chromium/extensions.spec.ts` and
+ *     `tests/extension/extension-fixtures.ts`).
+ *   - **Isolation**: one persistent profile per test via `testInfo.outputPath`
+ *     (reference pattern) — safe to run workers in parallel; no shared OPFS.
  *
- * The build target is `.output/chrome-mv3-dev/` (produced by `bunx
- * --bun wxt build --mode development`); run that command before the
- * suite or via the `e2e` script in `package.json`.
+ * Projects:
+ *   - `fast` — UI/RPC/SW probes; fully parallel.
+ *   - `upload` — OPFS + lsm-worker; serial within project (single-writer).
+ *   - `integration` — Mithril ingest + live sync-to-tip; skips when relay down.
+ *
+ * Build before running: `bunx --bun wxt build --mode development`
  */
+import { availableParallelism } from "node:os";
 import { defineConfig } from "@playwright/test";
+
+const cpuCount = availableParallelism();
 
 export default defineConfig({
   testDir: "./e2e",
-  /** Each spec file allows ~60 s for the whole file. The bootstrap-trace
-   *  spec opts itself out with `test.setTimeout(6 * 60 * 1000)`. */
+  globalSetup: "./e2e/global-setup.ts",
+  /** Default per-test timeout; long specs override with `test.setTimeout`. */
   timeout: 60_000,
-  /** Persistent contexts launch slowly on NixOS — give them slack. */
   expect: { timeout: 10_000 },
-  /** Run all specs in a single worker — extensions need a persistent
-   *  context, and parallel persistent contexts confuse Chrome's
-   *  --load-extension dance. */
-  fullyParallel: false,
-  workers: 1,
-  /** Retries are turned off because Playwright's persistent-context
-   *  teardown can hang for 60 s+ on NixOS, which compounds when
-   *  retrying — every "flaky" run we observed was a retry attempt
-   *  hanging in cleanup, not a genuine test-body failure. The tests
-   *  themselves pass reliably on first run. */
+  /** Parallel workers — each gets its own Chromium + extension profile. */
+  workers: process.env.CI ? Math.min(2, cpuCount) : Math.min(4, cpuCount),
+  fullyParallel: true,
+  /** Retries off: NixOS persistent-context teardown can hang 60s+ on retry. */
   retries: 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
-  /** Capture artefacts on first failure for triage. */
   use: {
     trace: "retain-on-failure",
     video: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chrome-extension" }],
+  projects: [
+    {
+      name: "fast",
+      testMatch: [
+        /rpc\.spec\.ts$/,
+        /popup\.spec\.ts$/,
+        /setup-form\.spec\.ts$/,
+        /dashboard-genesis-hydration\.spec\.ts$/,
+        /service-worker\.spec\.ts$/,
+        /diag-validate\.spec\.ts$/,
+      ],
+      fullyParallel: true,
+    },
+    {
+      name: "ui",
+      testDir: "./e2e/ui",
+      /** Headed locally (WXT / Playwright extension guidance); headless on CI. */
+      use: {
+        headless: !!process.env.CI,
+        viewport: { width: 400, height: 640 },
+      },
+      fullyParallel: true,
+      dependencies: ["fast"],
+    },
+    {
+      name: "ui-headed",
+      testDir: "./e2e/ui",
+      use: {
+        headless: false,
+        viewport: { width: 400, height: 640 },
+      },
+      fullyParallel: true,
+      dependencies: ["fast"],
+    },
+    {
+      name: "upload",
+      testMatch: [
+        /upload-synthetic\.spec\.ts$/,
+        /upload-production-bc\.spec\.ts$/,
+        /diag-upload-chain\.spec\.ts$/,
+        /snapshot-upload\.spec\.ts$/,
+      ],
+      /** lsm-tree is single-writer — avoid concurrent OPFS uploads. */
+      fullyParallel: false,
+      workers: 1,
+      timeout: 240_000,
+    },
+    {
+      name: "integration",
+      testMatch: [/mithril-to-tip\.spec\.ts$/, /sync-to-tip\.spec\.ts$/],
+      fullyParallel: false,
+      workers: 1,
+      timeout: 4 * 60_000,
+      /** Run fast smoke first so extension build failures surface early. */
+      dependencies: ["fast"],
+    },
+    {
+      name: "integration-relay",
+      testMatch: [/mithril-to-tip\.spec\.ts$/, /sync-to-tip\.spec\.ts$/],
+      fullyParallel: false,
+      workers: 1,
+      timeout: 10 * 60_000,
+      /** Live relay E2E — no `fast` dependency (avoids localhost-only flakes). */
+    },
+    {
+      name: "manual",
+      testMatch: [/bootstrap-trace\.spec\.ts$/, /bootstrap-localhost\.spec\.ts$/],
+      fullyParallel: false,
+      workers: 1,
+    },
+  ],
 });

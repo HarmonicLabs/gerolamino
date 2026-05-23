@@ -8,15 +8,21 @@
  *   - Error surface: short header / invalid protocol both raise FramingOpError
  */
 import { expect, layer } from "@effect/vitest";
-import { Effect, Equal } from "effect";
+import { Cause, Effect, Equal, Exit, Option, Schema } from "effect";
 import * as FastCheck from "effect/testing/FastCheck";
 import {
   FrameBuffer,
   FrameBufferLive,
+  FramingOpError,
   MuxFraming,
   MuxFramingLive,
   type WrappedFrame,
 } from "../index.ts";
+
+const isFramingOpError = Schema.is(FramingOpError);
+
+const firstError = <E, A>(exit: Exit.Exit<A, E>): E | undefined =>
+  Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined;
 
 const NUM_RUNS = 200;
 
@@ -91,7 +97,10 @@ layer(MuxFramingLive)("FrameBuffer — property tests", (it) => {
         expect(frames.length).toBe(triples.length);
         expect(size).toBe(0);
         triples.forEach(([payload, protocolId, hasAgency], idx) => {
-          const frame = frames[idx] as WrappedFrame;
+          const frame = frames[idx];
+          if (frame === undefined) {
+            throw new Error(`expected frame at index ${idx}`);
+          }
           expect(frame.protocol).toBe(protocolId);
           expect(frame.hasAgency).toBe(hasAgency);
           expect(frame.payloadLength).toBe(payload.byteLength);
@@ -133,7 +142,10 @@ layer(MuxFramingLive)("FrameBuffer — property tests", (it) => {
         }
         expect(frames.length).toBe(triples.length);
         triples.forEach(([payload, protocolId, hasAgency], idx) => {
-          const frame = frames[idx] as WrappedFrame;
+          const frame = frames[idx];
+          if (frame === undefined) {
+            throw new Error(`expected frame at index ${idx}`);
+          }
           expect(frame.protocol).toBe(protocolId);
           expect(frame.hasAgency).toBe(hasAgency);
           expect(Equal.equals(frame.payload, payload)).toBe(true);
@@ -148,7 +160,13 @@ layer(MuxFramingLive)("MuxFraming — error surface", (it) => {
     Effect.gen(function* () {
       const mux = yield* MuxFraming;
       const exit = yield* Effect.exit(mux.unwrapFrame(new Uint8Array(7)));
-      expect(exit._tag).toBe("Failure");
+      expect(Exit.isFailure(exit)).toBe(true);
+      const err = firstError(exit);
+      expect(isFramingOpError(err)).toBe(true);
+      if (isFramingOpError(err)) {
+        expect(err.kind).toBe("ShortFrame");
+        expect(err.operation).toBe("MuxFraming.unwrapFrame");
+      }
     }),
   );
 
@@ -159,7 +177,13 @@ layer(MuxFramingLive)("MuxFraming — error surface", (it) => {
       // payload_length=0. Protocol 1 is unassigned in the Rust enum.
       const bogus = new Uint8Array([0, 0, 0, 0, 0x00, 0x01, 0, 0]);
       const exit = yield* Effect.exit(mux.unwrapFrame(bogus));
-      expect(exit._tag).toBe("Failure");
+      expect(Exit.isFailure(exit)).toBe(true);
+      const err = firstError(exit);
+      expect(isFramingOpError(err)).toBe(true);
+      if (isFramingOpError(err)) {
+        expect(err.kind).toBe("InvalidProtocol");
+        expect(err.operation).toBe("MuxFraming.unwrapFrame");
+      }
     }),
   );
 
@@ -169,7 +193,13 @@ layer(MuxFramingLive)("MuxFraming — error surface", (it) => {
       // header claims 16-byte payload but only 4 bytes follow the header.
       const truncated = new Uint8Array([0, 0, 0, 0, 0, 2, 0, 16, 1, 2, 3, 4]);
       const exit = yield* Effect.exit(mux.unwrapFrame(truncated));
-      expect(exit._tag).toBe("Failure");
+      expect(Exit.isFailure(exit)).toBe(true);
+      const err = firstError(exit);
+      expect(isFramingOpError(err)).toBe(true);
+      if (isFramingOpError(err)) {
+        expect(err.kind).toBe("IncompletePayload");
+        expect(err.operation).toBe("MuxFraming.unwrapFrame");
+      }
     }),
   );
 });

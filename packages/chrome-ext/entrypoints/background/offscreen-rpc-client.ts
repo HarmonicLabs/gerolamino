@@ -33,10 +33,34 @@ import { layerClientProtocolBroadcastChannel } from "../offscreen/rpc-transport.
 
 type OffscreenClientType = RpcClient.FromGroup<typeof OffscreenRpcs, RpcClientError>;
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __GEROLAMINO_OFFSCREEN_RPC_CLIENT__: OffscreenClientType | undefined;
+}
+
 export class OffscreenClient extends Context.Service<
   OffscreenClient,
   OffscreenClientType
 >()("OffscreenClient") {}
+
+/** One BC listener per SW lifetime. `Layer.launch(RpcServerLive)` and
+ *  `Effect.provide(OffscreenClientLive)` on the boot program previously
+ *  each constructed a client (both `clientId=0`) → response mis-routing
+ *  and popup `Ping` hitting a 90s `TimeoutError` at upload step 2.5. */
+const makeSingletonOffscreenClient = Effect.gen(function* () {
+  const existing = globalThis.__GEROLAMINO_OFFSCREEN_RPC_CLIENT__;
+  if (existing !== undefined) {
+    return existing;
+  }
+  const client = yield* RpcClient.make(OffscreenRpcs);
+  globalThis.__GEROLAMINO_OFFSCREEN_RPC_CLIENT__ = client;
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      globalThis.__GEROLAMINO_OFFSCREEN_RPC_CLIENT__ = undefined;
+    }),
+  );
+  return client;
+});
 
 /** Layer that constructs the shared client. `Layer.effect` (NOT
  *  `Layer.scoped` — removed in Effect 4) accepts a scoped Effect;
@@ -46,10 +70,7 @@ export class OffscreenClient extends Context.Service<
  *  layer (see `entrypoints/offscreen/main.ts`). Without a serialization
  *  layer the RPC dispatch silently fails — the wire envelope decodes
  *  but the request never reaches the handler. */
-export const OffscreenClientLive = Layer.effect(
-  OffscreenClient,
-  RpcClient.make(OffscreenRpcs),
-).pipe(
+export const OffscreenClientLive = Layer.effect(OffscreenClient, makeSingletonOffscreenClient).pipe(
   Layer.provide(layerClientProtocolBroadcastChannel),
   Layer.provide(RpcSerialization.layerNdjson),
 );
@@ -96,17 +117,32 @@ export const relayRetry = <A, E, R>(
     }),
   );
 
-/** Variant of `relayRetry` for slow operations: snapshot upload chunks
- *  + lsm-tree session reopen. These can take 10-30 s under load — a
- *  3-second per-attempt timeout would create RPC retry cascades where
- *  the offscreen dispatches concurrent requests racing for the same
- *  exclusive OPFS sync handle, deadlocking the upload pipeline.
- *
- *  Per-attempt 60 s × 5 attempts = 5-minute budget. Covers the slowest
- *  legitimate OPFS write path while still bounding total wait if the
- *  offscreen is genuinely dead. NO retries on success (Effect.retry
- *  only fires on failure); if the operation completes in 30 s, we
- *  return immediately. */
+/** `Ping` only — short per-attempt budget so popup step 2.5 (90s cap) is not
+ *  dominated by one SW `relayRetry` call (~3.5 min). */
+export const relayPing = <A, E, R>(
+  self: Effect.Effect<A, E | RpcClientError, R>,
+): Effect.Effect<A, E | RpcClientError, R> =>
+  self.pipe(
+    Effect.timeoutOrElse({
+      duration: "2 seconds",
+      orElse: () =>
+        Effect.fail(
+          new RpcClientError({
+            reason: new RpcClientDefect({
+              message: "relayPing: per-attempt timeout after 2s",
+              cause: new Error("relayPing timeout"),
+            }),
+          }),
+        ),
+    }),
+    Effect.retry({
+      schedule: Schedule.spaced("250 millis"),
+      times: 20,
+    }),
+  );
+
+/** Slow relay with bounded retries — use for ops that are idempotent and
+ *  do not touch exclusive OPFS sync handles (not snapshot upload). */
 export const relayLong = <A, E, R>(
   self: Effect.Effect<A, E | RpcClientError, R>,
 ): Effect.Effect<A, E | RpcClientError, R> =>
@@ -126,5 +162,29 @@ export const relayLong = <A, E, R>(
     Effect.retry({
       schedule: Schedule.spaced("1 second"),
       times: 4,
+    }),
+  );
+
+/** Snapshot upload chunks + `ReopenAfterSnapshot` — **no retries**.
+ *  `relayLong`'s 60 s × 5 retry budget re-dispatches the same chunk while
+ *  the lsm-worker still holds (or is opening) the path's sync handle;
+ *  concurrent `createSyncAccessHandle` on one file deadlocks OPFS under
+ *  Playwright (see `project_synthetic_spec_worker_logs.md`). One 180 s
+ *  attempt matches `upload-synthetic.spec.ts` poll budget. */
+export const relayUpload = <A, E, R>(
+  self: Effect.Effect<A, E | RpcClientError, R>,
+): Effect.Effect<A, E | RpcClientError, R> =>
+  self.pipe(
+    Effect.timeoutOrElse({
+      duration: "180 seconds",
+      orElse: () =>
+        Effect.fail(
+          new RpcClientError({
+            reason: new RpcClientDefect({
+              message: "relayUpload: timeout after 180s",
+              cause: new Error("relayUpload timeout"),
+            }),
+          }),
+        ),
     }),
   );

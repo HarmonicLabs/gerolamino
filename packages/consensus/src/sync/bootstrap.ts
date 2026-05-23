@@ -6,13 +6,14 @@
  *
  * Pipeline:
  * 1. Load snapshot tip from ImmutableDB
- * 2. Validate incoming block headers via ConsensusEngine
+ * 2. Validate incoming block headers via `validateHeader` + Crypto layer
  * 3. Store validated blocks in ImmutableDB
  * 4. Evolve nonces per block (with correct VRF tag bytes)
  * 5. Track sync progress via GSM state
  */
 import { Effect, Option, Ref, Stream, Schema } from "effect";
 import { ChainDB, LedgerSnapshotStore, RealPoint } from "storage";
+import { maybePromoteVolatile } from "./storage-lifecycle.ts";
 import type { StoredBlock } from "storage";
 import { validateHeader } from "../validate/header";
 import { Nonces, evolveNonce, deriveEpochNonce, isPastStabilizationWindow } from "../praos/nonce";
@@ -171,24 +172,6 @@ export const getSyncState = Effect.gen(function* () {
 });
 
 /**
- * Promote volatile blocks to immutable when the chain grows beyond k.
- * Returns the new volatile length after promotion + GC.
- */
-const maybePromote = (k: number, volatileLength: number, immutableTip: Option.Option<RealPoint>) =>
-  Effect.gen(function* () {
-    if (volatileLength <= k) return volatileLength;
-
-    const chainDb = yield* ChainDB;
-
-    if (Option.isSome(immutableTip)) {
-      yield* chainDb.promoteToImmutable(immutableTip.value);
-      yield* chainDb.garbageCollect(immutableTip.value.slot);
-    }
-
-    return k;
-  });
-
-/**
  * Process a stream of blocks through the consensus pipeline.
  * Promotes volatile blocks to immutable every k blocks.
  */
@@ -212,7 +195,7 @@ export const syncFromStream = (
 
         // Promote to immutable when volatile chain exceeds k
         const immutableTip = yield* chainDb.getImmutableTip;
-        const adjustedVolatile = yield* maybePromote(k, newVolatileLength, immutableTip);
+        const adjustedVolatile = yield* maybePromoteVolatile(k, newVolatileLength, immutableTip);
 
         const next = {
           ...current,

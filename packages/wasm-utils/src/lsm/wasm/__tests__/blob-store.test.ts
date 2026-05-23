@@ -13,8 +13,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
+import { LsmWasmBunRuntimeTests } from "../../../__tests__/lsm-wasm-test-config.ts";
 import { BlobStore } from "../../blob-store.ts";
-import { LsmAdmin } from "../../native/admin.ts";
+import { LsmAdmin } from "../../admin.ts";
 import { makeBunWasi } from "../bun-wasi.ts";
 import { layerLsmWasm } from "../blob-store.ts";
 
@@ -33,10 +34,12 @@ const JS_PATH = `${SHIM_DIR}lsm-tree-wasm.js`;
 // Layer trips a WASM "out of bounds memory access" trap under Bun. The
 // upstream fix is on Bun's `claude/fix-wasi-initialize-12755` branch;
 // these tests will run once that lands.
+const wasmRuntimeEnabled = Effect.runSync(LsmWasmBunRuntimeTests.pipe(Effect.orDie));
+
 const skip =
+  !wasmRuntimeEnabled ||
   Bun.file(WASM_PATH).size === 0 ||
-  Bun.file(JS_PATH).size === 0 ||
-  process.env["LSM_WASM_BUN_RUNTIME_TESTS"] !== "1";
+  Bun.file(JS_PATH).size === 0;
 
 const TestPlatformLayer = Layer.mergeAll(BunFileSystem.layer, Path.layer);
 

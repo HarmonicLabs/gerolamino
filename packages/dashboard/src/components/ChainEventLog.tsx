@@ -14,7 +14,7 @@
  * scroll-position (when reading older events) is preferred over a
  * forced auto-scroll, so no scroll-pin logic is needed here.
  */
-import { For, Show, type Component } from "solid-js";
+import { For, Show, createMemo, type Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { useAtomValue } from "@effect/atom-solid";
 import Check from "lucide-solid/icons/check";
@@ -66,10 +66,11 @@ export interface ChainEventLogProps {
 export const ChainEventLog: Component<ChainEventLogProps> = (props) => {
   const { Section, Text, ScrollArea, LogRow } = usePrimitives();
   const events = useAtomValue(() => chainEventLogAtom);
-  // Newest-first via CSS `flex-direction: column-reverse` — saves a
-  // 1000-element `toReversed()` allocation on every popup tick. The
-  // children iterate in insertion order; column-reverse paints them
-  // bottom-to-top so the visual order is newest-on-top.
+  // Newest-first in DOM order so `aria-live="polite"` announces prepends
+  // at the top of the feed. `column-reverse` kept visual order but left
+  // additions at the DOM tail (oldest slot), which screen readers read as
+  // bottom-of-list — a regression for live-region semantics.
+  const newestFirst = createMemo(() => events().toReversed());
 
   return (
     <Section title={`Chain events (${events().length})`}>
@@ -82,8 +83,13 @@ export const ChainEventLog: Component<ChainEventLogProps> = (props) => {
             </Text>
           }
         >
-          <div class="flex flex-col-reverse">
-            <For each={events()}>
+          <div
+            class="flex flex-col"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+          >
+            <For each={newestFirst()}>
               {(e) => (
                 <LogRow
                   tag={TAG_FOR[e._tag]}

@@ -5,9 +5,9 @@
  * running WASM crypto + pure CBOR decoders.
  *
  * The 6 crypto primitives extend the plan's per-primitive cost model
- * (per plan Tier-1 §11 catalog): each Rpc ships zero-copy Uint8Array
- * payloads via `Transferable.schema`, with `detach-on-send` semantics
- * handled by per-call buffer factories at the caller side.
+ * (per plan Tier-1 §11 catalog): inputs use structured-clone `BytesIn`;
+ * success-channel hashes/outputs use `BytesOut` (`Transferable.schema`)
+ * for zero-copy worker hand-off.
  *
  * The 6 consensus-level methods (ValidateHeader, ValidateBlockBody,
  * ComputeBodyHash, ComputeTxId, DecodeHeaderCbor, DecodeBlockCbor)
@@ -30,15 +30,23 @@ import { CryptoOpError } from "wasm-utils/errors.ts";
 // ---------------------------------------------------------------------------
 
 /**
- * Zero-copy byte schema. Wraps `Schema.Uint8Array` via
- * `Transferable.schema` — the underlying ArrayBuffer is registered in the
- * postMessage transfer list, so workers get the buffer without copying.
+ * Input bytes — plain `Schema.Uint8Array` (structured-clone copy).
  *
- * Runtime detach caveat (wave-2 Correction #29): once transferred, the
- * sender's ArrayBuffer is detached. Per-call buffer factories on the
- * caller side are required; never share module-level constants.
+ * Never wrap inputs in `Transferable.schema`: the encoder registers
+ * `[u.buffer]` in the postMessage transferList and detaches the caller's
+ * ArrayBuffer — downstream code that reuses the buffer reads zeros.
+ * See `wasm-utils/rpc/crypto-rpc.ts` + `reference_effect_rpc_transferable.md`.
  */
-const Bytes = Transferable.schema(Schema.Uint8Array, (u) => [u.buffer]);
+const BytesIn = Schema.Uint8Array;
+
+/**
+ * Output bytes — `Transferable.schema` on the success channel only.
+ *
+ * The worker has just produced fresh bytes and yields ownership to the
+ * caller via the transferList; zero-copy is safe because the worker has
+ * no further use for the buffer.
+ */
+const BytesOut = Transferable.schema(Schema.Uint8Array, (u) => [u.buffer]);
 
 /** Enumerates every `ValidationClient` / `ValidationRpcGroup` op. Kept in
  * sync with the Rpc class declarations below; narrows `operation` from a
@@ -77,13 +85,13 @@ export class ValidationError extends Schema.TaggedErrorClass<ValidationError>()(
 // ---------------------------------------------------------------------------
 
 export class Ed25519Verify extends Rpc.make("Ed25519Verify", {
-  payload: { message: Bytes, signature: Bytes, publicKey: Bytes },
+  payload: { message: BytesIn, signature: BytesIn, publicKey: BytesIn },
   success: Schema.Boolean,
   error: CryptoOpError,
 }) {}
 
 export class KesSum6Verify extends Rpc.make("KesSum6Verify", {
-  payload: { signature: Bytes, period: Schema.Number, publicKey: Bytes, message: Bytes },
+  payload: { signature: BytesIn, period: Schema.Number, publicKey: BytesIn, message: BytesIn },
   success: Schema.Boolean,
   error: CryptoOpError,
 }) {}
@@ -101,14 +109,14 @@ export class CheckVrfLeader extends Rpc.make("CheckVrfLeader", {
 }) {}
 
 export class VrfVerify extends Rpc.make("VrfVerify", {
-  payload: { vrfVkey: Bytes, vrfProof: Bytes, vrfInput: Bytes },
-  success: Bytes,
+  payload: { vrfVkey: BytesIn, vrfProof: BytesIn, vrfInput: BytesIn },
+  success: BytesOut,
   error: CryptoOpError,
 }) {}
 
 export class VrfProofToHash extends Rpc.make("VrfProofToHash", {
-  payload: { vrfProof: Bytes },
-  success: Bytes,
+  payload: { vrfProof: BytesIn },
+  success: BytesOut,
   error: CryptoOpError,
 }) {}
 
@@ -118,8 +126,8 @@ export class VrfProofToHash extends Rpc.make("VrfProofToHash", {
  * origin: `'L'`, `'N'` in upstream Haskell).
  */
 export class Blake2b256Tagged extends Rpc.make("Blake2b256Tagged", {
-  payload: { tag: Schema.Number, data: Bytes },
-  success: Bytes,
+  payload: { tag: Schema.Number, data: BytesIn },
+  success: BytesOut,
   error: CryptoOpError,
 }) {}
 
@@ -142,26 +150,26 @@ export class Blake2b256Tagged extends Rpc.make("Blake2b256Tagged", {
 
 /** Compute the body hash (blake2b-256 of concatenated body sections). */
 export class ComputeBodyHash extends Rpc.make("ComputeBodyHash", {
-  payload: { blockBodyCbor: Bytes },
-  success: Bytes,
+  payload: { blockBodyCbor: BytesIn },
+  success: BytesOut,
   error: ValidationError,
 }) {}
 
 /** Compute the tx-id (blake2b-256 of tx body CBOR). */
 export class ComputeTxId extends Rpc.make("ComputeTxId", {
-  payload: { txBodyCbor: Bytes },
-  success: Bytes,
+  payload: { txBodyCbor: BytesIn },
+  success: BytesOut,
   error: ValidationError,
 }) {}
 
 /** Decode a full block CBOR into `MultiEraBlock` summary. */
 export class DecodeBlockCbor extends Rpc.make("DecodeBlockCbor", {
-  payload: { blockCbor: Bytes },
+  payload: { blockCbor: BytesIn },
   success: Schema.Struct({
     eraVariant: Schema.Number,
     slot: Schema.BigInt,
     blockNo: Schema.BigInt,
-    hash: Bytes,
+    hash: BytesOut,
   }),
   error: ValidationError,
 }) {}

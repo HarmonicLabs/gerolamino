@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, PubSub, Schema, Scope, Stream } from "effect";
-import { Socket } from "effect/unstable/socket";
+import * as Socket from "effect/unstable/socket/Socket";
 import { intersection } from "es-toolkit";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";

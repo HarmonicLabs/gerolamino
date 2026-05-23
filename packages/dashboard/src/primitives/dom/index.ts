@@ -3,7 +3,7 @@
  *
  * Builds a `DashboardPrimitives` record over Tailwind v4 + Kobalte + Corvu.
  * Consumed by both:
- *   - `apps/tui` Bun.WebView host (deferred this wave)
+ *   - `apps/tui` HTTP+WS SPA / Bun.WebView host
  *   - `packages/chrome-ext` popup
  *
  * Each primitive lives in its own file under `./`; this module just

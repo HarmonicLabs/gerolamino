@@ -9,16 +9,16 @@ const TEXT_ENCODER = new TextEncoder();
 // Growable ArrayBuffer (ES2025): the buffer resizes in place; the associated
 // length-tracking DataView and Uint8Array see the new byteLength automatically.
 // 16 MiB default upper bound mirrors the decoder's default `maxBytes` limit.
-// The Config values carry a `Config.withDefault`, so the only way
-// yielding them can fail is an unparseable env var — a deploy-time misconfig
-// rather than a recoverable runtime error. `.pipe(Effect.orDie)` folds that
-// into a defect so downstream Effects see a clean `never` error channel.
-export const INITIAL_CAPACITY = Effect.gen(function* () {
-  return yield* Config.number("CODECS_CBOR_INITIAL_CAPACITY").pipe(Config.withDefault(256));
-}).pipe(Effect.orDie);
-export const MAX_CAPACITY = Effect.gen(function* () {
-  return yield* Config.number("CODECS_CBOR_MAX_CAPACITY").pipe(Config.withDefault(1 << 24));
-}).pipe(Effect.orDie);
+// `withDefault` handles missing env vars; `orDie` folds unparseable values
+// (deploy-time misconfig) into defects so downstream Effects see `never`.
+export const INITIAL_CAPACITY = Config.number("CODECS_CBOR_INITIAL_CAPACITY").pipe(
+  Config.withDefault(256),
+  Effect.orDie,
+);
+export const MAX_CAPACITY = Config.number("CODECS_CBOR_MAX_CAPACITY").pipe(
+  Config.withDefault(1 << 24),
+  Effect.orDie,
+);
 
 export interface EncodeCapacities {
   readonly initialCapacity: number;

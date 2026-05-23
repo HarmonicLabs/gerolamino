@@ -3,11 +3,11 @@
  *
  * Abstracts over ImmutableDB + VolatileDB + LedgerDB into a single service
  * that the consensus layer interacts with. All operations go through
- * BlobStore (for blobs) and SqlClient (for metadata).
+ * BlobStore (4-byte-prefixed keys for metadata, blocks, and tip pointers).
  *
  * Design principles (per user directive):
  *   - Abstract service interface — implementation details left open-ended
- *   - No naive JS Maps — all state in BlobStore or SQL
+ *   - No naive JS Maps — all state in BlobStore
  *   - Volatile-first lookups (spec 12.1.1)
  *   - Fork-aware iterators
  *   - Rollback support up to k blocks

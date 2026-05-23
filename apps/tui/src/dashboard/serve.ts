@@ -68,11 +68,12 @@ const wsHandler = (broadcast: PubSub.PubSub<string>) =>
     const request = yield* HttpServerRequest.HttpServerRequest;
     const wsSocket = yield* request.upgrade;
     const write = yield* wsSocket.writer;
+    // Cold-client gap fix: prepend an initial snapshot (chrome-ext
+    // `SubscribeAtomDeltas` uses the same `Stream.succeed` contract).
+    // PubSub only emits on state change; without this, a fresh WS
+    // subscriber waits until the next identity-changing tick.
     yield* Stream.runForEach(
-      Stream.concat(
-        Stream.sync(() => buildDeltaJson(registry)),
-        Stream.fromPubSub(broadcast),
-      ),
+      Stream.concat(Stream.succeed(buildDeltaJson(registry)), Stream.fromPubSub(broadcast)),
       write,
     );
     return HttpServerResponse.empty({ status: 101 });

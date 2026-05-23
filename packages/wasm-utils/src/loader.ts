@@ -24,7 +24,7 @@
  *     the chrome-ext WXT bundle where each `.wasm` is a separate
  *     emitted asset addressable via `new URL("./foo.wasm", import.meta.url)`.
  */
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import * as FileSystem from "effect/FileSystem";
 
 /**
@@ -32,10 +32,13 @@ import * as FileSystem from "effect/FileSystem";
  * so consumers can surface a precise message ("crypto WASM failed:
  * ENOENT /nix/store/…").
  */
-export class WasmLoadError extends Data.TaggedError("wasm-utils/WasmLoadError")<{
-  readonly name: string;
-  readonly cause: unknown;
-}> {}
+export class WasmLoadError extends Schema.TaggedErrorClass<WasmLoadError>()(
+  "wasm-utils/WasmLoadError",
+  {
+    name: Schema.String,
+    cause: Schema.Defect,
+  },
+) {}
 
 /**
  * Service tag — `yield* WasmBytes` from any consumer and call

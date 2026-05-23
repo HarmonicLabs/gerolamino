@@ -44,16 +44,14 @@ the next.
 | Flag                 | Env var                  | Default                             |
 | -------------------- | ------------------------ | ----------------------------------- |
 | `--genesis / -g`     | (none)                   | `false`                             |
-| `--relay-host`       | `RELAY_HOST`             | `preprod-node.play.dev.cardano.org` |
+| `--relay-host`       | `RELAY_HOST`             | `preprod-node.world.dev.cardano.org` |
 | `--relay-port`       | `RELAY_PORT`             | `3001`                              |
 | `--network`          | (none)                   | `preprod`                           |
 | `--headless`         | (none)                   | `false` (WebView mounts by default) |
 | `--data-dir`         | `GEROLAMINO_DATA_DIR`    | fresh temp dir per run              |
 | `--snapshot-path`    | `GEROLAMINO_SNAPSHOT_PATH` | empty (no local snapshot)        |
-| (none)               | `LIBLSM_BRIDGE_PATH`     | required for default Zig backend    |
-| (none)               | `GEROLAMINO_USE_WASM_LSM`| `0` (Zig backend); `1` opts in to WASM |
-| (none)               | `WASM_LSM_MODULE_PATH`   | required when `USE_WASM_LSM=1`      |
-| (none)               | `WASM_LSM_JSFFI_PATH`    | required when `USE_WASM_LSM=1`      |
+| (none)               | `WASM_LSM_MODULE_PATH`   | default: in-tree `lsm-tree-wasm.wasm` |
+| (none)               | `WASM_LSM_JSFFI_PATH`    | default: in-tree `lsm-tree-wasm.js`   |
 
 ### Local-snapshot bootstrap (`--snapshot-path`)
 
@@ -71,29 +69,16 @@ over the relay protocol. The LSM session having the snapshot's UTxO
 set IS already a win for ChainDB / LedgerSnapshotStore queries — those
 resolve against the on-disk snapshot immediately.
 
-Use this together with `GEROLAMINO_USE_WASM_LSM=1` once Bun's
-`node:wasi` reactor fix lands.
+### LSM backend (WASM only)
 
-### LSM backend (Zig vs WASM)
+BlobStore uses the Haskell-compiled `lsm-tree-wasm` reactor via Bun WASI
+(`packages/wasm-utils/src/lsm/wasm/bun-wasi.ts`). Artefact paths default to
+`packages/wasm-utils/haskell-lsm/lsm-tree-wasm-shim/`; override with
+`WASM_LSM_MODULE_PATH` / `WASM_LSM_JSFFI_PATH` when packaging.
 
-Default: bun:ffi → `liblsm-bridge.so` → Haskell V2LSM (the `LIBLSM_BRIDGE_PATH`
-chain).
-
-Opt-in: WASM lsm-tree via Bun's `node:wasi` + the in-tree reactor polyfill
-(`packages/ffi/src/lsm-wasm/bun-wasi.ts`). Set:
-
-```sh
-GEROLAMINO_USE_WASM_LSM=1 \
-WASM_LSM_MODULE_PATH=$PWD/packages/ffi/haskell/lsm-tree-wasm-shim/lsm-tree-wasm.wasm \
-WASM_LSM_JSFFI_PATH=$PWD/packages/ffi/haskell/lsm-tree-wasm-shim/lsm-tree-wasm.js \
-bun run apps/tui/src/index.ts start --headless
-```
-
-**Known limitation (May 2026):** Bun's `node:wasi` reactor pattern has a
-multi-call out-of-bounds memory-access bug; the WASM path works for
-read-heavy / smoke tests but is unstable under heavy mutation. Track Bun PR
-`claude/fix-wasi-initialize-12755`; once merged, the WASM backend becomes
-the default and the Zig bridge is removed.
+**Known limitation (May 2026):** Bun's `node:wasi` reactor pattern can hit
+out-of-bounds traps under heavy mutation; gate integration tests with
+`LSM_WASM_BUN_RUNTIME_TESTS=1`. Track Bun PR `claude/fix-wasi-initialize-12755`.
 
 ## Running
 
@@ -110,10 +95,10 @@ Then start the node:
 
 ```sh
 # Default: mounts Bun.WebView on the bundled dashboard
-LIBLSM_BRIDGE_PATH=/path/to/liblsm-bridge.so bun run apps/tui/src/index.ts start
+bun run apps/tui/src/index.ts start
 
 # Headless: log-only, no WebView
-LIBLSM_BRIDGE_PATH=/path/to/liblsm-bridge.so bun run apps/tui/src/index.ts start --headless
+bun run apps/tui/src/index.ts start --headless
 
 # Persistent storage for crash-recovery / E2E
 bun run apps/tui/src/index.ts start --data-dir ./data/preprod --headless

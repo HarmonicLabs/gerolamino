@@ -29,7 +29,7 @@ import { decodeMultiEraBlock, type BlockHeader } from "../../../ledger/src/lib/b
 // ── Preprod testnet layer ──
 
 const PreprodSocket = BunSocket.layerNet({
-  host: "preprod-node.play.dev.cardano.org",
+  host: "preprod-node.world.dev.cardano.org",
   port: 3001,
 });
 
@@ -75,7 +75,7 @@ function fail(name: string, err: unknown) {
 // ── Tests ──
 
 const program = Effect.gen(function* () {
-  console.log("\n=== Miniprotocol E2E Tests (preprod-node.play.dev.cardano.org:3001) ===\n");
+  console.log("\n=== Miniprotocol E2E Tests (preprod-node.world.dev.cardano.org:3001) ===\n");
 
   // 1. Handshake
   console.log("--- Handshake ---");

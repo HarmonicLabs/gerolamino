@@ -65,22 +65,16 @@ export const NodeRpcHandlersLive = NodeRpcGroup.toLayer(
         // short-circuits, `Some(point)` fetches the block and maps the row
         // Option straight through (`Option.map` preserves None without a
         // second nested `match`).
-        chainDb.getTip.pipe(
-          Effect.flatMap(
-            Option.match({
-              onNone: () => Effect.succeed(Option.none<typeof ChainTipResult.Type>()),
-              onSome: (point) =>
-                chainDb.getBlockAt(point).pipe(
-                  Effect.map(
-                    Option.map((block): typeof ChainTipResult.Type => ({
-                      slot: point.slot,
-                      blockNo: block.blockNo,
-                      hash: point.hash,
-                    })),
-                  ),
-                ),
-            }),
-          ),
+        Effect.gen(function* () {
+          const tip = yield* chainDb.getTip;
+          if (Option.isNone(tip)) return Option.none<typeof ChainTipResult.Type>();
+          const block = yield* chainDb.getBlockAt(tip.value);
+          return Option.map(block, (row): typeof ChainTipResult.Type => ({
+            slot: tip.value.slot,
+            blockNo: row.blockNo,
+            hash: tip.value.hash,
+          }));
+        }).pipe(
           Effect.catch((err) =>
             Effect.logWarning(`GetChainTip: ChainDB read failed — ${err.message}`).pipe(
               Effect.as(Option.none()),

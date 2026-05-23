@@ -9,24 +9,24 @@
  *
  * This module installs a *secondary* Logger that:
  *   1. Pushes every line into a `globalThis` ring buffer for in-context reads.
- *   2. Mirrors the latest N lines into `chrome.storage.session` (under
- *      `__gerolamino_logs__`) — `session` persists across SW restarts within
- *      the same browser session, so a Playwright `serviceWorker.evaluate(...)`
- *      can always read recent SW + offscreen log lines regardless of when
- *      the CDP session attached.
+ *   2. Mirrors each context's ring into `chrome.storage.session` under a
+ *      context-specific key (`__gerolamino_logs__:sw|offscreen|popup`).
+ *      Blind `set(ring.slice())` from one MV3 context used to clobber the
+ *      other's lines; separate keys let Playwright merge on read.
+ *   3. Fans each line out on `gerolamino/e2e-test-log` so probe pages can
+ *      collect offscreen lines even when session storage mirroring is flaky.
  *
  * The original console-writing logger is preserved via `mergeWithExisting:
  * true`, so devtools logging is unchanged for human debugging.
- *
- * Note on typing: this module declares a typed `globalThis` extension via
- * a module-level `declare global` so the buffer attachment + read paths
- * are cast-free (`as const` is the only typecast allowed; see
- * `feedback_no_typecasting.md`).
  */
 import { Logger } from "effect";
 
 const RING_CAP = 256;
-const STORAGE_KEY = "__gerolamino_logs__";
+const STORAGE_PREFIX = "__gerolamino_logs__";
+const E2E_LOG_CHANNEL = "gerolamino/e2e-test-log";
+
+/** Legacy single-key name — kept for docs; reads merge all `STORAGE_PREFIX:*` keys. */
+export const TEST_LOG_STORAGE_KEY = STORAGE_PREFIX;
 
 interface LogBuffer {
   readonly push: (line: string) => void;
@@ -38,20 +38,42 @@ declare global {
   var __GEROLAMINO_LOG_BUFFER__: LogBuffer | undefined;
 }
 
+const sessionKeyForContext = (): string => {
+  const href = globalThis.location?.href ?? "";
+  if (href.includes("offscreen.html")) return `${STORAGE_PREFIX}:offscreen`;
+  if (
+    typeof ServiceWorkerGlobalScope !== "undefined" &&
+    globalThis instanceof ServiceWorkerGlobalScope
+  ) {
+    return `${STORAGE_PREFIX}:sw`;
+  }
+  return `${STORAGE_PREFIX}:popup`;
+};
+
+const mirrorRingToSession = (ring: ReadonlyArray<string>, key: string): void => {
+  void globalThis.chrome?.storage?.session
+    ?.set({ [key]: ring.slice() })
+    ?.catch(() => undefined);
+};
+
+const fanOutTestLogLine = (line: string): void => {
+  try {
+    new BroadcastChannel(E2E_LOG_CHANNEL).postMessage(line);
+  } catch {
+    // BC unavailable in this context.
+  }
+};
+
 const getOrCreateBuffer = (): LogBuffer => {
   if (globalThis.__GEROLAMINO_LOG_BUFFER__) return globalThis.__GEROLAMINO_LOG_BUFFER__;
+  const sessionKey = sessionKeyForContext();
   const ring: Array<string> = [];
   const buf: LogBuffer = {
     push: (line) => {
       ring.push(line);
       if (ring.length > RING_CAP) ring.splice(0, ring.length - RING_CAP);
-      // Mirror to chrome.storage.session if available so cross-restart
-      // reads from Playwright still see the most recent N lines. Best-effort —
-      // we don't await the promise to avoid serialising every Effect.log call
-      // on a chrome IPC round-trip.
-      void globalThis.chrome?.storage?.session
-        ?.set({ [STORAGE_KEY]: ring.slice() })
-        ?.catch(() => undefined);
+      mirrorRingToSession(ring, sessionKey);
+      fanOutTestLogLine(line);
     },
     snapshot: () => ring.slice(),
   };
@@ -76,18 +98,26 @@ const bufferLogger = Logger.make((opts) => {
     date: opts.date,
   });
   buf.push(line);
-  // Mirror to console so devtools still shows boot logs for humans + the
-  // Playwright `worker.on("console")` listener picks them up once CDP
-  // attaches (best-effort secondary channel).
   // eslint-disable-next-line no-console
   globalThis.console.log(line);
 });
 
-/**
- * Drop-in Layer that adds the buffer logger to the existing logger set.
- * `mergeWithExisting: true` keeps the default console logger intact, so the
- * buffer is purely additive — devtools output is unchanged.
- */
 export const TestLogBufferLayer = Logger.layer([bufferLogger], { mergeWithExisting: true });
 
-export const TEST_LOG_STORAGE_KEY = STORAGE_KEY;
+/** Best-effort mirror for forked fibers that may not inherit `TestLogBufferLayer`. */
+export const appendSessionLogLine = (line: string): void => {
+  getOrCreateBuffer().push(line);
+};
+
+/** Merge all context-specific session rings (for Playwright `page.evaluate`). */
+export const readMergedSessionLogLines = async (): Promise<Array<string>> => {
+  const session = globalThis.chrome?.storage?.session;
+  if (session === undefined) return [];
+  const bag = await session.get(null);
+  const merged: Array<string> = [];
+  for (const [key, value] of Object.entries(bag)) {
+    if (!key.startsWith(STORAGE_PREFIX) || !Array.isArray(value)) continue;
+    merged.push(...value);
+  }
+  return merged;
+};

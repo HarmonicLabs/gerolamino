@@ -59,6 +59,7 @@ export const SLOT_DIR_RE = /^(\d+)(?:_lsm)?$/;
  *  layout). */
 export const NETWORK_MAGIC: Record<string, number> = {
   preprod: 1,
+  preview: 2,
   mainnet: 764824073,
 };
 
@@ -79,6 +80,13 @@ export class SnapshotReadError extends Schema.TaggedErrorClass<SnapshotReadError
   "SnapshotReadError",
   { message: Schema.String, cause: Schema.Defect },
 ) {}
+
+/** Hard-link `src` → `dst`, falling back to copy on cross-device link failure. */
+const linkOrCopy = (
+  fs: FileSystem.FileSystem,
+  src: string,
+  dst: string,
+) => fs.link(src, dst).pipe(Effect.catch(() => fs.copyFile(src, dst)));
 
 // ───────────────────────────────────────────────────────────────────
 // Node / Bun reader — Effect `FileSystem` service. Used by apps/tui's
@@ -192,14 +200,10 @@ export const prepareLsmSession = (sourceLsmDir: string, snapshotName: string) =>
     for (const file of files) {
       const src = p.join(sourceSnapshotDir, file);
       const dst = p.join(targetSnapshotDir, file);
-      yield* fs.link(src, dst).pipe(Effect.catchCause(() => fs.copyFile(src, dst)));
+      yield* linkOrCopy(fs, src, dst);
     }
 
-    const rootMetaSrc = p.join(sourceLsmDir, "metadata");
-    const rootMetaDst = p.join(tempDir, "metadata");
-    yield* fs
-      .link(rootMetaSrc, rootMetaDst)
-      .pipe(Effect.catchCause(() => fs.copyFile(rootMetaSrc, rootMetaDst)));
+    yield* linkOrCopy(fs, p.join(sourceLsmDir, "metadata"), p.join(tempDir, "metadata"));
 
     yield* fs.makeDirectory(p.join(tempDir, "active"), { recursive: true });
     return tempDir;

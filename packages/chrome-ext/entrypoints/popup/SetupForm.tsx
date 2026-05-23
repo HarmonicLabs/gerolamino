@@ -18,15 +18,21 @@
  * same key on next start.
  */
 import { Show, createSignal, type Component } from "solid-js";
-import { Effect } from "effect";
+import { Effect, Schedule } from "effect";
 import {
   type BootstrapMode,
   type BootstrapSettings,
   DEFAULT_SETTINGS,
+  loadSettingsFromChromeStorageWithRetry,
   saveSettings,
 } from "../shared/bootstrap-settings.ts";
 import { ChromeLocalKeyValueStoreLayer } from "../shared/chrome-key-value-store.ts";
 import { SnapshotUpload } from "./SnapshotUpload.tsx";
+import {
+  makeNodeUploadClient,
+  waitForProductionOffscreenRelay,
+} from "./upload-rpc-client.ts";
+import { nodeRpcLayer } from "./upload-rpc-layer.ts";
 
 /** `globalThis.showDirectoryPicker` declared once for cast-free feature
  *  detection. The FS Access API is browser-environment optional;
@@ -73,15 +79,28 @@ export const SetupForm: Component<SetupFormProps> = (props) => {
       serverUrl: DEFAULT_SETTINGS.serverUrl,
     };
     Effect.runFork(
-      saveSettings(settings).pipe(
+      Effect.gen(function* () {
+        yield* saveSettings(settings);
+        yield* loadSettingsFromChromeStorageWithRetry(10, 50);
+        const client = yield* makeNodeUploadClient();
+        yield* waitForProductionOffscreenRelay(client);
+        // Genesis: first sync. Local: upload path usually already called
+        // StartSync; this covers submit-after-upload and resume-existing.
+        yield* client.StartSync().pipe(Effect.retry(Schedule.recurs(3)));
+        yield* Effect.sync(() => {
+          setBusy(false);
+          props.onSubmit(settings);
+        });
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(nodeRpcLayer),
+        Effect.provide(ChromeLocalKeyValueStoreLayer),
         Effect.tapCause((cause) =>
           Effect.sync(() => {
             setBusy(false);
             setError(`Couldn't save: ${String(cause)}`);
           }),
         ),
-        Effect.tap(() => Effect.sync(() => props.onSubmit(settings))),
-        Effect.provide(ChromeLocalKeyValueStoreLayer),
       ),
     );
   };

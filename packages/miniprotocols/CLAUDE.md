@@ -59,4 +59,4 @@ bunx --bun vitest run packages/miniprotocols
 bunx --bun vitest bench packages/miniprotocols   # network benchmarks
 ```
 
-Network tests connect to `preprod-node.play.dev.cardano.org:3001`.
+Network tests connect to `preprod-node.world.dev.cardano.org:3001`.

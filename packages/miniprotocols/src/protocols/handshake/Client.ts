@@ -1,5 +1,5 @@
 import { Cause, Context, Duration, Effect, Layer, Option, Schema, Scope, Stream } from "effect";
-import { Socket } from "effect/unstable/socket";
+import * as Socket from "effect/unstable/socket/Socket";
 
 import { Multiplexer } from "../../multiplexer/Multiplexer";
 import { MultiplexerEncodingError } from "../../multiplexer/Errors";

@@ -34,6 +34,7 @@ import {
   FileSystem,
   HashMap,
   Layer,
+  Option,
   Path,
   Ref,
   Schedule,
@@ -52,6 +53,7 @@ import {
   PeerManagerLayer,
   SlotClockLiveFromEnvOrPreprod,
   connectToRelay,
+  relayMiniprotocolLayers,
   RelayRetrySchedule,
   PREPROD_MAGIC,
   MAINNET_MAGIC,
@@ -72,8 +74,7 @@ import {
   ChainDBLive,
   LedgerSnapshotStoreLive,
 } from "storage";
-import { layerLsm } from "lsm-ffi/native";
-import { layerLsmWasm, makeBunWasi } from "lsm-ffi";
+import { layerLsmWasm, lsmTreeJsffiUrl, lsmTreeWasmUrl, makeBunWasi } from "lsm-ffi";
 import {
   registry,
   pushNodeState,
@@ -386,7 +387,7 @@ const start = Command.make(
     relayHost: Flag.string("relay-host").pipe(
       Flag.withDescription("Upstream relay host"),
       Flag.withFallbackConfig(Config.string("RELAY_HOST")),
-      Flag.withDefault("preprod-node.play.dev.cardano.org"),
+      Flag.withDefault("preprod-node.world.dev.cardano.org"),
     ),
     relayPort: Flag.integer("relay-port").pipe(
       Flag.withDescription("Upstream relay port"),
@@ -412,11 +413,8 @@ const start = Command.make(
     ),
     snapshotPath: Flag.string("snapshot-path").pipe(
       Flag.withDescription(
-        "Path to a Mithril V2LSM snapshot directory. When set, skips the WS bootstrap " +
-          "connection — the LSM BlobStore opens directly against the snapshot, and relay " +
-          "sync resumes from the snapshot's tip. Requires GEROLAMINO_USE_WASM_LSM=1 " +
-          "(the WASM lsm-tree backend) to function; the Zig backend doesn't support " +
-          "session-from-snapshot at startup time.",
+        "Path to a Mithril V2LSM snapshot directory. When set, the LSM BlobStore opens " +
+          "against the snapshot's lsm-tree session and relay sync resumes from the snapshot tip.",
       ),
       Flag.withFallbackConfig(Config.string("GEROLAMINO_SNAPSHOT_PATH")),
       Flag.withDefault(""),
@@ -445,10 +443,8 @@ const start = Command.make(
       //     on-disk Mithril V2LSM snapshot AND decode
       //     `<dir>/ledger/{slot}/state` (CBOR ExtLedgerState) to seed
       //     `LedgerView` + `Nonces` + tip directly. Requires
-      //     `GEROLAMINO_USE_WASM_LSM=1` to be useful for the LSM
-      //     session — the Zig backend doesn't pre-load lsm sessions
-      //     from disk at startup. The ledger-state decode itself is
-      //     backend-agnostic.
+      //     WASM lsm-tree session under `<dir>/lsm/`. Ledger-state decode
+      //     is independent of the BlobStore backend.
       //   --genesis (or no snapshot): sync from origin over the
       //     relay; `LedgerView` is empty until enough blocks land to
       //     populate it.
@@ -553,9 +549,11 @@ const start = Command.make(
           Effect.retry(
             connectToRelay(peerId, networkMagic, ledgerView, snapshotState, volatileRef).pipe(
               Effect.provide(
-                BunSocket.layerNet({ host: config.relayHost, port: config.relayPort }),
+                relayMiniprotocolLayers(
+                  BunSocket.layerNet({ host: config.relayHost, port: config.relayPort }),
+                ),
+                { local: true },
               ),
-              Effect.scoped,
               Effect.tapError((e) =>
                 Effect.logWarning(`Relay connection lost: ${e}. Reconnecting...`),
               ),
@@ -597,22 +595,10 @@ const app = Command.make("gerolamino").pipe(
  * persistently for crash-recovery and E2E test harnesses. Without it,
  * a fresh temp directory is allocated per process start.
  *
- * Backend selection (env flag `GEROLAMINO_USE_WASM_LSM`):
- *   - `"1"`: load the WASM lsm-tree (`packages/ffi/src/lsm-wasm/`)
- *     via Bun's `node:wasi` + the in-tree reactor-mode polyfill.
- *     Requires `WASM_LSM_MODULE_PATH` + `WASM_LSM_JSFFI_PATH` pointing
- *     at the build artefacts under `packages/ffi/haskell/lsm-tree-wasm-shim/`.
- *     **Known limitation (May 2026)**: Bun's `node:wasi` reactor
- *     pattern has a multi-call out-of-bounds memory-access bug under
- *     heavy mutation workloads — works for read-heavy / smoke tests,
- *     unstable for full bootstrap. Track Bun PR
- *     `claude/fix-wasi-initialize-12755`; once merged, this opt-in
- *     becomes the default.
- *   - default (unset): the Zig-bridged `liblsm-bridge.so` (existing
- *     production path). Reads `LIBLSM_BRIDGE_PATH` for the .so location.
+ * BlobStore uses the Haskell-compiled lsm-tree WASM reactor
+ * (`packages/wasm-utils/haskell-lsm/lsm-tree-wasm-shim/`). Override
+ * artefact paths with `WASM_LSM_MODULE_PATH` / `WASM_LSM_JSFFI_PATH`.
  */
-const useWasmLsm = process.env["GEROLAMINO_USE_WASM_LSM"] === "1";
-
 const makeStorageLayers = (dataDir: string | undefined) =>
   Layer.unwrap(
     Effect.gen(function* () {
@@ -625,9 +611,7 @@ const makeStorageLayers = (dataDir: string | undefined) =>
       const lsmDir = p.join(baseDir, "lsm");
       yield* fs.makeDirectory(lsmDir, { recursive: true });
 
-      const blobStoreLayer = useWasmLsm
-        ? yield* makeWasmLsmLayer(lsmDir)
-        : layerLsm(lsmDir);
+      const blobStoreLayer = yield* makeWasmLsmLayer(lsmDir);
       const chainDbLayer = ChainDBLive.pipe(Layer.provide(blobStoreLayer));
       const snapshotStoreLayer = LedgerSnapshotStoreLive.pipe(Layer.provide(blobStoreLayer));
 
@@ -635,15 +619,29 @@ const makeStorageLayers = (dataDir: string | undefined) =>
     }),
   );
 
-/** Build the WASM lsm-tree BlobStore Layer. Resolves the `.wasm` +
- *  `.js` post-link artefacts from env vars, reads the bytes via
- *  Effect's `FileSystem`, and wires the Bun WASI adapter against
- *  `dataDir` as a preopen root. */
+/** Resolve WASM artefact path from env or packaged shim URLs. */
+const resolveWasmLsmPath = (
+  envKey: "WASM_LSM_MODULE_PATH" | "WASM_LSM_JSFFI_PATH",
+  defaultUrl: URL,
+) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const fromConfig = yield* Config.string(envKey).pipe(
+      Config.option,
+      Effect.orElseSucceed(() => Option.none<string>()),
+    );
+    return yield* Option.match(fromConfig, {
+      onNone: () => path.fromFileUrl(defaultUrl),
+      onSome: (p) => Effect.succeed(p),
+    });
+  });
+
+/** Build the WASM lsm-tree BlobStore Layer via Bun WASI + reactor module. */
 const makeWasmLsmLayer = (dataDir: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const wasmPath = yield* Config.string("WASM_LSM_MODULE_PATH");
-    const jsffiPath = yield* Config.string("WASM_LSM_JSFFI_PATH");
+    const wasmPath = yield* resolveWasmLsmPath("WASM_LSM_MODULE_PATH", lsmTreeWasmUrl);
+    const jsffiPath = yield* resolveWasmLsmPath("WASM_LSM_JSFFI_PATH", lsmTreeJsffiUrl);
     const rawBytes = yield* fs.readFile(wasmPath);
     // Defensive copy into a fresh ArrayBuffer-backed Uint8Array — Bun's
     // `fs.readFile` returns a `Uint8Array<ArrayBufferLike>` whose backing
@@ -672,22 +670,24 @@ const workerLayer = BunWorker.layer(
   (_id) => new Worker(new URL("../../../packages/consensus/src/crypto-worker.ts", import.meta.url)),
 );
 
-// Consensus + chain-event-log + UI event bus + clock + peers + crypto.
+// Consensus + chain-event-log + UI event bus + clock + peers + crypto +
+// platform socket constructor + Bun FileSystem/Path/Config. Single merge
+// site so the entrypoint is one `Effect.provide` (pipe-style composition).
 // `ChainEventsLive` is self-contained (memory journal + subtle encryption +
 // generated identity); apps that want durable persistence swap the inner
 // `EventJournal.layerMemory` for a SQL-backed journal at this layer.
-const consensusLayers = Layer.mergeAll(
+const runtimeLayer = Layer.mergeAll(
   CryptoWorkerBun.pipe(Layer.provide(workerLayer)),
   slotClockLayer,
   peerManagerLayer,
   ChainEventsLive,
   ConsensusEvents.Live,
+  Socket.layerWebSocketConstructorGlobal,
+  BunServices.layer,
 );
 
 app.pipe(
   Command.run({ version: "0.1.0" }),
-  Effect.provide(consensusLayers),
-  Effect.provide(Socket.layerWebSocketConstructorGlobal),
-  Effect.provide(BunServices.layer),
+  Effect.provide(runtimeLayer),
   BunRuntime.runMain,
 );

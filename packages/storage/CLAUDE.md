@@ -63,7 +63,7 @@ entries in numeric order — `last` of a scan is the highest slot.
 - **BlobStore-only** — every chain operation goes through 4-byte-prefix
   key-value primitives. Range scans drive `streamFrom` and the
   immutability-region promotion path. `BlobStore.putBatch(...)` provides
-  atomic multi-key writes (one IndexedDB transaction or LSM write batch).
+  atomic multi-key writes (LSM write batch on Bun or browser OPFS LSM).
 - **Summary `Ref`** — tip + volatileCount cached in-memory for O(1)
   `getTip` / `getImmutableTip`. Tip pointers are also persisted as
   singleton BlobStore entries (`vtip` / `itip`) so a SW eviction restores

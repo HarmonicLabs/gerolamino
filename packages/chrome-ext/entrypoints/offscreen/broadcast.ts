@@ -10,11 +10,9 @@
  * subscriber (today via the SW relay, planned for stage 3c) sees a
  * deduped tap on the producer.
  *
- * Phase D Step 3 stage 3a status: this Layer is wired but its registry
- * (`./atoms.ts::registry`) has no writers yet — atoms stay at
- * INITIAL_* defaults, the deduper sees identity-stable ticks every
- * iteration, and `buildDeltaJson` never runs. Stage 3b moves the
- * bootstrap-sync writers in.
+ * `bootstrap-sync.ts` writes node/peers/bootstrap atoms; `ChainEventStream`
+ * drain appends chain events; the broadcast fiber dedupes and publishes
+ * JSON deltas for `SubscribeAtomDeltas` → popup `applyDelta`.
  */
 import { Context, Effect, Layer, PubSub } from "effect";
 import { makeBroadcastFiber } from "dashboard/broadcast";

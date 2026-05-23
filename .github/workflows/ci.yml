@@ -162,14 +162,14 @@ jobs:
         # preprod relay. Faster + cleaner failure surface than the
         # next step's fixed-90s soak.
         env:
-          CARDANO_NODE_HOST: preprod-node.play.dev.cardano.org
+          CARDANO_NODE_HOST: preprod-node.world.dev.cardano.org
         run: |
           nix run github:0xbigboss/bun-overlay#bun -- x --bun \
             vitest run apps/tui/src/__tests__/preprod-sync-smoke.test.ts
       - name: TUI bootstrap + sync (headless, 90 s soak)
         env:
           GEROLAMINO_SNAPSHOT_PATH: ${{ github.workspace }}/snapshot
-          RELAY_HOST: preprod-node.play.dev.cardano.org
+          RELAY_HOST: preprod-node.world.dev.cardano.org
           RELAY_PORT: "3001"
         run: |
           nix run github:0xbigboss/bun-overlay#bun -- run \

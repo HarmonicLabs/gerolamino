@@ -23,9 +23,16 @@ import { AtomRegistry } from "effect/unstable/reactivity";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import { onCleanup } from "solid-js";
 import { RegistryContext } from "@effect/atom-solid";
-import { PrimitivesProvider, Dashboard, createDomPrimitives, applyDelta } from "dashboard";
+import {
+  PrimitivesProvider,
+  Dashboard,
+  createDomPrimitives,
+  applyDelta,
+  nodeStateAtom,
+} from "dashboard";
 import { NodeRpcs } from "../../background/rpc.ts";
-import { layerClientProtocolChromePort } from "../../background/rpc-transport.ts";
+import { nodeRpcLayer } from "../upload-rpc-layer.ts";
+import { waitForProductionOffscreenRelay } from "../upload-rpc-client.ts";
 
 const domPrimitives = createDomPrimitives();
 const registry = AtomRegistry.make();
@@ -38,6 +45,21 @@ const registry = AtomRegistry.make();
 // Port.
 const oneConnection = Effect.gen(function* () {
   const client = yield* RpcClient.make(NodeRpcs);
+  // SW boots offscreen + Port RPC asynchronously; connecting before the
+  // relay answers yields `RpcClientDefect: Chrome runtime port disconnected`
+  // and a dashboard stuck on atom defaults. Ping matches SetupForm submit.
+  yield* waitForProductionOffscreenRelay(client);
+  yield* Effect.forkChild(
+    Effect.gen(function* () {
+      yield* Effect.sleep("8 seconds");
+      const snap = registry.get(nodeStateAtom);
+      if (snap.tipSlot === 0n && snap.syncPercent === 0 && snap.status !== "error") {
+        yield* Effect.logInfo("[popup] No tip progress after 8s — invoking StartSync");
+        yield* client.StartSync();
+      }
+    }).pipe(Effect.catch((err) => Effect.logWarning(`[popup] resumeIfStalled: ${String(err)}`))),
+    { startImmediately: true },
+  );
   yield* Stream.runForEach(client.BroadcastDeltas(), (json) => applyDelta(registry, json));
 }).pipe(
   Effect.scoped,
@@ -54,10 +76,10 @@ const oneConnection = Effect.gen(function* () {
  *  in-flight stream. Previously this was a module-top `Effect.runFork`
  *  that leaked the fiber across popup re-mounts. */
 export const BrowserDashboard = () => {
-  const fiber = Effect.runFork(
-    oneConnection.pipe(Effect.forever, Effect.provide(layerClientProtocolChromePort)),
+  const streamFiber = Effect.runFork(
+    oneConnection.pipe(Effect.forever, Effect.provide(nodeRpcLayer)),
   );
-  onCleanup(() => Effect.runFork(Fiber.interrupt(fiber)));
+  onCleanup(() => Effect.runFork(Fiber.interrupt(streamFiber)));
   return (
     <RegistryContext.Provider value={registry}>
       <PrimitivesProvider value={domPrimitives}>

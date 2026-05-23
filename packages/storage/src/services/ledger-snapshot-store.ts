@@ -25,12 +25,9 @@
  *
  * Atomicity:
  *   `writeLedgerSnapshot` writes the blob + the metadata in one
- *   `BlobStore.putBatch(...)`. IndexedDB scopes the batch to a single
- *   transaction; LSM (on Bun) wraps it in a write batch. Both are
- *   all-or-nothing.
+ *   `BlobStore.putBatch(...)`. LSM write batches are all-or-nothing.
  */
 import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
-import { last } from "es-toolkit";
 import { BlobStore, snapshotKey } from "../blob-store";
 import {
   decodeNoncesEpoch,
@@ -46,17 +43,21 @@ import {
 } from "../blob-store/chain-keys.ts";
 import type { RealPoint } from "../types/StoredBlock.ts";
 
+/** Enumerates every `LedgerSnapshotStore` entry point — mirrors `ChainDBOperation`. */
+export const LedgerSnapshotOperation = Schema.Literals([
+  "writeLedgerSnapshot",
+  "readLatestLedgerSnapshot",
+  "writeNonces",
+  "readNonces",
+]);
+export type LedgerSnapshotOperation = typeof LedgerSnapshotOperation.Type;
+
 /** Error surface — separate from `ChainDBError` so callers that only need
  * snapshot/nonce ops don't have to handle chain-DB failure modes. */
 export class LedgerSnapshotError extends Schema.TaggedErrorClass<LedgerSnapshotError>()(
   "LedgerSnapshotError",
   {
-    operation: Schema.Literals([
-      "writeLedgerSnapshot",
-      "readLatestLedgerSnapshot",
-      "writeNonces",
-      "readNonces",
-    ]),
+    operation: LedgerSnapshotOperation,
     cause: Schema.Defect,
   },
 ) {}
@@ -100,12 +101,47 @@ export class LedgerSnapshotStore extends Context.Service<
   }
 >()("storage/LedgerSnapshotStore") {}
 
-type SnapshotOp = "writeLedgerSnapshot" | "readLatestLedgerSnapshot" | "writeNonces" | "readNonces";
-
 const withOp =
-  (operation: SnapshotOp) =>
+  (operation: LedgerSnapshotOperation) =>
   <A, R>(effect: Effect.Effect<A, unknown, R>): Effect.Effect<A, LedgerSnapshotError, R> =>
     Effect.mapError(effect, (cause) => new LedgerSnapshotError({ operation, cause }));
+
+const readLatestLedgerSnapshot = Effect.fn("LedgerSnapshotStore.readLatest")(function* (
+  store: Context.Service.Shape<typeof BlobStore>,
+) {
+  // `BlobStore.scan` is lex (= slot ASC) for big-endian keys; the stream
+  // tail is the highest slot. `Stream.runLast` avoids materialising the
+  // full prefix (handoff: not runCollect + .at(-1)).
+  const tail = yield* Stream.runLast(store.scan(PREFIX_SMET));
+  if (Option.isNone(tail)) {
+    return Option.none<{ point: RealPoint; stateBytes: Uint8Array; epoch: bigint }>();
+  }
+  const slot = decodeSnapshotMetaSlot(tail.value.key);
+  const meta = decodeSnapshotMeta(tail.value.value);
+  const blobOpt = yield* store.get(snapshotKey(slot));
+  return Option.map(blobOpt, (stateBytes) => ({
+    point: { slot, hash: meta.hash },
+    stateBytes,
+    epoch: meta.epoch,
+  }));
+});
+
+const readNonces = Effect.fn("LedgerSnapshotStore.readNonces")(function* (
+  store: Context.Service.Shape<typeof BlobStore>,
+) {
+  const tail = yield* Stream.runLast(store.scan(PREFIX_NNCE));
+  if (Option.isNone(tail)) {
+    return Option.none<{
+      epoch: bigint;
+      active: Uint8Array;
+      evolving: Uint8Array;
+      candidate: Uint8Array;
+    }>();
+  }
+  const epoch = decodeNoncesEpoch(tail.value.key);
+  const { active, evolving, candidate } = decodeNoncesValue(tail.value.value);
+  return Option.some({ epoch, active, evolving, candidate });
+});
 
 export const LedgerSnapshotStoreLive: Layer.Layer<LedgerSnapshotStore, never, BlobStore> =
   Layer.effect(
@@ -122,48 +158,16 @@ export const LedgerSnapshotStoreLive: Layer.Layer<LedgerSnapshotStore, never, Bl
             ])
             .pipe(withOp("writeLedgerSnapshot")),
 
-        readLatestLedgerSnapshot: Effect.gen(function* () {
-          // Scan all `smet:` entries in lex (= slot ASC) order; the
-          // highest-keyed entry is the last one, equal to the highest
-          // slot for our big-endian encoding. Snapshot count is ≤ 30
-          // over a node lifetime so O(n) is fine; `last(entries)` is
-          // declarative and avoids the `entries[length - 1]!` non-null
-          // assertion.
-          const entries = yield* Stream.runCollect(store.scan(PREFIX_SMET));
-          const tail = last(entries);
-          if (tail === undefined) {
-            return Option.none<{ point: RealPoint; stateBytes: Uint8Array; epoch: bigint }>();
-          }
-          const slot = decodeSnapshotMetaSlot(tail.key);
-          const meta = decodeSnapshotMeta(tail.value);
-          const blobOpt = yield* store.get(snapshotKey(slot));
-          return Option.map(blobOpt, (stateBytes) => ({
-            point: { slot, hash: meta.hash },
-            stateBytes,
-            epoch: meta.epoch,
-          }));
-        }).pipe(withOp("readLatestLedgerSnapshot")),
+        readLatestLedgerSnapshot: readLatestLedgerSnapshot(store).pipe(
+          withOp("readLatestLedgerSnapshot"),
+        ),
 
         writeNonces: (epoch, active, evolving, candidate) =>
           store
             .put(noncesKey(epoch), encodeNoncesValue(active, evolving, candidate))
             .pipe(withOp("writeNonces")),
 
-        readNonces: Effect.gen(function* () {
-          const entries = yield* Stream.runCollect(store.scan(PREFIX_NNCE));
-          const tail = last(entries);
-          if (tail === undefined) {
-            return Option.none<{
-              epoch: bigint;
-              active: Uint8Array;
-              evolving: Uint8Array;
-              candidate: Uint8Array;
-            }>();
-          }
-          const epoch = decodeNoncesEpoch(tail.key);
-          const { active, evolving, candidate } = decodeNoncesValue(tail.value);
-          return Option.some({ epoch, active, evolving, candidate });
-        }).pipe(withOp("readNonces")),
+        readNonces: readNonces(store).pipe(withOp("readNonces")),
       };
     }),
   );

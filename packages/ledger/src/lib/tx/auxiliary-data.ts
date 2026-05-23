@@ -170,28 +170,26 @@ export function decodeMetadatum(cbor: CborSchemaType): Effect.Effect<Metadatum, 
 }
 
 // ---------------------------------------------------------------------------
-// Metadatum CBOR encoder (recursive — .match() unavailable due to Schema.suspend)
+// Metadatum CBOR encoder (recursive) — uses Metadatum.match for exhaustive dispatch
 // ---------------------------------------------------------------------------
 
-export function encodeMetadatum(m: Metadatum): CborSchemaType {
-  switch (m._tag) {
-    case MetadatumKind.Int:
-      return m.value >= 0n ? uint(m.value) : negInt(m.value);
-    case MetadatumKind.Bytes:
-      return cborBytes(m.value);
-    case MetadatumKind.Text:
-      return cborText(m.value);
-    case MetadatumKind.List:
-      return arr(...m.items.map(encodeMetadatum));
-    case MetadatumKind.Map:
-      return cborMap(
-        m.entries.map(([k, v]) => ({
-          k: encodeMetadatum(k),
-          v: encodeMetadatum(v),
-        })),
-      );
-  }
-}
+export const encodeMetadatum: (m: Metadatum) => CborSchemaType = Metadatum.match({
+  [MetadatumKind.Int]: (m) => (m.value >= 0n ? uint(m.value) : negInt(m.value)),
+
+  [MetadatumKind.Bytes]: (m) => cborBytes(m.value),
+
+  [MetadatumKind.Text]: (m) => cborText(m.value),
+
+  [MetadatumKind.List]: (m) => arr(...m.items.map(encodeMetadatum)),
+
+  [MetadatumKind.Map]: (m) =>
+    cborMap(
+      m.entries.map(([k, v]) => ({
+        k: encodeMetadatum(k),
+        v: encodeMetadatum(v),
+      })),
+    ),
+});
 
 // ---------------------------------------------------------------------------
 // TxMetadata CBOR encoder

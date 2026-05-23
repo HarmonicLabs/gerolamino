@@ -1301,7 +1301,7 @@ structured `Effect.log` lines on a 10-second cadence.
 | Flag                 | Env var                  | Default                             |
 | -------------------- | ------------------------ | ----------------------------------- |
 | `--genesis` / `-g`   | (none)                   | `false`                             |
-| `--relay-host`       | `RELAY_HOST`             | `preprod-node.play.dev.cardano.org` |
+| `--relay-host`       | `RELAY_HOST`             | `preprod-node.world.dev.cardano.org` |
 | `--relay-port`       | `RELAY_PORT`             | `3001`                              |
 | `--network`          | (none)                   | `preprod`                           |
 | `--headless`         | (none)                   | `false` (WebView mounts by default) |
@@ -1588,7 +1588,7 @@ The `.github/workflows/ci.yml` defines four jobs, all green on `main`:
    * `nix develop --command treefmt --check`
 2. **`test`** — full vitest suite via `vitest run --maxConcurrency=$(nproc)`.
 3. **`e2e`** (gated on `main` push or PR with `e2e` label) — TUI
-   live-preprod smoke (`CARDANO_NODE_HOST=preprod-node.play.dev.cardano.org`)
+   live-preprod smoke (`CARDANO_NODE_HOST=preprod-node.world.dev.cardano.org`)
    + 90s TUI soak + chrome-ext Playwright suite.
 4. **`release`** (tag-triggered, `v*`) — `nix build .#tui-image` + `wxt
    zip`, attach to GitHub Release via
@@ -1865,7 +1865,7 @@ bunx --bun vitest run
 nix flake check --no-build
 
 # 4. Live preprod sync (TUI; requires network)
-CARDANO_NODE_HOST=preprod-node.play.dev.cardano.org \
+CARDANO_NODE_HOST=preprod-node.world.dev.cardano.org \
   bunx --bun vitest run apps/tui/src/__tests__/preprod-sync-smoke.test.ts
 
 # 5. Chrome-ext build + Playwright baseline
@@ -1902,7 +1902,7 @@ The `release` job in `.github/workflows/ci.yml`:
 ### Manual post-release smoke
 
 * **TUI**: `podman load < tui-v0.1.0.oci.tar.gz` → `podman run
-  -e CARDANO_NODE_HOST=preprod-node.play.dev.cardano.org gerolamino-tui --headless`.
+  -e CARDANO_NODE_HOST=preprod-node.world.dev.cardano.org gerolamino-tui --headless`.
   Wait for the first non-genesis tick log.
 * **Chrome ext**: Install `chrome-ext-v0.1.0.zip` via
   `chrome://extensions` → "Load unpacked" → drag-drop a downloaded
@@ -1950,10 +1950,12 @@ directory has **187 files** indexed by `MEMORY.md`. The four categories
 ### Read first (mandatory before changing anything)
 
 1. **`MEMORY.md`** — the index. Glance through it.
-2. **`project_release_readiness_may_2026.md`** — state-of-the-repo audit.
-3. **`project_release_commit_landed.md`** — what's in `b0aa52aa`.
-4. **`project_synthetic_spec_worker_logs.md`** — the one open thread.
-5. This document (`docs/cursor-handoff.md`).
+2. **[`docs/memory-synthesis.md`](memory-synthesis.md)** — Cursor-distilled digest of
+   load-bearing `project_*` / `reference_*` memories (May 2026 release loop).
+3. **`project_release_readiness_may_2026.md`** — state-of-the-repo audit.
+4. **`project_release_commit_landed.md`** — what's in `b0aa52aa`.
+5. **`project_synthetic_spec_worker_logs.md`** — the one open thread.
+6. This document (`docs/cursor-handoff.md`).
 
 ### Architecture decisions (read when touching the area)
 
@@ -2368,7 +2370,7 @@ nix build -L -o packages/wasm-utils/pkg .#wasm-utils
 nix build -L -o packages/wasm-plexer/result .#wasm-plexer
 
 # 6. Live preprod sync (TUI; requires network)
-CARDANO_NODE_HOST=preprod-node.play.dev.cardano.org \
+CARDANO_NODE_HOST=preprod-node.world.dev.cardano.org \
   bunx --bun vitest run apps/tui/src/__tests__/preprod-sync-smoke.test.ts
 # expect: blocks > 0 within 30s; "Synced epoch 289 ..."
 

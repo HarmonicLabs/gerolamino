@@ -84,7 +84,7 @@ type InnerTransformation = SchemaTransformation.Transformation<
  * composition this always succeeds; the guard is defensive. Returns an
  * Effect so misuse propagates through the Schema error channel as an
  * `Issue` instead of escaping as a JS exception — letting callers compose
- * with the rest of the decode/encode pipeline via `Effect.flatMap`.
+ * with the rest of the decode/encode pipeline via `Effect.gen`.
  */
 const asTransformation = (
   link: AST.Link,
@@ -126,20 +126,22 @@ const runLinkDecode = (
   link: AST.Link,
   cbor: CborValue,
 ): Effect.Effect<unknown, SchemaIssue.Issue, unknown> =>
-  asTransformation(link).pipe(
-    Effect.flatMap((tr) => tr.decode.run(Option.some(cbor), {})),
-    Effect.flatMap((opt) => unwrapOrFail(opt, cbor, "inner link decoded to None")),
-  );
+  Effect.gen(function* () {
+    const tr = yield* asTransformation(link);
+    const opt = yield* tr.decode.run(Option.some(cbor), {});
+    return yield* unwrapOrFail(opt, cbor, "inner link decoded to None");
+  });
 
 const runLinkEncode = (
   link: AST.Link,
   value: unknown,
 ): Effect.Effect<CborValue, SchemaIssue.Issue, unknown> =>
-  asTransformation(link).pipe(
-    Effect.flatMap((tr) => tr.encode.run(Option.some(value), {})),
-    Effect.flatMap((opt) => unwrapOrFail(opt, value, "inner link encoded to None")),
-    Effect.flatMap((v) => ensureCborValue(v, "inner link produced a non-CborValue")),
-  );
+  Effect.gen(function* () {
+    const tr = yield* asTransformation(link);
+    const opt = yield* tr.encode.run(Option.some(value), {});
+    const v = yield* unwrapOrFail(opt, value, "inner link encoded to None");
+    return yield* ensureCborValue(v, "inner link produced a non-CborValue");
+  });
 
 // ────────────────────────────────────────────────────────────────────────────
 // 1. taggedUnionLink — Cardano `[tag, ...fields]` encoding for sentinel-based
@@ -639,26 +641,30 @@ export const cborInCborLink = (): CborLinkFactory => (walkedAst) => {
     SchemaTransformation.transformOrFail<unknown, CborValue, unknown, unknown>({
       decode: CborValueSchema.match({
         ...failOthers("Tag(24) for encoded-CBOR"),
-        [CborKinds.Tag]: (cbor) =>
-          cbor.tag === ENCODED_CBOR_TAG
-            ? CborValueSchema.guards[CborKinds.Bytes](cbor.data)
-              ? parseCborValueFromBytes(cbor.data.bytes).pipe(
-                  Effect.flatMap((inner) => runLinkDecode(innerLink, inner)),
-                )
-              : invalid(cbor.data, "Tag(24) payload must be Bytes")
-            : invalid(cbor, `Expected Tag(${String(ENCODED_CBOR_TAG)}), got Tag ${cbor.tag}`),
+        [CborKinds.Tag]: (cbor) => {
+          if (cbor.tag !== ENCODED_CBOR_TAG) {
+            return invalid(cbor, `Expected Tag(${String(ENCODED_CBOR_TAG)}), got Tag ${cbor.tag}`);
+          }
+          if (!CborValueSchema.guards[CborKinds.Bytes](cbor.data)) {
+            return invalid(cbor.data, "Tag(24) payload must be Bytes");
+          }
+          const { bytes } = cbor.data;
+          return Effect.gen(function* () {
+            const inner = yield* parseCborValueFromBytes(bytes);
+            return yield* runLinkDecode(innerLink, inner);
+          });
+        },
       }),
       encode: (value) =>
-        runLinkEncode(innerLink, value).pipe(
-          Effect.flatMap((inner) => encodeCborValueToBytes(inner)),
-          Effect.map((bytes) =>
-            CborValueSchema.make({
-              _tag: CborKinds.Tag,
-              tag: ENCODED_CBOR_TAG,
-              data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes }),
-            }),
-          ),
-        ),
+        Effect.gen(function* () {
+          const inner = yield* runLinkEncode(innerLink, value);
+          const bytes = yield* encodeCborValueToBytes(inner);
+          return CborValueSchema.make({
+            _tag: CborKinds.Tag,
+            tag: ENCODED_CBOR_TAG,
+            data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes }),
+          });
+        }),
     }),
   );
 };
@@ -713,10 +719,11 @@ export const cborInCborPreserving = <T>(
             return invalid(cbor.data, "Tag(24) payload must be Bytes");
           }
           const preservedBytes = cbor.data.bytes;
-          return parseCborValueFromBytes(preservedBytes).pipe(
-            Effect.flatMap((innerCbor) => SchemaParser.decodeEffect(inner)(innerCbor)),
-            Effect.map((value): Preserved<T> => ({ value, origBytes: preservedBytes })),
-          );
+          return Effect.gen(function* () {
+            const innerCbor = yield* parseCborValueFromBytes(preservedBytes);
+            const value = yield* SchemaParser.decodeEffect(inner)(innerCbor);
+            return { value, origBytes: preservedBytes } satisfies Preserved<T>;
+          });
         },
       }),
       encode: (preserved) => {
@@ -729,16 +736,15 @@ export const cborInCborPreserving = <T>(
             }),
           );
         }
-        return SchemaParser.encodeEffect(inner)(preserved.value).pipe(
-          Effect.flatMap((innerCbor) => encodeCborValueToBytes(innerCbor)),
-          Effect.map((bytes) =>
-            CborValueSchema.make({
-              _tag: CborKinds.Tag,
-              tag: ENCODED_CBOR_TAG,
-              data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes }),
-            }),
-          ),
-        );
+        return Effect.gen(function* () {
+          const innerCbor = yield* SchemaParser.encodeEffect(inner)(preserved.value);
+          const bytes = yield* encodeCborValueToBytes(innerCbor);
+          return CborValueSchema.make({
+            _tag: CborKinds.Tag,
+            tag: ENCODED_CBOR_TAG,
+            data: CborValueSchema.make({ _tag: CborKinds.Bytes, bytes }),
+          });
+        });
       },
     }),
   );

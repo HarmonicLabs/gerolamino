@@ -1,11 +1,9 @@
 /**
  * `BlobStore` Layer backed by the WASM-compiled lsm-tree shim.
  *
- * Mirrors the existing Zig-backed `layerLsm` in `../lsm/layer-lsm.ts`
- * — same `BlobStore` + `LsmAdmin` service shape, same wire format
- * for cursor reads, same prefix-scan semantics. The only difference
- * is the FFI substrate: native `liblsm-bridge.so` via `bun:ffi` →
- * WASM `lsm-tree-wasm.wasm` via `loadLsmModule`.
+ * Same `BlobStore` + `LsmAdmin` service shape and wire format as the
+ * Haskell lsm-tree reactor — backed by `lsm-tree-wasm.wasm` via
+ * `loadLsmModule` (Bun WASI in TUI, browser Worker in chrome-ext).
  *
  * Layer lifecycle:
  *   1. Load + instantiate the WASM module (`loadLsmModule`).
@@ -21,7 +19,7 @@
 import { Context, Effect, Layer, Stream } from "effect";
 import { type BlobEntry, BlobStore, BlobStoreError } from "../blob-store.ts";
 import { prefixEnd } from "../keys.ts";
-import { LsmAdmin, LsmAdminError } from "../native/admin.ts";
+import { LsmAdmin, LsmAdminError } from "../admin.ts";
 import { LsmWasmError } from "./errors.ts";
 import {
   type CursorBatch,

@@ -139,7 +139,7 @@ export const test = base.extend<{
   serviceWorker: Worker;
   swLogs: SwLog[];
   openPopup: () => Promise<Page>;
-  /** Set by `e2e/global-setup.ts` — true when `localhost:3040` relay responds. */
+  /** Set by `e2e/global-setup.ts` — true when the relay HTTP probe responds. */
   relayAvailable: boolean;
 }>({
   // eslint-disable-next-line no-empty-pattern

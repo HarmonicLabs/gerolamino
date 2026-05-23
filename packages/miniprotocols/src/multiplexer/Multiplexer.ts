@@ -157,7 +157,7 @@ export class Multiplexer extends Context.Service<
                         }),
                     }).pipe(
                       Effect.flatMap((framedData) =>
-                        socket.writer.pipe(Effect.flatMap((write) => write(framedData))),
+                        Effect.flatMap(socket.writer, (write) => write(framedData)),
                       ),
                     ),
                 }),

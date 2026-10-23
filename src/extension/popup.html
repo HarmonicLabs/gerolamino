@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerolamino</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body class="bg-mesh">
+<header class="topbar">
+  <img src="logo.svg" alt="" class="logo" width="26" height="26">
+  <div class="brand">
+    <h1>Gerolamino</h1>
+    <span class="brand-sub">browser node</span>
+  </div>
+  <div class="topbar-right">
+    <span class="live"><span id="live-dot" class="dot"></span><span id="live-label">Offline</span></span>
+    <span id="net-badge" class="badge neon">PREVIEW</span>
+  </div>
+</header>
+
+<main class="stack">
+  <section class="card card-accent" aria-label="Sync">
+    <div class="badges">
+      <span id="state" class="badge">…</span>
+      <span id="epoch-badge" class="badge muted" hidden></span>
+      <span id="mode-badge" class="badge muted" hidden></span>
+      <span id="validation-badge" class="badge success" hidden
+        data-tooltip="Headers: operational certificate, KES signature and VRF against the epoch nonce. Leader: the VRF output is below the pool's stake threshold. Bodies: hash matches the header.">headers verified</span>
+    </div>
+    <div class="hero">
+      <div class="ring" aria-hidden="true">
+        <svg viewBox="0 0 92 92" width="92" height="92">
+          <circle cx="46" cy="46" r="41" class="ring-track"/>
+          <circle id="ring-arc" cx="46" cy="46" r="41" class="ring-arc"/>
+        </svg>
+        <div class="ring-label"><span id="ring-pct">0.0</span><small>%</small></div>
+      </div>
+      <div class="hero-side">
+        <div class="bar-row"><span class="dim">From start point to relay tip</span><span id="sync-pct-text" class="mono">–</span></div>
+        <div class="bar"><div id="sync-bar" class="bar-fill"></div><div class="shimmer"></div></div>
+        <div id="epoch-row" hidden>
+          <div class="bar-row"><span class="dim">Epoch <span id="epoch-num" class="mono strong"></span></span><span id="epoch-text" class="mono"></span></div>
+          <div class="bar"><div id="epoch-bar" class="bar-fill cyan"></div></div>
+        </div>
+        <div id="s-conn" class="conn mono dim">–</div>
+      </div>
+    </div>
+    <div class="tiles">
+      <div class="tile" data-tooltip="Slot of the last block this node verified and stored."><span class="label">Chain tip</span><span id="t-ours" class="value accent glow">–</span><span id="t-ours-sub" class="sub"></span></div>
+      <div class="tile" data-tooltip="The relay's tip, from its chain-sync replies."><span class="label">Relay tip</span><span id="t-relay" class="value">–</span><span id="t-relay-sub" class="sub"></span></div>
+      <div class="tile" data-tooltip="Slots between our tip and the relay's. One slot is one second."><span class="label">Behind</span><span id="s-behind" class="value">–</span></div>
+      <div class="tile" data-tooltip="Node-to-node protocol version agreed in the handshake, and whether the relay serves the light-query protocol (epoch nonce, stake, chunks)."><span class="label">N2N</span><span id="s-version" class="value">–</span><span id="s-version-sub" class="sub"></span></div>
+    </div>
+  </section>
+
+  <section class="grid3" aria-label="Verification">
+    <div class="card card-accent stat" data-tooltip="Headers received, and how many linked to the previous one by hash."><span class="label">Headers</span><span id="s-headers" class="value">–</span><span id="s-headers-sub" class="sub"></span></div>
+    <div class="card card-accent stat" data-tooltip="Header cryptography passed | failed: opcert, KES and VRF. A failure stops the sync from that relay."><span class="label">Crypto ok | bad</span><span id="s-crypto" class="value">–</span><span id="s-crypto-sub" class="sub"></span></div>
+    <div class="card card-accent stat" data-tooltip="Leader eligibility passed | failed: the VRF leader value is below the pool's stake threshold."><span class="label">Leader ok | bad</span><span id="s-leader" class="value">–</span><span id="s-leader-sub" class="sub"></span></div>
+    <div class="card card-accent stat" data-tooltip="Block bodies whose hash matches their header, of those fetched."><span class="label">Blocks</span><span id="s-blocks" class="value">–</span><span id="s-blocks-sub" class="sub"></span></div>
+    <div class="card card-accent stat" data-tooltip="Chain-sync rollbacks followed, and the blocks they undid."><span class="label">Rollbacks</span><span id="s-rollbacks" class="value">–</span><span id="s-rollbacks-sub" class="sub"></span></div>
+    <div class="card card-accent stat" data-tooltip="Bytes received from the relay in this session, and the keep-alive round trip."><span class="label">Received</span><span id="s-bytes" class="value">–</span><span id="s-rtt" class="sub"></span></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-store">
+    <div class="card-head"><h2 id="h-store">Storage</h2><span class="badge muted" data-tooltip="cardano-node immutable chunk files in the browser's origin-private file system (OPFS).">OPFS</span></div>
+    <div class="kv">
+      <span class="dim">On disk</span><span id="s-opfs" class="mono">–</span>
+      <span class="dim">Stored</span><span id="s-stored" class="mono">–</span>
+    </div>
+  </section>
+
+  <section class="card" id="errors-section" hidden aria-labelledby="h-errors">
+    <div class="card-head"><h2 id="h-errors" class="bad">Errors</h2></div>
+    <ul id="errors" class="log bad"></ul>
+  </section>
+
+  <section class="card" aria-labelledby="h-recent">
+    <div class="card-head"><h2 id="h-recent">Recent blocks</h2><span class="dim small">newest first</span></div>
+    <table class="blocks">
+      <thead><tr><th>Block</th><th>Slot</th><th>Txs</th><th>Size</th><th>Hash</th></tr></thead>
+      <tbody id="recent"><tr><td colspan="5" class="dim">Waiting for blocks…</td></tr></tbody>
+    </table>
+  </section>
+
+  <details class="card fold">
+    <summary><h2>Settings</h2></summary>
+    <form id="settings">
+      <label>Relay URL <input id="relayUrl" name="relayUrl" type="text" spellcheck="false" autocomplete="off" placeholder="ws://host:port/n2n"></label>
+      <div class="row">
+        <label>Network
+          <select id="network" name="network"><option value="preview">preview</option><option value="preprod">preprod</option></select>
+        </label>
+        <label>Start
+          <select id="startMode" name="startMode">
+            <option value="tip">relay tip (or stored tip)</option>
+            <option value="chunk">relay's immutable tip</option>
+            <option value="mithril">Mithril-certified point</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <button type="submit" class="btn primary">Save and restart</button>
+        <button id="wipe" type="button" class="btn danger">Wipe stored chain</button>
+      </div>
+      <p id="settings-msg" class="small" role="status"></p>
+    </form>
+  </details>
+
+  <details class="card fold">
+    <summary><h2>Submit transaction</h2></summary>
+    <textarea id="tx" rows="3" spellcheck="false" placeholder="signed transaction, hex CBOR"></textarea>
+    <div class="row">
+      <button id="submit" type="button" class="btn primary">Submit</button>
+      <span id="tx-msg" class="small" role="status"></span>
+    </div>
+    <ul id="pending" class="log"></ul>
+  </details>
+
+  <details class="card fold">
+    <summary><h2>Log</h2></summary>
+    <ul id="log" class="log"></ul>
+  </details>
+</main>
+
+<footer class="foot">
+  <span>Harmonic Labs · <span id="version">Gerolamino</span></span>
+  <a id="open-tab" href="#" class="link">Open in a tab</a>
+</footer>
+<script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,143 +1,61 @@
 # Gerolamino
 
-In-browser Cardano node. A Bun workspaces monorepo with reproducible Nix
-builds and a Rust/WASM crypto layer.
+A standalone Cardano node that runs in the browser as a Chrome extension.
 
-## Quick start
+- **Pure TypeScript.** Runtime code uses only the HarmonicLabs libraries (`@harmoniclabs/*`): no WASM,
+  no Haskell storage, no Effect, no other third-party packages. The build fails if a bundle pulls in anything else.
+- **Chain in OPFS.** Blocks are stored in the browser's Origin Private File System as cardano-node
+  immutable chunk files (`.chunk` / `.primary` / `.secondary`), under `gerolamino/<network>/immutable/`.
+- **Peers over N2N-over-WebSocket.** The node-to-node mini-protocols (handshake, chain-sync,
+  block-fetch, keep-alive, tx-submission) over a WebSocket bearer, the same bytes a TCP peer sends.
+  Gerolamo relays serve it today; the bearer is meant to become a CIP so any node can.
 
-```bash
-# Enter the dev shell (requires Nix with flakes)
-nix develop
+Gerolamino is its own node: it does not import code from Gerolamo.
 
-# Install dependencies (postinstall regenerates bun.nix via bun2nix)
+```
 bun install
-
-# Build all TypeScript packages
-bunx --bun tsgo --build
-
-# Run the test suite
-bunx --bun vitest run
-```
-## Building with Nix
-
-All packages are built reproducibly. TypeScript packages use bun2nix (for
-dependency copy) + tsgo `--build` for type-checking. Rust packages use
-Crane. Haskell lsm-tree is compiled to WASM (`lsm-tree-wasm-shim`).
-
-```bash
-# TypeScript
-nix build .#ts-packages
-
-# WASM (Rust → wasm-bindgen)
-nix build .#wasm-plexer
-nix build .#wasm-utils
-
-# WASM crypto + Haskell LSM reactor shim
-nix build .#wasm-utils
-
-# Bootstrap server OCI image (streamLayeredImage via nix2container)
-nix build .#bootstrap-image
+bun run build      # dist/ is the unpacked extension (chrome://extensions → Load unpacked)
+bun test
+bun run typecheck
+bun run smoke -- --seconds 60 --start chunk    # the node core under Bun against the preview relay
+bun run e2e                                    # headless Chrome for Testing with the extension, over CDP
 ```
 
-`nix flake check --allow-import-from-derivation` runs the full validation
-matrix including treefmt + deploy-rs schema checks.
+## What the node verifies
 
-## Mithril V2LSM snapshot
+For every header from the relay: the header hash and the link to its parent; the operational certificate,
+the KES signature and the VRF proof against the epoch nonce (Praos and TPraos); leader eligibility against
+the pool's stake; then the block body's hash and size against the header. Only blocks that pass are stored.
+The epoch nonce, pool stake and immutable chunks come over the same WebSocket through Gerolamo's light-query
+mini-protocol (mux protocol 7). Ledger rules are not applied yet.
 
-Both apps consume a Mithril V2LSM snapshot in the canonical
-`<dir>/{protocolMagicId, ledger/{slot}/state, immutable/*.chunk,
-lsm/{active,metadata,snapshots}}` layout.
+## Extension
 
-Required at runtime for the TUI:
+- `background.js` (service worker) keeps the offscreen document alive (created on install and start-up,
+  recreated when it closes, checked by a 30 s alarm) and relays messages between the popup and it.
+- `offscreen.html` runs the node: connect, handshake (initiator-only, because a browser cannot serve), chain-sync,
+  block-fetch, verification, OPFS writes, keep-alive, reconnect with backoff, tx submission, stats.
+- `popup.html` shows the status, the settings (relay URL, network, start mode) and a box to submit a signed
+  transaction. Settings live in `chrome.storage.local`; defaults: `preview`, `ws://192.168.1.173:3004/n2n`.
 
-- WASM lsm-tree artefacts (defaults to `packages/wasm-utils/haskell-lsm/lsm-tree-wasm-shim/`; override with `WASM_LSM_MODULE_PATH` / `WASM_LSM_JSFFI_PATH`)
-- A V2LSM-format snapshot (Mithril distribution 2537.0+, or a local
-  cardano-node 10.7.x database).
+Start modes apply when the store for the network is empty; otherwise the node resumes from the stored tip.
+`tip` starts at the relay's tip. `chunk` starts at the end of the relay's newest complete immutable chunk.
+`mithril` starts at a Mithril-certified point, verified in the browser by `src/mithril/`, which the build
+bundles as `mithril.js` when present and the node loads on demand.
 
-Acquire a snapshot:
+## Layout
 
-```bash
-# --- Option A (dev default): rsync the live V2LSM db from production ---
-ssh root@178.156.252.81 'zfs snapshot zroot/data@dev-$(date +%s)'
-rsync -aP --info=progress2 \
-  root@178.156.252.81:/data/.zfs/snapshot/dev-<ts>/cardano-node/db/ \
-  .devenv/state/prod-snapshot/
-ssh root@178.156.252.81 'zfs destroy zroot/data@dev-<ts>'
+- `src/node/` the node core (no DOM, no Bun APIs): `browserNode.ts`, `runner.ts`, `handshake.ts`,
+  `headerVerify.ts`, `vrf.ts`, `vrfInputs.ts`, `leaderMath.ts`, `lightQuery.ts`, `txSubmit.ts`,
+  `chunkFormat.ts`, `chunkWriter.ts`, `opfsSink.ts`, `opfsWorker.ts`, `cbor.ts`, `networks.ts`, `mithrilLoader.ts`.
+- `src/extension/` the MV3 extension: manifest, background, offscreen, popup, settings, messages.
+- `scripts/` build, smoke run, Chrome e2e (with a small CDP client in `scripts/lib/cdp.ts`).
+- `test/` unit tests. Tests that need cardano-node's preview chunk files are skipped when those files are absent;
+  set `GEROLAMINO_PREVIEW_IMMUTABLE` to an `immutable/` directory to run them.
 
-# --- Option B: download a Mithril snapshot + LSM-convert (requires prod ---
-# --- aggregator to have produced a signed snapshot) ---
-nix run .#download-mithril-lsm-snapshot -- preprod /tmp/snapshot
-```
+## Docs
 
-**Why the rsync path**: upstream Mithril aggregator still signs cardano-node
-v10.6.2 snapshots (pre-10.7 table format). The `snapshot-converter --utxo-hd-flavor
-LSM` call is version-gated on `tablesCodecVersion` metadata (introduced in 10.7),
-so upstream snapshots cannot be converted client-side. The production box runs
-master-track cardano-node which writes V2LSM tables natively — rsyncing from
-`/data/cardano-node/db/` sidesteps the conversion entirely. Long-term, the
-self-hosted `mithril-aggregator` will emit matching-format snapshots once a
-signer is registered (see `docs/deployment.md`).
-
-## TUI node
-
-```bash
-bun run apps/tui/src/index.ts start \
-  --snapshot-path .devenv/state/prod-snapshot \
-  --relay-host preprod-node.world.dev.cardano.org --relay-port 3001 \
-  --network preprod
-```
-
-Pass `--genesis` (or no `--snapshot-path`) to skip the on-disk
-snapshot and sync from origin. The chrome extension consumes the
-same V2LSM snapshot layout via drag-drop in its popup.
-
-## Deployment
-
-Production NixOS configuration targets `decentralizationmaxi.io` via
-deploy-rs with magic rollback. SSH is on port 2222 (key-only).
-
-```bash
-# Build the NixOS closure (eval-only check)
-nix build .#nixosConfigurations.production.config.system.build.toplevel
-
-# Deploy with magic rollback
-nix run github:serokell/deploy-rs -- .#production
-```
-
-The production host runs `cardano-node` (preprod, V2LSM, master-tracked) +
-a self-hosted `mithril-aggregator` + `mithril-signer` single-signer cluster
-(produces snapshots whose metadata matches our cardano-node version — see
-`nix/machine-configs/mithril-services.nix`).
-
-Cachix substituter `harmoniclabs.cachix.org` is the project binary cache
-(CI pushes main-branch builds; wiring via `cachix/cachix-action@v15`).
-
-## Testing
-
-```bash
-# Full monorepo
-bunx --bun vitest run
-
-# Single package
-bunx --bun vitest run packages/consensus
-
-# Integration tests against a live preprod relay
-VITE_INTEGRATION=1 bunx --bun vitest run packages/miniprotocols
-```
-
-## Project structure
-
-```
-flake.nix                 # flake-parts root (inputs, nixConfig, deploy nodes)
-flake.lock                # pinned inputs
-bun.nix                   # bun2nix-regenerated dependency graph (DO commit)
-nix/
-  packages/               # Nix derivations (TS + Rust + Zig + containers)
-  apps/                   # nix-app wrappers (download-mithril-lsm-snapshot, ...)
-  machine-configs/        # NixOS configs (production + mithril-services + disko)
-docs/
-  architecture.md         # distributed-system map
-  deployment.md           # production provisioning (KES keys, op-certs)
-packages/                 # TypeScript + Rust sources
-apps/                     # executable entrypoints
-```
+- [`docs/STATUS.md`](docs/STATUS.md): why Gerolamino was rebuilt, what works, measured results, what is missing,
+  problems found in the HarmonicLabs libraries, roadmap.
+- [`docs/WEBSOCKET_BEARER.md`](docs/WEBSOCKET_BEARER.md): what Gerolamino needs from a peer over N2N-over-WebSocket,
+  the basis for a CIP.

@@ -1,14 +1,16 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compileOnSave": false,
-  "files": [],
-  "references": [
-    { "path": "./packages/codecs/tsconfig.lib.json" },
-    { "path": "./packages/wasm-utils/tsconfig.lib.json" },
-    { "path": "./packages/storage/tsconfig.lib.json" },
-    { "path": "./packages/ledger/tsconfig.lib.json" },
-    { "path": "./packages/miniprotocols/tsconfig.lib.json" },
-    { "path": "./packages/bootstrap/tsconfig.lib.json" },
-    { "path": "./packages/dashboard/tsconfig.lib.json" }
-  ]
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "types": ["bun"],
+        "allowImportingTsExtensions": true,
+        "verbatimModuleSyntax": false,
+        "isolatedModules": true
+    },
+    "include": ["src", "scripts", "test"]
 }

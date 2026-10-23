@@ -53,6 +53,35 @@ ported and owned here.
 | Extension | service worker keeps the offscreen node alive and recreates it; popup in the desktop app's look (sync ring, epoch bar, tip tiles, verification cards, storage, recent blocks; settings, tx submission, wipe; "Open in a tab" for a wide view) |
 | Dependencies | runtime `@harmoniclabs/*` only; the build fails on anything else |
 
+## Not being fooled by peers (2026-10-23)
+
+Signature checks stop a peer from forging blocks. These checks stop it from lying in other ways.
+
+| # | Check | What it catches | Code | Live test |
+|---|---|---|---|---|
+| 1 | Freshness and density | a stale tip; a private fork from a small pool (too sparse, too few pools) | `src/node/trust.ts` | `scripts/trust-smoke.ts`: fresh, density 0.63 to 0.78, about 40 pools |
+| 2 | Trust panel | shows each fact as verified, trusted (still the peer's word) or warning | `src/extension/trustView.ts` | popup Trust card |
+| 3 | Several peers | withheld or different blocks, a stale main peer; failover to the longer chain, rollback to the common block on a fork, a peer serving bad headers dropped | `src/node/crossCheck.ts`, `peerWatch.ts`, `runner.ts` | `scripts/peers-smoke.ts`: 3039 and .173 agree; dead main peer replaced in 20 s |
+| 4 | Stake and nonce | the leader stake from Mithril's certified distribution (artifact N - 2 for epoch N), peer figures compared with it; the nonce confirmed by distinct pools' VRF proofs and by other peers | `src/mithril/stake.ts`, `browserNode.ts` | `scripts/stake-smoke.ts`: 646 pools certified, 0 mismatches, nonce confirmed by 48 pools and 2 of 2 peers |
+| 5 | Mithril proofs for relayed answers | a made-up transaction or a wrong block height in a relayed `/txs/{hash}` answer | `src/mithril/txProof.ts`, `src/node/txProofCheck.ts` | `scripts/txproof-smoke.ts`: proven in blocks 4785195 to 4785209 |
+
+Settings: extra relays (up to 4), "Check pool stake with Mithril" and "Check relayed transaction answers with
+Mithril proofs" (both on by default). A first Mithril check walks the certificate chain to genesis (331
+certificates on preview, about 3 minutes in Bun); later checks stop at certificates already verified.
+
+All five in the browser (Brave, `scripts/e2e-chrome.ts --start mithril --relay ws://127.0.0.1:3039/n2n
+--extra ws://192.168.1.173:3004/n2n --trust`, 2026-10-23): PASS. Mithril start: 332 certificates to genesis in
+143 s (19 s verifying), certified point slot 126074844; stake certified for epoch 1459 after 1 more certificate
+(1.3 s); 507 headers and 507 leader checks, 0 bad; nonce confirmed by 47 pools and 2 of 2 peers; .173 agrees;
+a relayed `/txs` answer proven in blocks 4782420 to 4782434.
+
+Follow-ups:
+- The Mithril start spends about 6 minutes downloading the cardano-database digests (10 MB, 87 552 entries):
+  the aggregator sends them at about 27 KB/s, compressed or not. They are checked against the certified Merkle
+  root, so any source will do: serve them from the Gerolamo peer (light query or its Blockfrost API).
+- After a resume the Trust card shows the start point as "this node's stored chain": the store does not record
+  that it began at a Mithril-certified point. Write the anchor next to the chunk files.
+
 ## Measured
 
 All live runs were against Gerolamo's preview relay, `ws://192.168.1.173:3004/n2n`.
@@ -83,8 +112,7 @@ can be rebuilt on the same curve code.
 ## Not done
 
 - Ledger rules: transactions are not applied, so there is no UTxO set.
-- One relay at a time: no chain selection between peers. Pool stake for the leader check is the relay's word,
-  taken over light-query.
+- The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.
 - No volatile store: blocks still within k of the tip go straight into chunk files, and rollbacks truncate them.
 - No preprod run yet; there is no preprod Gerolamo relay.
 - The Mithril start ran in Bun, not yet inside the extension. Its OPFS certificate cache exists but is not
@@ -128,7 +156,7 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
 1. **Speed.** Use `@harmoniclabs/crypto`'s fast ed25519 port, and rebuild the VRF on the same curve code.
 2. **N2N over WebSocket as a CIP.** Write it from the server and client experience gathered here, so any node
    can serve Gerolamino peers; see `WEBSOCKET_BEARER.md`.
-3. **Several peers and chain selection.** Stop trusting one relay for the chain and for stake.
+3. **Several peers and chain selection.** Done 2026-10-23 (see "Not being fooled by peers").
 4. **Volatile store.** Keep blocks within k of the tip apart from the immutable chunks.
 5. **Ledger state in OPFS (optional extra).** A pure-TypeScript key-value store over OPFS for the UTxO set,
    then ledger rules. Mithril's ledger snapshot `tables` file is already a sorted run (preview, 2026-10-22:

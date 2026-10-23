@@ -25,7 +25,7 @@ function log(line: string): void {
 
 function makeRunner(s: Settings): NodeRunner {
     return new NodeRunner({
-        config: { relayUrl: s.relayUrl, network: s.network, startMode: s.startMode },
+        config: { relayUrl: s.relayUrl, network: s.network, startMode: s.startMode, extraRelays: s.extraRelays, certifiedStake: s.certifiedStake, txProofs: s.txProofs },
         sinkFor: (network) => OpfsSink.available() ? new OpfsSink(storePath(network), { workerUrl }) : undefined,
         log,
     });
@@ -52,8 +52,8 @@ async function apply(next: Settings): Promise<void> {
     settings = normalizeSettings(next);
     if (!runner) { runner = makeRunner(settings); runner.start(); log(`node started: ${settings.network} via ${settings.relayUrl} (start: ${settings.startMode})`); return; }
     if (sameSettings(prev, settings)) return;
-    log(`settings changed: ${settings.network} via ${settings.relayUrl} (start: ${settings.startMode}); restarting`);
-    await runner.restart({ relayUrl: settings.relayUrl, network: settings.network, startMode: settings.startMode });
+    log(`settings changed: ${settings.network} via ${settings.relayUrl} (start: ${settings.startMode}, ${settings.extraRelays.length} extra relay(s)); restarting`);
+    await runner.restart({ relayUrl: settings.relayUrl, network: settings.network, startMode: settings.startMode, extraRelays: settings.extraRelays, certifiedStake: settings.certifiedStake, txProofs: settings.txProofs });
     await refreshOpfs();
 }
 
@@ -66,6 +66,11 @@ async function handle(msg: ToOffscreen): Promise<Reply<any>> {
                 const id = runner.submitTx(parseTxHex(msg.cbor));
                 log(`transaction ${id} queued for the relay`);
                 return { ok: true, id };
+            }
+            case "query": {
+                if (!runner) throw new Error("the node is not running");
+                const answer = await runner.query(String(msg.path ?? ""));
+                return { ok: true, answer: toMessageSafe(answer) };
             }
             case "wipe-store": {
                 const r = runner;

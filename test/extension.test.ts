@@ -10,12 +10,12 @@ function memoryArea(init: Record<string, unknown> = {}): KeyValueArea & { data: 
 
 describe("settings", () => {
     test("defaults: preview, the preview relay's WebSocket bearer, tip", () => {
-        expect(DEFAULT_SETTINGS).toEqual({ network: "preview", relayUrl: "ws://192.168.1.173:3004/n2n", startMode: "tip" });
+        expect(DEFAULT_SETTINGS).toEqual({ network: "preview", relayUrl: "ws://192.168.1.173:3004/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true });
     });
     test("normalize fills defaults and drops invalid values", () => {
         expect(normalizeSettings(undefined)).toEqual({ ...DEFAULT_SETTINGS });
         expect(normalizeSettings({ network: "mainnet", relayUrl: "http://x", startMode: "origin" })).toEqual({ ...DEFAULT_SETTINGS });
-        expect(normalizeSettings({ network: "preprod", relayUrl: " wss://relay.example/n2n ", startMode: "mithril" })).toEqual({ network: "preprod", relayUrl: "wss://relay.example/n2n", startMode: "mithril" });
+        expect(normalizeSettings({ network: "preprod", relayUrl: " wss://relay.example/n2n ", startMode: "mithril" })).toEqual({ network: "preprod", relayUrl: "wss://relay.example/n2n", startMode: "mithril", extraRelays: [], certifiedStake: true, txProofs: true });
     });
     test("relay URLs must be ws:// or wss://", () => {
         expect(validRelayUrl("ws://127.0.0.1:3003")).toBe(true);
@@ -77,8 +77,8 @@ describe("background hub", () => {
         const { h, area, sent, ensured } = hub();
         const r: any = await h.handle({ to: "background", type: "set-settings", settings: { network: "preprod", relayUrl: "wss://r.example/n2n" } });
         expect(r.ok).toBe(true);
-        expect(area.data[SETTINGS_KEY]).toEqual({ network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip" });
-        expect(sent).toEqual([{ to: "offscreen", type: "apply-settings", settings: { network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip" } }]);
+        expect(area.data[SETTINGS_KEY]).toEqual({ network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true });
+        expect(sent).toEqual([{ to: "offscreen", type: "apply-settings", settings: { network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true } }]);
         expect(ensured()).toBe(1);
         expect(await h.handle({ to: "background", type: "set-settings", settings: { relayUrl: "http://x" } })).toMatchObject({ ok: false });
     });
@@ -126,5 +126,16 @@ describe("popup formatting", () => {
         expect(fmtSlotsShort(45)).toBe("45 s");
         expect(fmtSlotsShort(720)).toBe("12 min");
         expect(fmtSlotsShort(12_240)).toBe("3.4 h");
+    });
+});
+
+describe("phase 3: extra relays setting", () => {
+    test("extra relays are trimmed, deduplicated, never the main relay, at most four", async () => {
+        const { normalizeSettings, settingsErrors } = await import("../src/extension/settings");
+        const s = normalizeSettings({ relayUrl: "ws://a/n2n", extraRelays: [" ws://b/n2n ", "ws://b/n2n", "ws://a/n2n", "http://x", "ws://c/n2n", "ws://d/n2n", "ws://e/n2n", "ws://f/n2n"] });
+        expect(s.extraRelays).toEqual(["ws://b/n2n", "ws://c/n2n", "ws://d/n2n", "ws://e/n2n"]);
+        expect(settingsErrors({ extraRelays: ["ftp://x"] })).toHaveLength(1);
+        expect(settingsErrors({ extraRelays: ["ws://1", "ws://2", "ws://3", "ws://4", "ws://5"] })).toHaveLength(1);
+        expect(settingsErrors({ extraRelays: [] })).toHaveLength(0);
     });
 });

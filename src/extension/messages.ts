@@ -2,8 +2,8 @@
  * Message protocol between the popup, the background service worker and the offscreen document, and
  * the background's routing logic (`BackgroundHub`), kept free of `chrome.*` so it can be unit tested.
  *
- *   popup → background:      get-status | set-settings | submit-tx | wipe-store
- *   background → offscreen:  apply-settings | submit-tx | wipe-store
+ *   popup → background:      get-status | set-settings | submit-tx | query | wipe-store
+ *   background → offscreen:  apply-settings | submit-tx | query | wipe-store
  *   offscreen → background:  offscreen-ready (answered with the settings) | stats | log
  *
  * Every message carries `to`, so a context ignores what is not addressed to it (runtime.sendMessage
@@ -15,6 +15,7 @@ export type ToBackground =
     | { to: "background"; type: "get-status" }
     | { to: "background"; type: "set-settings"; settings: Partial<Settings> }
     | { to: "background"; type: "submit-tx"; cbor: string }
+    | { to: "background"; type: "query"; path: string }
     | { to: "background"; type: "wipe-store" }
     | { to: "background"; type: "offscreen-ready" }
     | { to: "background"; type: "stats"; stats: unknown }
@@ -23,6 +24,7 @@ export type ToBackground =
 export type ToOffscreen =
     | { to: "offscreen"; type: "apply-settings"; settings: Settings }
     | { to: "offscreen"; type: "submit-tx"; cbor: string }
+    | { to: "offscreen"; type: "query"; path: string }
     | { to: "offscreen"; type: "wipe-store" };
 
 export type Reply<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -87,6 +89,9 @@ export class BackgroundHub {
                 case "submit-tx":
                     await this.deps.ensureOffscreen();
                     return await this.forward({ to: "offscreen", type: "submit-tx", cbor: msg.cbor });
+                case "query":
+                    await this.deps.ensureOffscreen();
+                    return await this.forward({ to: "offscreen", type: "query", path: msg.path });
                 case "wipe-store":
                     await this.deps.ensureOffscreen();
                     return await this.forward({ to: "offscreen", type: "wipe-store" });

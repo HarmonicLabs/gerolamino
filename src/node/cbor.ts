@@ -71,3 +71,34 @@ export function bytesAt(b: Uint8Array, p: number): Uint8Array {
     const s = p + headLen(b, p);
     return b.slice(s, s + n);
 }
+
+/** Position of the tagged item when p is a CBOR tag head (`#6.258([...])` sets, ...), else p. */
+export function untag(b: Uint8Array, p: number): number {
+    while (b[p]! >> 5 === 6) p += headLen(b, p);
+    return p;
+}
+
+/** Key and value byte ranges of the map starting at p (definite or indefinite). */
+export function mapEntries(b: Uint8Array, p: number): Array<{ k: { start: number; end: number }; v: { start: number; end: number } }> {
+    if (b[p]! >> 5 !== 5) throw new Error(`not a map at ${p}`);
+    const n = argAt(b, p);
+    let q = p + headLen(b, p);
+    const out: Array<{ k: { start: number; end: number }; v: { start: number; end: number } }> = [];
+    const one = () => {
+        const kl = itemLen(b, q); const k = { start: q, end: q + kl }; q += kl;
+        const vl = itemLen(b, q); const v = { start: q, end: q + vl }; q += vl;
+        out.push({ k, v });
+    };
+    if (n === undefined) { while (b[q] !== 0xff) one(); return out; }
+    for (let i = 0; i < n; i++) one();
+    return out;
+}
+
+/** Number of elements of the array or map at p (after any tag), counting indefinite ones. */
+export function countAt(b: Uint8Array, p: number): number {
+    p = untag(b, p);
+    const major = b[p]! >> 5;
+    if (major === 4) return arrayElements(b, p).length;
+    if (major === 5) return mapEntries(b, p).length;
+    throw new Error(`expected an array or map at ${p}`);
+}

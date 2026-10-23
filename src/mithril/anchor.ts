@@ -23,6 +23,7 @@ import { lastBlockOfChunk } from "./chunkIndex";
 import { sha256Async } from "./hash";
 import { cardanoDatabaseMerkleRoot, certifiedDigests } from "./mkTree";
 import { decodeGenesisVerificationKey, verifyCertificateChain } from "./verifier";
+import { rememberVerified } from "./chainCache";
 
 export type ChunkFiles = { chunk: Uint8Array; primary: Uint8Array; secondary: Uint8Array };
 
@@ -131,6 +132,7 @@ export async function mithrilAnchor(opts: MithrilAnchorOptions): Promise<Mithril
         },
     });
     if (!chain.genesisHash) throw new Error("Mithril: certificate chain did not reach genesis");
+    rememberVerified(chain.hops.map((h) => h.hash));
     const walked = `walked ${chain.hops.length} certificates to genesis ${chain.genesisHash.slice(0, 16)}… in ${(chain.ms / 1000).toFixed(1)} s (${(chain.verifyMs / 1000).toFixed(1)} s verifying)`;
     log(`Mithril: certificate chain OK: ${walked}; ${retrieve.stats.hits} of ${retrieve.stats.hits + retrieve.stats.misses} certificates from the cache`);
     await retrieve.persist();

@@ -36,8 +36,10 @@ describe("node runner", () => {
         r.start();
         await Bun.sleep(200);
         const s = r.stats();
-        expect(created()).toBeGreaterThanOrEqual(3);
-        expect(s.connects).toBe(created());
+        expect(created()).toBeGreaterThanOrEqual(6);
+        // each attempt offers the service subprotocols, then retries without them (a relay from before the
+        // announcement rejects them, and a browser cannot tell that from an unreachable host): two sockets per attempt
+        expect([2 * s.connects - 1, 2 * s.connects]).toContain(created()); // the last attempt may be between its two sockets
         expect(s.backoffMs).toBe(40);
         expect(s.errors.some((e) => e.includes("cannot connect"))).toBe(true);
         await r.stop();
@@ -61,5 +63,22 @@ describe("node runner", () => {
         const p = node.start();
         node.stop();
         expect((await p).reason).toBe("stopped");
+    });
+});
+
+describe("node runner: stop during start-up", () => {
+    test("a restart while the store is being indexed does not connect with the old settings", async () => {
+        let created = 0;
+        class CountWS extends EventTarget { binaryType = "arraybuffer"; constructor() { super(); created++; setTimeout(() => this.dispatchEvent(new Event("error")), 1); } send() {} close() {} }
+        // a sink whose listing takes a while: the run loop is awaiting it when stop() comes
+        const slowSink: any = { list: () => Bun.sleep(50).then(() => []), read: async () => null, write: async () => {}, remove: async () => {} };
+        const r = new NodeRunner({ config: { relayUrl: "ws://old", network: "preview", startMode: "tip" }, sinkFor: () => slowSink, WebSocketImpl: CountWS as unknown as typeof WebSocket, minBackoffMs: 10 });
+        r.start();
+        await Bun.sleep(5);
+        const t0 = Date.now();
+        await r.stop();
+        expect(Date.now() - t0).toBeLessThan(500);
+        await Bun.sleep(80);
+        expect(created).toBe(0);
     });
 });

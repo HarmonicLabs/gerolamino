@@ -5,9 +5,10 @@
     "version": "0.2.0",
     "description": "A Cardano node in the browser: verifies the chain over N2N-over-WebSocket and keeps it in OPFS (pure TypeScript, HarmonicLabs libraries).",
     "minimum_chrome_version": "116",
-    "permissions": ["offscreen", "storage", "unlimitedStorage", "alarms"],
+    "permissions": ["offscreen", "storage", "unlimitedStorage", "alarms", "sidePanel"],
     "background": { "service_worker": "background.js", "type": "module" },
     "action": { "default_title": "Gerolamino", "default_popup": "popup.html", "default_icon": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" } },
+    "side_panel": { "default_path": "popup.html?view=panel" },
     "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
     "content_security_policy": {
         "extension_pages": "script-src 'self'; object-src 'self'; worker-src 'self'; connect-src 'self' ws: wss: https:"

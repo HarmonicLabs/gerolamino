@@ -3,9 +3,15 @@
  * drive it over the Chrome DevTools Protocol (own minimal client, scripts/lib/cdp.ts), and pass when the
  * extension's offscreen node verifies headers and writes blocks to OPFS within the time limit.
  *
- *   bun scripts/e2e-chrome.ts [--chrome <path>] [--start tip|chunk] [--timeout 180] [--relay ws://…] [--no-build] [--keep-profile] [--screenshot <dir>]
+ *   bun scripts/e2e-chrome.ts [--chrome <path>] [--start tip|chunk|mithril] [--timeout 180] [--relay ws://…] [--extra ws://…] [--trust]
+ *                             [--no-build] [--keep-profile] [--screenshot <dir>]
  *
- * --screenshot <dir> saves popup.png (440 px wide, as the toolbar popup) and tab.png (the same page in a tab,
+ * --extra adds an extra relay (cross-checked, phase 3). --trust waits for the trust checks: Mithril-certified stake and
+ * no stake mismatch, the nonce confirmed by 5+ pools, the extra relay agreeing (with --extra), and a relayed
+ * transaction answer proven by Mithril (--tx <hash>; default: a transaction from a block before this node's start
+ * point, found through the peer, so the answer is relayed and not local).
+ *
+ * --screenshot <dir> saves popup.png (600 px wide, as the toolbar popup), panel.png (380 px, the side panel) and tab.png (the same page in a tab,
  * `popup.html?view=tab`) once the popup shows the running node.
  *
  * Steps: find the offscreen document target and attach; read its console; optionally switch the start mode
@@ -14,7 +20,7 @@
  * the background recreates it and the node resumes from the stored tip; render the popup and read its
  * status. Chrome is closed by its pid at the end.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Cdp, type CdpEvent } from "./lib/cdp";
@@ -22,8 +28,10 @@ import { Cdp, type CdpEvent } from "./lib/cdp";
 const root = resolve(import.meta.dir, "..");
 const arg = (k: string, d?: string) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1]! : d; };
 const chromeBin = arg("chrome", process.env.CHROME_BIN ?? "/tmp/claude-1000/-media-bakon-data-Dev-HarmonicLabs-gerolamo/238e2390-1daf-44f7-ab2b-59284d436f52/scratchpad/cft/chrome/linux-155.0.8059.84/chrome-linux64/chrome")!;
-const startMode = arg("start", "chunk") as "tip" | "chunk";
-const timeoutSec = Number(arg("timeout", startMode === "tip" ? "300" : "120"));
+const startMode = arg("start", "chunk") as "tip" | "chunk" | "mithril";
+const timeoutSec = Number(arg("timeout", startMode === "tip" ? "300" : startMode === "mithril" ? "900" : "120"));
+const extra = arg("extra");
+let trustTx = arg("tx");
 const relay = arg("relay");
 const dist = join(root, "dist");
 const t0 = Date.now();
@@ -91,9 +99,10 @@ try {
     for (let i = 0; i < 40; i++) { if (await cdp.evaluate(offSession, "typeof globalThis.__gerolamino === 'object'")) break; await sleep(250); }
 
     // 3. settings through the extension's own path (as the popup would)
-    const settingsUpdate: Record<string, string> = {};
+    const settingsUpdate: Record<string, unknown> = {};
     if (startMode !== "tip") settingsUpdate.startMode = startMode;
     if (relay) settingsUpdate.relayUrl = relay;
+    if (extra) settingsUpdate.extraRelays = [extra];
     if (Object.keys(settingsUpdate).length) {
         const r = await cdp.evaluate(offSession, `chrome.runtime.sendMessage({ to: "background", type: "set-settings", settings: ${JSON.stringify(settingsUpdate)} })`);
         log(`set-settings ${JSON.stringify(settingsUpdate)} → ${JSON.stringify(r)}`);
@@ -161,16 +170,66 @@ try {
     const txReply = await cdp.evaluate(popSession, `chrome.runtime.sendMessage({ to: "background", type: "submit-tx", cbor: "zz" })`);
     log(`submit-tx (malformed) → ${JSON.stringify(txReply)}`);
     results.malformedTx = txReply;
+    // local-first queries: the newest stored block is answered locally; the epoch needs the Gerolamo peer
+    const ask = (path: string) => cdp!.evaluate<any>(popSession, `chrome.runtime.sendMessage({ to: "background", type: "query", path: ${JSON.stringify(path)} })`, 40_000);
+    const qLocal = await ask("/blocks/latest"), qRelay = await ask("/epochs/latest");
+    log(`query /blocks/latest → ${qLocal?.answer?.source} ${qLocal?.answer?.status}; /epochs/latest → ${qRelay?.answer?.source} ${qRelay?.answer?.status} (${JSON.stringify(qRelay?.answer?.body).slice(0, 80)})`);
+    results.query = { local: qLocal?.answer?.source, relay: qRelay?.answer?.source, relayStatus: qRelay?.answer?.status };
+    if (qLocal?.answer?.source !== "local") throw new Error("the newest stored block was not answered locally");
     const popupOk = !!popup?.headers && popup.headers !== "–" && /^[1-9]/.test(popup.opfs ?? "") && txReply?.ok === false;
     if (!popupOk) throw new Error("popup did not render the node status");
+
+    // 7. the trust checks (phases 3 to 5)
+    if (process.argv.includes("--trust")) {
+        const tEnd = Date.now() + timeoutSec * 1000;
+        let t: any = null, lastT = "";
+        const trustOk = (x: any) => x?.trust?.stake?.source === "mithril" && !x.stakeMismatches && (x.trust?.nonce?.pools ?? 0) >= 5 && (!extra || x.peers?.[0]?.verdict === "agree");
+        while (Date.now() < tEnd) {
+            t = await status(offSession);
+            const line = `stake ${t?.trust?.stake?.source}${t?.trust?.stake?.checking ? " (checking)" : ""} mismatches ${t?.stakeMismatches} | nonce pools ${t?.trust?.nonce?.pools} peers ${t?.trust?.nonce?.peersAgreeing}/${t?.trust?.nonce?.peersAsked} | ${(t?.peers ?? []).map((p: any) => `${p.url} ${p.verdict}`).join(", ") || "no extra relay"}`;
+            if (line !== lastT) { log(line); lastT = line; }
+            if (trustOk(t)) break;
+            await sleep(5000);
+        }
+        results.trust = { stake: t?.trust?.stake, nonce: t?.trust?.nonce, peers: t?.trust?.peers, checks: t?.peers, stakeCertified: t?.stakeCertified, stakeMismatches: t?.stakeMismatches, leaderOk: t?.leaderOk, leaderBad: t?.leaderBad };
+        if (!trustOk(t)) throw new Error("the trust checks did not complete");
+        // a transaction this node did not store: from a block well before its start point, asked of the peer
+        if (!trustTx) {
+            const first = await ask("/blocks/latest");
+            const height = Number(first?.answer?.body?.height ?? 0) - 3000;
+            for (let h = height; h > height - 60 && !trustTx; h--) {
+                const q = await ask(`/blocks/${h}/txs`);
+                if (q?.answer?.source === "relay" && Array.isArray(q.answer.body) && q.answer.body.length) trustTx = String(q.answer.body[0]);
+            }
+            if (!trustTx) throw new Error("found no transaction before the start point to ask about");
+            log(`transaction for the proof check: ${trustTx} (a block about 3000 below the tip)`);
+        }
+        let proof: any = null;
+        while (Date.now() < tEnd) {
+            const q = await ask(`/txs/${trustTx}`);
+            proof = q?.answer?.proof;
+            log(`query /txs/${trustTx.slice(0, 12)}… → ${q?.answer?.source} ${q?.answer?.status} proof ${proof?.status}: ${proof?.detail}`);
+            if (q?.answer?.source === "local") throw new Error("the transaction was answered locally: pick one before the start point");
+            if (proof && proof.status !== "unavailable") break;
+            await sleep(15_000);
+        }
+        results.txProof = proof;
+        if (proof?.status !== "certified") throw new Error("the relayed transaction answer was not proven by Mithril");
+    }
 
     const shots = arg("screenshot");
     if (shots) {
         mkdirSync(shots, { recursive: true });
-        for (const [name, width, url] of [["popup", 440, "popup.html"], ["tab", 1100, "popup.html?view=tab"]] as const) {
+        const sidePanel = await cdp.evaluate(popSession, "typeof chrome.sidePanel?.open");
+        log(`side panel API: ${sidePanel}`);
+        results.sidePanelApi = sidePanel;
+        for (const [name, width, url] of [["popup", 600, "popup.html"], ["tab", 1100, "popup.html?view=tab"], ["panel", 380, "popup.html?view=panel"]] as const) {
             await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 2, mobile: false }, popSession);
             await cdp.send("Page.navigate", { url: `chrome-extension://${extId}/${url}` }, popSession);
             await sleep(3000);
+            // show an answered query in the shot (relayed when the peer answers queries)
+            await cdp.evaluate(popSession, `(() => { const i = document.getElementById("query-path"); i.value = ${JSON.stringify(process.argv.includes("--trust") && trustTx ? `/txs/${trustTx}` : "/epochs/latest")}; document.getElementById("query-form").requestSubmit(); })()`);
+            await sleep(2500);
             const shot = await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true }, popSession);
             writeFileSync(join(shots, `${name}.png`), Buffer.from(shot.data, "base64"));
             log(`screenshot ${join(shots, `${name}.png`)}`);
@@ -184,6 +243,10 @@ try {
 } finally {
     cdp?.close();
     try { process.kill(chrome.pid, "SIGTERM"); } catch { /* already gone */ }
+    // a wrapper script (brave-browser) is not the browser: also end every process that uses this run's profile
+    for (const d of readdirSync("/proc").filter((n) => /^\d+$/.test(n))) {
+        try { if (readFileSync(`/proc/${d}/cmdline`, "utf8").includes(`--user-data-dir=${profile}`)) process.kill(Number(d), "SIGTERM"); } catch { /* gone or not ours */ }
+    }
     const exited = await Promise.race([chrome.exited.then(() => true), sleep(5000).then(() => false)]);
     if (!exited) { try { process.kill(chrome.pid, "SIGKILL"); } catch { /* gone */ } await chrome.exited; }
     log(`chrome (pid ${chrome.pid}) closed`);

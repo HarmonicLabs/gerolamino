@@ -4,16 +4,20 @@
  */
 import { connectionLabel, epochProgress, fmtBytes, fmtNum, fmtSlotsBehind, fmtSlotsShort, intersectSlot, stateTone, syncPercent } from "./format";
 import type { StatusReply } from "./messages";
+import { trustView } from "./trustView";
 import type { Settings } from "./settings";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const send = <T = any>(m: object): Promise<T> => chrome.runtime.sendMessage({ to: "background", ...m });
 const RING_C = 2 * Math.PI * 41;
-const wide = new URLSearchParams(location.search).get("view") === "tab";
+/** "popup" (toolbar), "tab" (full page) or "panel" (the browser's side panel). */
+const view = new URLSearchParams(location.search).get("view") ?? "popup";
+const wide = view === "tab";
 let formDirty = false;
 let newestBlock: number | null = null;
 
 if (wide) document.body.classList.add("wide");
+if (view === "panel") document.body.classList.add("panel");
 try { $("version").textContent = `Gerolamino ${chrome.runtime.getManifest().version}`; } catch { /* outside the extension */ }
 $("ring-arc").setAttribute("stroke-dasharray", String(RING_C));
 $("ring-arc").setAttribute("stroke-dashoffset", String(RING_C));
@@ -33,6 +37,9 @@ function fillForm(s: Settings): void {
     $<HTMLInputElement>("relayUrl").value = s.relayUrl;
     $<HTMLSelectElement>("network").value = s.network;
     $<HTMLSelectElement>("startMode").value = s.startMode;
+    $<HTMLTextAreaElement>("extraRelays").value = (s.extraRelays ?? []).join("\n");
+    $<HTMLInputElement>("certifiedStake").checked = s.certifiedStake !== false;
+    $<HTMLInputElement>("txProofs").checked = s.txProofs !== false;
 }
 
 const START_LABEL: Record<string, string> = { tip: "tip sync", chunk: "chunk start", mithril: "Mithril start", resume: "resumed", point: "from a point" };
@@ -67,6 +74,7 @@ function renderRecent(rows: Array<{ slot: number; blockNo: number; hash: string;
             tr.append(td);
         }
         tr.lastElementChild!.setAttribute("title", String(b.hash));
+        tr.addEventListener("click", () => { void runQuery(`/blocks/${b.hash}`); });
         return tr;
     }));
 }
@@ -114,7 +122,8 @@ function render(r: StatusReply): void {
     setText("s-behind", behind == null ? "–" : behind <= 0 ? "at tip" : fmtSlotsShort(behind), `value ${behind == null ? "" : behind <= 120 ? "ok glow" : "warn"}`);
     $("s-behind").parentElement!.setAttribute("data-tooltip", `Slots between our tip and the relay's (${fmtSlotsBehind(ours, relay)}). One slot is one second.`);
     setText("s-version", s.version != null ? `v${s.version}` : "–");
-    setText("s-version-sub", s.lightQuery ? "light query" : s.lightQuery === false ? "no light query" : "");
+    // what the relay announced: its light-query services, standard N2N only, or nothing (a relay from before the CIP)
+    setText("s-version-sub", s.services?.length ? s.services.join(" · ") : s.wsProtocol === "cardano-n2n.v1" ? "standard N2N only" : s.lightQuery ? "light query" : s.lightQuery === false ? "no light query" : "");
 
     setText("s-headers", fmtNum(s.headers), `value ${s.linkBad ? "bad" : ""}`);
     setText("s-headers-sub", s.linkBad ? `${fmtNum(s.linkBad)} broken links` : `${fmtNum(s.linkOk)} linked`);
@@ -131,7 +140,10 @@ function render(r: StatusReply): void {
     setText("s-rtt", s.keepAliveRttMs != null ? `rtt ${s.keepAliveRttMs} ms` : "");
 
     setText("s-opfs", s.opfs ? `${fmtBytes(s.opfs.bytes)} in ${fmtNum(s.opfs.files)} files, ${fmtNum(s.opfs.chunks)} chunk(s)` : "unavailable");
+    setText("s-indexed", s.indexedBlocks != null ? `${fmtNum(s.indexedBlocks)} blocks answer locally` : "–");
     setText("s-stored", `${fmtNum(s.storedBlocks)} blocks${s.storedTipSlot != null ? ` · tip slot ${fmtNum(s.storedTipSlot)}` : ""}${s.resumedFrom != null ? ` · resumed at ${fmtNum(s.resumedFrom)}` : ""}`);
+
+    renderTrust(s);
 
     const errs: string[] = s.errors ?? [];
     $("errors-section").hidden = errs.length === 0;
@@ -139,6 +151,99 @@ function render(r: StatusReply): void {
     renderRecent(s.recent ?? []);
     list("pending", (s.pendingTxs ?? []).map((t: any) => `${t.id.slice(0, 20)}… ${t.state} (${t.size} B)`));
     list("log", r.logs.slice(-60).reverse());
+}
+
+// ---- Trust panel ----
+function renderTrust(s: any): void {
+    const v = trustView(s);
+    const badge = $("trust-verdict");
+    badge.textContent = v.verdict.label;
+    badge.className = `badge tone-${v.verdict.tone}`;
+    $("trust-detail").textContent = v.verdict.detail;
+    $("trust-rows").replaceChildren(...v.rows.map((r) => {
+        const li = document.createElement("li");
+        li.className = `tone-${r.tone}`;
+        if (r.tip) li.setAttribute("data-tooltip", r.tip);
+        const dot = document.createElement("span"); dot.className = "tdot";
+        const label = document.createElement("span"); label.className = "tlabel"; label.textContent = r.label;
+        const value = document.createElement("span"); value.className = "tvalue"; value.textContent = r.value;
+        li.append(dot, label, value);
+        return li;
+    }));
+    // the main peer, then each extra relay's cross-check
+    const TONE: Record<string, string> = { agree: "verified", fork: "warning", behind: "warning", ahead: "warning", pending: "pending", down: "pending" };
+    const peers: Array<{ url: string; verdict: string; detail: string }> = s?.peers ?? [];
+    const rows = peers.length ? [{ url: s.endpoint, verdict: "main", detail: "main peer: blocks, nonce and stake" }, ...peers] : [];
+    $("peer-rows").replaceChildren(...rows.map((p) => {
+        const li = document.createElement("li");
+        li.className = `tone-${p.verdict === "main" ? "verified" : TONE[p.verdict] ?? "pending"}`;
+        li.setAttribute("data-tooltip", p.detail);
+        const dot = document.createElement("span"); dot.className = "tdot";
+        const url = document.createElement("span"); url.className = "tlabel mono"; url.textContent = p.url.replace(/^wss?:\/\//, "");
+        const v = document.createElement("span"); v.className = "tvalue"; v.textContent = p.verdict === "main" ? "main" : p.verdict;
+        li.append(dot, url, v);
+        return li;
+    }));
+    const f = (s?.failovers ?? []).at(-1);
+    $("failover").textContent = f ? `Switched to ${f.to.replace(/^wss?:\/\//, "")} at ${new Date(f.at).toLocaleTimeString()}: ${f.reason}.` : "";
+}
+
+// ---- Query: local first, then the Gerolamo peer ----
+const SOURCE_LABEL: Record<string, [string, string]> = {
+    local: ["verified locally", "success"],
+    relay: ["from Gerolamo", "cyan"],
+    none: ["unavailable", "bad"],
+};
+
+async function runQuery(path: string): Promise<void> {
+    const input = $<HTMLInputElement>("query-path");
+    input.value = path;
+    const run = $<HTMLButtonElement>("query-run");
+    run.disabled = true;
+    $("query-result").hidden = false;
+    $("query-source").textContent = "asking…";
+    $("query-source").className = "badge muted";
+    $("query-status").textContent = "";
+    $("query-body").textContent = "";
+    $("query-proof").hidden = true;
+    try {
+        const r = await send<{ ok: boolean; answer?: { source: string; status: number; body: unknown; peer?: string; ms: number; proof?: { status: string; detail: string } }; error?: string }>({ type: "query", path });
+        if (!r?.ok || !r.answer) throw new Error(r?.error ?? "no answer");
+        const a = r.answer;
+        const [label, tone] = SOURCE_LABEL[a.source] ?? [a.source, "muted"];
+        $("query-source").textContent = label;
+        $("query-source").className = `badge ${tone}`;
+        if (a.peer) $("query-source").setAttribute("data-tooltip", a.peer); else $("query-source").removeAttribute("data-tooltip");
+        $("query-status").textContent = `${a.status} · ${a.ms} ms${a.peer ? ` · ${a.peer.replace(/^wss?:\/\//, "")}` : ""}`;
+        $("query-body").textContent = typeof a.body === "string" ? a.body : JSON.stringify(a.body, null, 2);
+        if (a.proof) {
+            const PROOF: Record<string, [string, string]> = { certified: ["Mithril-proven", "tone-verified"], "too-new": ["too new for Mithril", "muted"], mismatch: ["Mithril disagrees", "bad"], unavailable: ["not proven", "muted"] };
+            const [text, cls] = PROOF[a.proof.status] ?? ["?", "muted"];
+            const el = $("query-proof");
+            el.textContent = text; el.className = `badge ${cls}`; el.setAttribute("data-tooltip", a.proof.detail); el.hidden = false;
+        }
+    } catch (e) {
+        $("query-source").textContent = "error";
+        $("query-source").className = "badge bad";
+        $("query-body").textContent = (e as Error).message;
+    } finally { run.disabled = false; }
+}
+
+$("query-form").addEventListener("submit", (ev) => { ev.preventDefault(); void runQuery($<HTMLInputElement>("query-path").value); });
+for (const chip of Array.from(document.querySelectorAll<HTMLButtonElement>("#query-chips .chip"))) {
+    chip.addEventListener("click", () => {
+        const path = chip.dataset.path ?? "/";
+        const input = $<HTMLInputElement>("query-path");
+        if (chip.dataset.hint) {
+            // a path that needs an argument: fill the prefix and let the user paste the rest
+            input.value = path + (path.startsWith("/addresses/") ? "/utxos" : "");
+            input.focus();
+            input.setSelectionRange(path.length, path.length);
+            input.placeholder = chip.dataset.hint;
+            return;
+        }
+        void runQuery(path);
+    });
 }
 
 async function poll(): Promise<void> {
@@ -154,7 +259,8 @@ function message(id: string, text: string, ok: boolean): void {
 $("settings").addEventListener("input", () => { formDirty = true; });
 $("settings").addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const settings = { relayUrl: $<HTMLInputElement>("relayUrl").value.trim(), network: $<HTMLSelectElement>("network").value, startMode: $<HTMLSelectElement>("startMode").value };
+    const extraRelays = $<HTMLTextAreaElement>("extraRelays").value.split(/[\s,]+/).map((u) => u.trim()).filter(Boolean);
+    const settings = { relayUrl: $<HTMLInputElement>("relayUrl").value.trim(), network: $<HTMLSelectElement>("network").value, startMode: $<HTMLSelectElement>("startMode").value, extraRelays, certifiedStake: $<HTMLInputElement>("certifiedStake").checked, txProofs: $<HTMLInputElement>("txProofs").checked };
     const r = await send({ type: "set-settings", settings });
     message("settings-msg", r?.ok ? "Saved; the node restarted." : `Not saved: ${r?.error ?? "no answer"}`, !!r?.ok);
     if (r?.ok) { formDirty = false; newestBlock = null; }
@@ -175,12 +281,28 @@ $("wipe").addEventListener("click", async () => {
     message("settings-msg", r?.ok ? "Stored chain wiped." : `Wipe failed: ${r?.error ?? "no answer"}`, !!r?.ok);
     newestBlock = null;
 });
-const openTab = $<HTMLAnchorElement>("open-tab");
-if (wide) openTab.hidden = true;
-openTab.addEventListener("click", (ev) => {
-    ev.preventDefault();
+// "Open in a tab": the same page, full width.
+const tabBtn = $<HTMLButtonElement>("btn-tab");
+if (wide) tabBtn.hidden = true;
+tabBtn.addEventListener("click", () => {
     void chrome.tabs.create({ url: chrome.runtime.getURL("popup.html?view=tab") });
-    window.close();
+    if (view === "popup") window.close();
+});
+
+// "Open in the side panel": docked beside the page, stays open while browsing. The browser only opens it inside a
+// user gesture, so the window id is looked up first and the click calls sidePanel.open directly.
+const sidePanel = (globalThis as any).chrome?.sidePanel as typeof chrome.sidePanel | undefined;
+const panelBtn = $<HTMLButtonElement>("btn-panel");
+let windowId: number | undefined;
+if (sidePanel?.open && view !== "panel") {
+    panelBtn.hidden = false;
+    chrome.windows.getCurrent().then((w) => { windowId = w.id; }).catch(() => { /* keep undefined */ });
+}
+panelBtn.addEventListener("click", () => {
+    if (!sidePanel || windowId === undefined) { $("view-msg").textContent = "Side panel not available here"; return; }
+    sidePanel.open({ windowId })
+        .then(() => { if (view === "popup") window.close(); })
+        .catch((e: Error) => { $("view-msg").textContent = `Side panel: ${e.message}`; });
 });
 
 void poll();

@@ -16,6 +16,12 @@
   <div class="topbar-right">
     <span class="live"><span id="live-dot" class="dot"></span><span id="live-label">Offline</span></span>
     <span id="net-badge" class="badge neon">PREVIEW</span>
+    <button id="btn-panel" class="icon-btn" type="button" title="Open in the side panel" aria-label="Open in the side panel" hidden>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg>
+    </button>
+    <button id="btn-tab" class="icon-btn" type="button" title="Open in a tab" aria-label="Open in a tab">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+    </button>
   </div>
 </header>
 
@@ -54,6 +60,17 @@
     </div>
   </section>
 
+  <section class="card card-accent" aria-labelledby="h-trust">
+    <div class="card-head">
+      <h2 id="h-trust">Trust</h2>
+      <span id="trust-verdict" class="badge muted" data-tooltip="Verified: nothing taken on trust. Partly trusted: some facts still come from peers. Warning: something looks wrong now.">checking</span>
+    </div>
+    <p id="trust-detail" class="small dim trust-detail"></p>
+    <ul id="trust-rows" class="trust-rows"></ul>
+    <ul id="peer-rows" class="peer-rows" aria-label="Peers"></ul>
+    <p id="failover" class="small dim"></p>
+  </section>
+
   <section class="grid3" aria-label="Verification">
     <div class="card card-accent stat" data-tooltip="Headers received, and how many linked to the previous one by hash."><span class="label">Headers</span><span id="s-headers" class="value">–</span><span id="s-headers-sub" class="sub"></span></div>
     <div class="card card-accent stat" data-tooltip="Header cryptography passed | failed: opcert, KES and VRF. A failure stops the sync from that relay."><span class="label">Crypto ok | bad</span><span id="s-crypto" class="value">–</span><span id="s-crypto-sub" class="sub"></span></div>
@@ -68,6 +85,7 @@
     <div class="kv">
       <span class="dim">On disk</span><span id="s-opfs" class="mono">–</span>
       <span class="dim">Stored</span><span id="s-stored" class="mono">–</span>
+      <span class="dim">Queryable</span><span id="s-indexed" class="mono">–</span>
     </div>
   </section>
 
@@ -76,8 +94,30 @@
     <ul id="errors" class="log bad"></ul>
   </section>
 
+  <section class="card card-accent" aria-labelledby="h-query">
+    <div class="card-head">
+      <h2 id="h-query">Query</h2>
+      <span class="dim small" data-tooltip="Blockfrost-style paths. What this node has verified and stored is answered locally; everything else (balances, UTxOs, pools, older blocks) is asked of the Gerolamo peer.">local first, then Gerolamo</span>
+    </div>
+    <form id="query-form" class="query-row">
+      <input id="query-path" type="text" spellcheck="false" autocomplete="off" placeholder="/blocks/latest" value="/blocks/latest">
+      <button type="submit" class="btn primary" id="query-run">Run</button>
+    </form>
+    <div class="chips" id="query-chips">
+      <button type="button" class="chip" data-path="/blocks/latest">Latest block</button>
+      <button type="button" class="chip" data-path="/epochs/latest">Latest epoch</button>
+      <button type="button" class="chip" data-path="/addresses/" data-hint="paste an address">Address UTxOs</button>
+      <button type="button" class="chip" data-path="/txs/" data-hint="paste a transaction hash">Transaction</button>
+      <button type="button" class="chip" data-path="/pools/extended?count=5">Pools</button>
+    </div>
+    <div id="query-result" class="query-result" hidden>
+      <div class="query-meta"><span id="query-source" class="badge muted"></span><span id="query-proof" class="badge" hidden></span><span id="query-status" class="mono small dim"></span></div>
+      <pre id="query-body" class="query-body"></pre>
+    </div>
+  </section>
+
   <section class="card" aria-labelledby="h-recent">
-    <div class="card-head"><h2 id="h-recent">Recent blocks</h2><span class="dim small">newest first</span></div>
+    <div class="card-head"><h2 id="h-recent">Recent blocks</h2><span class="dim small">newest first · click to query</span></div>
     <table class="blocks">
       <thead><tr><th>Block</th><th>Slot</th><th>Txs</th><th>Size</th><th>Hash</th></tr></thead>
       <tbody id="recent"><tr><td colspan="5" class="dim">Waiting for blocks…</td></tr></tbody>
@@ -88,6 +128,9 @@
     <summary><h2>Settings</h2></summary>
     <form id="settings">
       <label>Relay URL <input id="relayUrl" name="relayUrl" type="text" spellcheck="false" autocomplete="off" placeholder="ws://host:port/n2n"></label>
+      <label>Extra relays <span class="dim">(cross-checked, one per line)</span>
+        <textarea id="extraRelays" name="extraRelays" rows="2" spellcheck="false" placeholder="ws://host:port/n2n"></textarea>
+      </label>
       <div class="row">
         <label>Network
           <select id="network" name="network"><option value="preview">preview</option><option value="preprod">preprod</option></select>
@@ -100,6 +143,8 @@
           </select>
         </label>
       </div>
+      <label class="check"><input id="certifiedStake" name="certifiedStake" type="checkbox"> Check pool stake with Mithril <span class="dim">(aggregator download, then cached)</span></label>
+      <label class="check"><input id="txProofs" name="txProofs" type="checkbox"> Check relayed transaction answers with Mithril proofs</label>
       <div class="row">
         <button type="submit" class="btn primary">Save and restart</button>
         <button id="wipe" type="button" class="btn danger">Wipe stored chain</button>
@@ -126,7 +171,7 @@
 
 <footer class="foot">
   <span>Harmonic Labs · <span id="version">Gerolamino</span></span>
-  <a id="open-tab" href="#" class="link">Open in a tab</a>
+  <span id="view-msg" class="small" role="status"></span>
 </footer>
 <script type="module" src="popup.js"></script>
 </body>

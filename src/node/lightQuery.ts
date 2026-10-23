@@ -3,13 +3,15 @@
  * pool's active stake and complete immutable chunks, requested over the same WebSocket as chain-sync and
  * block-fetch, so a browser node needs nothing but the relay's N2N endpoint. Wire (one CBOR array per message):
  *
- *   [4]                      → [5, networkMagic, protocolVersionMajor]                          hello
+ *   [4]                      → [5, networkMagic, version, capabilities?]                        hello (version 1
+ *                                adds the capability map: the request types the peer serves and their limits)
  *   [0, epoch]               → [1, epoch, nonce(32) | null]                                     η0
  *   [2, epoch, poolId(28)]   → [3, epoch, poolStake | null, totalActiveStake | null, f.num, f.den]
  *   [6, chunkNo]             → [7, chunkNo, chunk, primary, secondary] | [7, chunkNo, null, null, null]
- *   anything else            → [255, text]
+ *   [8, id, path]            → [9, id, status, body]    a Blockfrost GET (path under /api/v0) answered by the peer
+ *   anything else            → [255, text]               (a peer without a request type answers this)
  */
-import { Cbor, CborArray, CborBytes, CborUInt, type CborObj } from "@harmoniclabs/cbor";
+import { Cbor, CborArray, CborBytes, CborMap, CborSimple, CborText, CborUInt, type CborObj } from "@harmoniclabs/cbor";
 import type { Multiplexer } from "@harmoniclabs/ouroboros-miniprotocols-ts";
 
 /**
@@ -18,6 +20,30 @@ import type { Multiplexer } from "@harmoniclabs/ouroboros-miniprotocols-ts";
  * node-to-node connection: cardano-nodes do not open it there and Gerolamo hosts nothing else on it.
  */
 export const LIGHT_QUERY_PROTOCOL = 7;
+
+/**
+ * WebSocket subprotocols a peer selects to announce its services before any N2N byte (CIP draft in the Gerolamo
+ * repository, CIP/): standard N2N only, or with the light query. A browser offers both, best first.
+ */
+export const N2N_WS_SUBPROTOCOL = "cardano-n2n.v1";
+export const N2N_WS_SUBPROTOCOL_LIGHTQUERY = "cardano-n2n.v1+lightquery";
+
+/** What a peer's light-query hello announces (version 1); null for a version-0 peer, which announces nothing. */
+export interface LightQueryCapabilities {
+    nonce: boolean;
+    stake: boolean;
+    chunk: boolean;
+    blockfrost: { rate: number; windowMs: number; maxBody: number } | null;
+}
+
+export function parseCapabilities(m: CborObj | undefined): LightQueryCapabilities | null {
+    if (!(m instanceof CborMap)) return null;
+    const get = (map: CborMap, k: string) => map.map.find((e) => e.k instanceof CborText && e.k.text === k)?.v;
+    const flag = (k: string) => { const v = get(m, k); return v instanceof CborSimple ? v.simple === true : false; };
+    const bf = get(m, "blockfrost");
+    const n = (k: string) => { const v = bf instanceof CborMap ? get(bf, k) : undefined; return v instanceof CborUInt ? Number(v.num) : 0; };
+    return { nonce: flag("nonce"), stake: flag("stake"), chunk: flag("chunk"), blockfrost: bf instanceof CborMap ? { rate: n("rate"), windowMs: n("window_ms"), maxBody: n("max_body") } : null };
+}
 
 export interface PoolStakeInfo {
     epoch: number;
@@ -31,6 +57,8 @@ export class LightQueryClient {
     private pending: Uint8Array | null = null;
     private readonly onPayload = (payload: Uint8Array) => this.receive(payload);
     readonly supported: Promise<boolean>;
+    /** The peer's announced capabilities once the hello is answered; null for a version-0 peer. */
+    capabilities: LightQueryCapabilities | null = null;
 
     constructor(private readonly mux: Multiplexer, timeoutMs = 10_000) {
         this.mux.on(LIGHT_QUERY_PROTOCOL as any, this.onPayload);
@@ -66,11 +94,12 @@ export class LightQueryClient {
         });
     }
 
-    async hello(): Promise<{ magic: number }> {
+    async hello(): Promise<{ magic: number; capabilities: LightQueryCapabilities | null }> {
         const r = await this.request(new CborArray([new CborUInt(4)]));
         const a = (r as CborArray).array;
         if (!(a?.[0] instanceof CborUInt) || Number(a[0].num) !== 5) throw new Error("light query not supported by this relay");
-        return { magic: Number((a[1] as CborUInt).num) };
+        this.capabilities = parseCapabilities(a[3]);
+        return { magic: Number((a[1] as CborUInt).num), capabilities: this.capabilities };
     }
 
     async epochNonce(epoch: number): Promise<Uint8Array | null> {
@@ -89,6 +118,24 @@ export class LightQueryClient {
         return { chunk: (a[2] as CborBytes).bytes, primary: (a[3] as CborBytes).bytes, secondary: (a[4] as CborBytes).bytes };
     }
 
+    private nextQueryId = 1;
+
+    /**
+     * A Blockfrost GET answered by the peer from its full ledger (`path` under /api/v0, "/addresses/…/utxos").
+     * Throws QueryUnsupported when the peer predates the request (it answers [255]).
+     */
+    async query(path: string, timeoutMs = 20_000): Promise<{ status: number; body: string }> {
+        // a peer that announces its capabilities is asked only for what it lists
+        if (this.capabilities && !this.capabilities.blockfrost) throw new QueryUnsupported();
+        const id = this.nextQueryId++;
+        const r = await this.request(new CborArray([new CborUInt(8), new CborUInt(id), new CborText(path)]), timeoutMs);
+        const a = (r as CborArray).array;
+        const tag = a?.[0] instanceof CborUInt ? Number(a[0].num) : -1;
+        if (tag === 255) throw new QueryUnsupported();
+        if (tag !== 9 || !(a[2] instanceof CborUInt) || !(a[3] instanceof CborText)) throw new Error("unexpected light query reply");
+        return { status: Number(a[2].num), body: a[3].text };
+    }
+
     async poolStake(epoch: number, poolId: Uint8Array): Promise<PoolStakeInfo> {
         const r = await this.request(new CborArray([new CborUInt(2), new CborUInt(epoch), new CborBytes(poolId)]));
         const a = (r as CborArray).array;
@@ -99,3 +146,8 @@ export class LightQueryClient {
 }
 
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; }
+
+/** The peer speaks the light query but not Blockfrost queries (an older Gerolamo). */
+export class QueryUnsupported extends Error {
+    constructor() { super("this peer does not answer Blockfrost queries"); }
+}

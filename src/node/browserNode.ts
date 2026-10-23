@@ -35,7 +35,11 @@ import { ChunkWriter, type FileSink } from "./chunkWriter";
 import { proposeBrowserHandshake } from "./handshake";
 import { parseHeaderCrypto, verifyHeaderCrypto } from "./headerVerify";
 import { isSlotLeader } from "./leaderMath";
-import { LightQueryClient, type PoolStakeInfo } from "./lightQuery";
+import { LightQueryClient, N2N_WS_SUBPROTOCOL, type PoolStakeInfo } from "./lightQuery";
+import { openN2NSocket } from "./wsConnect";
+import type { LocalChainIndex } from "./localIndex";
+import { ACTIVE_SLOTS_COEFF, type ChainObserver } from "./trust";
+import type { HeaderLog } from "./crossCheck";
 import { loadMithrilAnchor, type MithrilAnchor, type MithrilAnchorFn } from "./mithrilLoader";
 import { epochOfSlot, networkByMagic } from "./networks";
 import { TxSubmitClient, type QueuedTx } from "./txSubmit";
@@ -78,11 +82,20 @@ export interface NodeStats {
     cryptoSkipped: number;
     cryptoMs: number;
     nonceEpoch: number | null;
+    /** The epoch nonce of `nonceEpoch` (hex), as the peer gave it. */
+    nonceHex: string | null;
     /** Leader eligibility (VRF leader value below the pool's stake threshold). */
     leaderOk: number;
     leaderBad: number;
     leaderSkipped: number;
+    /** Leader checks made with the Mithril-certified stake, and pools whose stake from the peer differed from it. */
+    stakeCertified: number;
+    stakeMismatches: number;
     lightQuery: boolean | null;
+    /** The WebSocket subprotocol the relay selected: its announced services ("" for a relay from before the CIP). */
+    wsProtocol: string | null;
+    /** The light-query request types the relay announced (nonce, stake, chunk, blockfrost); null when it announced none. */
+    services: string[] | null;
     /** Persistent store (chunk files). */
     storedBlocks: number;
     storedBytes: number;
@@ -116,6 +129,16 @@ export interface BrowserNodeOptions {
     keep?: number;
     /** Persist verified blocks as cardano-node chunk files through this sink (OPFS in the extension). */
     storeSink?: FileSink;
+    /** Index of the stored blocks for local queries (query.ts): fed every stored block, trimmed on rollback. */
+    index?: LocalChainIndex;
+    /** The Mithril-certified stake of an epoch when it is available (null: use the peer's; see src/mithril/stake.ts). */
+    certifiedStake?: (epoch: number) => CertifiedStakeView | null;
+    /** Freshness and density (trust.ts): started at the intersection, fed every header whose signatures verified. */
+    observer?: ChainObserver;
+    /** Every header the main peer serves (hash and link checked), for cross-checking other peers (crossCheck.ts). */
+    headerLog?: HeaderLog;
+    /** Roll the store back to this point before resuming (a failover to a longer fork: the newest common block). */
+    rollbackTo?: Point | null;
     /** Slots per chunk (10·k: 4320 preview/preprod, 21600 mainnet); default from the network. */
     chunkSlots?: number;
     /** Supplies the Mithril verifier for the "mithril" start (default: dynamic import, see mithrilLoader.ts). */
@@ -127,6 +150,9 @@ export interface BrowserNodeOptions {
     log?: (line: string) => void;
     onStats?: (s: NodeStats) => void;
 }
+
+/** What the leader check needs of a certified stake distribution. */
+export interface CertifiedStakeView { leaderEpoch: number; pools: Map<string, bigint>; total: bigint }
 
 const hex = (b: Uint8Array) => toHex(b);
 const concatBytes = (a: Uint8Array, b: Uint8Array): Uint8Array => { const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out; };
@@ -188,7 +214,7 @@ export function emptyStats(endpoint: string): NodeStats {
     return {
         endpoint, state: "idle", version: null, remoteInitiatorOnly: null, serverTip: null, intersect: "", startMode: "",
         headers: 0, linkOk: 0, linkBad: 0, blocksFetched: 0, bodyOk: 0, bodyBad: 0, rollbacks: 0, rolledBackBlocks: 0,
-        cryptoOk: 0, cryptoBad: 0, cryptoSkipped: 0, cryptoMs: 0, nonceEpoch: null, leaderOk: 0, leaderBad: 0, leaderSkipped: 0, lightQuery: null,
+        cryptoOk: 0, cryptoBad: 0, cryptoSkipped: 0, cryptoMs: 0, nonceEpoch: null, nonceHex: null, leaderOk: 0, leaderBad: 0, leaderSkipped: 0, stakeCertified: 0, stakeMismatches: 0, lightQuery: null, wsProtocol: null, services: null,
         storedBlocks: 0, storedBytes: 0, storedChunks: 0, storedTipSlot: null, resumedFrom: null, anchor: null,
         lastSlot: null, lastBlockNo: null, lastHash: null, bytes: 0, keepAliveRttMs: null, startedAt: null, firstHeaderAt: null, lastHeaderAt: null,
         error: null, errors: [],
@@ -206,6 +232,7 @@ export class BrowserNode {
     private writer: ChunkWriter | null = null;
     private nonces = new Map<number, Uint8Array | null>();
     private stakeCache = new Map<string, PoolStakeInfo>();
+    private stakeMismatchPools = new Set<string>();
     private closed: Promise<never>;
     private closeWith: (e: Error) => void = () => {};
     /** Recent blocks, newest last. */
@@ -223,6 +250,12 @@ export class BrowserNode {
         if (!this.txc) throw new Error("not connected");
         return this.txc.submit(tx);
     }
+    /** A Blockfrost GET answered by the connected Gerolamo peer (light-query request 8). */
+    relayQuery(path: string): Promise<{ status: number; body: string }> {
+        if (!this.lq || !this.stats.lightQuery) return Promise.reject(new Error("the peer has no light-query protocol"));
+        return this.lq.query(path);
+    }
+
     /** Transactions offered this connection that the relay has not acknowledged yet. */
     pendingTxs(): QueuedTx[] { return this.txc?.list() ?? []; }
 
@@ -242,7 +275,7 @@ export class BrowserNode {
         if (this.lq && this.stats.lightQuery) {
             try {
                 nonce = await this.guard(this.lq.epochNonce(epoch));
-                if (nonce) { this.stats.nonceEpoch = epoch; this.log(`epoch ${epoch} nonce ${hex(nonce).slice(0, 16)}… over the WebSocket (light query)`); }
+                if (nonce) { this.stats.nonceEpoch = epoch; this.stats.nonceHex = hex(nonce); this.log(`epoch ${epoch} nonce ${hex(nonce).slice(0, 16)}… over the WebSocket (light query)`); }
                 else this.log(`epoch ${epoch}: relay has no nonce yet`);
             } catch (e) { if (e instanceof ConnectionClosed) throw e; this.log(`light query nonce failed: ${(e as Error).message}`); return null; }
         }
@@ -263,15 +296,7 @@ export class BrowserNode {
     }
 
     private openSocket(): Promise<WebSocket> {
-        const { endpoint } = this.opts;
-        const WS = this.opts.WebSocketImpl ?? WebSocket;
-        return new Promise<WebSocket>((resolve, reject) => {
-            const ws = new WS(endpoint);
-            ws.binaryType = "arraybuffer";
-            const timer = setTimeout(() => { try { ws.close(); } catch { /* ignore */ } reject(new Error(`connect to ${endpoint} timed out`)); }, this.opts.connectTimeoutMs ?? 15_000);
-            ws.addEventListener("open", () => { clearTimeout(timer); resolve(ws); }, { once: true });
-            ws.addEventListener("error", () => { clearTimeout(timer); reject(new Error(`cannot connect to ${endpoint}`)); }, { once: true });
-        });
+        return openN2NSocket(this.opts.endpoint, { WebSocketImpl: this.opts.WebSocketImpl, timeoutMs: this.opts.connectTimeoutMs, stopped: () => this.stopped, log: (l) => this.log(l) });
     }
 
     /** Run one connection until it ends. Resolves with the reason (never rejects). */
@@ -296,15 +321,24 @@ export class BrowserNode {
             this.stats.version = hs.version; this.stats.remoteInitiatorOnly = hs.remote.initiatorOnlyDiffusionMode;
             this.log(`handshake accepted, N2N version ${hs.version} (we are initiator-only)`);
 
-            this.lq = new LightQueryClient(this.mux);
+            // the services the relay announced: never speak the light query to a relay that offers standard N2N only
+            const announced = socket.protocol ?? "";
+            this.stats.wsProtocol = announced;
+            const standardOnly = announced === N2N_WS_SUBPROTOCOL;
+            if (!standardOnly) this.lq = new LightQueryClient(this.mux);
             this.txc = new TxSubmitClient(this.mux, (l) => this.log(l), () => this.emit());
             const keepAlive = new KeepAliveClient(this.mux);
             ka = setInterval(() => {
                 const t0 = Date.now();
                 keepAlive.request((t0 / 1000) & 0xffff).then(() => { this.stats.keepAliveRttMs = Date.now() - t0; }).catch(() => {});
             }, this.opts.keepAliveMs ?? 20_000);
-            this.stats.lightQuery = await this.guard(this.lq.supported);
-            this.log(this.stats.lightQuery ? "relay speaks the light-query protocol (nonce, stake, chunks over the WebSocket)" : "relay has no light-query protocol: header crypto and leader checks will be skipped");
+            this.stats.lightQuery = this.lq ? await this.guard(this.lq.supported) : false;
+            const caps = this.lq?.capabilities ?? null;
+            this.stats.services = caps ? Object.entries(caps).filter(([, v]) => v).map(([k]) => k) : null;
+            if (standardOnly) this.log("relay announces standard N2N only (cardano-n2n.v1): header crypto and leader checks will be skipped");
+            else this.log(this.stats.lightQuery
+                ? `relay speaks the light-query protocol${caps ? ` and announces: ${this.stats.services!.join(", ")}` : " (no announcement: a relay from before it)"}`
+                : "relay has no light-query protocol: header crypto and leader checks will be skipped");
 
             const cs = new ChainSyncClient(this.mux);
             const bf = new BlockFetchClient(this.mux);
@@ -322,9 +356,18 @@ export class BrowserNode {
                 this.writer = new ChunkWriter(this.opts.storeSink, this.opts.chunkSlots ?? net?.chunkSlots ?? 4320);
                 const stored = await this.writer.resume();
                 this.syncStoreStats();
-                if (stored) { from = { slot: stored.slot, hash: hex(stored.hash) }; resuming = true; this.stats.resumedFrom = stored.slot; this.log(`store holds ${this.stats.storedBlocks} blocks; resuming from the stored tip at slot ${stored.slot}`); }
+                const rb = this.opts.rollbackTo;
+                if (stored && rb && stored.slot > rb.slot) {
+                    const undone = await this.writer.rollbackTo(rb.slot);
+                    this.opts.index?.rollbackTo(rb.slot); this.opts.observer?.rollbackTo(rb.slot);
+                    this.syncStoreStats();
+                    this.log(`switching to a longer fork: ${undone} stored block(s) after slot ${rb.slot} undone`);
+                }
+                const tip = this.writer.tip;
+                if (tip) { from = { slot: tip.slot, hash: hex(tip.hash) }; resuming = true; this.stats.resumedFrom = tip.slot; this.log(`store holds ${this.stats.storedBlocks} blocks; resuming from the stored tip at slot ${tip.slot}`); }
             }
             if (!from && typeof mode === "object") from = mode;
+            if (!from && this.opts.rollbackTo) { from = this.opts.rollbackTo; resuming = true; this.log(`resuming from the common block at slot ${from.slot}`); }
             if (!from && this.opts.resumeFrom) { from = this.opts.resumeFrom; resuming = true; this.log(`resuming from the last verified point, slot ${from.slot}`); }
             if (!from && mode === "mithril") from = await this.mithrilStart(net?.name);
             if (!from && mode === "chunk") from = await this.chunkStart(net?.chunkSlots ?? 4320);
@@ -343,6 +386,7 @@ export class BrowserNode {
             }
             const found: any = isect;
             this.stats.intersect = found.point?.blockHeader ? `slot ${found.point.blockHeader.slotNumber}` : "origin";
+            this.opts.observer?.begin(found.point?.blockHeader ? Number(found.point.blockHeader.slotNumber) : 0);
             this.stats.serverTip = tipOf(found) ?? this.stats.serverTip;
             this.log(`intersect at ${this.stats.intersect}; relay tip slot ${this.stats.serverTip?.slot} height ${this.stats.serverTip?.blockNo}`);
             if (from) { this.stats.lastSlot = from.slot; this.stats.lastHash = from.hash; }
@@ -362,6 +406,9 @@ export class BrowserNode {
                         let dropped = 0;
                         while (this.recent.length && this.recent[this.recent.length - 1]!.slot > slot) { this.recent.pop(); dropped++; }
                         if (this.writer) { try { dropped = Math.max(dropped, await this.writer.rollbackTo(slot)); this.syncStoreStats(); } catch (e) { this.noteError(`store rollback: ${(e as Error).message}`); } }
+                        this.opts.index?.rollbackTo(slot);
+                        this.opts.observer?.rollbackTo(slot);
+                        this.opts.headerLog?.rollbackTo(slot);
                         this.stats.rolledBackBlocks += dropped;
                         this.log(`RollBackward to slot ${slot} (${dropped} block(s) undone)`);
                     }
@@ -400,6 +447,7 @@ export class BrowserNode {
             if (h.prevHash === expectPrev) this.stats.linkOk++;
             else { linked = false; this.stats.linkBad++; this.noteError(`LINK MISMATCH at slot ${h.slot}: prev ${h.prevHash?.slice(0, 16)} ≠ ${expectPrev.slice(0, 16)}`); }
         }
+        this.opts.headerLog?.add({ slot: h.slot, blockNo: h.blockNo, hash: h.hash });
         // ask for the body first: the network works while the header crypto runs
         const pt = pointOf({ slot: h.slot, hash: h.hash });
         const fetching = this.opts.fetchBodies !== false ? this.guard(bf.requestRange(pt, pt)) : null;
@@ -414,14 +462,29 @@ export class BrowserNode {
                 const r = verifyHeaderCrypto(hc, nonce, net.slotsPerKESPeriod, net.maxKESEvolutions);
                 this.stats.cryptoMs += r.ms.opcert + r.ms.kes + r.ms.vrf;
                 cryptoOk = r.opcertOk && r.kesOk && r.vrfOk;
-                if (cryptoOk) this.stats.cryptoOk++; else { this.stats.cryptoBad++; this.noteError(`HEADER CRYPTO FAILED at slot ${h.slot}: ${r.detail.join("; ")}`); }
+                if (cryptoOk) { this.stats.cryptoOk++; this.opts.observer?.observe({ slot: h.slot, blockNo: h.blockNo, hash: h.hash, poolId: hex(blake2b_224(hc.issuerVkey)) }); } else { this.stats.cryptoBad++; this.noteError(`HEADER CRYPTO FAILED at slot ${h.slot}: ${r.detail.join("; ")}`); }
                 const epoch = epochOfSlot(net, h.slot);
-                const st = cryptoOk ? await this.poolStake(epoch, blake2b_224(hc.issuerVkey)) : null;
-                if (st && st.poolStake != null && st.totalActiveStake) {
+                const poolId = blake2b_224(hc.issuerVkey), poolHex = hex(poolId);
+                const st = cryptoOk ? await this.poolStake(epoch, poolId) : null;
+                const cert = cryptoOk ? this.opts.certifiedStake?.(epoch) ?? null : null;
+                let stake = st && st.poolStake != null && st.totalActiveStake ? { num: st.poolStake, den: st.totalActiveStake } : null;
+                if (cert) {
+                    // the certified figures decide; the peer's are only compared with them
+                    const certified = cert.pools.get(poolHex) ?? 0n;
+                    if (st && ((st.poolStake ?? 0n) !== certified || st.totalActiveStake !== cert.total) && !this.stakeMismatchPools.has(poolHex)) {
+                        this.stakeMismatchPools.add(poolHex); this.stats.stakeMismatches = this.stakeMismatchPools.size;
+                        this.noteError(`STAKE MISMATCH for pool ${poolHex.slice(0, 12)}… epoch ${epoch}: the peer says ${st.poolStake}/${st.totalActiveStake}, Mithril certifies ${certified}/${cert.total}`);
+                    }
+                    stake = { num: certified, den: cert.total };
+                    this.stats.stakeCertified++;
+                }
+                if (stake && stake.num > 0n) {
+                    const f = st ? Number(st.activeSlotsCoeff.num) / Number(st.activeSlotsCoeff.den) : ACTIVE_SLOTS_COEFF;
                     const leaderValue = hc.vrf ? blake2b_256(concatBytes(L_PREFIX, hc.vrf.output)) : hc.leaderVrf!.output;
-                    if (isSlotLeader(leaderValue, { num: st.poolStake, den: st.totalActiveStake }, Number(st.activeSlotsCoeff.num) / Number(st.activeSlotsCoeff.den))) this.stats.leaderOk++;
-                    else { this.stats.leaderBad++; this.noteError(`LEADER CHECK FAILED at slot ${h.slot}: pool ${hex(blake2b_224(hc.issuerVkey)).slice(0, 12)}… stake ${st.poolStake}/${st.totalActiveStake}`); }
-                } else this.stats.leaderSkipped++;
+                    if (isSlotLeader(leaderValue, stake, f)) this.stats.leaderOk++;
+                    else { this.stats.leaderBad++; this.noteError(`LEADER CHECK FAILED at slot ${h.slot}: pool ${poolHex.slice(0, 12)}… stake ${stake.num}/${stake.den}${cert ? " (Mithril-certified)" : ""}`); }
+                } else if (stake) { this.stats.leaderBad++; this.noteError(`LEADER CHECK FAILED at slot ${h.slot}: pool ${poolHex.slice(0, 12)}… has no stake in epoch ${epoch}${cert ? " (Mithril-certified)" : ""}`); }
+                else this.stats.leaderSkipped++;
             } catch (e) {
                 if (e instanceof ConnectionClosed) throw e;
                 this.stats.cryptoBad++; this.noteError(`header crypto threw at slot ${h.slot}: ${(e as Error).message}`);
@@ -444,7 +507,7 @@ export class BrowserNode {
         while (this.recent.length > (this.opts.keep ?? 64)) this.recent.shift();
         // only fully verified blocks are stored
         if (this.writer && bodyOk && linked && (cryptoOk || !nonce)) {
-            try { await this.writer.append(h.slot, fromHex(h.hash), bytes); this.syncStoreStats(); }
+            try { await this.writer.append(h.slot, fromHex(h.hash), bytes); this.syncStoreStats(); this.opts.index?.add(bytes); }
             catch (e) { this.noteError(`store: ${(e as Error).message}`); }
         }
     }

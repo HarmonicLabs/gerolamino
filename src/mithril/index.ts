@@ -44,3 +44,6 @@ export { StmVerificationError, verifyConcatenationProof, type AggregateVerificat
 export { cardanoDatabaseMerkleRoot, certifiedDigests, MkTree, mkTreeRoot, type ImmutableFileDigest } from "./mkTree";
 export { blake2s, blake2s256, Blake2s } from "./blake2s";
 export { ed25519VerifyStrict } from "./ed25519";
+export { mithrilStake, parseStakeArtifact, poolIdHex, stakeDistributionMerkleRoot, stakeMessageMatches, STAKE_SNAPSHOT_OFFSET, type CertifiedStake, type MithrilStakeOptions, type StakeArtifact } from "./stake";
+export { mithrilTxProof, mmrRoot, verifyTransactionsProof, type MithrilTxProofOptions, type TransactionsProof, type TransactionsProofResponse } from "./txProof";
+export { forgetVerifiedCertificates, rememberVerified, verifyChainCached } from "./chainCache";

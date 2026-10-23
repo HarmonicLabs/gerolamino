@@ -95,7 +95,7 @@ describe("BLS12-381 on @harmoniclabs/crypto: vectors from Gerolamo's noble code"
             expect(bls12_381_G1_equal(msm(p1, sc, bls12_381_G1_add, BlsG1.ZERO), n1)).toBe(true);
             expect(bls12_381_G2_equal(msm(p2, sc, bls12_381_G2_add, BlsG2.ZERO), n2)).toBe(true);
         }
-    });
+    }, 30_000); // 80 multi-scalar multiplications in pure TS: about 5 s
 
     test("aggregation scalars: Blake2b-128 over all sigmas then the u64 BE index, little-endian", () => {
         const sigs = V.aggregates[0]!.sigs.map(hexToBytes);

@@ -24,6 +24,13 @@ declare namespace chrome {
         const onInstalled: Event<(details: { reason: string }) => void>;
         const onStartup: Event<() => void>;
     }
+    namespace windows {
+        function getCurrent(): Promise<{ id?: number }>;
+    }
+    /** Side panel (Chrome 116+); absent in browsers without it, so read it as optional. */
+    namespace sidePanel {
+        function open(options: { windowId?: number; tabId?: number }): Promise<void>;
+    }
     namespace tabs {
         function create(props: { url: string; active?: boolean }): Promise<unknown>;
     }

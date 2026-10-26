@@ -176,6 +176,14 @@ h2 { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
 .trust-rows .tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
 .trust-rows .tlabel { color: var(--text-dim); }
 .trust-rows .tvalue { text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--text); overflow-wrap: anywhere; }
+body.approve { width: auto; max-width: 440px; margin: 0 auto; }
+.approve h2 { margin-bottom: 8px; }
+.approve-origin { font-size: 14px; color: var(--text); overflow-wrap: anywhere; margin: 6px 0 12px; }
+.approve-list { margin: 6px 0 12px 18px; display: grid; gap: 4px; color: var(--text-dim); }
+.approve-buttons { justify-content: flex-end; margin-top: 12px; }
+.sites { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.sites li { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sites li span { flex: 1; overflow-wrap: anywhere; font-family: var(--font-mono); }
 .peer-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; }
 .peer-rows:empty { display: none; }
 .peer-rows li { display: grid; grid-template-columns: 10px 1fr max-content; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border); font-size: 11px; }

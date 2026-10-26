@@ -34,6 +34,8 @@ export interface RunnerConfig {
     certifiedStake?: boolean;
     /** Check relayed answers about a transaction against a Mithril proof that it is on the chain. */
     txProofs?: boolean;
+    /** Where the Mithril start gets the immutable file digests: the Gerolamo peer (fast) or the Mithril aggregator. */
+    mithrilDigests?: "peer" | "aggregator";
 }
 
 /** A query answer, with the Mithril check of a relayed answer about a transaction. */
@@ -390,7 +392,7 @@ export class NodeRunner {
                 endpoint: this.config.relayUrl, networkMagic: net.magic, start, resumeFrom: this.lastPoint,
                 storeSink: this.opts.sinkFor?.(net.name), chunkSlots: net.chunkSlots, index: this.index, observer: this.observer,
                 headerLog: this.mainLog, rollbackTo: this.rollbackTo, certifiedStake: (e) => this.certifiedStakeOf(e),
-                loadMithril: this.opts.loadMithril, WebSocketImpl: this.opts.WebSocketImpl,
+                loadMithril: this.opts.loadMithril, mithrilDigests: this.config.mithrilDigests, WebSocketImpl: this.opts.WebSocketImpl,
                 log: (l) => this.log(l), onStats: () => this.emit(),
             });
             this.node = node;

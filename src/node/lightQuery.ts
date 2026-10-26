@@ -9,6 +9,8 @@
  *   [2, epoch, poolId(28)]   → [3, epoch, poolStake | null, totalActiveStake | null, f.num, f.den]
  *   [6, chunkNo]             → [7, chunkNo, chunk, primary, secondary] | [7, chunkNo, null, null, null]
  *   [8, id, path]            → [9, id, status, body]    a Blockfrost GET (path under /api/v0) answered by the peer
+ *   [10, from, to]           → [11, from, to, [[name, sha256], …] | null]   Mithril digests of the peer's immutable
+ *                                files numbered from..to (`to` in the reply: where the page ends; null: not ready)
  *   anything else            → [255, text]               (a peer without a request type answers this)
  */
 import { Cbor, CborArray, CborBytes, CborMap, CborSimple, CborText, CborUInt, type CborObj } from "@harmoniclabs/cbor";
@@ -33,6 +35,8 @@ export interface LightQueryCapabilities {
     nonce: boolean;
     stake: boolean;
     chunk: boolean;
+    /** Mithril digests of the peer's immutable files (request 10). */
+    digests: boolean;
     blockfrost: { rate: number; windowMs: number; maxBody: number } | null;
 }
 
@@ -42,7 +46,7 @@ export function parseCapabilities(m: CborObj | undefined): LightQueryCapabilitie
     const flag = (k: string) => { const v = get(m, k); return v instanceof CborSimple ? v.simple === true : false; };
     const bf = get(m, "blockfrost");
     const n = (k: string) => { const v = bf instanceof CborMap ? get(bf, k) : undefined; return v instanceof CborUInt ? Number(v.num) : 0; };
-    return { nonce: flag("nonce"), stake: flag("stake"), chunk: flag("chunk"), blockfrost: bf instanceof CborMap ? { rate: n("rate"), windowMs: n("window_ms"), maxBody: n("max_body") } : null };
+    return { nonce: flag("nonce"), stake: flag("stake"), chunk: flag("chunk"), digests: flag("digests"), blockfrost: bf instanceof CborMap ? { rate: n("rate"), windowMs: n("window_ms"), maxBody: n("max_body") } : null };
 }
 
 export interface PoolStakeInfo {
@@ -116,6 +120,25 @@ export class LightQueryClient {
         if (!(a?.[0] instanceof CborUInt) || Number(a[0].num) !== 7) throw new Error("unexpected light query reply");
         if (!(a[2] instanceof CborBytes)) return null;
         return { chunk: (a[2] as CborBytes).bytes, primary: (a[3] as CborBytes).bytes, secondary: (a[4] as CborBytes).bytes };
+    }
+
+    /**
+     * Mithril digests of the peer's immutable files numbered from..to, as the aggregator lists them; null when the
+     * peer does not serve them (not announced) or has not hashed them yet. A page may end before `to` (see `to`).
+     */
+    async digests(from: number, to: number): Promise<{ from: number; to: number; entries: Array<{ immutable_file_name: string; digest: string }> } | null> {
+        if (!this.capabilities?.digests) return null;
+        const r = await this.request(new CborArray([new CborUInt(10), new CborUInt(from), new CborUInt(to)]), 60_000);
+        const a = (r as CborArray).array;
+        if (!(a?.[0] instanceof CborUInt) || Number(a[0].num) !== 11) throw new Error("unexpected light query reply");
+        if (!(a[3] instanceof CborArray)) return null;
+        const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+        const entries = a[3].array.map((e) => {
+            const [name, digest] = (e as CborArray).array;
+            if (!(name instanceof CborText) || !(digest instanceof CborBytes) || digest.bytes.length !== 32) throw new Error("bad digest entry");
+            return { immutable_file_name: name.text, digest: hex(digest.bytes) };
+        });
+        return { from: Number((a[1] as CborUInt).num), to: Number((a[2] as CborUInt).num), entries };
     }
 
     private nextQueryId = 1;

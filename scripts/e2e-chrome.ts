@@ -10,6 +10,8 @@
  * no stake mismatch, the nonce confirmed by 5+ pools, the extra relay agreeing (with --extra), and a relayed
  * transaction answer proven by Mithril (--tx <hash>; default: a transaction from a block before this node's start
  * point, found through the peer, so the answer is relayed and not local).
+ * --dapp serves examples/dapp-demo.html on localhost and drives window.cardano.gerolamino from it: enable() with
+ * "Allow" clicked in the approval window, then network id, tip, trust and queries; a second site is denied.
  *
  * --screenshot <dir> saves popup.png (600 px wide, as the toolbar popup), panel.png (380 px, the side panel) and tab.png (the same page in a tab,
  * `popup.html?view=tab`) once the popup shows the running node.
@@ -215,6 +217,54 @@ try {
         }
         results.txProof = proof;
         if (proof?.status !== "certified") throw new Error("the relayed transaction answer was not proven by Mithril");
+    }
+
+    // 8. the dApp API (window.cardano.gerolamino) from a web page
+    if (process.argv.includes("--dapp")) {
+        const demo = Bun.file(join(import.meta.dir, "../examples/dapp-demo.html"));
+        const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(demo, { headers: { "content-type": "text/html; charset=utf-8" } }) });
+        try {
+            const openSite = async (url: string) => {
+                const t = await cdp!.send("Target.createTarget", { url });
+                const sess = await attach(t.targetId);
+                await cdp!.send("Runtime.enable", {}, sess);
+                for (let i = 0; i < 40; i++) { if (await cdp!.evaluate(sess, "!!(window.cardano && window.cardano.gerolamino)")) break; await sleep(250); }
+                return sess;
+            };
+            /** enable() on the page, answering the approval window with Allow or Deny. */
+            const enableWith = async (sess: string, allow: boolean) => {
+                await cdp!.evaluate(sess, "window.__enabled = window.cardano.gerolamino.enable().then(() => 'enabled', (e) => JSON.stringify(e)); true");
+                const win = await waitTarget((t) => t.url.includes("/approve.html"), "approval window", 20_000);
+                const ws = await attach((win as any).targetId);
+                await cdp!.send("Runtime.enable", {}, ws);
+                const shown = await cdp!.evaluate<string>(ws, "document.getElementById('origin').textContent");
+                await cdp!.evaluate(ws, `document.getElementById(${JSON.stringify(allow ? "allow" : "deny")}).click(); true`);
+                return { shown, result: await cdp!.evaluate<string>(sess, "window.__enabled", 30_000) };
+            };
+            const siteA = `http://127.0.0.1:${server.port}`, siteB = `http://localhost:${server.port}`;
+            const a = await openSite(siteA + "/");
+            const before = await cdp.evaluate<boolean>(a, "window.cardano.gerolamino.isEnabled()");
+            const allowed = await enableWith(a, true);
+            log(`dApp ${siteA}: isEnabled before ${before}; approval window showed ${allowed.shown}; enable() → ${allowed.result}`);
+            const calls = await cdp.evaluate<any>(a, `(async () => {
+                const api = await window.cardano.gerolamino.enable();
+                const q = await api.query("/blocks/latest"), q2 = await api.query("/epochs/latest");
+                return { net: await api.getNetworkId(), tip: await api.getTip(), trust: (await api.getTrust()).verdict.label,
+                    latest: { source: q.source, status: q.status, height: q.body && q.body.height }, epoch: { source: q2.source, status: q2.status, epoch: q2.body && q2.body.epoch },
+                    params: (await api.getProtocolParameters()).status, enabled: await window.cardano.gerolamino.isEnabled() };
+            })()`, 60_000);
+            log(`dApp calls: ${JSON.stringify(calls)}`);
+            const b = await openSite(siteB + "/");
+            const denied = await enableWith(b, false);
+            const refusedQuery = await cdp.evaluate<string>(b, "window.cardano.gerolamino.isEnabled().then(String)");
+            log(`dApp ${siteB}: approval window showed ${denied.shown}; Deny → ${denied.result}; isEnabled ${refusedQuery}`);
+            const sites = await cdp.evaluate<any>(popSession, `chrome.runtime.sendMessage({ to: "background", type: "dapp-list" })`);
+            results.dapp = { allowed, calls, denied, sites: sites?.sites?.map((s: any) => s.origin) };
+            const ok = before === false && allowed.result === "enabled" && allowed.shown === siteA && calls?.net === 0 && calls?.tip?.slot > 0 && calls?.latest?.source === "local"
+                && calls?.epoch?.source === "relay" && calls?.epoch?.status === 200 && calls?.enabled === true
+                && /"code":-3/.test(denied.result) && refusedQuery === "false" && JSON.stringify(sites?.sites?.map((s: any) => s.origin)) === JSON.stringify([siteA]);
+            if (!ok) throw new Error("the dApp API did not behave as expected");
+        } finally { server.stop(true); }
     }
 
     const shots = arg("screenshot");

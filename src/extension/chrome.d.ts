@@ -11,7 +11,7 @@ declare namespace chrome {
         function sendMessage<T = any>(message: unknown): Promise<T>;
         function connect(info?: { name?: string }): Port;
         function getContexts(filter: { contextTypes?: string[]; documentUrls?: string[] }): Promise<Array<{ contextType: string; documentUrl?: string }>>;
-        interface MessageSender { id?: string; url?: string; documentId?: string }
+        interface MessageSender { id?: string; url?: string; origin?: string; documentId?: string; tab?: { id?: number; url?: string } }
         interface Port {
             name: string;
             postMessage(message: unknown): void;
@@ -26,6 +26,8 @@ declare namespace chrome {
     }
     namespace windows {
         function getCurrent(): Promise<{ id?: number }>;
+        function create(props: { url: string; type?: "normal" | "popup"; width?: number; height?: number; focused?: boolean }): Promise<{ id?: number } | undefined>;
+        const onRemoved: Event<(windowId: number) => void>;
     }
     /** Side panel (Chrome 116+); absent in browsers without it, so read it as optional. */
     namespace sidePanel {

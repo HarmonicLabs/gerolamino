@@ -143,6 +143,8 @@ export interface BrowserNodeOptions {
     chunkSlots?: number;
     /** Supplies the Mithril verifier for the "mithril" start (default: dynamic import, see mithrilLoader.ts). */
     loadMithril?: () => Promise<MithrilAnchorFn | null>;
+    /** Where the Mithril start gets the immutable file digests: the peer (default, fast) or the aggregator. */
+    mithrilDigests?: "peer" | "aggregator";
     connectTimeoutMs?: number;
     keepAliveMs?: number;
     /** WebSocket constructor (default: the global one). */
@@ -525,7 +527,7 @@ export class BrowserNode {
         this.stats.state = "anchoring"; this.emit();
         const anchorFn = await (this.opts.loadMithril ?? (() => loadMithrilAnchor(undefined, (l) => this.log(l))))();
         if (!anchorFn) throw new Error("Mithril start selected but the Mithril verifier is not available in this build");
-        const a = await this.guard(anchorFn({ network, lq: this.lq, log: (l) => this.log(l) }));
+        const a = await this.guard(anchorFn({ network, lq: this.lq, log: (l) => this.log(l), digestsFrom: this.opts.mithrilDigests }));
         this.stats.anchor = a;
         this.log(`Mithril-certified start point: slot ${a.slot} ${String(a.hash).slice(0, 16)}…`);
         return { slot: Number(a.slot), hash: String(a.hash) };

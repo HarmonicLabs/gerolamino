@@ -15,6 +15,8 @@ export interface Settings {
     certifiedStake: boolean;
     /** Check relayed answers about a transaction with a Mithril proof that it is on the chain. */
     txProofs: boolean;
+    /** Where a Mithril start gets the immutable file digests: the Gerolamo peer (fast) or the Mithril aggregator (direct). */
+    mithrilDigests: "peer" | "aggregator";
 }
 
 export const MAX_EXTRA_RELAYS = 4;
@@ -28,6 +30,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
     extraRelays: [],
     certifiedStake: true,
     txProofs: true,
+    mithrilDigests: "peer",
 });
 
 export const NETWORK_NAMES: readonly NetworkName[] = ["preview", "preprod"];
@@ -61,6 +64,7 @@ export function normalizeSettings(raw: unknown): Settings {
         extraRelays: normalizeExtraRelays(r.extraRelays, relayUrl),
         certifiedStake: typeof r.certifiedStake === "boolean" ? r.certifiedStake : DEFAULT_SETTINGS.certifiedStake,
         txProofs: typeof r.txProofs === "boolean" ? r.txProofs : DEFAULT_SETTINGS.txProofs,
+        mithrilDigests: r.mithrilDigests === "aggregator" || r.mithrilDigests === "peer" ? r.mithrilDigests : DEFAULT_SETTINGS.mithrilDigests,
     };
 }
 
@@ -79,7 +83,7 @@ export function settingsErrors(raw: Partial<Record<keyof Settings, unknown>>): s
 }
 
 export function sameSettings(a: Settings, b: Settings): boolean {
-    return a.network === b.network && a.relayUrl === b.relayUrl && a.startMode === b.startMode && a.extraRelays.join(" ") === b.extraRelays.join(" ") && a.certifiedStake === b.certifiedStake && a.txProofs === b.txProofs;
+    return a.network === b.network && a.relayUrl === b.relayUrl && a.startMode === b.startMode && a.extraRelays.join(" ") === b.extraRelays.join(" ") && a.certifiedStake === b.certifiedStake && a.txProofs === b.txProofs && a.mithrilDigests === b.mithrilDigests;
 }
 
 /** The storage area the settings live in (chrome.storage.local, or a fake in tests). */

@@ -76,11 +76,22 @@ All five in the browser (Brave, `scripts/e2e-chrome.ts --start mithril --relay w
 a relayed `/txs` answer proven in blocks 4782420 to 4782434.
 
 Follow-ups:
-- The Mithril start spends about 6 minutes downloading the cardano-database digests (10 MB, 87 552 entries):
-  the aggregator sends them at about 27 KB/s, compressed or not. They are checked against the certified Merkle
-  root, so any source will do: serve them from the Gerolamo peer (light query or its Blockfrost API).
+- Done 2026-10-23: the Mithril start took about 6 minutes more downloading the cardano-database digests (10 MB;
+  the aggregator sends about 27 KB/s). A Gerolamo peer now serves them from its own chunk files (light query
+  request 10, `digests` capability; it hashes its store once, 149 s for preview's 15 GB, and keeps a cache), the
+  download runs during the certificate walk, and the list must reproduce the certified Merkle root. Setting
+  "Mithril files from": Gerolamo peer (default) or Mithril aggregator (direct, no peer needed); a peer without
+  digests, or with wrong ones, falls back to the aggregator. Mithril start in Bun: 69 s (was about 9 minutes).
 - After a resume the Trust card shows the start point as "this node's stored chain": the store does not record
   that it began at a Mithril-certified point. Write the anchor next to the chunk files.
+
+## dApp API (2026-10-23)
+
+`window.cardano.gerolamino`, CIP-30 style, for web pages: `enable()` with a per-site approval window, network
+id, tip, Trust checks, Blockfrost queries answered locally or by the Gerolamo peer (with Mithril proofs on
+transactions) and `submitTx`. No keys, so no signing. Spec and examples in `docs/DAPP_API.md`; demo page
+`examples/dapp-demo.html` (`bun scripts/serve-demo.ts`); browser test `scripts/e2e-chrome.ts --dapp` (PASS in
+Brave: allow, calls, deny on a second site).
 
 ## Measured
 

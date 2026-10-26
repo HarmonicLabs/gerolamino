@@ -40,6 +40,7 @@ function fillForm(s: Settings): void {
     $<HTMLTextAreaElement>("extraRelays").value = (s.extraRelays ?? []).join("\n");
     $<HTMLInputElement>("certifiedStake").checked = s.certifiedStake !== false;
     $<HTMLInputElement>("txProofs").checked = s.txProofs !== false;
+    $<HTMLSelectElement>("mithrilDigests").value = s.mithrilDigests ?? "peer";
 }
 
 const START_LABEL: Record<string, string> = { tip: "tip sync", chunk: "chunk start", mithril: "Mithril start", resume: "resumed", point: "from a point" };
@@ -256,11 +257,26 @@ function message(id: string, text: string, ok: boolean): void {
     $(id).className = `small ${ok ? "ok" : "bad"}`;
 }
 
+// ---- sites allowed to use window.cardano.gerolamino (dappApi.ts) ----
+async function renderSites(): Promise<void> {
+    const r = await send<{ ok: boolean; sites?: Array<{ origin: string; approvedAt: number }> }>({ type: "dapp-list" });
+    const sites = r?.sites ?? [];
+    $("sites").replaceChildren(...(sites.length ? sites.map((s) => {
+        const li = document.createElement("li");
+        const name = document.createElement("span"); name.textContent = s.origin; name.title = `allowed ${new Date(s.approvedAt).toLocaleString()}`;
+        const btn = document.createElement("button"); btn.className = "btn danger small"; btn.textContent = "Remove"; btn.type = "button";
+        btn.addEventListener("click", async () => { await send({ type: "dapp-revoke", origin: s.origin }); void renderSites(); });
+        li.append(name, btn);
+        return li;
+    }) : [Object.assign(document.createElement("li"), { className: "dim", textContent: "none" })]));
+}
+void renderSites();
+
 $("settings").addEventListener("input", () => { formDirty = true; });
 $("settings").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const extraRelays = $<HTMLTextAreaElement>("extraRelays").value.split(/[\s,]+/).map((u) => u.trim()).filter(Boolean);
-    const settings = { relayUrl: $<HTMLInputElement>("relayUrl").value.trim(), network: $<HTMLSelectElement>("network").value, startMode: $<HTMLSelectElement>("startMode").value, extraRelays, certifiedStake: $<HTMLInputElement>("certifiedStake").checked, txProofs: $<HTMLInputElement>("txProofs").checked };
+    const settings = { relayUrl: $<HTMLInputElement>("relayUrl").value.trim(), network: $<HTMLSelectElement>("network").value, startMode: $<HTMLSelectElement>("startMode").value, extraRelays, certifiedStake: $<HTMLInputElement>("certifiedStake").checked, txProofs: $<HTMLInputElement>("txProofs").checked, mithrilDigests: $<HTMLSelectElement>("mithrilDigests").value };
     const r = await send({ type: "set-settings", settings });
     message("settings-msg", r?.ok ? "Saved; the node restarted." : `Not saved: ${r?.error ?? "no answer"}`, !!r?.ok);
     if (r?.ok) { formDirty = false; newestBlock = null; }

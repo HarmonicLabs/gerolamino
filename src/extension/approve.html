@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gerolamino: allow this site?</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="approve">
+  <header class="topbar">
+    <img src="logo.svg" alt="" width="28" height="28">
+    <div class="brand"><h1>Gerolamino</h1><span class="brand-sub">browser node</span></div>
+  </header>
+  <main>
+    <section class="card card-accent">
+      <h2>Allow this site?</h2>
+      <p class="approve-origin mono" id="origin">–</p>
+      <p class="small dim">It asks to use your Gerolamino node:</p>
+      <ul class="approve-list small">
+        <li>read chain data (blocks, transactions, addresses, pools) answered by this node or its Gerolamo peer</li>
+        <li>see the node's tip, network and Trust checks</li>
+        <li>submit transactions that a wallet already signed</li>
+      </ul>
+      <p class="small dim">Gerolamino holds no keys: the site cannot sign or spend anything through it. You can remove the site later in Settings.</p>
+      <div class="row approve-buttons">
+        <button id="deny" class="btn">Deny</button>
+        <button id="allow" class="btn primary">Allow</button>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="approve.js"></script>
+</body>
+</html>

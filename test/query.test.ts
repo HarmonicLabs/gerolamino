@@ -104,10 +104,10 @@ describe("light-query hello capabilities", () => {
     test("a version-1 hello's map is read; a version-0 hello has none", () => {
         const t = (s: string) => new CborText(s);
         const caps = parseCapabilities(Cbor.parse(Cbor.encode(new CborMap([
-            { k: t("nonce"), v: new CborSimple(true) }, { k: t("stake"), v: new CborSimple(true) }, { k: t("chunk"), v: new CborSimple(false) },
+            { k: t("nonce"), v: new CborSimple(true) }, { k: t("stake"), v: new CborSimple(true) }, { k: t("chunk"), v: new CborSimple(false) }, { k: t("digests"), v: new CborSimple(true) },
             { k: t("blockfrost"), v: new CborMap([{ k: t("rate"), v: new CborUInt(30) }, { k: t("window_ms"), v: new CborUInt(10_000) }, { k: t("max_body"), v: new CborUInt(524_288) }]) },
         ])).toBuffer()));
-        expect(caps).toEqual({ nonce: true, stake: true, chunk: false, blockfrost: { rate: 30, windowMs: 10_000, maxBody: 524_288 } });
+        expect(caps).toEqual({ nonce: true, stake: true, chunk: false, digests: true, blockfrost: { rate: 30, windowMs: 10_000, maxBody: 524_288 } });
         expect(parseCapabilities(undefined)).toBeNull();
         expect(parseCapabilities(Cbor.parse(Cbor.encode(new CborMap([{ k: t("nonce"), v: new CborSimple(true) }])).toBuffer()))!.blockfrost).toBeNull();
     });

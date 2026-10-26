@@ -142,6 +142,12 @@
             <option value="mithril">Mithril-certified point</option>
           </select>
         </label>
+        <label>Mithril files from
+          <select id="mithrilDigests" name="mithrilDigests">
+            <option value="peer">Gerolamo peer (fast)</option>
+            <option value="aggregator">Mithril aggregator (direct)</option>
+          </select>
+        </label>
       </div>
       <label class="check"><input id="certifiedStake" name="certifiedStake" type="checkbox"> Check pool stake with Mithril <span class="dim">(aggregator download, then cached)</span></label>
       <label class="check"><input id="txProofs" name="txProofs" type="checkbox"> Check relayed transaction answers with Mithril proofs</label>
@@ -151,6 +157,8 @@
       </div>
       <p id="settings-msg" class="small" role="status"></p>
     </form>
+    <h3 class="small dim">Connected sites <span class="dim">(window.cardano.gerolamino)</span></h3>
+    <ul id="sites" class="sites"><li class="dim">none</li></ul>
   </details>
 
   <details class="card fold">

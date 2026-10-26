@@ -10,12 +10,12 @@ function memoryArea(init: Record<string, unknown> = {}): KeyValueArea & { data: 
 
 describe("settings", () => {
     test("defaults: preview, the preview relay's WebSocket bearer, tip", () => {
-        expect(DEFAULT_SETTINGS).toEqual({ network: "preview", relayUrl: "ws://192.168.1.173:3004/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true });
+        expect(DEFAULT_SETTINGS).toEqual({ network: "preview", relayUrl: "ws://192.168.1.173:3004/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true, mithrilDigests: "peer" });
     });
     test("normalize fills defaults and drops invalid values", () => {
         expect(normalizeSettings(undefined)).toEqual({ ...DEFAULT_SETTINGS });
         expect(normalizeSettings({ network: "mainnet", relayUrl: "http://x", startMode: "origin" })).toEqual({ ...DEFAULT_SETTINGS });
-        expect(normalizeSettings({ network: "preprod", relayUrl: " wss://relay.example/n2n ", startMode: "mithril" })).toEqual({ network: "preprod", relayUrl: "wss://relay.example/n2n", startMode: "mithril", extraRelays: [], certifiedStake: true, txProofs: true });
+        expect(normalizeSettings({ network: "preprod", relayUrl: " wss://relay.example/n2n ", startMode: "mithril" })).toEqual({ network: "preprod", relayUrl: "wss://relay.example/n2n", startMode: "mithril", extraRelays: [], certifiedStake: true, txProofs: true, mithrilDigests: "peer" });
     });
     test("relay URLs must be ws:// or wss://", () => {
         expect(validRelayUrl("ws://127.0.0.1:3003")).toBe(true);
@@ -77,8 +77,8 @@ describe("background hub", () => {
         const { h, area, sent, ensured } = hub();
         const r: any = await h.handle({ to: "background", type: "set-settings", settings: { network: "preprod", relayUrl: "wss://r.example/n2n" } });
         expect(r.ok).toBe(true);
-        expect(area.data[SETTINGS_KEY]).toEqual({ network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true });
-        expect(sent).toEqual([{ to: "offscreen", type: "apply-settings", settings: { network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true } }]);
+        expect(area.data[SETTINGS_KEY]).toEqual({ network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true, mithrilDigests: "peer" });
+        expect(sent).toEqual([{ to: "offscreen", type: "apply-settings", settings: { network: "preprod", relayUrl: "wss://r.example/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true, mithrilDigests: "peer" } }]);
         expect(ensured()).toBe(1);
         expect(await h.handle({ to: "background", type: "set-settings", settings: { relayUrl: "http://x" } })).toMatchObject({ ok: false });
     });

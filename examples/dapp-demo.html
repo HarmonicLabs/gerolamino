@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerolamino dApp demo</title>
+<style>
+  :root { --bg: #0b0d12; --card: #141821; --text: #e8eaf0; --dim: #8a93a6; --accent: #ff2d55; --ok: #00e676; --border: #232a36; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { color: var(--dim); margin: 0 0 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  button { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; font: inherit; }
+  button.primary { background: var(--accent); border-color: var(--accent); }
+  input { flex: 1; min-width: 0; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font: 13px ui-monospace, monospace; }
+  pre { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; max-height: 50vh; font-size: 12px; }
+  #state { font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Gerolamino dApp demo</h1>
+  <p>Talks to your Gerolamino browser node through <code>window.cardano.gerolamino</code>. Status: <span id="state">looking for Gerolamino…</span></p>
+  <div class="row">
+    <button id="enable" class="primary">Connect</button>
+    <button data-call="getNetworkId">Network id</button>
+    <button data-call="getTip">Tip</button>
+    <button data-call="getTrust">Trust</button>
+    <button data-call="getProtocolParameters">Protocol parameters</button>
+  </div>
+  <div class="row">
+    <input id="path" value="/blocks/latest" spellcheck="false" aria-label="Blockfrost path">
+    <button id="query">Query</button>
+  </div>
+  <pre id="out">–</pre>
+</main>
+<script>
+  const out = document.getElementById("out"), state = document.getElementById("state");
+  const show = (x) => { out.textContent = typeof x === "string" ? x : JSON.stringify(x, null, 2); };
+  let api = null;
+  const provider = () => window.cardano && window.cardano.gerolamino;
+  async function refresh() {
+    const p = provider();
+    if (!p) { state.textContent = "Gerolamino not installed"; return; }
+    state.textContent = (await p.isEnabled()) ? "connected" : "installed, not connected";
+  }
+  async function run(fn) { try { show(await fn()); } catch (e) { show({ error: e }); } }
+  document.getElementById("enable").onclick = () => run(async () => { api = await provider().enable(); await refresh(); return "connected"; });
+  for (const b of document.querySelectorAll("[data-call]")) b.onclick = () => run(async () => { api = api || await provider().enable(); return api[b.dataset.call](); });
+  document.getElementById("query").onclick = () => run(async () => { api = api || await provider().enable(); return api.query(document.getElementById("path").value); });
+  setTimeout(refresh, 300);
+</script>
+</body>
+</html>

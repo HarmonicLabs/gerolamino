@@ -26,7 +26,12 @@ const entries: Record<string, string> = {
     offscreen: join(ext, "offscreen.ts"),
     popup: join(ext, "popup.ts"),
     opfsWorker: join(root, "src/node/opfsWorker.ts"),
+    approve: join(ext, "approve.ts"),
+    // content scripts are classic scripts: bundled as IIFE below
+    inpage: join(ext, "inpage.ts"),
+    bridge: join(ext, "bridge.ts"),
 };
+const CLASSIC = new Set(["inpage", "bridge"]);
 const mithrilEntry = ["src/mithril/index.ts", "src/mithril/mithrilAnchor.ts"].map((p) => join(root, p)).find((p) => existsSync(p));
 if (mithrilEntry) entries.mithril = mithrilEntry;
 
@@ -41,7 +46,7 @@ for (const [name, entry] of Object.entries(entries)) {
         outdir,
         naming: `${name}.js`,
         target: "browser",
-        format: "esm",
+        format: CLASSIC.has(name) ? "iife" : "esm",
         minify,
         sourcemap: "linked",
         metafile: true,
@@ -63,7 +68,7 @@ for (const [name, entry] of Object.entries(entries)) {
 }
 if (problems.length) { console.error(problems.join("\n")); throw new Error("disallowed runtime dependency in the bundle"); }
 
-for (const f of ["manifest.json", "popup.html", "popup.css", "offscreen.html", "logo.svg"]) copyFileSync(join(ext, f), join(outdir, f));
+for (const f of ["manifest.json", "popup.html", "popup.css", "offscreen.html", "approve.html", "logo.svg"]) copyFileSync(join(ext, f), join(outdir, f));
 const manifest = JSON.parse(readFileSync(join(outdir, "manifest.json"), "utf8"));
 manifest.version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version.replace(/-.*$/, "");
 writeFileSync(join(outdir, "manifest.json"), JSON.stringify(manifest, null, 2));

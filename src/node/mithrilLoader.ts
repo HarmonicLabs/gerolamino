@@ -14,7 +14,7 @@ export interface MithrilAnchor {
     [k: string]: unknown;
 }
 
-export type MithrilAnchorFn = (opts: { network: string; lq: LightQueryClient; log?: (l: string) => void }) => Promise<MithrilAnchor>;
+export type MithrilAnchorFn = (opts: { network: string; lq: LightQueryClient; log?: (l: string) => void; digestsFrom?: "peer" | "aggregator" }) => Promise<MithrilAnchor>;
 
 /** The Mithril-certified stake of a leader-election epoch (src/mithril/stake.ts). */
 export interface CertifiedStake { leaderEpoch: number; artifactEpoch: number; certificateHash: string; pools: Map<string, bigint>; total: bigint; certificatesWalked: number; ms: number }

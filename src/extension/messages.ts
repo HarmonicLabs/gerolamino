@@ -2,7 +2,9 @@
  * Message protocol between the popup, the background service worker and the offscreen document, and
  * the background's routing logic (`BackgroundHub`), kept free of `chrome.*` so it can be unit tested.
  *
- *   popup → background:      get-status | set-settings | submit-tx | query | wipe-store
+ *   popup → background:      get-status | set-settings | submit-tx | query | wipe-store | dapp-list | dapp-revoke
+ *   page → background:       dapp (a window.cardano.gerolamino call, through the bridge content script)
+ *   approval window → background: dapp-approval
  *   background → offscreen:  apply-settings | submit-tx | query | wipe-store
  *   offscreen → background:  offscreen-ready (answered with the settings) | stats | log
  *
@@ -19,7 +21,11 @@ export type ToBackground =
     | { to: "background"; type: "wipe-store" }
     | { to: "background"; type: "offscreen-ready" }
     | { to: "background"; type: "stats"; stats: unknown }
-    | { to: "background"; type: "log"; lines: string[] };
+    | { to: "background"; type: "log"; lines: string[] }
+    | { to: "background"; type: "dapp"; method: string; params: unknown[] }
+    | { to: "background"; type: "dapp-approval"; requestId: string; approved: boolean }
+    | { to: "background"; type: "dapp-list" }
+    | { to: "background"; type: "dapp-revoke"; origin: string };
 
 export type ToOffscreen =
     | { to: "offscreen"; type: "apply-settings"; settings: Settings }
@@ -71,6 +77,9 @@ export class BackgroundHub {
     constructor(private readonly deps: HubDeps) {}
 
     private now(): number { return (this.deps.now ?? Date.now)(); }
+
+    /** The node's latest stats, as the offscreen document last published them. */
+    latestStatus(): unknown { return this.status; }
 
     async handle(msg: ToBackground): Promise<Reply<any>> {
         try {

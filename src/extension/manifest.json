@@ -9,6 +9,10 @@
     "background": { "service_worker": "background.js", "type": "module" },
     "action": { "default_title": "Gerolamino", "default_popup": "popup.html", "default_icon": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" } },
     "side_panel": { "default_path": "popup.html?view=panel" },
+    "content_scripts": [
+        { "matches": ["http://*/*", "https://*/*"], "js": ["bridge.js"], "run_at": "document_start" },
+        { "matches": ["http://*/*", "https://*/*"], "js": ["inpage.js"], "run_at": "document_start", "world": "MAIN" }
+    ],
     "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
     "content_security_policy": {
         "extension_pages": "script-src 'self'; object-src 'self'; worker-src 'self'; connect-src 'self' ws: wss: https:"

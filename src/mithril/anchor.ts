@@ -21,7 +21,7 @@ import { cardanoDatabaseMessageMatches, CertificateError } from "./certificate";
 import { OpfsCertificateStore, type CertificateStore } from "./certStore";
 import { lastBlockOfChunk } from "./chunkIndex";
 import { sha256Async } from "./hash";
-import { cardanoDatabaseMerkleRoot, certifiedDigests } from "./mkTree";
+import { cardanoDatabaseMerkleRoot, certifiedDigests, type ImmutableFileDigest } from "./mkTree";
 import { decodeGenesisVerificationKey, verifyCertificateChain } from "./verifier";
 import { rememberVerified } from "./chainCache";
 
@@ -31,6 +31,8 @@ export type ChunkFiles = { chunk: Uint8Array; primary: Uint8Array; secondary: Ui
 export interface MithrilLightQuery {
     /** A complete immutable chunk (the three files) from the relay, or null when it does not have it. */
     chunk(chunkNo: number): Promise<ChunkFiles | null>;
+    /** Mithril digests of the peer's immutable files from..to; null when it does not serve them (yet). */
+    digests?(from: number, to: number): Promise<{ from: number; to: number; entries: ImmutableFileDigest[] } | null>;
 }
 export type LightQueryClient = MithrilLightQuery;
 
@@ -51,6 +53,9 @@ export interface MithrilAnchor {
     certificatesWalked: string;
     genesisCertificateHash: string;
     chain: { certificates: number; cacheHits: number; downloads: number; walkMs: number; verifyMs: number };
+    /** Where the immutable file digests came from (both are checked against the certified Merkle root). */
+    digestsSource: "peer" | "aggregator";
+    digestsMs: number;
 }
 
 export type MithrilAnchorOptions = {
@@ -71,6 +76,12 @@ export type MithrilAnchorOptions = {
      */
     store?: CertificateStore | null;
     fetch?: FetchLike;
+    /**
+     * Where to get the immutable file digests: the Gerolamo peer (fast; default) or the Mithril aggregator (direct,
+     * 10 MB on preview, slow). Either way they must reproduce the certified Merkle root; a peer whose digests do not
+     * (or that has none) falls back to the aggregator.
+     */
+    digestsFrom?: "peer" | "aggregator";
 };
 
 const hasOpfs = (): boolean => typeof (globalThis as { navigator?: { storage?: { getDirectory?: unknown } } }).navigator?.storage?.getDirectory === "function";
@@ -108,6 +119,11 @@ export async function mithrilAnchor(opts: MithrilAnchorOptions): Promise<Mithril
     if (!detail || !files) throw new Error("Mithril: the relay has none of the certified snapshots' last chunks (try later, or a relay further along)");
     const n = detail.beacon.immutable_file_number;
 
+    // the digests download runs while the certificate chain is walked
+    const merkleRoot = detail.merkle_root.toLowerCase();
+    const digestsJob = loadDigests(client, opts, n, merkleRoot, log);
+    digestsJob.catch(() => {});
+
     const vkeyText = opts.genesisVkey === "fetch" ? await fetchGenesisVkey(cfg.genesisVkeyUrl, opts.fetch) : (opts.genesisVkey ?? cfg.genesisVkey);
     const genesisVkey = decodeGenesisVerificationKey(vkeyText);
 
@@ -137,10 +153,8 @@ export async function mithrilAnchor(opts: MithrilAnchorOptions): Promise<Mithril
     log(`Mithril: certificate chain OK: ${walked}; ${retrieve.stats.hits} of ${retrieve.stats.hits + retrieve.stats.misses} certificates from the cache`);
     await retrieve.persist();
 
-    const digests = await client.cardanoDatabaseDigests();
-    const root = cardanoDatabaseMerkleRoot(digests, n);
-    if (root !== detail.merkle_root.toLowerCase()) throw new Error(`Mithril: digests give Merkle root ${root}, the certificate signed ${detail.merkle_root}`);
-    log(`Mithril: ${certifiedDigests(digests, n).length} file digests reproduce the certified Merkle root`);
+    const { digests, source: digestsSource, ms: digestsMs } = await digestsJob;
+    log(`Mithril: ${certifiedDigests(digests, n).length} file digests from the ${digestsSource} reproduce the certified Merkle root (${(digestsMs / 1000).toFixed(1)} s)`);
 
     const name = n.toString().padStart(5, "0");
     const want = new Map(certifiedDigests(digests, n).filter((d) => d.immutable_file_name.startsWith(`${name}.`)).map((d) => [d.immutable_file_name, d.digest.toLowerCase()]));
@@ -174,5 +188,35 @@ export async function mithrilAnchor(opts: MithrilAnchorOptions): Promise<Mithril
         certificatesWalked: walked,
         genesisCertificateHash: chain.genesisHash,
         chain: { certificates: chain.hops.length, cacheHits: retrieve.stats.hits, downloads: retrieve.stats.misses, walkMs: chain.ms, verifyMs: chain.verifyMs },
+        digestsSource,
+        digestsMs,
     };
+}
+
+/** Digests of immutable files 0..n that reproduce `merkleRoot`: from the peer when it serves them, else the aggregator. */
+export async function loadDigests(client: AggregatorClient, opts: MithrilAnchorOptions, n: number, merkleRoot: string, log: (l: string) => void): Promise<{ digests: ImmutableFileDigest[]; source: "peer" | "aggregator"; ms: number }> {
+    const t0 = performance.now();
+    if ((opts.digestsFrom ?? "peer") === "peer" && opts.lq.digests) {
+        try {
+            const all: ImmutableFileDigest[] = [];
+            let from = 0, missing = false;
+            while (from <= n) {
+                const page = await opts.lq.digests(from, n);
+                if (!page || page.to < from) { missing = true; break; }
+                all.push(...page.entries);
+                from = page.to + 1;
+            }
+            if (missing) log(`Mithril: the peer has no digests up to immutable file ${n} yet; asking the aggregator`);
+            else {
+                const root = cardanoDatabaseMerkleRoot(all, n);
+                if (root === merkleRoot) return { digests: all, source: "peer", ms: performance.now() - t0 };
+                log(`Mithril: the peer's digests give Merkle root ${root.slice(0, 16)}…, not the certified one; asking the aggregator`);
+            }
+        } catch (e) { log(`Mithril: digests from the peer failed (${(e as Error).message}); asking the aggregator`); }
+    }
+    log(`Mithril: downloading the digests from the aggregator`);
+    const digests = await client.cardanoDatabaseDigests();
+    const root = cardanoDatabaseMerkleRoot(digests, n);
+    if (root !== merkleRoot) throw new Error(`Mithril: digests give Merkle root ${root}, the certificate signed ${merkleRoot}`);
+    return { digests, source: "aggregator", ms: performance.now() - t0 };
 }

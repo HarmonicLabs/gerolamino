@@ -27,6 +27,8 @@ const entries: Record<string, string> = {
     popup: join(ext, "popup.ts"),
     opfsWorker: join(root, "src/node/opfsWorker.ts"),
     approve: join(ext, "approve.ts"),
+    // the dApp Blockfrost transport (Blockfrost GETs through window.cardano.gerolamino, not window.fetch)
+    "gerolamino-blockfrost": join(root, "src/dapp/blockfrostProvider.ts"),
     // content scripts are classic scripts: bundled as IIFE below
     inpage: join(ext, "inpage.ts"),
     bridge: join(ext, "bridge.ts"),

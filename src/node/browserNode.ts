@@ -32,6 +32,7 @@ import { fromHex, toHex } from "@harmoniclabs/uint8array-utils";
 import { arrayElements, bytesAt, uintAt } from "./cbor";
 import { decodePrimary, decodeSecondaryEntry, filledRelativeSlots, SECONDARY_ENTRY_SIZE } from "./chunkFormat";
 import { ChunkWriter, type FileSink } from "./chunkWriter";
+import { VolatileStore } from "./volatileStore";
 import { proposeBrowserHandshake } from "./handshake";
 import { parseHeaderCrypto, verifyHeaderCrypto } from "./headerVerify";
 import { isSlotLeader } from "./leaderMath";
@@ -129,6 +130,10 @@ export interface BrowserNodeOptions {
     keep?: number;
     /** Persist verified blocks as cardano-node chunk files through this sink (OPFS in the extension). */
     storeSink?: FileSink;
+    /** Blocks near the tip (last k slots) in a volatile store; promoted to `storeSink` chunks as they age. */
+    volatileSink?: FileSink;
+    /** Security parameter k (slots a peer may roll back); default from the network. */
+    securityParam?: number;
     /** Index of the stored blocks for local queries (query.ts): fed every stored block, trimmed on rollback. */
     index?: LocalChainIndex;
     /** The Mithril-certified stake of an epoch when it is available (null: use the peer's; see @harmoniclabs/mithril-ts mithrilStake). */
@@ -232,6 +237,8 @@ export class BrowserNode {
     private lq: LightQueryClient | null = null;
     private txc: TxSubmitClient | null = null;
     private writer: ChunkWriter | null = null;
+    private volatile: VolatileStore | null = null;
+    private securityParam = 0;
     private nonces = new Map<number, Uint8Array | null>();
     private stakeCache = new Map<string, PoolStakeInfo>();
     private stakeMismatchPools = new Set<string>();
@@ -356,18 +363,27 @@ export class BrowserNode {
             let resuming = false;
             if (this.opts.storeSink) {
                 this.writer = new ChunkWriter(this.opts.storeSink, this.opts.chunkSlots ?? net?.chunkSlots ?? 4320);
-                const stored = await this.writer.resume();
+                await this.writer.resume();
                 this.syncStoreStats();
-                const rb = this.opts.rollbackTo;
-                if (stored && rb && stored.slot > rb.slot) {
-                    const undone = await this.writer.rollbackTo(rb.slot);
-                    this.opts.index?.rollbackTo(rb.slot); this.opts.observer?.rollbackTo(rb.slot);
-                    this.syncStoreStats();
-                    this.log(`switching to a longer fork: ${undone} stored block(s) after slot ${rb.slot} undone`);
-                }
-                const tip = this.writer.tip;
-                if (tip) { from = { slot: tip.slot, hash: hex(tip.hash) }; resuming = true; this.stats.resumedFrom = tip.slot; this.log(`store holds ${this.stats.storedBlocks} blocks; resuming from the stored tip at slot ${tip.slot}`); }
             }
+            if (this.opts.volatileSink) {
+                this.volatile = new VolatileStore(this.opts.volatileSink);
+                try { await this.volatile.resume(); } catch (e) { this.noteError(`volatile store resume: ${(e as Error).message}`); }
+                this.securityParam = this.opts.securityParam ?? net?.securityParam ?? 0;
+                this.syncStoreStats();
+            }
+            const rb = this.opts.rollbackTo;
+            if (rb) {
+                // volatile first (the tip), then the immutable chunks only if the rollback crosses k slots
+                let undone = 0;
+                if (this.volatile && this.volatile.tip && this.volatile.tip.slot > rb.slot) undone += await this.volatile.rollbackTo(rb.slot);
+                if (this.writer && this.writer.tip && this.writer.tip.slot > rb.slot) undone += await this.writer.rollbackTo(rb.slot);
+                this.opts.index?.rollbackTo(rb.slot); this.opts.observer?.rollbackTo(rb.slot);
+                this.syncStoreStats();
+                if (undone) this.log(`switching to a longer fork: ${undone} stored block(s) after slot ${rb.slot} undone`);
+            }
+            const storedTip = this.volatile?.tip ?? this.writer?.tip ?? null;
+            if (storedTip) { from = { slot: storedTip.slot, hash: hex(storedTip.hash) }; resuming = true; this.stats.resumedFrom = storedTip.slot; this.log(`store holds ${this.stats.storedBlocks} blocks; resuming from the stored tip at slot ${storedTip.slot}`); }
             if (!from && typeof mode === "object") from = mode;
             if (!from && this.opts.rollbackTo) { from = this.opts.rollbackTo; resuming = true; this.log(`resuming from the common block at slot ${from.slot}`); }
             if (!from && this.opts.resumeFrom) { from = this.opts.resumeFrom; resuming = true; this.log(`resuming from the last verified point, slot ${from.slot}`); }
@@ -407,7 +423,9 @@ export class BrowserNode {
                         this.stats.rollbacks++;
                         let dropped = 0;
                         while (this.recent.length && this.recent[this.recent.length - 1]!.slot > slot) { this.recent.pop(); dropped++; }
-                        if (this.writer) { try { dropped = Math.max(dropped, await this.writer.rollbackTo(slot)); this.syncStoreStats(); } catch (e) { this.noteError(`store rollback: ${(e as Error).message}`); } }
+                        if (this.volatile) { try { dropped = Math.max(dropped, await this.volatile.rollbackTo(slot)); } catch (e) { this.noteError(`volatile store rollback: ${(e as Error).message}`); } }
+                        if (this.writer) { try { dropped = Math.max(dropped, await this.writer.rollbackTo(slot)); } catch (e) { this.noteError(`store rollback: ${(e as Error).message}`); } }
+                        this.syncStoreStats();
                         this.opts.index?.rollbackTo(slot);
                         this.opts.observer?.rollbackTo(slot);
                         this.opts.headerLog?.rollbackTo(slot);
@@ -507,18 +525,28 @@ export class BrowserNode {
         else { this.stats.bodyBad++; this.noteError(`BODY MISMATCH at slot ${h.slot}: ${got.hash !== h.bodyHash ? "hash" : `size ${got.size} ≠ ${h.bodySize}`}`); }
         this.recent.push({ slot: h.slot, blockNo: h.blockNo, hash: h.hash, size: bytes.length, txs: got.txs });
         while (this.recent.length > (this.opts.keep ?? 64)) this.recent.shift();
-        // only fully verified blocks are stored
-        if (this.writer && bodyOk && linked && (cryptoOk || !nonce)) {
-            try { await this.writer.append(h.slot, fromHex(h.hash), bytes); this.syncStoreStats(); this.opts.index?.add(bytes); }
-            catch (e) { this.noteError(`store: ${(e as Error).message}`); }
+        // only fully verified blocks are stored: volatile (last k slots) first, promoted to immutable chunks as they age
+        if ((this.writer || this.volatile) && bodyOk && linked && (cryptoOk || !nonce)) {
+            try {
+                if (this.volatile) {
+                    await this.volatile.append(h.slot, fromHex(h.hash), bytes);
+                    const promoted = this.writer ? await this.volatile.promoteOlderThan(h.slot - this.securityParam) : [];
+                    for (const p of promoted) await this.writer!.append(p.slot, p.hash, p.bytes);
+                    this.opts.index?.add(bytes);
+                } else {
+                    await this.writer!.append(h.slot, fromHex(h.hash), bytes);
+                    this.opts.index?.add(bytes);
+                }
+                this.syncStoreStats();
+            } catch (e) { this.noteError(`store: ${(e as Error).message}`); }
         }
     }
 
     private syncStoreStats(): void {
-        if (!this.writer) return;
-        const st = this.writer.stats;
-        this.stats.storedBlocks = st.blocks; this.stats.storedBytes = st.bytes; this.stats.storedChunks = st.chunks;
-        this.stats.storedTipSlot = this.writer.tip?.slot ?? null;
+        const w = this.writer?.stats ?? { blocks: 0, bytes: 0, chunks: 0 };
+        const v = this.volatile?.stats ?? { blocks: 0, bytes: 0 };
+        this.stats.storedBlocks = w.blocks + v.blocks; this.stats.storedBytes = w.bytes + v.bytes; this.stats.storedChunks = w.chunks;
+        this.stats.storedTipSlot = this.volatile?.tip?.slot ?? this.writer?.tip?.slot ?? null;
     }
 
     private async mithrilStart(network: string | undefined): Promise<Point> {

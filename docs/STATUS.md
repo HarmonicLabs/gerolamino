@@ -53,6 +53,20 @@ ported and owned here.
 | Extension | service worker keeps the offscreen node alive and recreates it; popup in the desktop app's look (sync ring, epoch bar, tip tiles, verification cards, storage, recent blocks; settings, tx submission, wipe; "Open in a tab" for a wide view) |
 | Dependencies | runtime `@harmoniclabs/*` only; the build fails on anything else |
 
+## Volatile store (2026-10-28)
+
+Blocks within k slots of the tip are no longer written into the immutable chunk files. They live in
+`gerolamino/<network>/volatile` (one `v-<slot>.blk` file per block, header hash + block bytes) and are
+promoted to the chunk writer only when they are k slots behind the tip (`promoteOlderThan(h.slot - k)`).
+A rollback inside the k window therefore truncates volatile files only; chunk files are rewritten only
+when a rollback crosses the k boundary. Resume reads the chunks first, then the volatile store, and starts
+at the volatile tip when it is newer. Files under the volatile path: at most about k slots of blocks.
+
+Live (Brave, `scripts/e2e-chrome.ts --start chunk --relay ws://192.168.1.173:3004/n2n`, 2026-10-28): PASS.
+The immutable directory held one chunk (29295), the volatile store the newer blocks; after closing and
+recreating the offscreen document the node resumed at the volatile tip (126555200) with no block lost
+(34 stored before, 36 after), and the popup showed 41 blocks with tip slot 126555407.
+
 ## Not being fooled by peers (2026-10-23)
 
 Signature checks stop a peer from forging blocks. These checks stop it from lying in other ways.
@@ -124,7 +138,6 @@ can be rebuilt on the same curve code.
 
 - Ledger rules: transactions are not applied, so there is no UTxO set.
 - The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.
-- No volatile store: blocks still within k of the tip go straight into chunk files, and rollbacks truncate them.
 - No preprod run yet; there is no preprod Gerolamo relay.
 - The Mithril start ran in Bun, not yet inside the extension. Its OPFS certificate cache exists but is not
   wired through the loader.
@@ -168,7 +181,8 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
 2. **N2N over WebSocket as a CIP.** Write it from the server and client experience gathered here, so any node
    can serve Gerolamino peers; see `WEBSOCKET_BEARER.md`.
 3. **Several peers and chain selection.** Done 2026-10-23 (see "Not being fooled by peers").
-4. **Volatile store.** Keep blocks within k of the tip apart from the immutable chunks.
+4. **Volatile store.** Done 2026-10-28 (see "Volatile store"): blocks within k slots of the tip stay in
+   `volatile` files, promoted to immutable chunks as they age; rollbacks inside k touch volatile only.
 5. **Ledger state in OPFS (optional extra).** A pure-TypeScript key-value store over OPFS for the UTxO set,
    then ledger rules. Mithril's ledger snapshot `tables` file is already a sorted run (preview, 2026-10-22:
    3 169 305 entries, 34-byte keys in strictly ascending byte order, 650 MB), so it can serve unchanged as the

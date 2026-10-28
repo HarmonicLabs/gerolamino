@@ -73,6 +73,8 @@ export interface RunnerOptions {
     config: RunnerConfig;
     /** A store for the network (OPFS in the extension); undefined runs without persistence. */
     sinkFor?: (network: string) => FileSink | undefined;
+    /** Volatile store for blocks near the tip (last k slots); undefined keeps the old direct-to-chunk behaviour. */
+    volatileSinkFor?: (network: string) => FileSink | undefined;
     loadMithril?: () => Promise<MithrilAnchorFn | null>;
     /** Supplies the certified-stake function (default: dynamic import of the Mithril verifier). */
     loadMithrilStake?: () => Promise<MithrilStakeFn | null>;
@@ -390,7 +392,8 @@ export class NodeRunner {
             if (!this.running) break;
             const node = new BrowserNode({
                 endpoint: this.config.relayUrl, networkMagic: net.magic, start, resumeFrom: this.lastPoint,
-                storeSink: this.opts.sinkFor?.(net.name), chunkSlots: net.chunkSlots, index: this.index, observer: this.observer,
+                storeSink: this.opts.sinkFor?.(net.name), volatileSink: this.opts.volatileSinkFor?.(net.name), securityParam: net.securityParam,
+                chunkSlots: net.chunkSlots, index: this.index, observer: this.observer,
                 headerLog: this.mainLog, rollbackTo: this.rollbackTo, certifiedStake: (e) => this.certifiedStakeOf(e),
                 loadMithril: this.opts.loadMithril, mithrilDigests: this.config.mithrilDigests, WebSocketImpl: this.opts.WebSocketImpl,
                 log: (l) => this.log(l), onStats: () => this.emit(),

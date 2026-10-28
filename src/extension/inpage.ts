@@ -41,7 +41,10 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
 
     const provider = Object.freeze({
         name: "Gerolamino",
-        apiVersion: "0.1.0",
+        /** CIP-30 §Initial API: apiVersion is the string "1". */
+        apiVersion: "1",
+        /** Gerolamino's own dApp API version (experimental namespace value, not CIP-30). */
+        dappApiVersion: "0.1.0",
         icon: "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff2d55"/><stop offset="1" stop-color="#ff9f0a"/></linearGradient></defs><circle cx="32" cy="32" r="30" fill="#0b0d12"/><circle cx="32" cy="32" r="22" fill="none" stroke="url(#g)" stroke-width="6"/></svg>`),
         /** Not a wallet: no keys, no signing. A full node API for pages (dappApi.ts). */
         isWallet: false,

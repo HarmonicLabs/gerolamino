@@ -249,7 +249,9 @@ try {
             const calls = await cdp.evaluate<any>(a, `(async () => {
                 const api = await window.cardano.gerolamino.enable();
                 const q = await api.query("/blocks/latest"), q2 = await api.query("/epochs/latest");
-                return { net: await api.getNetworkId(), tip: await api.getTip(), trust: (await api.getTrust()).verdict.label,
+                return { apiVersion: window.cardano.gerolamino.apiVersion, dappApiVersion: window.cardano.gerolamino.dappApiVersion,
+                    isWallet: window.cardano.gerolamino.isWallet,
+                    net: await api.getNetworkId(), tip: await api.getTip(), trust: (await api.getTrust()).verdict.label,
                     latest: { source: q.source, status: q.status, height: q.body && q.body.height }, epoch: { source: q2.source, status: q2.status, epoch: q2.body && q2.body.epoch },
                     params: (await api.getProtocolParameters()).status, enabled: await window.cardano.gerolamino.isEnabled() };
             })()`, 60_000);

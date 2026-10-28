@@ -5,7 +5,7 @@
 import { connectionLabel, epochProgress, fmtBytes, fmtNum, fmtSlotsBehind, fmtSlotsShort, intersectSlot, stateTone, syncPercent } from "./format";
 import type { StatusReply } from "./messages";
 import { trustView } from "./trustView";
-import type { Settings } from "./settings";
+import { DEFAULT_SETTINGS, MAX_EXTRA_RELAYS, validRelayUrl, type Settings } from "./settings";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const send = <T = any>(m: object): Promise<T> => chrome.runtime.sendMessage({ to: "background", ...m });
@@ -15,6 +15,9 @@ const view = new URLSearchParams(location.search).get("view") ?? "popup";
 const wide = view === "tab";
 let formDirty = false;
 let newestBlock: number | null = null;
+/** The settings the background last reported (source for every edit) and the live peer verdicts. */
+let currentSettings: Settings | null = null;
+let livePeers: Array<{ url: string; verdict: string; detail: string }> = [];
 
 if (wide) document.body.classList.add("wide");
 if (view === "panel") document.body.classList.add("panel");
@@ -33,11 +36,11 @@ function list(id: string, items: string[]): void {
 }
 
 function fillForm(s: Settings): void {
+    currentSettings = s;
     if (formDirty) return;
     $<HTMLInputElement>("relayUrl").value = s.relayUrl;
     $<HTMLSelectElement>("network").value = s.network;
     $<HTMLSelectElement>("startMode").value = s.startMode;
-    $<HTMLTextAreaElement>("extraRelays").value = (s.extraRelays ?? []).join("\n");
     $<HTMLInputElement>("certifiedStake").checked = s.certifiedStake !== false;
     $<HTMLInputElement>("txProofs").checked = s.txProofs !== false;
     $<HTMLSelectElement>("mithrilDigests").value = s.mithrilDigests ?? "peer";
@@ -145,6 +148,8 @@ function render(r: StatusReply): void {
     setText("s-stored", `${fmtNum(s.storedBlocks)} blocks${s.storedTipSlot != null ? ` · tip slot ${fmtNum(s.storedTipSlot)}` : ""}${s.resumedFrom != null ? ` · resumed at ${fmtNum(s.resumedFrom)}` : ""}`);
 
     renderTrust(s);
+    livePeers = (s?.peers ?? []) as Array<{ url: string; verdict: string; detail: string }>;
+    renderPeers();
 
     const errs: string[] = s.errors ?? [];
     $("errors-section").hidden = errs.length === 0;
@@ -187,6 +192,96 @@ function renderTrust(s: any): void {
     }));
     const f = (s?.failovers ?? []).at(-1);
     $("failover").textContent = f ? `Switched to ${f.to.replace(/^wss?:\/\//, "")} at ${new Date(f.at).toLocaleTimeString()}: ${f.reason}.` : "";
+}
+
+// ---- Peers: the configured list (main + extras) with live verdicts, add/remove/make-main ----
+function peerKey(u: string): string {
+    return u.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+/** Accept ws://host:port/n2n; prepend ws:// when the scheme is missing; null when invalid. */
+function normalizePeer(raw: string): string | null {
+    let t = raw.trim().replace(/\s+/g, "");
+    if (!t) return null;
+    if (!/^wss?:\/\//i.test(t)) t = `ws://${t}`;
+    t = t.replace(/\/+$/, "");
+    return validRelayUrl(t) ? t : null;
+}
+
+/** Verdict → tone class (tone-verified, tone-trusted, tone-warning, tone-pending). */
+const PEER_TONE: Record<string, string> = {
+    main: "verified",
+    agree: "verified",
+    behind: "trusted",
+    ahead: "trusted",
+    fork: "warning",
+    pending: "pending",
+    down: "pending",
+    offline: "pending",
+};
+
+function renderPeers(): void {
+    const list = $("peer-editor");
+    const settings = currentSettings;
+    const extras = settings?.extraRelays ?? [];
+    $("peer-count").textContent = `${extras.length}/${MAX_EXTRA_RELAYS} extra`;
+    const addBtn = $<HTMLButtonElement>("peer-add-btn");
+    addBtn.disabled = extras.length >= MAX_EXTRA_RELAYS;
+    addBtn.setAttribute("data-tooltip", addBtn.disabled ? `Remove one first: at most ${MAX_EXTRA_RELAYS} extra relays` : "Validated ws:// or wss://host:port/n2n URL");
+    if (!settings) {
+        list.replaceChildren(Object.assign(document.createElement("li"), { className: "dim", textContent: "Waiting for the node's settings…" }));
+        return;
+    }
+    const verdictOf = (url: string): { verdict: string; detail: string } => {
+        if (peerKey(url) === peerKey(settings.relayUrl)) return { verdict: "main", detail: "main peer: blocks, nonce and stake" };
+        const live = livePeers.find((p) => peerKey(p.url) === peerKey(url));
+        return live ? { verdict: live.verdict, detail: live.detail } : { verdict: "offline", detail: "configured, not connected in this session" };
+    };
+    const row = (url: string, isMain: boolean, index: number): HTMLElement => {
+        const st = verdictOf(url);
+        const tone = PEER_TONE[st.verdict] ?? "pending";
+        const li = document.createElement("li");
+        li.className = `tone-${tone}`;
+        li.setAttribute("data-tooltip", st.detail);
+        const dot = document.createElement("span"); dot.className = "tdot";
+        const name = document.createElement("span"); name.className = "tlabel mono"; name.textContent = url.replace(/^wss?:\/\//, "");
+        const badge = document.createElement("span"); badge.className = `badge tone-${tone}`; badge.textContent = isMain ? "main relay" : st.verdict;
+        badge.setAttribute("data-tooltip", isMain ? "Main relay: change it in Settings → Relay URL" : st.detail);
+        li.append(dot, name, badge);
+        const actions = document.createElement("span"); actions.className = "peer-actions";
+        if (!isMain) {
+            const makeMain = document.createElement("button"); makeMain.type = "button"; makeMain.className = "btn small ghost"; makeMain.textContent = "Make main";
+            makeMain.addEventListener("click", () => {
+                const patch = { relayUrl: url, extraRelays: extras.map((u, i) => (i === index ? settings.relayUrl : u)) };
+                void savePeerEdit(patch, `Swapped main to ${url.replace(/^wss?:\/\//, "")}`);
+            });
+            const remove = document.createElement("button"); remove.type = "button"; remove.className = "btn small danger"; remove.textContent = "Remove";
+            remove.addEventListener("click", () => {
+                const patch = { extraRelays: extras.filter((u) => peerKey(u) !== peerKey(url)) };
+                void savePeerEdit(patch, `Removed ${url.replace(/^wss?:\/\//, "")}`);
+            });
+            actions.append(makeMain, remove);
+            li.append(actions);
+        }
+        return li;
+    };
+    list.replaceChildren(row(settings.relayUrl, true, -1), ...extras.map((u, i) => row(u, false, i)));
+    if (!extras.length) {
+        const hint = document.createElement("li"); hint.className = "dim peer-empty";
+        hint.textContent = "No extra peers yet — add one below.";
+        list.append(hint);
+    }
+}
+
+/** Save one peer edit against the settings the background reported (everything else unchanged). */
+async function savePeerEdit(patch: Partial<Pick<Settings, "relayUrl" | "extraRelays">>, okText: string): Promise<void> {
+    const base = currentSettings;
+    if (!base) { message("peer-msg", "Waiting for the node's settings…", false); return; }
+    const next: Settings = { ...base, ...patch };
+    const r = await send<{ ok: boolean; error?: string }>({ type: "set-settings", settings: next });
+    message("peer-msg", r?.ok ? `${okText}; node restarted.` : `Not saved: ${r?.error ?? "no answer"}`, !!r?.ok);
+    if (r?.ok) currentSettings = next;
+    void poll();
 }
 
 // ---- Query: local first, then the Gerolamo peer ----
@@ -275,12 +370,37 @@ void renderSites();
 $("settings").addEventListener("input", () => { formDirty = true; });
 $("settings").addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const extraRelays = $<HTMLTextAreaElement>("extraRelays").value.split(/[\s,]+/).map((u) => u.trim()).filter(Boolean);
-    const settings = { relayUrl: $<HTMLInputElement>("relayUrl").value.trim(), network: $<HTMLSelectElement>("network").value, startMode: $<HTMLSelectElement>("startMode").value, extraRelays, certifiedStake: $<HTMLInputElement>("certifiedStake").checked, txProofs: $<HTMLInputElement>("txProofs").checked, mithrilDigests: $<HTMLSelectElement>("mithrilDigests").value };
+    const base = currentSettings ?? DEFAULT_SETTINGS;
+    const settings: Settings = {
+        ...base,
+        relayUrl: $<HTMLInputElement>("relayUrl").value.trim(),
+        network: $<HTMLSelectElement>("network").value as Settings["network"],
+        startMode: $<HTMLSelectElement>("startMode").value as Settings["startMode"],
+        extraRelays: base.extraRelays ?? [],
+        certifiedStake: $<HTMLInputElement>("certifiedStake").checked,
+        txProofs: $<HTMLInputElement>("txProofs").checked,
+        mithrilDigests: $<HTMLSelectElement>("mithrilDigests").value as Settings["mithrilDigests"],
+    };
     const r = await send({ type: "set-settings", settings });
     message("settings-msg", r?.ok ? "Saved; the node restarted." : `Not saved: ${r?.error ?? "no answer"}`, !!r?.ok);
-    if (r?.ok) { formDirty = false; newestBlock = null; }
+    if (r?.ok) { formDirty = false; newestBlock = null; currentSettings = settings; }
     void poll();
+});
+
+// Add a peer: validated, de-duplicated against the main relay and the list, capped at MAX_EXTRA_RELAYS.
+$("peer-add").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const input = $<HTMLInputElement>("peer-url");
+    const base = currentSettings;
+    if (!base) { message("peer-msg", "Waiting for the node's settings…", false); return; }
+    const url = normalizePeer(input.value);
+    if (!url) { message("peer-msg", "Enter ws:// or wss://host:port/n2n", false); return; }
+    if (peerKey(url) === peerKey(base.relayUrl)) { message("peer-msg", "That is already the main relay — use Make main to swap.", false); return; }
+    const extras = base.extraRelays ?? [];
+    if (extras.some((u) => peerKey(u) === peerKey(url))) { message("peer-msg", "Already in the peer list.", false); return; }
+    if (extras.length >= MAX_EXTRA_RELAYS) { message("peer-msg", `At most ${MAX_EXTRA_RELAYS} extra relays — remove one first.`, false); return; }
+    input.value = "";
+    await savePeerEdit({ extraRelays: [...extras, url] }, `Added ${url.replace(/^wss?:\/\//, "")}`);
 });
 $("submit").addEventListener("click", async () => {
     const btn = $<HTMLButtonElement>("submit");

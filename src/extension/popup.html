@@ -71,6 +71,21 @@
     <p id="failover" class="small dim"></p>
   </section>
 
+  <section class="card card-accent" aria-labelledby="h-peers">
+    <div class="card-head">
+      <h2 id="h-peers">Peers</h2>
+      <span id="peer-count" class="badge muted" data-tooltip="The main relay, then up to 4 extra relays cross-checked header by header.">0 extra</span>
+    </div>
+    <p class="small dim peer-intro">Main relay: blocks, nonce, stake and queries. Extras cross-check its headers and can take over.</p>
+    <ul id="peer-editor" class="peer-rows editor" aria-label="Configured peers"></ul>
+    <form id="peer-add" class="peer-add" autocomplete="off">
+      <input id="peer-url" type="text" spellcheck="false" placeholder="ws://host:port/n2n" aria-label="Peer WebSocket URL">
+      <button type="submit" class="btn primary small" id="peer-add-btn">Add peer</button>
+    </form>
+    <p id="peer-msg" class="small" role="status"></p>
+    <p id="peer-hint" class="small dim peer-hint">Gerolamo's N2N WebSocket bearer: <span class="mono">ws://host:port/n2n</span>, or <span class="mono">wss://</span> behind TLS.</p>
+  </section>
+
   <section class="grid3" aria-label="Verification">
     <div class="card card-accent stat" data-tooltip="Headers received, and how many linked to the previous one by hash."><span class="label">Headers</span><span id="s-headers" class="value">–</span><span id="s-headers-sub" class="sub"></span></div>
     <div class="card card-accent stat" data-tooltip="Header cryptography passed | failed: opcert, KES and VRF. A failure stops the sync from that relay."><span class="label">Crypto ok | bad</span><span id="s-crypto" class="value">–</span><span id="s-crypto-sub" class="sub"></span></div>
@@ -128,9 +143,6 @@
     <summary><h2>Settings</h2></summary>
     <form id="settings">
       <label>Relay URL <input id="relayUrl" name="relayUrl" type="text" spellcheck="false" autocomplete="off" placeholder="ws://host:port/n2n"></label>
-      <label>Extra relays <span class="dim">(cross-checked, one per line)</span>
-        <textarea id="extraRelays" name="extraRelays" rows="2" spellcheck="false" placeholder="ws://host:port/n2n"></textarea>
-      </label>
       <div class="row">
         <label>Network
           <select id="network" name="network"><option value="preview">preview</option><option value="preprod">preprod</option></select>

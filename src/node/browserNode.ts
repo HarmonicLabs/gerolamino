@@ -131,7 +131,7 @@ export interface BrowserNodeOptions {
     storeSink?: FileSink;
     /** Index of the stored blocks for local queries (query.ts): fed every stored block, trimmed on rollback. */
     index?: LocalChainIndex;
-    /** The Mithril-certified stake of an epoch when it is available (null: use the peer's; see src/mithril/stake.ts). */
+    /** The Mithril-certified stake of an epoch when it is available (null: use the peer's; see @harmoniclabs/mithril-ts mithrilStake). */
     certifiedStake?: (epoch: number) => CertifiedStakeView | null;
     /** Freshness and density (trust.ts): started at the intersection, fed every header whose signatures verified. */
     observer?: ChainObserver;

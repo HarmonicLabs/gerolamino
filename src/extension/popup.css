@@ -190,6 +190,21 @@ body.approve { width: auto; max-width: 440px; margin: 0 auto; }
 .peer-rows .tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
 .peer-rows .tlabel { color: var(--text-dim); overflow-wrap: anywhere; }
 .peer-rows .tvalue { font-family: var(--font-mono); }
+
+/* peers: editable list (main relay + extras with status and actions) */
+.peer-rows.editor li { grid-template-columns: 10px minmax(0, 1fr) max-content max-content; }
+.peer-rows.editor .tlabel.mono { font-family: var(--font-mono); font-size: 11px; }
+.peer-rows.editor .peer-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+/* the empty-state line spans the whole row instead of the 10px dot column */
+.peer-rows.editor .peer-empty { display: block; grid-column: 1 / -1; padding: 6px 0 2px; border-top: 0; }
+.peer-add { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.peer-add input { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.peer-intro, .peer-hint { line-height: 1.35; overflow-wrap: anywhere; }
+.peer-intro { margin: 0 0 6px; }
+.peer-hint { margin: 4px 0 0; }
+.btn.small { font-size: 10px; padding: 3px 8px; }
+.btn.ghost { color: var(--text-secondary); background: var(--bg-overlay); border-color: var(--border); }
+.btn.ghost:hover { color: var(--text); border-color: var(--text-muted); }
 .tone-verified .tdot { background: var(--green); box-shadow: 0 0 6px rgba(0, 230, 118, 0.5); }
 .tone-trusted .tdot { background: var(--orange); }
 .tone-warning .tdot { background: var(--accent); box-shadow: 0 0 6px rgba(255, 45, 85, 0.6); }
@@ -278,6 +293,12 @@ body.wide .value, body.wide .tile .value { font-size: 16px; letter-spacing: norm
   .grid3 { grid-template-columns: repeat(2, 1fr); }
   .brand-sub { display: none; }
   .blocks th:nth-child(4), .blocks td:nth-child(4) { display: none; }
+  /* peer rows: name on its own line, status + actions below (no crammed 4-column grid) */
+  .peer-rows.editor li { grid-template-columns: 10px minmax(0, 1fr); row-gap: 4px; }
+  .peer-rows.editor li > .badge { grid-column: 2; justify-self: start; }
+  .peer-rows.editor .peer-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .peer-add { flex-wrap: wrap; }
+  .peer-add input { flex: 1 1 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

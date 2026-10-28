@@ -14,7 +14,7 @@ export interface TxProofCheck {
     latestBlockNumber?: number;
 }
 
-/** What the check needs of a verified Mithril proof (src/mithril/txProof.ts). */
+/** What the check needs of a verified Mithril proof (@harmoniclabs/mithril-ts mithrilTxProof). */
 export interface TxProofView {
     certificateHash: string;
     latestBlockNumber: number;

@@ -1,5 +1,5 @@
 /**
- * Optional Mithril start. The certificate verifier lives in `src/mithril/` (written separately) and is
+ * Optional Mithril start. The verifier is @harmoniclabs/mithril-ts, wrapped in `src/mithril/index.ts`, and is
  * not needed for the default start, so it is never imported statically: the build bundles it into
  * `dist/mithril.js` when it exists, and this loader imports it at run time. When it is missing (or
  * fails to load), `loadMithrilAnchor` resolves to null and the node reports that the Mithril start is
@@ -16,10 +16,10 @@ export interface MithrilAnchor {
 
 export type MithrilAnchorFn = (opts: { network: string; lq: LightQueryClient; log?: (l: string) => void; digestsFrom?: "peer" | "aggregator" }) => Promise<MithrilAnchor>;
 
-/** The Mithril-certified stake of a leader-election epoch (src/mithril/stake.ts). */
+/** The Mithril-certified stake of a leader-election epoch (@harmoniclabs/mithril-ts mithrilStake). */
 export interface CertifiedStake { leaderEpoch: number; artifactEpoch: number; certificateHash: string; pools: Map<string, bigint>; total: bigint; certificatesWalked: number; ms: number }
 export type MithrilStakeFn = (opts: { network: string; epoch: number; log?: (l: string) => void }) => Promise<CertifiedStake>;
-/** A verified Mithril proof that transactions are on the chain (src/mithril/txProof.ts). */
+/** A verified Mithril proof that transactions are on the chain (@harmoniclabs/mithril-ts mithrilTxProof). */
 export type MithrilTxProofFn = (opts: { network: string; txHashes: string[]; log?: (l: string) => void }) => Promise<TxProofView & { nonCertified: string[] }>;
 
 /** Where the verifier may be found: the bundled extension file first, then the sources (Bun). */

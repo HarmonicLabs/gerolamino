@@ -12,18 +12,20 @@ HarmonicLabs libraries, chain stored in OPFS, peers over N2N-over-WebSocket.
 bun install
 bun run typecheck                  # tsc --noEmit -p .
 bun test                           # unit tests (network-gated cases skip without chunk files)
-bun run build                      # dist/ is the unpacked extension (chrome://extensions -> Load unpacked)
+bun run build                      # dist/ is the unpacked extension; load it with docs/INSTALL_EXTENSION.md
 bun run smoke -- --seconds 60 --start chunk    # the node core under Bun against the preview relay
 bun run e2e                                    # headless Chrome/Brave with the extension, over CDP
 ```
 
-Live browser run against Gerolamo's preview relay:
+Live browser run against a Gerolamo relay (the default is the local one from `docs/RUN_LOCAL_GEROLAMO.md`):
 
 ```
-bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://192.168.1.173:3004/n2n --start chunk
-bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://192.168.1.173:3004/n2n --start mithril --trust
-bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://192.168.1.173:3004/n2n --dapp
+bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --start chunk
+bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --start mithril --trust
+bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --dapp
 ```
+
+Replace the relay URL with your Gerolamo host and `--n2n-ws-port` when it is not the same machine.
 
 The e2e script wipes the store through the extension's own `wipe-store` message, so every run starts
 clean. It needs a Chrome for Testing binary (or Brave) and an extension-capable profile; it drives the
@@ -93,8 +95,9 @@ the peer; no project_id, no CORS, no API key.
 - **SDK adapter.** `src/dapp/blockfrostProvider.ts` (built as `dist/gerolamino-blockfrost.js`) gives
   `hasGerolamino()`, `enableGerolamino()`, `gerolaminoProvider(api)` (`get/json/getAllPages/submitTx`) and
   `gerolaminoFetch(api)`; additive, so a page keeps its OnchainApps provider when the extension is absent.
-- **Outside a browser.** Bun/backend/CI use Gerolamo's HTTP mini-Blockfrost (`http://192.168.1.173:3040/api/v0/*`
-  or the node's own `:3037`/`:3040`); the adapter needs `window`.
+- **Outside a browser.** Bun/backend/CI use Gerolamo's HTTP mini-Blockfrost on the node's `--port`
+  (`http://127.0.0.1:3037/api/v0/*` for the local example, or `http://<node-host>:<http-port>/api/v0/*`);
+  the adapter needs `window`.
 
 Details and proof: `docs/BLOCKFROST_THROUGH_GEROLAMINO.md`.
 
@@ -127,21 +130,22 @@ The certificate cache lives in `gerolamino/mithril-certs/<network>`, wired throu
 
 | Endpoint | What |
 |---|---|
-| `ws://192.168.1.173:3004/n2n` | Gerolamo preview relay (N2N-over-WebSocket + light query; default relay) |
-| `http://192.168.1.173:3040/api/v0/*` | Gerolamo HTTP mini-Blockfrost (Gerolamo side, not Gerolamino) |
-| `http://127.0.0.1:3037` | local Gerolamo preview node's mini-Blockfrost |
-| network magic | preview 2, preprod 1, mainnet 764824073 (Gerolamo nodes; extension settings are preview/preprod) |
+| `ws://127.0.0.1:3004/n2n` | local Gerolamo relay (N2N-over-WebSocket + light query; default relay); replace host/port for a remote relay |
+| `http://127.0.0.1:3037/api/v0/*` | local Gerolamo HTTP mini-Blockfrost, on the node's `--port` (Gerolamo side, not Gerolamino) |
+| `http://<node-host>:<http-port>/api/v0/*` | any Gerolamo HTTP mini-Blockfrost (Bun/backend/CI fallback) |
+| network magic | preview 2, preprod 1, mainnet 764824073; extension settings are preview/preprod |
 
 Headers from extra relays are cross-checked (density, nonce, stake); only Blockfrost queries fail over.
+Gerolamo must be started with `--n2n-ws` and `--n2n-ws-port`; the HTTP port is only `/api/v0` and `/health`.
 Gerolamino itself has no listening port: the extension is its API surface, and the Gerolamo relay carries
-the socket.
+the socket. Local setup: `docs/RUN_LOCAL_GEROLAMO.md`; extension setup: `docs/INSTALL_EXTENSION.md`.
 
 ## Settings (`chrome.storage.local`, one key)
 
 | Key | Default |
 |---|---|
 | network | `preview` |
-| relayUrl | `ws://192.168.1.173:3004/n2n` |
+| relayUrl | `ws://127.0.0.1:3004/n2n` (local Gerolamo from `docs/RUN_LOCAL_GEROLAMO.md`) |
 | startMode | `tip` (a stored tip always wins; otherwise `chunk` or `mithril`) |
 | extraRelays | `[]` (at most 4, distinct, cross-checked) |
 | certifiedStake | `true` (leader stake checked against Mithril's certified distribution) |
@@ -186,6 +190,8 @@ Blockfrost adapter, including local UTxO answers and ledger resume.
 - [`docs/BLOCKFROST_THROUGH_GEROLAMINO.md`](docs/BLOCKFROST_THROUGH_GEROLAMINO.md) Blockfrost transport and
   the SDK adapter.
 - [`docs/WEBSOCKET_BEARER.md`](docs/WEBSOCKET_BEARER.md) what Gerolamino needs from a peer, basis for a CIP.
+- [`docs/INSTALL_EXTENSION.md`](docs/INSTALL_EXTENSION.md) step-by-step unpacked install, first relay, verification and reload.
+- [`docs/RUN_LOCAL_GEROLAMO.md`](docs/RUN_LOCAL_GEROLAMO.md) run Gerolamo locally as the relay (Docker and Bun flags).
 - [`docs/LEDGER_SPEC.md`](docs/LEDGER_SPEC.md) the local UTxO ledger: implemented P0 coverage model, OPFS
   diff log, resume/rollback and digest chain; P1 snapshot bootstrap next.
 - [`docs/MILESTONE_4_EVIDENCE.md`](docs/MILESTONE_4_EVIDENCE.md) the milestone 4 submission file: requirement to

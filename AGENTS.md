@@ -29,10 +29,10 @@ bun run build                     # dist/ bundle + manifest; the build rejects n
 Then, for anything touching the extension surface, the browser e2e is the proof (not `bun test`):
 
 ```
-bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://192.168.1.173:3004/n2n --start chunk
-bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://192.168.1.173:3004/n2n --start mithril --trust
-bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://192.168.1.173:3004/n2n --extra ws://192.168.1.173:3004/n2n --trust
-bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://192.168.1.173:3004/n2n --dapp
+bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --start chunk
+bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --start mithril --trust
+bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --extra ws://127.0.0.1:3004/n2n --trust
+bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --dapp
 bun scripts/query-failover-smoke.ts         # dead main relay + live extra peer
 bun scripts/adapter-smoke.ts                # Blockfrost SDK adapter through the real extension
 bun scripts/serve-demo.ts                   # http://127.0.0.1:8787/ dApp demo
@@ -49,17 +49,24 @@ Never `pkill bun` or kill by process name; derive the pid from the run (profile 
 
 ## Live endpoints and networks
 
+No LAN address is implied. The examples use loopback because Gerolamo runs on the same machine; replace
+host and port when the relay is elsewhere.
+
 | Endpoint | Role |
 |---|---|
-| `ws://192.168.1.173:3004/n2n` | Gerolamo preview relay: N2N-over-WebSocket plus light query; the extension's default relay |
-| `http://192.168.1.173:3040/api/v0/*` | Gerolamo HTTP mini-Blockfrost (Gerolamo node side; LAN-exposed 2026-10-28) |
-| `http://127.0.0.1:3037` | local Gerolamo preview node's mini-Blockfrost |
-| network magic | preview 2, preprod 1, mainnet 764824073 (Gerolamo); extension settings offer preview and preprod |
+| `ws://127.0.0.1:3004/n2n` | local Gerolamo relay: N2N-over-WebSocket plus light query; the extension's default relay |
+| `ws://<relay-host>:<n2n-ws-port>/n2n` | any Gerolamo relay; use `wss://` when TLS terminates in front of it |
+| `http://127.0.0.1:3037/api/v0/*` | local Gerolamo HTTP mini-Blockfrost on the node's `--port` (the relay is the WebSocket port, not this one) |
+| `http://<node-host>:<http-port>/api/v0/*` | any Gerolamo HTTP mini-Blockfrost; Bun/backend/CI fallback |
+| network magic | preview 2, preprod 1, mainnet 764824073 (Gerolamo); Gerolamino settings offer preview and preprod |
 
-Gerolamino does not listen: the extension is its API surface, and Gerolamo serves the socket. Preview is
-the pilot network (user directive); preprod is the Gerolamo-first target when the browser run moves.
-Test data: Gerolamo preview DB at `/media/bakon/data/cardano/gerolamo-preview-genesis3037`, local node
-pid comes from `ss -ltnp` on `:3037`; do not touch that DB while the node runs (one writer per DB).
+Bring up Gerolamo locally with [docs/RUN_LOCAL_GEROLAMO.md](docs/RUN_LOCAL_GEROLAMO.md); the extension's
+step-by-step load and relay setup is [docs/INSTALL_EXTENSION.md](docs/INSTALL_EXTENSION.md). Gerolamo must be
+started with `--n2n-ws` and `--n2n-ws-port`; the HTTP mini-Blockfrost uses `--port`. Gerolamino does not listen:
+the extension is its API surface, and Gerolamo serves the socket. Preview is the pilot network (user directive);
+preprod is the Gerolamo-first target when the browser run moves. Test data: Gerolamo preview DB at
+`/media/bakon/data/cardano/gerolamo-preview-genesis3037`, local node pid comes from `ss -ltnp` on `:3037`; do not
+touch that DB while the node runs (one writer per DB).
 
 ## Architecture map
 
@@ -183,7 +190,7 @@ trusted row to verified without evidence.
 | Key | Values / default |
 |---|---|
 | `network` | `preview` or `preprod`; default `preview` |
-| `relayUrl` | ws/wss URL with host; default `ws://192.168.1.173:3004/n2n` |
+| `relayUrl` | ws/wss URL with host; default `ws://127.0.0.1:3004/n2n` (local Gerolamo from `docs/RUN_LOCAL_GEROLAMO.md`) |
 | `startMode` | `tip`, `chunk`, `mithril`; default `tip`; a stored tip always wins |
 | `extraRelays` | distinct, trimmed, at most 4 (`MAX_EXTRA_RELAYS`) |
 | `certifiedStake` | default `true` |
@@ -206,6 +213,8 @@ When a feature or defect lands, update in the same commit (or in a docs-only fol
 6. `docs/WEBSOCKET_BEARER.md` when peer wire requirements change.
 7. `docs/MILESTONE_4_EVIDENCE.md` when milestone-4 evidence numbers, commands or gaps change; never submit PASS
    claims without this file's measured outputs.
+8. `docs/INSTALL_EXTENSION.md` and `docs/RUN_LOCAL_GEROLAMO.md` when the load flow, default relay or local Gerolamo
+   flags/ports change.
 
 `docs/STATUS.md` is the dated source of truth for gaps; keep its Measured table current or mark it dated.
 

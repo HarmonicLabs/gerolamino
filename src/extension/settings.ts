@@ -1,6 +1,7 @@
 /**
- * Extension settings, kept in `chrome.storage.local` under one key. Defaults: preview, the Gerolamo
- * preview relay's WebSocket bearer, start at the relay's tip (or the stored tip when resuming), no extra relays.
+ * Extension settings, kept in `chrome.storage.local` under one key. Defaults: preview, the local Gerolamo
+ * relay's WebSocket bearer (`ws://127.0.0.1:3004/n2n`; see `docs/RUN_LOCAL_GEROLAMO.md`), start at the relay's
+ * tip (or the stored tip when resuming), no extra relays.
  */
 export type NetworkName = "preview" | "preprod";
 export type StartModeSetting = "tip" | "chunk" | "mithril";
@@ -25,7 +26,7 @@ export const SETTINGS_KEY = "gerolamino.settings";
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
     network: "preview",
-    relayUrl: "ws://192.168.1.173:3004/n2n",
+    relayUrl: "ws://127.0.0.1:3004/n2n",
     startMode: "tip",
     extraRelays: [],
     certifiedStake: true,

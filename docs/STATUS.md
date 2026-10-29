@@ -15,6 +15,9 @@ Gerolamino is the light member of the Gerolamo family, not a smaller copy of all
 - **Default use.** Most people will sync from the tip. That path must stay fast, small and dependable. Starting
   from an immutable chunk or a Mithril-certified point are welcome extras, never requirements for the
   default path; the local UTxO projection (P0, 2026-10-29) runs on every path and carries its coverage.
+- **Relay default (2026-10-29).** The default relay URL is `ws://127.0.0.1:3004/n2n`, meaning Gerolamo on
+  the same machine. Setup: `docs/RUN_LOCAL_GEROLAMO.md`; extension load: `docs/INSTALL_EXTENSION.md`.
+  The historical `192.168.1.173:3004` evidence below is a reference deployment, not a requirement.
 - **Look and feel.** The UI follows Gerolamo's desktop app (Electrobun, `gerolamo/desktop`), simpler and
   lighter: same dark theme, red-to-orange accent, cards, progress ring and badges. It does not follow the old
   web dashboard. Gerolamino builds it in plain TypeScript and CSS, because it takes no third-party runtime

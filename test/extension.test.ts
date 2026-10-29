@@ -10,7 +10,7 @@ function memoryArea(init: Record<string, unknown> = {}): KeyValueArea & { data: 
 
 describe("settings", () => {
     test("defaults: preview, the preview relay's WebSocket bearer, tip", () => {
-        expect(DEFAULT_SETTINGS).toEqual({ network: "preview", relayUrl: "ws://192.168.1.173:3004/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true, mithrilDigests: "peer" });
+        expect(DEFAULT_SETTINGS).toEqual({ network: "preview", relayUrl: "ws://127.0.0.1:3004/n2n", startMode: "tip", extraRelays: [], certifiedStake: true, txProofs: true, mithrilDigests: "peer" });
     });
     test("normalize fills defaults and drops invalid values", () => {
         expect(normalizeSettings(undefined)).toEqual({ ...DEFAULT_SETTINGS });

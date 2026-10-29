@@ -47,8 +47,9 @@ paged GET; `provider.json` throws on non-200.
 - Browser dApp with Gerolamino installed and connected: use the adapter; reads are local-first (stored block
   facts and local UTxO answers with coverage), then relay-backed, and the page never needs the Gerolamo HTTP
   port. A stale or partial local ledger relays rather than inventing UTxO.
-- Bun/backend/CI: use the Gerolamo mini-Blockfrost over HTTP (`http://192.168.1.173:3040/api/v0/*` or the
-  node's own `:3037`/`:3040`); the adapter needs `window`.
+- Bun/backend/CI: use the Gerolamo mini-Blockfrost over HTTP on the node's `--port`
+  (`http://127.0.0.1:3037/api/v0/*` for a local node, or `http://<node-host>:<http-port>/api/v0/*`);
+  the adapter needs `window`.
 - Fallback: if `hasGerolamino()` is false (extension absent), keep the OnchainApps/Blockfrost provider; the
   adapter is additive, not a replacement.
 

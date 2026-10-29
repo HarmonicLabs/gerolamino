@@ -70,7 +70,7 @@ pid comes from `ss -ltnp` on `:3037`; do not touch that DB while the node runs (
 | `src/node/localIndex.ts` | always-on in-memory index of stored blocks/tx facts; answers only block/tx paths |
 | `src/node/volatileStore.ts` | one file per near-tip block; promote on age; rollback inside k leaves chunks alone |
 | `src/node/chunkWriter.ts` / `opfsSink.ts` / `opfsWorker.ts` | cardano-node immutable chunk files through OPFS (worker for async) |
-| `src/node/lightQuery.ts` / `peerWatch.ts` | request 8/9/10/11/12 style light query: chunk, digests, nonce, stake, Blockfrost limits |
+| `src/node/lightQuery.ts` / `peerWatch.ts` | Gerolamo light-query mini-protocol (mux protocol 7) request types 0 (nonce), 2 (stake), 6 (chunk), 8 (Blockfrost), 10 (digests) |
 | `src/node/mithrilLoader.ts` / `mithrilAnchorStore.ts` / `src/mithril/index.ts` | verify on demand; anchor file next to chunks; cert cache through OPFS |
 | `src/node/txSubmit.ts` / `txProofCheck.ts` | tx submission (CIP-30 shape) and Mithril proof statuses |
 | `src/extension/background.ts` / `offscreen.ts` | worker keeps offscreen alive; offscreen runs the node |

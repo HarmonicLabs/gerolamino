@@ -188,3 +188,5 @@ Blockfrost adapter, including local UTxO answers and ledger resume.
 - [`docs/WEBSOCKET_BEARER.md`](docs/WEBSOCKET_BEARER.md) what Gerolamino needs from a peer, basis for a CIP.
 - [`docs/LEDGER_SPEC.md`](docs/LEDGER_SPEC.md) the local UTxO ledger: implemented P0 coverage model, OPFS
   diff log, resume/rollback and digest chain; P1 snapshot bootstrap next.
+- [`docs/MILESTONE_4_EVIDENCE.md`](docs/MILESTONE_4_EVIDENCE.md) the milestone 4 submission file: requirement to
+  deliverable mapping, measured gates, Brave e2e transcript, honest gaps and bundle checklist.

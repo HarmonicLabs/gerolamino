@@ -204,6 +204,8 @@ When a feature or defect lands, update in the same commit (or in a docs-only fol
 5. `docs/LEDGER_SPEC.md` when ledger coverage, storage, application rules or query semantics change; it is
    implemented P0, not a draft.
 6. `docs/WEBSOCKET_BEARER.md` when peer wire requirements change.
+7. `docs/MILESTONE_4_EVIDENCE.md` when milestone-4 evidence numbers, commands or gaps change; never submit PASS
+   claims without this file's measured outputs.
 
 `docs/STATUS.md` is the dated source of truth for gaps; keep its Measured table current or mark it dated.
 

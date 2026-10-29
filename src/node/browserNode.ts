@@ -43,6 +43,7 @@ import type { LocalChainIndex } from "./localIndex";
 import { ACTIVE_SLOTS_COEFF, type ChainObserver } from "./trust";
 import type { HeaderLog } from "./crossCheck";
 import { loadMithrilAnchor, type MithrilAnchor, type MithrilAnchorFn } from "./mithrilLoader";
+import { readMithrilAnchor, writeMithrilAnchor, type StoredMithrilAnchor } from "./mithrilAnchorStore";
 import { epochOfSlot, networkByMagic } from "./networks";
 import { TxSubmitClient, type QueuedTx } from "./txSubmit";
 
@@ -106,6 +107,8 @@ export interface NodeStats {
     resumedFrom: number | null;
     /** Mithril-certified anchor when started that way. */
     anchor: MithrilAnchor | null;
+    /** The Mithril-certified base of the stored chain when resumed (the anchor file next to the chunk files). */
+    anchorFile: StoredMithrilAnchor | null;
     lastSlot: number | null;
     lastBlockNo: number | null;
     lastHash: string | null;
@@ -223,7 +226,7 @@ export function emptyStats(endpoint: string): NodeStats {
         endpoint, state: "idle", version: null, remoteInitiatorOnly: null, serverTip: null, intersect: "", startMode: "",
         headers: 0, linkOk: 0, linkBad: 0, blocksFetched: 0, bodyOk: 0, bodyBad: 0, rollbacks: 0, rolledBackBlocks: 0,
         cryptoOk: 0, cryptoBad: 0, cryptoSkipped: 0, cryptoMs: 0, nonceEpoch: null, nonceHex: null, leaderOk: 0, leaderBad: 0, leaderSkipped: 0, stakeCertified: 0, stakeMismatches: 0, lightQuery: null, wsProtocol: null, services: null,
-        storedBlocks: 0, storedBytes: 0, storedChunks: 0, storedTipSlot: null, resumedFrom: null, anchor: null,
+        storedBlocks: 0, storedBytes: 0, storedChunks: 0, storedTipSlot: null, resumedFrom: null, anchor: null, anchorFile: null,
         lastSlot: null, lastBlockNo: null, lastHash: null, bytes: 0, keepAliveRttMs: null, startedAt: null, firstHeaderAt: null, lastHeaderAt: null,
         error: null, errors: [],
     };
@@ -388,13 +391,20 @@ export class BrowserNode {
                 if (undone) this.log(`switching to a longer fork: ${undone} stored block(s) after slot ${rb.slot} undone`);
             }
             const storedTip = this.volatile?.tip ?? this.writer?.tip ?? null;
-            if (storedTip) { from = { slot: storedTip.slot, hash: hex(storedTip.hash) }; resuming = true; this.stats.resumedFrom = storedTip.slot; this.log(`store holds ${this.stats.storedBlocks} blocks; resuming from the stored tip at slot ${storedTip.slot}`); }
+            if (storedTip) {
+                from = { slot: storedTip.slot, hash: hex(storedTip.hash) }; resuming = true; this.stats.resumedFrom = storedTip.slot;
+                try {
+                    const af = await readMithrilAnchor(this.opts.storeSink, storedTip.slot);
+                    if (af) { this.stats.anchorFile = af; this.log(`store resumes from the Mithril-certified point at slot ${af.slot}`); }
+                } catch { /* a bad anchor file is only a missing one */ }
+                this.log(`store holds ${this.stats.storedBlocks} blocks; resuming from the stored tip at slot ${storedTip.slot}`);
+            }
             if (!from && typeof mode === "object") from = mode;
             if (!from && this.opts.rollbackTo) { from = this.opts.rollbackTo; resuming = true; this.log(`resuming from the common block at slot ${from.slot}`); }
             if (!from && this.opts.resumeFrom) { from = this.opts.resumeFrom; resuming = true; this.log(`resuming from the last verified point, slot ${from.slot}`); }
             if (!from && mode === "mithril") from = await this.mithrilStart(net?.name);
             if (!from && mode === "chunk") from = await this.chunkStart(net?.chunkSlots ?? 4320);
-            this.stats.startMode = resuming ? "resume" : typeof mode === "object" ? "point" : mode;
+            this.stats.startMode = resuming ? (this.stats.anchorFile ? "resume-mithril" : "resume") : typeof mode === "object" ? "point" : mode;
 
             let isect = from ? await this.guard(cs.findIntersect([pointOf(from)])) : null;
             if (from && isect instanceof ChainSyncIntersectNotFound) {
@@ -562,6 +572,10 @@ export class BrowserNode {
         if (!anchorFn) throw new Error("Mithril start selected but the Mithril verifier is not available in this build");
         const a = await this.guard(anchorFn({ network, lq: this.lq, log: (l) => this.log(l), digestsFrom: this.opts.mithrilDigests }));
         this.stats.anchor = a;
+        try {
+            const wrote = await writeMithrilAnchor(this.opts.storeSink, a, network);
+            if (wrote) this.log(`Mithril anchor written next to the chunks: slot ${a.slot} ${String(a.hash).slice(0, 16)}…`);
+        } catch (e) { this.noteError(`Mithril anchor file: ${(e as Error).message}`); }
         this.log(`Mithril-certified start point: slot ${a.slot} ${String(a.hash).slice(0, 16)}…`);
         return { slot: Number(a.slot), hash: String(a.hash) };
     }

@@ -129,7 +129,7 @@ try {
         if (s && (s.cryptoBad || s.linkBad || s.bodyBad || s.leaderBad)) break;
         await sleep(2000);
     }
-    results.firstPhase = s && { state: s.state, version: s.version, headers: s.headers, cryptoOk: s.cryptoOk, cryptoBad: s.cryptoBad, leaderOk: s.leaderOk, leaderBad: s.leaderBad, bodyOk: s.bodyOk, bodyBad: s.bodyBad, storedBlocks: s.storedBlocks, opfs: s.opfs, serverTip: s.serverTip, lastSlot: s.lastSlot, cryptoMsPerHeader: s.cryptoOk ? Math.round(s.cryptoMs / s.cryptoOk) : null };
+    results.firstPhase = s && { state: s.state, version: s.version, headers: s.headers, cryptoOk: s.cryptoOk, cryptoBad: s.cryptoBad, leaderOk: s.leaderOk, leaderBad: s.leaderBad, bodyOk: s.bodyOk, bodyBad: s.bodyBad, storedBlocks: s.storedBlocks, opfs: s.opfs, serverTip: s.serverTip, lastSlot: s.lastSlot, cryptoMsPerHeader: s.cryptoOk ? Math.round(s.cryptoMs / s.cryptoOk) : null, startMode: s.startMode, anchorSlot: s.anchor?.slot ?? s.anchorFile?.slot ?? null };
     const phase1 = !!s && s.cryptoOk >= want && s.storedBlocks >= want && (s.opfs?.chunks ?? 0) > 0 && !s.cryptoBad && !s.linkBad && !s.bodyBad && !s.leaderBad;
     if (!phase1) throw new Error(`headers/blocks did not verify and land in OPFS within ${timeoutSec} s`);
     const files = await cdp.evaluate<string[]>(offSession, `(async () => { let d = await navigator.storage.getDirectory(); for (const p of ["gerolamino", ${JSON.stringify(s.network)}, "immutable"]) d = await d.getDirectoryHandle(p); const out = []; for await (const [n, h] of d) { try { out.push(n + " " + (await h.getFile()).size); } catch { /* raced with the node rewriting it */ } } return out.sort(); })()`);
@@ -152,7 +152,7 @@ try {
     let s2: any = null;
     for (let i = 0; i < 30; i++) { s2 = await status(offSession); if (s2?.resumedFrom != null && s2.intersect) break; await sleep(1000); }
     log(`recreated: resumedFrom=${s2?.resumedFrom} storedBlocks=${s2?.storedBlocks} intersect=${s2?.intersect} state=${s2?.state}`);
-    results.resume = { resumedFrom: s2?.resumedFrom, storedBlocksAfterReopen: s2?.storedBlocks, storedBefore, storedTip, intersect: s2?.intersect, state: s2?.state };
+    results.resume = { resumedFrom: s2?.resumedFrom, storedBlocksAfterReopen: s2?.storedBlocks, storedBefore, storedTip, intersect: s2?.intersect, state: s2?.state, startMode: s2?.startMode, anchorSlot: s2?.anchor?.slot ?? s2?.anchorFile?.slot ?? null };
     const resumed = s2?.resumedFrom != null && s2.resumedFrom >= storedTip && s2.storedBlocks >= storedBefore;
     if (!resumed) throw new Error("the recreated offscreen document did not resume from the stored tip");
 

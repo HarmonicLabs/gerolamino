@@ -52,9 +52,11 @@ export function trustView(s: TrustInput | null | undefined): TrustView {
             tip: d.status === "ok" ? "As dense as the active stake makes it, from many pools: not a private fork." : "Far sparser than the active stake makes a chain, or from few pools: this may be a private fork." });
 
     // 4. where the chain was picked up
-    const anchor = t.anchor?.source ?? (s?.startMode === "mithril" ? "mithril" : s?.startMode === "resume" ? "stored" : s?.startMode === "chunk" ? "peer-chunk" : s?.startMode ? "peer-tip" : undefined);
+    const anchor = t.anchor?.source ?? (s?.startMode === "mithril" ? "mithril" : s?.startMode === "resume" ? "stored" : s?.startMode === "resume-mithril" ? "mithril-stored" : s?.startMode === "chunk" ? "peer-chunk" : s?.startMode ? "peer-tip" : undefined);
     rows.push(anchor === "mithril"
         ? { key: "anchor", label: "Start point", value: "Mithril-certified", tone: "verified", tip: "Started from a block certified by the stake pools' Mithril multi-signature, checked back to the genesis key." }
+        : anchor === "mithril-stored"
+            ? { key: "anchor", label: "Start point", value: "Mithril-certified, resumed", tone: "verified", tip: `This store's blocks begin at a point certified by the stake pools' Mithril multi-signature${t.anchor?.detail ? ` (${t.anchor.detail})` : ""}; verified back to the genesis key before the resume.` }
         : anchor === "stored"
             ? { key: "anchor", label: "Start point", value: "this node's stored chain", tone: "trusted", tip: "Resumed from blocks this node verified earlier; the original start point decides how far that can be trusted." }
             : anchor

@@ -110,8 +110,10 @@ Follow-ups:
   download runs during the certificate walk, and the list must reproduce the certified Merkle root. Setting
   "Mithril files from": Gerolamo peer (default) or Mithril aggregator (direct, no peer needed); a peer without
   digests, or with wrong ones, falls back to the aggregator. Mithril start in Bun: 69 s (was about 9 minutes).
-- After a resume the Trust card shows the start point as "this node's stored chain": the store does not record
-  that it began at a Mithril-certified point. Write the anchor next to the chunk files.
+- Done 2026-10-29: the anchor is written next to the chunk files (`mithril-anchor.json`) when the Mithril start
+  verifies; a resume reads it and the Trust card shows "Mithril-certified, resumed" (verified) while the stored
+  chain still reaches that slot. Brave `scripts/e2e-chrome.ts --start mithril`: anchor slot 126584621 written,
+  after reopen `startMode` resume-mithril with the same anchor slot, stored 42 → 50 blocks.
 
 ## dApp API (2026-10-23)
 

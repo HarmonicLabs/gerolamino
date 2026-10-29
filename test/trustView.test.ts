@@ -50,6 +50,15 @@ describe("phase 2: trust panel", () => {
         expect(v.verdict.label).toBe("Verified");
     });
 
+    test("a resumed Mithril-certified base stays verified: the anchor file remembered", () => {
+        const v = trustView({ ...honest, startMode: "resume-mithril", trust: { ...honest.trust, anchor: { source: "mithril-stored", detail: "slot 126584621" } } });
+        expect(row(v, "anchor").value).toBe("Mithril-certified, resumed");
+        expect(row(v, "anchor").tone).toBe("verified");
+        expect(row(v, "anchor").tip).toContain("126584621");
+        // and a resume from a peer-chunk start is only trusted, not verified
+        expect(row(trustView({ ...honest, startMode: "resume" }), "anchor").tone).toBe("trusted");
+    });
+
     test("peers on another chain, or a peer lying about stake, is a warning", () => {
         expect(trustView({ ...honest, trust: { ...honest.trust, peers: { total: 3, agreeing: 2, disagreeing: 1, behind: 0 } } }).verdict.tone).toBe("warning");
         expect(trustView({ ...honest, trust: { ...honest.trust, stake: { source: "mithril", epoch: 1, mismatches: 3 } } }).verdict.tone).toBe("warning");

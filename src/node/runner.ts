@@ -58,6 +58,7 @@ export interface RunnerStats extends NodeStats {
     /** Can the chain be trusted: the peer's tip against the wall clock, and the chain's density (trust.ts). */
     trust: {
         freshness: Freshness | null; density: Density; peers: (PeersSummary & { primary: string }) | null;
+        anchor?: { source: string; detail?: string } | null;
         /** The current epoch's nonce: how many pools' VRF proofs verified with it, and whether other peers give the same. */
         nonce: { source: "peer"; epoch: number; pools: number; peersAgreeing: number; peersAsked: number; peersDisagreeing: number } | null;
         /** Where the leader stake comes from: Mithril-certified, or the peer (while the check runs, or without it). */
@@ -162,11 +163,18 @@ export class NodeRunner {
             indexedBlocks: this.index.size,
             trust: {
                 freshness: net ? freshness(net, s.serverTip?.slot ?? null) : null, density: this.observer.density(),
-                nonce: this.nonceTrust(s), stake: this.stakeTrust(s),
+                nonce: this.nonceTrust(s), stake: this.stakeTrust(s), anchor: this.anchorTrust(s),
                 peers: this.summary ? { ...this.summary, primary: this.config.relayUrl } : null,
             },
             peers: this.checks, failovers: [...this.failovers],
         };
+    }
+
+    /** The stored chain's Mithril-certified base, when it has one: the Trust card says "verified" only for it. */
+    private anchorTrust(s: NodeStats): RunnerStats["trust"]["anchor"] {
+        if (s.anchor) return { source: "mithril", detail: `slot ${s.anchor.slot}` };
+        if (s.anchorFile) return { source: "mithril-stored", detail: `slot ${s.anchorFile.slot}` };
+        return null;
     }
 
     private nonceTrust(s: NodeStats): RunnerStats["trust"]["nonce"] {

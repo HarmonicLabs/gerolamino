@@ -3,7 +3,9 @@
 Gerolamino is the browser-side Blockfrost gateway: a page does not call `window.fetch` against a Blockfrost
 proxy; it asks the extension, which answers from its own verified store first and otherwise forwards the
 request to the Gerolamo peer it is connected to (N2N-over-WebSocket light query, request 8, mini-Blockfrost
-backend). No project_id, no CORS, no API key; the chain comes over the same socket the node already follows.
+backend). If the main relay cannot answer, an extra Gerolamo peer that supports Blockfrost queries answers
+instead (the answer's `peer` names it, per-peer announced rate limits honoured). No project_id, no CORS, no
+API key; the chain comes over the same socket the node already follows.
 
 ## What a page gets
 

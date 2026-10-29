@@ -67,6 +67,20 @@ The immutable directory held one chunk (29295), the volatile store the newer blo
 recreating the offscreen document the node resumed at the volatile tip (126555200) with no block lost
 (34 stored before, 36 after), and the popup showed 41 blocks with tip slot 126555407.
 
+## Peer-backed Blockfrost queries (2026-10-28)
+
+A Blockfrost GET the local index cannot answer goes to the main relay first. When that peer cannot answer (no
+light query, timeout, connection closed, 5xx, or an announcement without `blockfrost`), the query fails over to
+an extra Gerolamo peer that speaks the light query: peers that announce `blockfrost` come first, version-0 peers
+(no announcement) are probed last, and each peer's announced rate/window is honoured (a rate-limited peer is
+skipped, not failed). The answer names the peer that actually answered (`peer`), and a 503 is returned only when
+no peer answers. Code: `src/node/queryRouter.ts`; runner candidates: main node first, then watchers
+(`src/node/runner.ts` `queryCandidates`).
+
+Live (Bun, `scripts/query-failover-smoke.ts`, 2026-10-28): main relay `ws://127.0.0.1:9999/n2n` dead, extra
+`ws://192.168.1.173:3004/n2n`: `/addresses/{addr}/utxos` 200 (peer `ws://192.168.1.173:3004/n2n`), `/epochs/latest`
+200 (epoch 1465), `/blocks/1000` 200 (height 50). PASS.
+
 ## Not being fooled by peers (2026-10-23)
 
 Signature checks stop a peer from forging blocks. These checks stop it from lying in other ways.

@@ -37,6 +37,7 @@ import { proposeBrowserHandshake } from "./handshake";
 import { parseHeaderCrypto, verifyHeaderCrypto } from "./headerVerify";
 import { isSlotLeader } from "./leaderMath";
 import { LightQueryClient, N2N_WS_SUBPROTOCOL, type PoolStakeInfo } from "./lightQuery";
+import type { PeerQueryLimits } from "./queryRouter";
 import { openN2NSocket } from "./wsConnect";
 import type { LocalChainIndex } from "./localIndex";
 import { ACTIVE_SLOTS_COEFF, type ChainObserver } from "./trust";
@@ -260,10 +261,14 @@ export class BrowserNode {
         return this.txc.submit(tx);
     }
     /** A Blockfrost GET answered by the connected Gerolamo peer (light-query request 8). */
-    relayQuery(path: string): Promise<{ status: number; body: string }> {
+    relayQuery(path: string, timeoutMs?: number): Promise<{ status: number; body: string }> {
         if (!this.lq || !this.stats.lightQuery) return Promise.reject(new Error("the peer has no light-query protocol"));
-        return this.lq.query(path);
+        return this.lq.query(path, timeoutMs);
     }
+    /** The blockfrost limits this peer announced (null: no announcement, or it announces without blockfrost). */
+    queryLimits(): PeerQueryLimits | null { return this.lq?.capabilities?.blockfrost ?? null; }
+    /** Does this connection speak the light query? */
+    hasLightQuery(): boolean { return !!this.lq && !!this.stats.lightQuery; }
 
     /** Transactions offered this connection that the relay has not acknowledged yet. */
     pendingTxs(): QueuedTx[] { return this.txc?.list() ?? []; }

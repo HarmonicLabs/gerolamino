@@ -18,7 +18,7 @@ import { epochOfSlot, firstSlotOfEpoch, networkByName } from "./networks";
 import { LocalChainIndex, loadIndexFromStore } from "./localIndex";
 import { ChainObserver, freshness, type Density, type Freshness } from "./trust";
 import { answerQuery, normalizePath, type QueryAnswer } from "./query";
-import { QueryUnsupported } from "./lightQuery";
+import { QueryRouter, type QueryCandidate } from "./queryRouter";
 import type { QueuedTx } from "./txSubmit";
 import { checkPeer, HeaderLog, summarize, type ChainHeader, type PeerCheck, type PeersSummary } from "./crossCheck";
 import { PeerWatcher } from "./peerWatch";
@@ -137,6 +137,8 @@ export class NodeRunner {
     private readonly certified = new Map<number, CertifiedStake | { pending: true } | { failedAt: number; error: string }>();
     /** Nonces other peers give, per peer and epoch (hex; null: the peer has none). */
     private readonly peerNonces = new Map<string, string | null>();
+    /** Peer-backed Blockfrost queries: the main relay first, then the extra peers that support it. */
+    private readonly queryRouter = new QueryRouter(() => this.queryCandidates(), { timeoutMs: 10_000 });
     /** Mithril proofs in flight, per transaction: a repeated query waits for the same one. */
     private readonly proofs = new Map<string, Promise<Awaited<ReturnType<MithrilTxProofFn>>>>();
 
@@ -245,19 +247,33 @@ export class NodeRunner {
         this.start();
     }
 
-    /** A Blockfrost-shaped query: answered from the local index when it can be, else by the connected Gerolamo peer. */
+    /** The peers a query may ask, in order: main relay first, then watchers (announced blockfrost first, version-0 last). */
+    private queryCandidates(): QueryCandidate[] {
+        const out: QueryCandidate[] = [];
+        const seen = new Set<string>();
+        const node = this.node;
+        if (node && node.hasLightQuery()) { out.push({ url: this.config.relayUrl, limits: node.queryLimits(), query: (p, t) => node.relayQuery(p, t) }); seen.add(this.config.relayUrl); }
+        const watchers = this.watchers.filter((w) => !!w.lq && !seen.has(w.url));
+        const announced = watchers.filter((w) => w.lq!.capabilities?.blockfrost != null);
+        const version0 = watchers.filter((w) => w.lq!.capabilities === null);
+        for (const w of [...announced, ...version0]) out.push({ url: w.url, limits: w.lq!.capabilities?.blockfrost ?? null, query: (p, t) => w.lq!.query(p, t) });
+        return out;
+    }
+
+    /** A Blockfrost-shaped query: answered from the local index when it can be, else by the main relay or an extra peer. */
     async query(path: string): Promise<CheckedAnswer> {
         const net = networkByName(this.config.network);
         if (!net) throw new Error(`unknown network ${this.config.network}`);
-        const node = this.node;
-        const relay = node ? async (p: string) => {
-            try { return await node.relayQuery(p); }
-            catch (e) {
-                const msg = e instanceof QueryUnsupported ? "this Gerolamo peer is too old to answer queries" : (e as Error).message;
-                return { status: 502, body: JSON.stringify({ status_code: 502, error: "Bad Gateway", message: msg }) };
-            }
+        const peers = this.node?.hasLightQuery() || this.watchers.some((w) => !!w.lq);
+        let answeredBy = "";
+        const relay = peers ? async (p: string) => {
+            const r = await this.queryRouter.query(p);
+            answeredBy = r.peer;
+            return { status: r.status, body: r.body };
         } : undefined;
         const answer: CheckedAnswer = await answerQuery(path, { index: this.index, network: net, relay, peer: this.config.relayUrl });
+        // the peer that actually answered, not just the main relay: the dApp and the Trust card show it
+        if (answer.source === "relay" && answeredBy) answer.peer = answeredBy;
         const tx = txHashOfPath(normalizePath(path));
         if (tx && answer.source === "relay" && answer.status === 200 && this.config.txProofs) answer.proof = await this.proveTx(tx, answer.body);
         return answer;

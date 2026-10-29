@@ -36,9 +36,12 @@ later in Gerolamino's Settings ("Connected sites"); calls then fail with code -3
 
 - `"local"`: from blocks this node verified and stored itself (`/blocks/latest`, `/blocks/{id}`, `/blocks/{id}/txs`,
   `/txs/{hash}` for stored blocks).
-- `"relay"`: from the node's Gerolamo peer, which answers from its full ledger (`peer` names it). For
-  `/txs/{hash}…` the node also asks Mithril for a proof that the transaction is on the chain, and `proof.status` is
-  `"certified"` (with the certified block range), `"too-new"`, `"mismatch"` (the peer is wrong) or `"unavailable"`.
+- `"relay"`: from a Gerolamo peer that answers from its full ledger (`peer` names it). The main relay is asked
+  first; when it cannot answer (no light query, timeout, 5xx), an extra Gerolamo peer that supports Blockfrost
+  queries answers instead, honouring that peer's announced rate limit. A peer that announces capabilities without
+  blockfrost is never asked. For `/txs/{hash}…` the node also asks Mithril for a proof that the transaction is
+  on the chain, and `proof.status` is `"certified"` (with the certified block range), `"too-new"`, `"mismatch"`
+  (the peer is wrong) or `"unavailable"`.
 
 `status` and `body` are Blockfrost's: a 404 is `{ status: 404, body: { status_code: 404, … } }`, not an error.
 

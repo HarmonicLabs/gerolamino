@@ -22,12 +22,12 @@ later in Gerolamino's Settings ("Connected sites"); calls then fail with code -3
 |---|---|---|
 | `getNetworkId()` | `0` testnet, `1` mainnet | CIP-30 |
 | `submitTx(txCborHex)` | transaction id (hex) | CIP-30; sent to the network by the node's tx-submission |
-| `query(path)` | `{ status, body, source, peer, proof }` | any Blockfrost GET, `path` under `/api/v0` (`"/blocks/latest"`) |
+| `query(path)` | `{ status, body, source, peer, proof, ledger }` | any Blockfrost GET, `path` under `/api/v0` (`"/blocks/latest"`); `ledger` is `{ startSlot, kind, tipSlot }` on local UTxO answers |
 | `getUtxos(address)` | as `query` | `/addresses/{address}/utxos` |
 | `getProtocolParameters()` | as `query` | `/epochs/latest/parameters` |
 | `getAccount(stakeAddress)` | as `query` | `/accounts/{stakeAddress}` |
 | `getTip()` | `{ slot, height, hash, network, state, peerTip }` | this node's newest verified block |
-| `getTrust()` | `{ verdict, rows }` | the Trust card: block signatures, freshness, density, start point, nonce, stake, peers |
+| `getTrust()` | `{ verdict, rows }` | the Trust card: block signatures, freshness, density, start point, nonce, stake, peers, local UTxO ledger |
 | `getExtensions()` | `[]` | CIP-30 |
 
 ### Where an answer comes from
@@ -35,13 +35,17 @@ later in Gerolamino's Settings ("Connected sites"); calls then fail with code -3
 `query` answers carry `source`:
 
 - `"local"`: from blocks this node verified and stored itself (`/blocks/latest`, `/blocks/{id}`, `/blocks/{id}/txs`,
-  `/txs/{hash}` for stored blocks).
+  `/txs/{hash}` for stored blocks), or from its local UTxO ledger (`/txs/{hash}/utxos`,
+  `/utxo/{txhash:index}` while coverage covers the transaction and is not stale; `/addresses/{addr}/utxos`
+  only at genesis/snapshot coverage 0). Local UTxO answers carry
+  `ledger: { startSlot, kind, tipSlot }`, the slot their state is complete from.
 - `"relay"`: from a Gerolamo peer that answers from its full ledger (`peer` names it). The main relay is asked
   first; when it cannot answer (no light query, timeout, 5xx), an extra Gerolamo peer that supports Blockfrost
   queries answers instead, honouring that peer's announced rate limit. A peer that announces capabilities without
   blockfrost is never asked. For `/txs/{hash}…` the node also asks Mithril for a proof that the transaction is
   on the chain, and `proof.status` is `"certified"` (with the certified block range), `"too-new"`, `"mismatch"`
-  (the peer is wrong) or `"unavailable"`.
+  (the peer is wrong) or `"unavailable"`. A stale or partial local ledger relays instead of inventing UTxO;
+  `/addresses` answers relay unless coverage starts at 0.
 
 `status` and `body` are Blockfrost's: a 404 is `{ status: 404, body: { status_code: 404, … } }`, not an error.
 

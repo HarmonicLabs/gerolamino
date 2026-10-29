@@ -44,6 +44,8 @@ import { ACTIVE_SLOTS_COEFF, type ChainObserver } from "./trust";
 import type { HeaderLog } from "./crossCheck";
 import { loadMithrilAnchor, type MithrilAnchor, type MithrilAnchorFn } from "./mithrilLoader";
 import { readMithrilAnchor, writeMithrilAnchor, type StoredMithrilAnchor } from "./mithrilAnchorStore";
+import { ledgerDiffFromBlock } from "./ledgerApply";
+import { LocalLedger } from "./ledgerStore";
 import { epochOfSlot, networkByMagic } from "./networks";
 import { TxSubmitClient, type QueuedTx } from "./txSubmit";
 
@@ -105,6 +107,18 @@ export interface NodeStats {
     storedChunks: number;
     storedTipSlot: number | null;
     resumedFrom: number | null;
+    /** Local UTxO ledger counters (docs/LEDGER_SPEC.md P0); zero/null when no ledger. */
+    ledgerBlocks: number;
+    ledgerUtxoCount: number;
+    ledgerCreated: number;
+    ledgerSpent: number;
+    ledgerUnknownInputs: number;
+    ledgerInvalidTx: number;
+    ledgerTipSlot: number | null;
+    ledgerCoverageStart: number | null;
+    ledgerDigest: string | null;
+    ledgerStale: boolean;
+    ledgerError: string | null;
     /** Mithril-certified anchor when started that way. */
     anchor: MithrilAnchor | null;
     /** The Mithril-certified base of the stored chain when resumed (the anchor file next to the chunk files). */
@@ -140,6 +154,8 @@ export interface BrowserNodeOptions {
     securityParam?: number;
     /** Index of the stored blocks for local queries (query.ts): fed every stored block, trimmed on rollback. */
     index?: LocalChainIndex;
+    /** Local UTxO ledger (local ledger spec P0): fed every stored block after verification, undone on rollback. */
+    ledger?: LocalLedger;
     /** The Mithril-certified stake of an epoch when it is available (null: use the peer's; see @harmoniclabs/mithril-ts mithrilStake). */
     certifiedStake?: (epoch: number) => CertifiedStakeView | null;
     /** Freshness and density (trust.ts): started at the intersection, fed every header whose signatures verified. */
@@ -227,6 +243,8 @@ export function emptyStats(endpoint: string): NodeStats {
         headers: 0, linkOk: 0, linkBad: 0, blocksFetched: 0, bodyOk: 0, bodyBad: 0, rollbacks: 0, rolledBackBlocks: 0,
         cryptoOk: 0, cryptoBad: 0, cryptoSkipped: 0, cryptoMs: 0, nonceEpoch: null, nonceHex: null, leaderOk: 0, leaderBad: 0, leaderSkipped: 0, stakeCertified: 0, stakeMismatches: 0, lightQuery: null, wsProtocol: null, services: null,
         storedBlocks: 0, storedBytes: 0, storedChunks: 0, storedTipSlot: null, resumedFrom: null, anchor: null, anchorFile: null,
+        ledgerBlocks: 0, ledgerUtxoCount: 0, ledgerCreated: 0, ledgerSpent: 0, ledgerUnknownInputs: 0,
+        ledgerInvalidTx: 0, ledgerTipSlot: null, ledgerCoverageStart: null, ledgerDigest: null, ledgerStale: false, ledgerError: null,
         lastSlot: null, lastBlockNo: null, lastHash: null, bytes: 0, keepAliveRttMs: null, startedAt: null, firstHeaderAt: null, lastHeaderAt: null,
         error: null, errors: [],
     };
@@ -254,6 +272,7 @@ export class BrowserNode {
     constructor(opts: BrowserNodeOptions) {
         this.opts = opts;
         this.stats = emptyStats(opts.endpoint);
+        this.syncLedgerStats();
         this.closed = new Promise<never>((_, reject) => { this.closeWith = reject; });
         this.closed.catch(() => {});
     }
@@ -386,6 +405,7 @@ export class BrowserNode {
                 let undone = 0;
                 if (this.volatile && this.volatile.tip && this.volatile.tip.slot > rb.slot) undone += await this.volatile.rollbackTo(rb.slot);
                 if (this.writer && this.writer.tip && this.writer.tip.slot > rb.slot) undone += await this.writer.rollbackTo(rb.slot);
+                if (this.opts.ledger) { try { await this.opts.ledger.rollbackTo(rb.slot); this.syncLedgerStats(); } catch (e) { this.noteError(`ledger rollback: ${(e as Error).message}`); } }
                 this.opts.index?.rollbackTo(rb.slot); this.opts.observer?.rollbackTo(rb.slot);
                 this.syncStoreStats();
                 if (undone) this.log(`switching to a longer fork: ${undone} stored block(s) after slot ${rb.slot} undone`);
@@ -440,6 +460,7 @@ export class BrowserNode {
                         while (this.recent.length && this.recent[this.recent.length - 1]!.slot > slot) { this.recent.pop(); dropped++; }
                         if (this.volatile) { try { dropped = Math.max(dropped, await this.volatile.rollbackTo(slot)); } catch (e) { this.noteError(`volatile store rollback: ${(e as Error).message}`); } }
                         if (this.writer) { try { dropped = Math.max(dropped, await this.writer.rollbackTo(slot)); } catch (e) { this.noteError(`store rollback: ${(e as Error).message}`); } }
+                        if (this.opts.ledger) { try { await this.opts.ledger.rollbackTo(slot); this.syncLedgerStats(); } catch (e) { this.noteError(`ledger rollback: ${(e as Error).message}`); } }
                         this.syncStoreStats();
                         this.opts.index?.rollbackTo(slot);
                         this.opts.observer?.rollbackTo(slot);
@@ -553,6 +574,7 @@ export class BrowserNode {
                     this.opts.index?.add(bytes);
                 }
                 this.syncStoreStats();
+                if (bodyOk && linked && (cryptoOk || !nonce)) await this.applyLedger(bytes, h.slot, h.hash);
             } catch (e) { this.noteError(`store: ${(e as Error).message}`); }
         }
     }
@@ -562,6 +584,38 @@ export class BrowserNode {
         const v = this.volatile?.stats ?? { blocks: 0, bytes: 0 };
         this.stats.storedBlocks = w.blocks + v.blocks; this.stats.storedBytes = w.bytes + v.bytes; this.stats.storedChunks = w.chunks;
         this.stats.storedTipSlot = this.volatile?.tip?.slot ?? this.writer?.tip?.slot ?? null;
+        this.syncLedgerStats();
+    }
+
+    /** Feed the local UTxO ledger with this verified block; a ledger failure never destroys the chain store. */
+    private async applyLedger(bytes: Uint8Array, slot: number, hash: string): Promise<void> {        const ledger = this.opts.ledger;
+        if (!ledger) return;
+        try {
+            const diff = ledgerDiffFromBlock(bytes, slot, hash);
+            await ledger.apply(bytes, slot, hash, diff);
+            this.syncLedgerStats();
+            if (diff.txs > 0 || diff.created.length > 0) this.log(`ledger: block slot ${slot} -> ${diff.created.length} output(s), ${diff.spent.length} input(s)`);
+        } catch (e) {
+            this.stats.ledgerError = (e as Error).message;
+            this.noteError(`ledger: ${(e as Error).message}`);
+            if (ledger) { try { await ledger.markStale((e as Error).message); } catch { /* best effort */ } }
+            this.syncLedgerStats();
+        }
+    }
+
+    private syncLedgerStats(): void {
+        const s = this.opts.ledger?.stats;
+        this.stats.ledgerBlocks = s?.blocks ?? 0;
+        this.stats.ledgerUtxoCount = s?.utxoCount ?? 0;
+        this.stats.ledgerCreated = s?.created ?? 0;
+        this.stats.ledgerSpent = s?.spent ?? 0;
+        this.stats.ledgerUnknownInputs = s?.unknownInputs ?? 0;
+        this.stats.ledgerInvalidTx = s?.invalidTx ?? 0;
+        this.stats.ledgerTipSlot = s?.tipSlot ?? null;
+        this.stats.ledgerCoverageStart = s?.startSlot ?? null;
+        this.stats.ledgerDigest = s?.digest ?? null;
+        this.stats.ledgerStale = s?.stale ?? false;
+        if (s?.lastError) this.stats.ledgerError = s.lastError;
     }
 
     private async mithrilStart(network: string | undefined): Promise<Point> {

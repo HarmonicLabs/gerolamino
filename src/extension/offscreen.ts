@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS, normalizeSettings, sameSettings, type Settings } from
 
 const storePath = (network: string) => `gerolamino/${network}/immutable`;
 const volatilePath = (network: string) => `gerolamino/${network}/volatile`;
+const ledgerPath = (network: string) => `gerolamino/${network}/ledger`;
 const workerUrl = new URL("./opfsWorker.js", import.meta.url);
 const pendingLogs: string[] = [];
 let runner: NodeRunner | null = null;
@@ -29,6 +30,7 @@ function makeRunner(s: Settings): NodeRunner {
         config: { relayUrl: s.relayUrl, network: s.network, startMode: s.startMode, extraRelays: s.extraRelays, certifiedStake: s.certifiedStake, txProofs: s.txProofs, mithrilDigests: s.mithrilDigests },
         sinkFor: (network) => OpfsSink.available() ? new OpfsSink(storePath(network), { workerUrl }) : undefined,
         volatileSinkFor: (network) => OpfsSink.available() ? new OpfsSink(volatilePath(network), { workerUrl }) : undefined,
+        ledgerSinkFor: (network) => OpfsSink.available() ? new OpfsSink(ledgerPath(network), { workerUrl }) : undefined,
         log,
     });
 }
@@ -42,7 +44,8 @@ async function refreshOpfs(): Promise<void> {
         if (!OpfsSink.available()) { opfs = null; return; }
         const imm = await new OpfsSink(storePath(settings.network), { workerUrl }).usage();
         const vol = await new OpfsSink(volatilePath(settings.network), { workerUrl }).usage();
-        opfs = { bytes: imm.bytes + vol.bytes, files: imm.files + vol.files, chunks: imm.chunks };
+        const led = await new OpfsSink(ledgerPath(settings.network), { workerUrl }).usage();
+        opfs = { bytes: imm.bytes + vol.bytes + led.bytes, files: imm.files + vol.files + led.files, chunks: imm.chunks };
     } catch { /* keep the last figure */ }
 }
 
@@ -85,7 +88,8 @@ async function handle(msg: ToOffscreen): Promise<Reply<any>> {
                 const sink = new OpfsSink(storePath(settings.network), { workerUrl });
                 await sink.wipe();
                 await new OpfsSink(volatilePath(settings.network), { workerUrl }).wipe();
-                log(`OPFS store for ${settings.network} wiped`);
+                await new OpfsSink(ledgerPath(settings.network), { workerUrl }).wipe();
+                log(`OPFS store for ${settings.network} wiped (immutable, volatile, ledger)`);
                 await refreshOpfs();
                 runner = makeRunner(settings); runner.start();
                 void publish();

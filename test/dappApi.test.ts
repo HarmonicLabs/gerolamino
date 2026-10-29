@@ -5,7 +5,7 @@ function area() {
     const data: Record<string, unknown> = {};
     return { data, get: async (k: string) => ({ [k]: data[k] }), set: async (items: Record<string, unknown>) => { Object.assign(data, items); } };
 }
-function hub(opts: { allow?: boolean; network?: string; status?: any } = {}) {
+function hub(opts: { allow?: boolean; network?: string; status?: any; query?: (p: string) => Promise<any> } = {}) {
     const asked: string[] = [], queries: string[] = [], txs: string[] = [];
     let t = 1_000_000;
     const approvals = new DappApprovals(area());
@@ -14,7 +14,7 @@ function hub(opts: { allow?: boolean; network?: string; status?: any } = {}) {
         askUser: async (o) => { asked.push(o); return opts.allow ?? true; },
         status: () => opts.status ?? { lastSlot: 126_000_000, lastBlockNo: 4_786_000, lastHash: "ab".repeat(32), network: "preview", state: "at-tip", cryptoOk: 10, startMode: "tip", lightQuery: true },
         network: async () => opts.network ?? "preview",
-        query: async (p) => { queries.push(p); return { status: 200, body: { path: p }, source: "relay", peer: "ws://peer" }; },
+        query: opts.query ?? (async (p) => { queries.push(p); return { status: 200, body: { path: p }, source: "relay", peer: "ws://peer" }; }),
         submitTx: async (c) => { txs.push(c); if (c === "84ff") throw new Error("rejected by the relay"); return "f".repeat(64); },
         now: () => t,
     });
@@ -46,10 +46,18 @@ describe("dApp API (window.cardano.gerolamino)", () => {
         expect(asked).toHaveLength(1);
     });
 
+    test("a local UTxO ledger answer carries its coverage through the dApp envelope", async () => {
+        const ledger = { startSlot: 126_619_215, kind: "verified-start", tipSlot: 126_620_246 };
+        const { h } = hub({ query: async () => ({ status: 200, body: [{ tx_hash: "ab".repeat(32), spent_boolean: false }], source: "local", proof: null, ledger }) });
+        await h.handle(SITE, "enable", []);
+        const r = await h.handle(SITE, "query", ["/txs/" + "ab".repeat(32) + "/utxos"]);
+        expect(r).toMatchObject({ ok: true, result: { source: "local", ledger } });
+    });
+
     test("queries and shorthands go to the node with Blockfrost paths; bad paths are invalid requests", async () => {
         const { h, queries } = hub();
         await h.handle(SITE, "enable", []);
-        expect(await h.handle(SITE, "query", ["/blocks/latest"])).toEqual({ ok: true, result: { status: 200, body: { path: "/blocks/latest" }, source: "relay", peer: "ws://peer", proof: null } });
+        expect(await h.handle(SITE, "query", ["/blocks/latest"])).toEqual({ ok: true, result: { status: 200, body: { path: "/blocks/latest" }, source: "relay", peer: "ws://peer", proof: null, ledger: null } });
         await h.handle(SITE, "getUtxos", ["addr_test1qz"]);
         await h.handle(SITE, "getProtocolParameters", []);
         await h.handle(SITE, "getAccount", ["stake_test1uq"]);

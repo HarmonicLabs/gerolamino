@@ -146,6 +146,7 @@ function render(r: StatusReply): void {
     setText("s-opfs", s.opfs ? `${fmtBytes(s.opfs.bytes)} in ${fmtNum(s.opfs.files)} files, ${fmtNum(s.opfs.chunks)} chunk(s)` : "unavailable");
     setText("s-indexed", s.indexedBlocks != null ? `${fmtNum(s.indexedBlocks)} blocks answer locally` : "–");
     setText("s-stored", `${fmtNum(s.storedBlocks)} blocks${s.storedTipSlot != null ? ` · tip slot ${fmtNum(s.storedTipSlot)}` : ""}${s.resumedFrom != null ? ` · resumed at ${fmtNum(s.resumedFrom)}` : ""}`);
+    setText("s-ledger", s.ledgerBlocks ? `${fmtNum(s.ledgerBlocks)} blocks · ${fmtNum(s.ledgerUtxoCount)} UTxO${s.ledgerCoverageStart != null ? ` · from slot ${fmtNum(s.ledgerCoverageStart)}` : ""}` : "waiting for coverage", `mono ${s.ledgerError || s.ledgerStale ? "bad" : ""}`);
 
     renderTrust(s);
     livePeers = (s?.peers ?? []) as Array<{ url: string; verdict: string; detail: string }>;
@@ -412,9 +413,9 @@ $("submit").addEventListener("click", async () => {
     } finally { btn.disabled = false; }
 });
 $("wipe").addEventListener("click", async () => {
-    if (!confirm("Delete the stored chain for this network from the browser? The node will sync again from the relay.")) return;
+    if (!confirm("Delete the stored chain and the local UTxO ledger for this network from the browser? The node will sync again from the relay.")) return;
     const r = await send({ type: "wipe-store" });
-    message("settings-msg", r?.ok ? "Stored chain wiped." : `Wipe failed: ${r?.error ?? "no answer"}`, !!r?.ok);
+    message("settings-msg", r?.ok ? "Stored chain and local ledger wiped." : `Wipe failed: ${r?.error ?? "no answer"}`, !!r?.ok);
     newestBlock = null;
 });
 // "Open in a tab": the same page, full width.

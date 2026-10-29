@@ -10,6 +10,8 @@
 import type { NetworkParams } from "./networks";
 import { epochOfSlot, epochSlotOf, slotToUnix } from "./networks";
 import { poolIdOf, vrfKeyOf, type IndexedBlock, type IndexedTx, type LocalChainIndex } from "./localIndex";
+import type { LedgerOut } from "./ledgerApply";
+import type { LocalLedger } from "./ledgerStore";
 import { toHex } from "@harmoniclabs/uint8array-utils";
 
 export type QuerySource = "local" | "relay" | "none";
@@ -20,6 +22,8 @@ export interface QueryAnswer {
     body: unknown;
     /** The Gerolamo peer that answered (relay answers). */
     peer?: string;
+    /** Where this local ledger answer is complete from (`/txs/{hash}/utxos`, `/utxo/...`, genesis coverage). */
+    ledger?: { startSlot: number | null; kind: "verified-start" | "snapshot" | "genesis"; tipSlot: number | null };
     ms: number;
 }
 
@@ -29,6 +33,8 @@ export interface QueryContext {
     /** Ask the connected Gerolamo peer; undefined when no peer serves queries. */
     relay?: (path: string) => Promise<{ status: number; body: string }>;
     peer?: string;
+    /** The local UTxO ledger: tx-scoped and genesis-coverage answers use it before the relay. */
+    ledger?: LocalLedger;
 }
 
 /** `path` as Blockfrost writes it, without the `/api/v0` prefix: "/blocks/latest". */
@@ -44,7 +50,10 @@ export async function answerQuery(rawPath: string, ctx: QueryContext): Promise<Q
     const t0 = Date.now();
     const path = normalizePath(rawPath);
     const local = answerLocally(path, ctx);
-    if (local) return { source: "local", status: 200, body: local, ms: Date.now() - t0 };
+    if (local) {
+        const ledgerPaths = /^\/txs\/[^/]+\/utxos$|^\/utxo\/|^\/addresses\//;
+        return { source: "local", status: 200, body: local, ledger: ctx.ledger && ledgerPaths.test(path) ? ctx.ledger.answerCoverage() : undefined, ms: Date.now() - t0 };
+    }
     if (!ctx.relay) {
         return { source: "none", status: 503, body: { status_code: 503, error: "Service Unavailable", message: "not in the local store, and no Gerolamo peer that answers queries is connected" }, ms: Date.now() - t0 };
     }
@@ -63,7 +72,55 @@ export function answerLocally(path: string, ctx: QueryContext): unknown | null {
     if (seg[0] === "blocks" && seg.length === 2) { const b = index.block(seg[1]!); return b ? blockDoc(b, ctx) : null; }
     if (seg[0] === "blocks" && seg.length === 3 && seg[2] === "txs") { const b = index.block(seg[1]!); return b ? b.txs.map((t) => t.hash) : null; }
     if (seg[0] === "txs" && seg.length === 2) { const e = index.tx(seg[1]!); return e ? txDoc(e.block, e.tx, ctx) : null; }
+    if (seg[0] === "txs" && seg.length === 3 && seg[2] === "utxos") return txUtxosDoc(ctx, seg[1]!);
+    if (seg[0] === "utxo" && seg.length === 2) return utxoDoc(ctx, decodeUtxoRef(seg[1]!) ?? "");
+    if (seg[0] === "addresses" && seg.length === 3 && seg[2] === "utxos") return addressUtxosDoc(ctx, seg[1]!);
     return null;
+}
+
+/** UTxO ref `txid:index` with a valid txid; null for anything else (the relay gets the path then). */
+function decodeUtxoRef(s: string): string | null {
+    return /^[0-9a-f]{64}:\d+$/.test(s) ? s : null;
+}
+
+/** The Blockfrost UTXO shape from a local ledger output (spent ones carry `spent_boolean`). */
+function ledgerOutDoc(o: LedgerOut): Record<string, unknown> {
+    const amount = [{ unit: "lovelace", quantity: o.lovelace }];
+    for (const a of o.assets) amount.push({ unit: a.policy + a.name, quantity: a.quantity });
+    return {
+        tx_hash: o.txHash,
+        output_index: Number(o.ref.slice(65)),
+        address: o.address,
+        amount,
+        spent_boolean: o.spentSlot != null,
+        ...(o.datumHash ? { data_hash: o.datumHash } : {}),
+        ...(o.inlineDatum ? { inline_datum: o.inlineDatum } : {}),
+        ...(o.scriptRefHash ? { reference_script_hash: o.scriptRefHash } : {}),
+    };
+}
+
+/** Outputs of a stored transaction: complete for that tx only when the ledger covers its slot. */
+function txUtxosDoc(ctx: QueryContext, txHash: string): unknown[] | null {
+    const outs = ctx.ledger?.txOutputs(txHash);
+    if (!outs || !outs.length || ctx.ledger!.coverage.stale) return null;
+    const start = ctx.ledger!.coverage.startSlot;
+    if (start == null || outs.some((o) => o.createdSlot < start)) return null;
+    const e = ctx.index.tx(txHash);
+    if (e && e.block.slot < start) return null;
+    return outs.map(ledgerOutDoc);
+}
+
+/** `/utxo/{txid:index}`: the unspent output, or null (the relay answers spent/older refs). */
+function utxoDoc(ctx: QueryContext, ref: string): Record<string, unknown> | null {
+    if (!ctx.ledger || ctx.ledger.coverage.stale) return null;
+    const o = ctx.ledger.utxo(ref);
+    return o ? ledgerOutDoc(o) : null;
+}
+
+/** Address UTxOs only when the ledger covers from slot 0 (P1 snapshot/genesis); otherwise relay. */
+function addressUtxosDoc(ctx: QueryContext, address: string): unknown[] | null {
+    if (!ctx.ledger || ctx.ledger.coverage.startSlot !== 0 || ctx.ledger.coverage.stale) return null;
+    return ctx.ledger.addressUtxos(address).map(ledgerOutDoc);
 }
 
 function blockDoc(b: IndexedBlock, { index, network }: QueryContext): Record<string, unknown> {

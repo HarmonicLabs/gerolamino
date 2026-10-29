@@ -23,6 +23,7 @@ bun install                       # vendor tarballs are pinned file: deps
 bun run typecheck                 # tsc --noEmit -p . must be clean
 bun test                          # unit tests; report pass/fail and expect() count
 bun run build                     # dist/ bundle + manifest; the build rejects non-HarmonicLabs runtime deps
+                                  # (ledger-ts carries @noble/*, allowed explicitly in scripts/build.ts)
 ```
 
 Then, for anything touching the extension surface, the browser e2e is the proof (not `bun test`):
@@ -66,8 +67,9 @@ pid comes from `ss -ltnp` on `:3037`; do not touch that DB while the node runs (
 |---|---|
 | `src/node/browserNode.ts` | start/resume/verify/store, rollback, anchor, stats; single writer on the OPFS sinks |
 | `src/node/runner.ts` | relay list (main + up to 4), retries, session counters, trust assembly, failover |
-| `src/node/query.ts` / `queryRouter.ts` | Blockfrost GET: local index first, then peers in order, per-peer timeout/rate limits, 503 only when none |
+| `src/node/query.ts` / `queryRouter.ts` | Blockfrost GET: local index first, then the local UTxO ledger for tx/UTxO paths, then peers in order, per-peer timeout/rate limits, 503 only when none |
 | `src/node/localIndex.ts` | always-on in-memory index of stored blocks/tx facts; answers only block/tx paths |
+| `src/node/ledgerApply.ts` / `ledgerStore.ts` | local UTxO projection from verified block bytes, flat OPFS diff log + digest chain, resume/rollback, coverage; stale ledger refuses local answers |
 | `src/node/volatileStore.ts` | one file per near-tip block; promote on age; rollback inside k leaves chunks alone |
 | `src/node/chunkWriter.ts` / `opfsSink.ts` / `opfsWorker.ts` | cardano-node immutable chunk files through OPFS (worker for async) |
 | `src/node/lightQuery.ts` / `peerWatch.ts` | Gerolamo light-query mini-protocol (mux protocol 7) request types 0 (nonce), 2 (stake), 6 (chunk), 8 (Blockfrost), 10 (digests) |
@@ -83,10 +85,11 @@ pid comes from `ss -ltnp` on `:3037`; do not touch that DB while the node runs (
 
 ## Non-negotiable constraints
 
-- Runtime code is pure TypeScript on `@harmoniclabs/*` only. The build fails if a bundle pulls in
-  anything else (no WASM, no Haskell storage, no Effect, no other third-party packages). HarmonicLabs
-  library edits: rebuild, `npm version` / `npm pack`, copy the `.tgz` to `vendor/`, update package.json
-  `file:vendor/...`; never add a registry dependency casually.
+- Runtime code is pure TypeScript on `@harmoniclabs/*` only. The build fails if a bundle pulls in anything
+  else (no WASM, no Haskell storage, no Effect, no other third-party packages); `@noble/*` is allowed only
+  as the transitive crypto code of the vendored `cardano-ledger-ts`. HarmonicLabs library edits: rebuild,
+  `npm version` / `npm pack`, copy the `.tgz` to `vendor/`, update package.json `file:vendor/...`; never add
+  a registry dependency casually.
 - No runtime environment variables: extension settings live in `chrome.storage.local` under
   `gerolamino.settings`; script flags are arguments. The one test-only env var is
   `GEROLAMINO_PREVIEW_IMMUTABLE` (chunk-file fixtures).
@@ -94,10 +97,14 @@ pid comes from `ss -ltnp` on `:3037`; do not touch that DB while the node runs (
   wallet (`isWallet: false`), and do not add signing "for convenience".
 - The extension is initiator-only: no incoming N2N in the browser. Gerolamo serves peers; Gerolamino is
   the client.
-- Ledger rules are not applied: no UTxO set, no full consensus validation. Say "blocks verified and
-  stored" or "light query", never "full node validation".
-- One writer per store: browserNode owns immutable + volatile sinks; Gerolamo node DBs are separate
-  (SQLite WAL, one writer).
+- Local ledger P0: UTxO state derives only from verified blocks; per-block diffs and a digest chain in
+  `gerolamino/<network>/ledger`; coverage travels on every ledger answer; no peer-supplied UTxO; stale
+  ledger relays. Full ledger rules (fees/stake/governance, phase-2 scripts, consensus parity) are P2/P3:
+  say "UTxO projection from verified blocks with coverage", never "full node validation" or "UTxO from
+  genesis".
+- One writer per store: browserNode owns immutable + volatile + ledger sinks; Gerolamo node DBs are
+  separate (SQLite WAL, one writer). Keep ledger-ts's nested node_modules; Gerolamino's root deps explicitly
+  pin `@harmoniclabs/plutus-data` 1.2.6, `plutus-machine` 2.1.3 and `uplc` 1.4.1 for its own code.
 - Content scripts cover `http://*/*` and `https://*/*` at `document_start`; the API origin comes from the
   browser sender, never from the page.
 - Do not commit scratch/harness files; put probes in the profile scratch dir and commit only scripts the
@@ -113,7 +120,7 @@ pid comes from `ss -ltnp` on `:3037`; do not touch that DB while the node runs (
 | approval | per origin, one window; revocable in Settings ("Connected sites"); calls fail -3 until `enable()` |
 | errors | CIP-30 `{ code, info }` -1 InvalidRequest, -2 InternalError, -3 Refused; `submitTx` TxSendError 1/2 |
 | rate | 60 calls per 10 s per origin (`DAPP_RATE` / `DAPP_WINDOW_MS`); exceed gives -3 |
-| query answer | `{ status, body, source, peer?, proof? }`; `source` `"local"` or `"relay"`; status/body follow Blockfrost, 404 is a body not an error |
+| query answer | `{ status, body, source, peer?, proof?, ledger? }`; `source` `"local"` or `"relay"`; `ledger` is `{ startSlot, kind, tipSlot }` on local UTxO answers; status/body follow Blockfrost, 404 is a body not an error |
 | tx proof | `certified`, `too-new`, `mismatch` (peer wrong), `unavailable`; relayed answers only when `txProofs` is on |
 | adapter | `hasGerolamino()`, `enableGerolamino()`, `gerolaminoProvider(api)`, `gerolaminoFetch(api)`; additive fallback keeps OnchainApps |
 
@@ -125,16 +132,22 @@ A site's call surface is only http/https pages; settings and the store stay in G
 |---|---|
 | `gerolamino/<network>/immutable` | chunk files `NNNNN.chunk\|primary\|secondary` (chunkNo padded to 5 digits, not 10) |
 | `gerolamino/<network>/volatile` | `v-<10-digit slot>.blk` = 32-byte header hash + block bytes; only within k slots of the tip |
+| `gerolamino/<network>/ledger` | flat `b-<10-digit slot>-<hash8>.ldiff` per verified block + `manifest.json` written last; digest chain `prevDigest`/`digest`; stale on missing/corrupt/tip mismatch |
 | `gerolamino/<network>/immutable/mithril-anchor.json` | base of the stored chain; written once at a Mithril start, never overwritten on later resumes |
 | `gerolamino/mithril-certs/<network>` | certificate cache; survives reinstall |
 
 Resume order: `ChunkWriter.resume()` first, then `VolatileStore.resume()`; the start point is the newer
 volatile tip. Promotion: `promoteOlderThan(h.slot - k)` (preview k=432, preprod/mainnet k=2160) moves
-aged volatile blocks into the chunk writer; rollback inside k touches volatile only. The anchor file is
+aged volatile blocks into the chunk writer; rollback inside k touches volatile only. The ledger resumes
+independently: replay `b-*.ldiff` in slot order with `prevDigest`/`digest` continuity, then run from the
+stored chain; a stale ledger refuses local UTxO answers and the chain store stays intact. The anchor file is
 accepted on resume only when its slot is not above the stored tip; corrupt JSON, bad hash or non-integer
 slot is rejected, and `startMode` becomes `resume-mithril` with the Trust row "Mithril-certified, resumed"
 (verified). Never write near-tip blocks straight into chunks: that reintroduces rollback rewriting.
-`refreshOpfs` sums immutable + volatile bytes/files but counts chunks only for immutable; wipe removes both.
+`refreshOpfs` sums immutable + volatile + ledger bytes/files but counts chunks only for immutable; wipe
+removes all three. Ledger answers never trust a peer's UTxO; `/txs/{hash}/utxos` and `/utxo/{txhash:index}`
+are local only while the ledger covers the block/UTxO and is not stale; `/addresses` answers locally only
+at coverage 0.
 
 ## Peer / failover contract
 
@@ -146,8 +159,10 @@ slot is rejected, and `startMode` becomes `resume-mithril` with the Trust row "M
   announced `blockfrost: { rate, window_ms, maxBody }` is honoured.
 - No candidate gives a 503 with the tried peers in Blockfrost's error shape. Answers name the peer that
   actually answered (`peer`).
-- Local answers stay limited to the stored blocks: `/blocks/latest|{hash|height}`, `/blocks/{height}/txs`,
-  `/txs/{hash}`; everything ledger-shaped is relayed. Do not promise UTxO/balances without ledger state.
+- Local answers stay limited to stored blocks and the local UTxO ledger: `/blocks/latest|{hash|height}`,
+  `/blocks/{height}/txs`, `/txs/{hash}`; `/txs/{hash}/utxos` and `/utxo/{txhash:index}` when the ledger covers
+  the tx and is not stale; `/addresses` only at coverage 0. Everything the ledger cannot justify is relayed.
+  Do not promise UTxO/balances without coverage metadata.
 - Gerolamo announces light query capabilities `nonce/stake/chunk/digests/blockfrost`; Gerolamino only
   consumes them.
 
@@ -186,18 +201,21 @@ When a feature or defect lands, update in the same commit (or in a docs-only fol
 2. `docs/DAPP_API.md` when the page API surface, error codes, approvals, rate or query sources change.
 3. `docs/BLOCKFROST_THROUGH_GEROLAMINO.md` when transport, adapter, failover or local/relay semantics change.
 4. `README.md` and this file when layout, commands, endpoints or contracts change.
-5. `docs/WEBSOCKET_BEARER.md` when peer wire requirements change.
+5. `docs/LEDGER_SPEC.md` when ledger coverage, storage, application rules or query semantics change; it is
+   implemented P0, not a draft.
+6. `docs/WEBSOCKET_BEARER.md` when peer wire requirements change.
 
 `docs/STATUS.md` is the dated source of truth for gaps; keep its Measured table current or mark it dated.
 
 ## Known gaps (verify in STATUS before acting)
 
-- Ledger rules / UTxO set in OPFS: roadmap item 5, not implemented.
+- Ledger rules / UTxO set in OPFS: P0 UTxO projection implemented 2026-10-29 (verified-start coverage); P1
+  Mithril `tables` snapshot and P2 full rules are not implemented.
 - Epoch nonce is confirmed by peers/pools, not computed from headers yet.
 - No preprod Gerolamo relay run; preview is the current pilot.
 - Real signed transaction submission is untested (malformed tx refusal is tested).
-- Byron header verification absent.
-- Session counters reset when the offscreen document is recreated.
+- Byron header verification absent; Byron payload-ledger effects stay in the ledger gap.
+- Session counters reset when the offscreen document is recreated (the ledger survives in OPFS).
 - Upstream library issues (ed25519 leniency, VRF scalar, BLS x>=p, handshake version table) are worked
   around, not fixed upstream here.
 - CIP for N2N-over-WebSocket is a draft in `docs/WEBSOCKET_BEARER.md`, not a submission.
@@ -215,6 +233,16 @@ When a feature or defect lands, update in the same commit (or in a docs-only fol
 ## Pitfalls that already cost cycles
 
 - OPFS async: reads/writes go through the worker; catches around file listing race with node writes.
+- The ledger is a separate sink from the chunk store; never use the chain rollback as the ledger's only
+  undo. `ledger.rollbackTo(slot)` reverses diffs and deletes files; an apply write failure must revert the
+  in-memory diff and mark stale, never drop a verified block.
+- `MultiEraBlock.fromCbor` in Gerolamino needs ledger-ts's own nested dependencies (cbor 2.1, plutus-data
+  2.1, plutus-machine 3.0.5, uplc 2.0.7) because ledger-ts 0.6.0 is built against the 2.x libraries while
+  Gerolamino's own code uses cbor 1.6.6 and explicit plutus-data 1.2.6. Keep the nested copies that
+  `bun install` creates; removing them makes NativeScript construction throw `unmatched 'nativeScript.type'`.
+  Do not flatten them into root.
+- The value map carries lovelace as an empty-policy asset; skip `policy === ""` when building assets, or
+  Blockfrost-shaped answers carry an empty unit next to lovelace.
 - Volatile-only runs cannot pass e2e phase 1 without promotion (gates on `opfs.chunks > 0`).
 - `startMode` resumed is not `mithril`: the anchor file turns it into `resume-mithril`; if you write the
   anchor at every start you lose the base and lie about the start point.

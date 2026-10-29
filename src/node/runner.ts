@@ -16,6 +16,7 @@ import { loadMithrilStake, loadMithrilTxProof, type CertifiedStake, type Mithril
 import { checkTxAnswer, txHashOfPath, type TxProofCheck } from "./txProofCheck";
 import { epochOfSlot, firstSlotOfEpoch, networkByName } from "./networks";
 import { LocalChainIndex, loadIndexFromStore } from "./localIndex";
+import { LocalLedger } from "./ledgerStore";
 import { ChainObserver, freshness, type Density, type Freshness } from "./trust";
 import { answerQuery, normalizePath, type QueryAnswer } from "./query";
 import { QueryRouter, type QueryCandidate } from "./queryRouter";
@@ -76,6 +77,8 @@ export interface RunnerOptions {
     sinkFor?: (network: string) => FileSink | undefined;
     /** Volatile store for blocks near the tip (last k slots); undefined keeps the old direct-to-chunk behaviour. */
     volatileSinkFor?: (network: string) => FileSink | undefined;
+    /** Local UTxO ledger sink (OPFS in the extension); undefined runs the ledger in memory only. */
+    ledgerSinkFor?: (network: string) => FileSink | undefined;
     loadMithril?: () => Promise<MithrilAnchorFn | null>;
     /** Supplies the certified-stake function (default: dynamic import of the Mithril verifier). */
     loadMithrilStake?: () => Promise<MithrilStakeFn | null>;
@@ -121,6 +124,9 @@ export class NodeRunner {
     /** Verified headers for freshness and density; kept across reconnects, reset per network. */
     readonly observer = new ChainObserver();
     private indexNetwork: string | null = null;
+    /** Local UTxO ledger (P0): one per network, resumed before the node starts, queried by the runner. */
+    private ledger: LocalLedger | null = null;
+    private ledgerNetwork: string | null = null;
     /** The main peer's recent headers (every header, hash and link checked), for the cross-check. */
     readonly mainLog = new HeaderLog();
     private watchers: PeerWatcher[] = [];
@@ -279,7 +285,7 @@ export class NodeRunner {
             answeredBy = r.peer;
             return { status: r.status, body: r.body };
         } : undefined;
-        const answer: CheckedAnswer = await answerQuery(path, { index: this.index, network: net, relay, peer: this.config.relayUrl });
+        const answer: CheckedAnswer = await answerQuery(path, { index: this.index, network: net, relay, peer: this.config.relayUrl, ledger: this.ledgerNetwork === net.name ? this.ledger ?? undefined : undefined });
         // the peer that actually answered, not just the main relay: the dApp and the Trust card show it
         if (answer.source === "relay" && answeredBy) answer.peer = answeredBy;
         const tx = txHashOfPath(normalizePath(path));
@@ -406,6 +412,12 @@ export class NodeRunner {
                 this.index.clear();
                 this.observer.clear();
                 this.indexNetwork = net.name;
+                this.ledger = new LocalLedger(this.opts.ledgerSinkFor?.(net.name), net.name);
+                this.ledgerNetwork = net.name;
+                try {
+                    const ls = await this.ledger.resume();
+                    if (ls.blocks) this.log(`ledger: ${ls.blocks} block(s), ${ls.utxoCount} UTxO(s), coverage from slot ${ls.startSlot}, digest ${String(ls.digest ?? "").slice(0, 12)}${ls.stale ? " (stale)" : ""}`);
+                } catch (e) { this.log(`ledger resume failed: ${(e as Error).message}`); }
                 const sink = this.opts.sinkFor?.(net.name);
                 if (sink) {
                     try { const n = await loadIndexFromStore(sink, this.index); if (n) this.log(`indexed ${n} stored block(s) for local queries`); }
@@ -418,6 +430,7 @@ export class NodeRunner {
                 endpoint: this.config.relayUrl, networkMagic: net.magic, start, resumeFrom: this.lastPoint,
                 storeSink: this.opts.sinkFor?.(net.name), volatileSink: this.opts.volatileSinkFor?.(net.name), securityParam: net.securityParam,
                 chunkSlots: net.chunkSlots, index: this.index, observer: this.observer,
+                ledger: this.ledgerNetwork === net.name ? this.ledger ?? undefined : undefined,
                 headerLog: this.mainLog, rollbackTo: this.rollbackTo, certifiedStake: (e) => this.certifiedStakeOf(e),
                 loadMithril: this.opts.loadMithril, mithrilDigests: this.config.mithrilDigests, WebSocketImpl: this.opts.WebSocketImpl,
                 log: (l) => this.log(l), onStats: () => this.emit(),

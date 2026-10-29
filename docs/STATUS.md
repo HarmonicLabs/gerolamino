@@ -1,4 +1,4 @@
-# Gerolamino status (2026-10-16)
+# Gerolamino status (2026-10-16, ledger P0 added 2026-10-29)
 
 Gerolamino is a standalone Cardano node for the browser, shipped as a Chrome MV3 extension. This page records
 why it was rebuilt, what works, what was measured, what is missing, and the problems found in the libraries it
@@ -13,8 +13,8 @@ Gerolamino is the light member of the Gerolamo family, not a smaller copy of all
 - **What it is not.** It will never host a stake pool. Block production, KES keys and leader schedules stay in
   Gerolamo.
 - **Default use.** Most people will sync from the tip. That path must stay fast, small and dependable. Starting
-  from an immutable chunk or a Mithril-certified point, and a ledger state (UTxO set) in OPFS, are welcome
-  extras, never requirements for the default path.
+  from an immutable chunk or a Mithril-certified point are welcome extras, never requirements for the
+  default path; the local UTxO projection (P0, 2026-10-29) runs on every path and carries its coverage.
 - **Look and feel.** The UI follows Gerolamo's desktop app (Electrobun, `gerolamo/desktop`), simpler and
   lighter: same dark theme, red-to-orange accent, cards, progress ring and badges. It does not follow the old
   web dashboard. Gerolamino builds it in plain TypeScript and CSS, because it takes no third-party runtime
@@ -48,10 +48,11 @@ ported and owned here.
 | Header checks | hash and parent link, operational certificate, KES, VRF against the epoch nonce (Praos, TPraos), leader eligibility |
 | Body checks | body hash and size against the header; only verified, linked blocks are stored |
 | Storage | cardano-node immutable chunk files in OPFS, byte-identical to cardano-node's; resume and rollback across chunk boundaries |
+| Local UTxO ledger | P0 UTxO projection from verified blocks: per-block OPFS diff log, digest chain, resume/rollback, coverage on every local UTxO answer; no ledger rules yet |
 | Start modes | relay tip, newest complete chunk, Mithril-certified point; a stored tip always wins |
 | Mithril | full certificate-chain verification to genesis (STM multi-signatures, BLS12-381, genesis ed25519), Merkle root of the cardano-database digests, chunk digests |
 | Extension | service worker keeps the offscreen node alive and recreates it; popup in the desktop app's look (sync ring, epoch bar, tip tiles, verification cards, storage, recent blocks; settings, tx submission, wipe; "Open in a tab" for a wide view) |
-| Dependencies | runtime `@harmoniclabs/*` only; the build fails on anything else |
+| Dependencies | runtime `@harmoniclabs/*` only (plus ledger-ts's transitive `@noble/*`); the build fails on anything else |
 
 ## Volatile store (2026-10-28)
 
@@ -80,6 +81,25 @@ no peer answers. Code: `src/node/queryRouter.ts`; runner candidates: main node f
 Live (Bun, `scripts/query-failover-smoke.ts`, 2026-10-28): main relay `ws://127.0.0.1:9999/n2n` dead, extra
 `ws://192.168.1.173:3004/n2n`: `/addresses/{addr}/utxos` 200 (peer `ws://192.168.1.173:3004/n2n`), `/epochs/latest`
 200 (epoch 1465), `/blocks/1000` 200 (height 50). PASS.
+
+## Local UTxO ledger (2026-10-29)
+
+Every verified block feeds a local UTxO ledger in `gerolamino/<network>/ledger`: one
+`b-<10-digit slot>-<hash8>.ldiff` file with created outputs, spent inputs (collateral only for phase-2
+invalid transactions), unknown inputs and a digest chain, plus a `manifest.json` written last. Resume
+replays the diffs in slot order and checks `prevDigest`/`digest`; rollback reverses diffs newer than the
+target slot and deletes their files. Coverage is first-class: `/txs/{hash}/utxos` and
+`/utxo/{txhash:index}` answer locally only while the ledger covers the transaction and is not stale, with
+`ledger: { startSlot, kind, tipSlot }`; `/addresses` answers locally only at coverage 0. A decode or write
+failure marks the ledger stale (never the chain store) and stale answers relay to the peer. The popup
+Storage card and Trust card show ledger blocks/UTxO/coverage; wipe removes the ledger too.
+
+Live (Brave, `scripts/e2e-chrome.ts --start chunk --relay ws://192.168.1.173:3004/n2n`, 2026-10-29): PASS.
+First phase: 26 ledger blocks, 41 created outputs, 32 spent inputs, 33 UTxO, coverage start slot 126614888,
+digest `1e88f6c2...`. `/txs/26da193d.../utxos` local 200 with coverage tip 126615857 and 2 outputs;
+`/utxo/26da193d...:0` local 200. Offscreen document closed and recreated: 38 ledger blocks, digest
+`7efbc563...`, no stale state, chain resumed at the stored tip. Unit gates cover apply/spend/resume/rollback,
+digest chain, torn manifest, stale detection, same-slot branch replacement and stale local-answer refusal.
 
 ## Not being fooled by peers (2026-10-23)
 
@@ -119,9 +139,11 @@ Follow-ups:
 
 `window.cardano.gerolamino`, CIP-30 style, for web pages: `enable()` with a per-site approval window, network
 id, tip, Trust checks, Blockfrost queries answered locally or by the Gerolamo peer (with Mithril proofs on
-transactions) and `submitTx`. No keys, so no signing. Spec and examples in `docs/DAPP_API.md`; demo page
-`examples/dapp-demo.html` (`bun scripts/serve-demo.ts`); browser test `scripts/e2e-chrome.ts --dapp` (PASS in
-Brave: allow, calls, deny on a second site).
+transactions) and `submitTx`. Local UTxO answers carry `ledger: { startSlot, kind, tipSlot }`; the Trust card
+has a "Local UTxO" row (verified at coverage 0, trusted for partial verified-start, warning when stale). No
+keys, so no signing. Spec and examples in `docs/DAPP_API.md`; demo page `examples/dapp-demo.html`
+(`bun scripts/serve-demo.ts`); browser test `scripts/e2e-chrome.ts --dapp` (PASS in Brave: allow, calls, deny
+on a second site).
 
 ## Measured
 
@@ -129,11 +151,12 @@ All live runs were against Gerolamo's preview relay, `ws://192.168.1.173:3004/n2
 
 | Run | Result |
 |---|---|
-| `bun test` | 122 pass, 0 fail (966 expects, 22 files); `tsc` clean, 2026-10-29 |
+| `bun test` | 138 pass, 0 fail (1107 expects, 25 files); `tsc` clean; ledger P0 tests included, 2026-10-29 |
 | Smoke, newest-chunk start, 60 s | 517 headers verified (crypto 517 / 0, leader 517 / 0), 516 bodies checked and stored in 4 chunks, 8.6 headers/s |
 | Smoke, tip start, 120 s | follows the tip; one real rollback undone correctly |
 | Smoke, Mithril start | 325 certificates verified to genesis, 87 165 digests reproduce the certified Merkle root, then 552 / 552 headers |
 | Chrome for Testing 155, headless | verified blocks in OPFS after 2.8 s; offscreen document closed and recreated, resumed from the stored tip; popup refuses a malformed transaction |
+| Brave e2e, chunk start, ledger P0 | 26 ledger blocks, 33 UTxO, coverage 126614888; `/txs/{hash}/utxos` and `/utxo/{ref}` local with coverage; resume after reopen 38 ledger blocks, digest preserved, PASS (2026-10-29) |
 | Mithril cross-check against Gerolamo's verifier | 1 757 cases, all agree, including tampered certificates (flipped signature, key, stake, message, previous hash) |
 | Mithril chain walk | cold 47–51 s (network-bound, one certificate at a time); warm certificate cache 7–8 s; verification alone 5–7 s for 325 certificates |
 
@@ -152,12 +175,17 @@ can be rebuilt on the same curve code.
 
 ## Not done
 
-- Ledger rules: transactions are not applied, so there is no UTxO set.
+- Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
+  are P2/P3; P0 is a UTxO projection with coverage only.
+- No snapshot coverage yet: P1 Mithril `tables` import is not built, so `/addresses` answers relay unless a
+  future genesis/snapshot run gives coverage 0.
 - The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.
 - No preprod run yet; there is no preprod Gerolamo relay.
 - Real signed transaction submission is untested.
-- Byron headers are not verified.
-- Session counters reset when the offscreen document is recreated.
+- Byron headers are not verified; Byron payload-ledger effects are outside P0.
+- Session counters reset when the offscreen document is recreated (the ledger survives in OPFS).
+- The ledger diff set is not compacted in P0; it grows with the store until P1 snapshot/pruning.
+- OPFS ledger retries after a stale marker rebuild from the first verified start or the snapshot (P1).
 
 ## Problems found in the HarmonicLabs libraries
 
@@ -197,12 +225,11 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
 3. **Several peers and chain selection.** Done 2026-10-23 (see "Not being fooled by peers").
 4. **Volatile store.** Done 2026-10-28 (see "Volatile store"): blocks within k slots of the tip stay in
    `volatile` files, promoted to immutable chunks as they age; rollbacks inside k touch volatile only.
-5. **Ledger state in OPFS (optional extra).** A pure-TypeScript key-value store over OPFS for the UTxO set,
-   then ledger rules. Mithril's ledger snapshot `tables` file is already a sorted run (preview, 2026-10-22:
-   3 169 305 entries, 34-byte keys in strictly ascending byte order, 650 MB), so it can serve unchanged as the
-   base level, with a sparse key index, small sorted delta runs for later blocks, the last k blocks' changes in
-   memory for rollback and a manifest written last. Caveats: those files are signed only by IOG's ancillary
-   Ed25519 key, not the Mithril multi-signature, and their values are MemPack, which needs a decoder of our own.
-   Spec: `docs/LEDGER_SPEC.md` (draft v0, 2026-10-29): P0 UTxO projection from verified blocks first, P1
-   Mithril `tables` snapshot bootstrap, P2 full ledger rules; coverage travels with every ledger answer.
+5. **Ledger state in OPFS.** P0 done 2026-10-29 (see "Local UTxO ledger"): UTxO projection from verified
+   blocks, per-block diff log with digest chain, coverage-first local answers, resume/rollback, stale
+   detection. P1 Mithril `tables` snapshot bootstrap, P2 full ledger rules; the `tables` file is already a
+   sorted run (preview, 2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order,
+   650 MB), so it can serve unchanged as a base level with a sparse key index and small sorted delta runs.
+   Caveats: those files are signed only by IOG's ancillary Ed25519 key, not the Mithril multi-signature, and
+   their values are MemPack, which needs a decoder of our own. Spec: `docs/LEDGER_SPEC.md` (implemented P0).
 6. **Library fixes upstream.** The issues above, on `conformance-fixes`-style branches.

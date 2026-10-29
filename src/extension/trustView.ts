@@ -13,6 +13,9 @@ export interface TrustInput {
     cryptoOk?: number; cryptoBad?: number; leaderOk?: number; leaderBad?: number; bodyBad?: number; linkBad?: number;
     lightQuery?: boolean | null;
     startMode?: string;
+    /** The local UTxO ledger (P0): counters and coverage; absent in older stats. */
+    ledgerBlocks?: number; ledgerUtxoCount?: number; ledgerCoverageStart?: number | null; ledgerTipSlot?: number | null;
+    ledgerDigest?: string | null; ledgerStale?: boolean; ledgerError?: string | null;
     trust?: {
         freshness?: { status: string; lagSlots: number | null } | null;
         density?: { status: string; ratio: number | null; pools: number; coveredSlots: number; windowSlots: number };
@@ -93,7 +96,21 @@ export function trustView(s: TrustInput | null | undefined): TrustView {
             ? { key: "peers", label: "Peers", value: `${p.agreeing} of ${p.total} agree${p.disagreeing ? `, ${p.disagreeing} on another chain` : ""}${p.behind ? `, ${p.behind} behind` : ""}`, tone: "warning", tip: "Peers disagree about the chain. The longest chain that shares history is followed (the main peer is switched to it) and the others are flagged." }
             : p.agreeing >= 2
                 ? { key: "peers", label: "Peers", value: `${p.agreeing} of ${p.total} agree${p.down ? `, ${p.down} down` : ""}`, tone: "verified", tip: "Independent peers serve the same headers." }
-                : { key: "peers", label: "Peers", value: `checking ${p.total - 1} more${p.down ? `, ${p.down} down` : ""}`, tone: "trusted", tip: "Extra relays are connecting or have not seen enough of the chain to compare yet." });
+            : { key: "peers", label: "Peers", value: `checking ${p.total - 1} more${p.down ? `, ${p.down} down` : ""}`, tone: "trusted", tip: "Extra relays are connecting or have not seen enough of the chain to compare yet." });
+
+    // 8. local UTxO ledger (P0): only when the stats carry it
+    if (s?.ledgerBlocks != null) {
+        const lb = s.ledgerBlocks, utxos = s.ledgerUtxoCount ?? 0, start = s.ledgerCoverageStart, tip = s.ledgerTipSlot;
+        const stale = s.ledgerStale || !!s.ledgerError;
+        const complete = start === 0;
+        rows.push(stale
+            ? { key: "ledger", label: "Local UTxO", value: s.ledgerError ? "stale after an error" : "stale, rebuild pending", tone: "warning", tip: "The local UTxO diff log failed a digest or write check. The chain store is still intact; rebuild the ledger from a snapshot or a verified start." }
+            : !lb
+                ? { key: "ledger", label: "Local UTxO", value: "waiting for coverage", tone: "pending", tip: "No verified block has fed the local UTxO projection yet." }
+                : complete
+                    ? { key: "ledger", label: "Local UTxO", value: `${lb} blocks, ${utxos} UTxO from genesis`, tone: "verified", tip: "UTxO state covers the whole chain (genesis or a certified snapshot): address answers are complete." }
+                    : { key: "ledger", label: "Local UTxO", value: `${lb} blocks, ${utxos} UTxO from slot ${start ?? "?"}`, tone: "trusted", tip: `UTxO state starts at verified slot ${start ?? "?"}${tip != null ? ` and runs to ${tip}` : ""}; address balances are partial, so address answers default to the Gerolamo peer unless coverage is complete.` });
+    }
 
     const warn = rows.filter((r) => r.tone === "warning");
     const trusted = rows.filter((r) => r.tone === "trusted");

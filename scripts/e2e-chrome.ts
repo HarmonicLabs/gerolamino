@@ -129,12 +129,15 @@ try {
         if (s && (s.cryptoBad || s.linkBad || s.bodyBad || s.leaderBad)) break;
         await sleep(2000);
     }
-    results.firstPhase = s && { state: s.state, version: s.version, headers: s.headers, cryptoOk: s.cryptoOk, cryptoBad: s.cryptoBad, leaderOk: s.leaderOk, leaderBad: s.leaderBad, bodyOk: s.bodyOk, bodyBad: s.bodyBad, storedBlocks: s.storedBlocks, opfs: s.opfs, serverTip: s.serverTip, lastSlot: s.lastSlot, cryptoMsPerHeader: s.cryptoOk ? Math.round(s.cryptoMs / s.cryptoOk) : null, startMode: s.startMode, anchorSlot: s.anchor?.slot ?? s.anchorFile?.slot ?? null };
+    results.firstPhase = s && { state: s.state, version: s.version, headers: s.headers, cryptoOk: s.cryptoOk, cryptoBad: s.cryptoBad, leaderOk: s.leaderOk, leaderBad: s.leaderBad, bodyOk: s.bodyOk, bodyBad: s.bodyBad, storedBlocks: s.storedBlocks, opfs: s.opfs, serverTip: s.serverTip, lastSlot: s.lastSlot, cryptoMsPerHeader: s.cryptoOk ? Math.round(s.cryptoMs / s.cryptoOk) : null, startMode: s.startMode, anchorSlot: s.anchor?.slot ?? s.anchorFile?.slot ?? null, ledgerBlocks: s.ledgerBlocks, ledgerCreated: s.ledgerCreated, ledgerSpent: s.ledgerSpent, ledgerUtxoCount: s.ledgerUtxoCount, ledgerUnknownInputs: s.ledgerUnknownInputs, ledgerTipSlot: s.ledgerTipSlot, ledgerCoverageStart: s.ledgerCoverageStart, ledgerDigest: s.ledgerDigest, ledgerStale: s.ledgerStale, ledgerError: s.ledgerError };
     const phase1 = !!s && s.cryptoOk >= want && s.storedBlocks >= want && (s.opfs?.chunks ?? 0) > 0 && !s.cryptoBad && !s.linkBad && !s.bodyBad && !s.leaderBad;
     if (!phase1) throw new Error(`headers/blocks did not verify and land in OPFS within ${timeoutSec} s`);
     const files = await cdp.evaluate<string[]>(offSession, `(async () => { let d = await navigator.storage.getDirectory(); for (const p of ["gerolamino", ${JSON.stringify(s.network)}, "immutable"]) d = await d.getDirectoryHandle(p); const out = []; for await (const [n, h] of d) { try { out.push(n + " " + (await h.getFile()).size); } catch { /* raced with the node rewriting it */ } } return out.sort(); })()`);
     log(`OPFS gerolamino/${s.network}/immutable: ${files.join(", ")}`);
     results.opfsFiles = files;
+    const ledgerFiles = await cdp.evaluate<string[]>(offSession, `(async () => { let d = await navigator.storage.getDirectory(); for (const p of ["gerolamino", ${JSON.stringify(s.network)}, "ledger"]) d = await d.getDirectoryHandle(p); const out = []; for await (const [n, h] of d) { try { out.push(n + " " + (await h.getFile()).size); } catch { /* raced with the node rewriting it */ } } return out.sort(); })()`);
+    log(`OPFS gerolamino/${s.network}/ledger: ${ledgerFiles.slice(0, 8).join(", ")}${ledgerFiles.length > 8 ? "…" : ""} (${ledgerFiles.length} file(s))`);
+    results.opfsLedgerFiles = ledgerFiles;
     const storedBefore = s.storedBlocks as number;
     const storedTip = s.storedTipSlot as number;
 
@@ -152,9 +155,9 @@ try {
     let s2: any = null;
     for (let i = 0; i < 30; i++) { s2 = await status(offSession); if (s2?.resumedFrom != null && s2.intersect) break; await sleep(1000); }
     log(`recreated: resumedFrom=${s2?.resumedFrom} storedBlocks=${s2?.storedBlocks} intersect=${s2?.intersect} state=${s2?.state}`);
-    results.resume = { resumedFrom: s2?.resumedFrom, storedBlocksAfterReopen: s2?.storedBlocks, storedBefore, storedTip, intersect: s2?.intersect, state: s2?.state, startMode: s2?.startMode, anchorSlot: s2?.anchor?.slot ?? s2?.anchorFile?.slot ?? null };
-    const resumed = s2?.resumedFrom != null && s2.resumedFrom >= storedTip && s2.storedBlocks >= storedBefore;
-    if (!resumed) throw new Error("the recreated offscreen document did not resume from the stored tip");
+    results.resume = { resumedFrom: s2?.resumedFrom, storedBlocksAfterReopen: s2?.storedBlocks, storedBefore, storedTip, intersect: s2?.intersect, state: s2?.state, startMode: s2?.startMode, anchorSlot: s2?.anchor?.slot ?? s2?.anchorFile?.slot ?? null, ledgerBlocks: s2?.ledgerBlocks, ledgerTipSlot: s2?.ledgerTipSlot, ledgerCoverageStart: s2?.ledgerCoverageStart, ledgerDigest: s2?.ledgerDigest, ledgerStale: s2?.ledgerStale };
+    const resumed = s2?.resumedFrom != null && s2.resumedFrom >= storedTip && s2.storedBlocks >= storedBefore && s2.ledgerBlocks >= (s.ledgerBlocks ?? 0) && !s2.ledgerStale;
+    if (!resumed) throw new Error("the recreated offscreen document did not resume from the stored tip (or its ledger did not resume)");
 
     // 6. the popup renders the status
     const tab = await cdp.send("Target.createTarget", { url: `chrome-extension://${extId}/popup.html` });
@@ -162,7 +165,7 @@ try {
     await cdp.send("Runtime.enable", {}, popSession);
     let popup: any = null;
     for (let i = 0; i < 20; i++) {
-        popup = await cdp.evaluate(popSession, `(() => { const t = (id) => document.getElementById(id)?.textContent ?? null; return { state: t("state"), conn: t("s-conn"), version: t("s-version"), headers: t("s-headers"), crypto: t("s-crypto"), opfs: t("s-opfs"), stored: t("s-stored"), relay: document.getElementById("relayUrl")?.value }; })()`);
+        popup = await cdp.evaluate(popSession, `(() => { const t = (id) => document.getElementById(id)?.textContent ?? null; return { state: t("state"), conn: t("s-conn"), version: t("s-version"), headers: t("s-headers"), crypto: t("s-crypto"), opfs: t("s-opfs"), stored: t("s-stored"), ledger: t("s-ledger"), relay: document.getElementById("relayUrl")?.value }; })()`);
         if (/^(syncing|at-tip)$/.test(popup?.state ?? "") && /^[1-9]/.test(popup?.opfs ?? "")) break;
         await sleep(500);
     }
@@ -178,7 +181,31 @@ try {
     log(`query /blocks/latest → ${qLocal?.answer?.source} ${qLocal?.answer?.status}; /epochs/latest → ${qRelay?.answer?.source} ${qRelay?.answer?.status} (${JSON.stringify(qRelay?.answer?.body).slice(0, 80)})`);
     results.query = { local: qLocal?.answer?.source, relay: qRelay?.answer?.source, relayStatus: qRelay?.answer?.status };
     if (qLocal?.answer?.source !== "local") throw new Error("the newest stored block was not answered locally");
-    const popupOk = !!popup?.headers && popup.headers !== "–" && /^[1-9]/.test(popup.opfs ?? "") && txReply?.ok === false;
+    // the local UTxO ledger: outputs of a stored transaction, then one of its unspent outputs, both answered with coverage
+    let ledgerTx: any = null, ledgerCheck: any = null, utxoCheck: any = null;
+    const latestHeight = Number(s.lastBlockNo ?? 0);
+    for (let h = latestHeight; h > Math.max(0, latestHeight - 10) && !ledgerTx; h--) {
+        const list = await ask(`/blocks/${h}/txs`);
+        const hashes: string[] = Array.isArray(list?.answer?.body) ? list.answer.body : [];
+        for (const hash of hashes.slice(0, 4)) {
+            const q = await ask(`/txs/${hash}/utxos`);
+            if (q?.answer?.source === "local" && Array.isArray(q.answer.body) && q.answer.body.length) {
+                ledgerTx = hash; ledgerCheck = q.answer;
+                const unspent = q.answer.body.find((o: any) => o.spent_boolean === false);
+                if (unspent) {
+                    const u = await ask(`/utxo/${unspent.tx_hash}:${unspent.output_index}`);
+                    if (u?.answer?.source === "local") utxoCheck = u.answer;
+                }
+                break;
+            }
+        }
+    }
+    results.ledger = { tx: ledgerTx, txSource: ledgerCheck?.source, txStatus: ledgerCheck?.status, outputs: ledgerCheck?.body?.length ?? 0, coverage: ledgerCheck?.ledger ?? null, utxoSource: utxoCheck?.source, utxoRef: utxoCheck?.body ? `${utxoCheck.body.tx_hash}:${utxoCheck.body.output_index}` : null };
+    const ledgerResult = results.ledger as { outputs: number; utxoRef: string | null };
+    log(`ledger /txs/${String(ledgerTx).slice(0, 12)}…/utxos → ${ledgerCheck?.source} ${ledgerCheck?.status} coverage ${JSON.stringify(ledgerCheck?.ledger)}; /utxo/${String(ledgerResult.utxoRef).slice(0, 20)}… → ${utxoCheck?.source}`);
+    const ledgerOk = !!ledgerTx && ledgerCheck?.source === "local" && ledgerCheck?.status === 200 && ledgerResult.outputs > 0 && !!ledgerCheck?.ledger && (!utxoCheck || utxoCheck.status === 200);
+    if (!ledgerOk) throw new Error("the local UTxO ledger did not answer a stored transaction/unspent output with coverage");
+    const popupOk = !!popup?.headers && popup.headers !== "–" && /^[1-9]/.test(popup.opfs ?? "") && /\d+ blocks/.test(popup.ledger ?? "") && txReply?.ok === false;
     if (!popupOk) throw new Error("popup did not render the node status");
 
     // 7. the trust checks (phases 3 to 5)

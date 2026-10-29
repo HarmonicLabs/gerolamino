@@ -11,9 +11,10 @@ API key; the chain comes over the same socket the node already follows.
 
 `window.cardano.gerolamino.enable()` (one approval per site origin) returns an api with:
 
-- `query(path)` → `{ status, body, source: "local" | "relay", peer, proof }` for any Blockfrost GET path
-  (`/blocks/latest`, `/epochs/latest`, `/addresses/{addr}/utxos?count=100&page=1`, `/txs/{hash}/metadata`,
-  `/assets/policy/{policy}`, ...).
+- `query(path)` → `{ status, body, source: "local" | "relay", peer, proof, ledger }` for any Blockfrost GET
+  path (`/blocks/latest`, `/epochs/latest`, `/addresses/{addr}/utxos?count=100&page=1`,
+  `/txs/{hash}/utxos`, `/utxo/{txhash:index}`, `/txs/{hash}/metadata`, `/assets/policy/{policy}`, ...).
+  `ledger` is `{ startSlot, kind, tipSlot }` on local UTxO answers.
 - `submitTx(txCborHex)` → tx id (a wallet-signed transaction; Gerolamino never signs).
 - `getTip()`, `getTrust()`, `getNetworkId()`, `getUtxos(address)`, `getAccount(stake)`, `getProtocolParameters()`.
 
@@ -43,8 +44,9 @@ paged GET; `provider.json` throws on non-200.
 
 ## When to use it
 
-- Browser dApp with Gerolamino installed and connected: use the adapter; reads are local-first and
-  relay-backed, and the page never needs the Gerolamo HTTP port.
+- Browser dApp with Gerolamino installed and connected: use the adapter; reads are local-first (stored block
+  facts and local UTxO answers with coverage), then relay-backed, and the page never needs the Gerolamo HTTP
+  port. A stale or partial local ledger relays rather than inventing UTxO.
 - Bun/backend/CI: use the Gerolamo mini-Blockfrost over HTTP (`http://192.168.1.173:3040/api/v0/*` or the
   node's own `:3037`/`:3040`); the adapter needs `window`.
 - Fallback: if `hasGerolamino()` is false (extension absent), keep the OnchainApps/Blockfrost provider; the
@@ -58,3 +60,6 @@ the Gerolamo peer): provider.json("/blocks/latest") local 200 (preview height 4,
 get("/epochs/latest") relay 200 (epoch 1464), getAllPages("/addresses/{addr}/utxos") relay 200 (9 UTxOs
 across 2 pages), get("/blocks/1000") relay 200. `bun scripts/e2e-chrome.ts --dapp` drives the same api in
 Brave (`query("/blocks/latest")` → 200 local, `query("/epochs/latest")` → 200 relay, allow/deny per site).
+The ledger P0 e2e (`--start chunk`) additionally proves `query("/txs/{hash}/utxos")` and `query("/utxo/{ref}")`
+answer locally with `ledger: { startSlot, kind, tipSlot }` and resume the diff log after the offscreen document
+is recreated.

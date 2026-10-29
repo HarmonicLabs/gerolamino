@@ -80,4 +80,15 @@ describe("phase 4: nonce and stake rows", () => {
         expect(off.tone).toBe("trusted");
         expect(off.tip).toContain("HTTP 503");
     });
+
+    test("the local UTxO ledger row: partial coverage is trusted, genesis coverage verified, a stale ledger a warning", () => {
+        const partial = trustView({ ...honest, ledgerBlocks: 26, ledgerUtxoCount: 33, ledgerCoverageStart: 126_614_888, ledgerTipSlot: 126_615_505, ledgerDigest: "ab", ledgerStale: false, ledgerError: null });
+        const ledgerRow = row(partial, "ledger");
+        expect(ledgerRow.tone).toBe("trusted");
+        expect(ledgerRow.value).toBe("26 blocks, 33 UTxO from slot 126614888");
+        expect(ledgerRow.tip).toContain("126615505");
+        expect(row(trustView({ ...honest, ledgerBlocks: 12, ledgerUtxoCount: 4, ledgerCoverageStart: 0 }), "ledger").tone).toBe("verified");
+        expect(trustView({ ...honest, ledgerBlocks: 12, ledgerStale: true, ledgerError: null }).verdict.tone).toBe("warning");
+        expect(trustView(honest).rows.some((r) => r.key === "ledger")).toBe(false);
+    });
 });

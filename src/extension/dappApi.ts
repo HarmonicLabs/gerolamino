@@ -61,7 +61,7 @@ export interface DappDeps {
     /** The node's latest stats (null while it has not reported). */
     status(): any;
     network(): Promise<string>;
-    query(path: string): Promise<{ status: number; body: unknown; source: string; peer?: string; proof?: unknown }>;
+    query(path: string): Promise<{ status: number; body: unknown; source: string; peer?: string; proof?: unknown; ledger?: unknown }>;
     submitTx(cborHex: string): Promise<string>;
     now?: () => number;
 }
@@ -137,6 +137,6 @@ export class DappHub {
     private async query(path: unknown): Promise<DappReply> {
         if (typeof path !== "string" || !path.startsWith("/") || path.length > MAX_PATH || path.includes("..")) return err(APIError.InvalidRequest, "query(path): a Blockfrost path such as /blocks/latest");
         const a = await this.deps.query(path);
-        return { ok: true, result: { status: a.status, body: a.body, source: a.source, peer: a.peer ?? null, proof: a.proof ?? null } };
+        return { ok: true, result: { status: a.status, body: a.body, source: a.source, peer: a.peer ?? null, proof: a.proof ?? null, ledger: a.ledger ?? null } };
     }
 }

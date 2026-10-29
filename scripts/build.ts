@@ -37,8 +37,8 @@ const CLASSIC = new Set(["inpage", "bridge"]);
 const mithrilEntry = ["src/mithril/index.ts", "src/mithril/mithrilAnchor.ts"].map((p) => join(root, p)).find((p) => existsSync(p));
 if (mithrilEntry) entries.mithril = mithrilEntry;
 
-/** Only @harmoniclabs/* and our own sources may end up in a bundle. */
-const allowed = (path: string) => !path.includes("node_modules/") || /node_modules\/@harmoniclabs\//.test(path);
+/** Only @harmoniclabs/* and our own sources may end up in a bundle; ledger-ts carries @noble/* (crypto/curves). */
+const allowed = (path: string) => !path.includes("node_modules/") || /node_modules\/(?:@harmoniclabs|@noble)\//.test(path);
 const problems: string[] = [];
 let totalBytes = 0;
 

@@ -170,3 +170,5 @@ API and the Blockfrost adapter.
 - [`docs/BLOCKFROST_THROUGH_GEROLAMINO.md`](docs/BLOCKFROST_THROUGH_GEROLAMINO.md) Blockfrost transport and
   the SDK adapter.
 - [`docs/WEBSOCKET_BEARER.md`](docs/WEBSOCKET_BEARER.md) what Gerolamino needs from a peer, basis for a CIP.
+- [`docs/LEDGER_SPEC.md`](docs/LEDGER_SPEC.md) local ledger spec (draft): coverage model, OPFS diff log,
+  snapshot bootstrap, phases.

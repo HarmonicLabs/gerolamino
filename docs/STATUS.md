@@ -203,4 +203,6 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
    base level, with a sparse key index, small sorted delta runs for later blocks, the last k blocks' changes in
    memory for rollback and a manifest written last. Caveats: those files are signed only by IOG's ancillary
    Ed25519 key, not the Mithril multi-signature, and their values are MemPack, which needs a decoder of our own.
+   Spec: `docs/LEDGER_SPEC.md` (draft v0, 2026-10-29): P0 UTxO projection from verified blocks first, P1
+   Mithril `tables` snapshot bootstrap, P2 full ledger rules; coverage travels with every ledger answer.
 6. **Library fixes upstream.** The issues above, on `conformance-fixes`-style branches.

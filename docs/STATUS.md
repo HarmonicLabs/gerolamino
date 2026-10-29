@@ -129,7 +129,7 @@ All live runs were against Gerolamo's preview relay, `ws://192.168.1.173:3004/n2
 
 | Run | Result |
 |---|---|
-| `bun test` | 119 pass, 3 skipped (network-gated), 0 fail; `tsc` clean |
+| `bun test` | 122 pass, 0 fail (966 expects, 22 files); `tsc` clean, 2026-10-29 |
 | Smoke, newest-chunk start, 60 s | 517 headers verified (crypto 517 / 0, leader 517 / 0), 516 bodies checked and stored in 4 chunks, 8.6 headers/s |
 | Smoke, tip start, 120 s | follows the tip; one real rollback undone correctly |
 | Smoke, Mithril start | 325 certificates verified to genesis, 87 165 digests reproduce the certified Merkle root, then 552 / 552 headers |
@@ -155,8 +155,6 @@ can be rebuilt on the same curve code.
 - Ledger rules: transactions are not applied, so there is no UTxO set.
 - The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.
 - No preprod run yet; there is no preprod Gerolamo relay.
-- The Mithril start ran in Bun, not yet inside the extension. Its OPFS certificate cache exists but is not
-  wired through the loader.
 - Real signed transaction submission is untested.
 - Byron headers are not verified.
 - Session counters reset when the offscreen document is recreated.

@@ -12,7 +12,9 @@
         "typecheck": "tsc --noEmit -p .",
         "smoke": "bun scripts/node-smoke.ts",
         "ledger-smoke": "bun scripts/ledger-smoke.ts",
-        "e2e": "bun scripts/e2e-chrome.ts"
+        "e2e": "bun scripts/e2e-chrome.ts",
+        "docs": "bun scripts/docs.ts",
+        "docs-serve": "bun scripts/serve-docs.ts"
     },
     "dependencies": {
         "@harmoniclabs/cardano-math-ts": "^0.0.5",

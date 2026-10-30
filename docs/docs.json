@@ -1,0 +1,70 @@
+{
+  "title": "Gerolamino documentation",
+  "tagline": "Standalone TypeScript Cardano node for the browser.",
+  "categories": [
+    {
+      "title": "Start here",
+      "description": "Build the extension and bring up a local relay.",
+      "docs": [
+        {
+          "file": "INSTALL_EXTENSION.md",
+          "title": "Install the extension",
+          "summary": "Build from source, load the MV3 extension in Chrome or Brave, and verify the first start."
+        },
+        {
+          "file": "RUN_LOCAL_GEROLAMO.md",
+          "title": "Run a local Gerolamo relay",
+          "summary": "Docker and Bun options for the Gerolamo node that serves Gerolamino over N2N-over-WebSocket."
+        }
+      ]
+    },
+    {
+      "title": "Interfaces",
+      "description": "The page API and Blockfrost-shaped transport.",
+      "docs": [
+        {
+          "file": "DAPP_API.md",
+          "title": "dApp API",
+          "summary": "CIP-30-shaped discovery, approval, errors, query and submitTx semantics."
+        },
+        {
+          "file": "BLOCKFROST_THROUGH_GEROLAMINO.md",
+          "title": "Blockfrost through Gerolamino",
+          "summary": "Local-first reads, peer failover, and the SDK adapter."
+        }
+      ]
+    },
+    {
+      "title": "Architecture",
+      "description": "Chain storage, local UTxO coverage, and the browser bearer.",
+      "docs": [
+        {
+          "file": "LEDGER_SPEC.md",
+          "title": "Local ledger specification",
+          "summary": "P0 UTxO projection, coverage, digest chain, resume and rollback."
+        },
+        {
+          "file": "WEBSOCKET_BEARER.md",
+          "title": "N2N over WebSocket",
+          "summary": "What the browser client needs from a relay and the open CIP questions."
+        }
+      ]
+    },
+    {
+      "title": "Status and evidence",
+      "description": "What was measured, what is missing, and the milestone trail.",
+      "docs": [
+        {
+          "file": "STATUS.md",
+          "title": "Project status",
+          "summary": "Measured state, known gaps, library issues and roadmap."
+        },
+        {
+          "file": "MILESTONE_4_EVIDENCE.md",
+          "title": "Milestone 4 evidence",
+          "summary": "Requirement mapping, gates, live transcript, gaps and submission bundle."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Gerolamino documentation</title>
+<style>
+:root {
+  --bg: #0b1015;
+  --panel: #111a21;
+  --panel-soft: #0f171e;
+  --text: #e7edf1;
+  --muted: #9aa8b2;
+  --dim: #65747f;
+  --line: #24313b;
+  --accent: #ff8b4a;
+  --accent-soft: #ffb07a;
+  --ok: #71d7a6;
+  --bad: #ff7f7f;
+  --code: #0b1319;
+  --shadow: 0 20px 60px rgba(0, 0, 0, .28);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(255, 139, 74, .08), transparent 55%),
+    radial-gradient(800px 500px at 90% 0%, rgba(113, 215, 166, .04), transparent 50%),
+    var(--bg);
+  color: var(--text);
+  font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+a { color: var(--accent-soft); text-decoration: none; }
+a:hover { color: #ffd0a8; }
+a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, pre, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code {
+  color: #f5c6a6;
+  background: rgba(255, 139, 74, .09);
+  border: 1px solid rgba(255, 139, 74, .12);
+  border-radius: 5px;
+  padding: 1px 4px;
+}
+pre {
+  overflow-x: auto;
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 14px 0;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .22);
+}
+pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+}
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 12px;
+  z-index: 100;
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-weight: 700;
+}
+.skip:focus { left: 16px; }
+.layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 30px;
+    max-width: 1320px;
+  margin: 0 auto;
+  padding: 34px 24px 60px;
+}
+.sidebar {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  overflow: auto;
+  max-height: calc(100vh - 48px);
+  background: rgba(17, 26, 33, .88);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 20px 16px;
+  backdrop-filter: blur(10px);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ff8b4a, #b7642f);
+  box-shadow: 0 4px 18px rgba(255, 139, 74, .22);
+  display: grid;
+  place-items: center;
+  color: #141c22;
+  font-weight: 900;
+}
+.brand strong { font-size: 17px; letter-spacing: .01em; }
+.kicker {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.tagline { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+.filter-wrap {
+  margin: 18px 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+.filter {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 7px 8px;
+}
+.filter::placeholder { color: var(--dim); }
+.nav-category { margin: 14px 0; }
+.nav-title {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.nav-docs { display: grid; gap: 2px; }
+.nav-link {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border-left: 2px solid transparent;
+  overflow-wrap: anywhere;
+}
+.nav-link:hover { color: var(--text); background: rgba(255, 255, 255, .04); }
+.nav-link.active { color: var(--accent-soft); background: rgba(255, 139, 74, .1); border-left-color: var(--accent); font-weight: 600; }
+.sidebar-foot {
+  margin-top: 18px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.main { min-width: 0; }
+.hero {
+  background: rgba(17, 26, 33, .9);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 28px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+}
+.eyebrow {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  margin-bottom: 9px;
+}
+h1 {
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: 1.02;
+  letter-spacing: -.035em;
+  margin: 0;
+  max-width: 680px;
+  background: linear-gradient(90deg, #f7f2ea, #b8c2c7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero p {
+  color: var(--muted);
+  font-size: 15px;
+  max-width: 640px;
+  margin: 14px 0 0;
+}
+.hero-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.hero-link {
+  border: 1px solid rgba(255, 139, 74, .28);
+  background: rgba(255, 139, 74, .08);
+  border-radius: 999px;
+  color: var(--accent-soft);
+  font-size: 12px;
+  padding: 7px 12px;
+}
+.hero-link.quiet { border-color: var(--line); background: rgba(255,255,255,.025); color: var(--muted); }
+.stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 22px;
+  color: var(--dim);
+  font-size: 12px;
+}
+.stack span {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: rgba(255,255,255,.02);
+}
+.doc {
+  scroll-margin-top: 18px;
+  background: rgba(17, 26, 33, .86);
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  margin: 0 0 22px;
+  box-shadow: 0 12px 44px rgba(0, 0, 0, .18);
+}
+.doc[hidden] { display: none !important; }
+.doc-header { padding: 24px 26px 0; }
+.doc-category {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.doc h2 {
+  font-size: 24px;
+  letter-spacing: -.02em;
+  margin: 5px 0 6px;
+}
+.doc-summary { color: var(--muted); margin: 0; max-width: 760px; font-size: 13.5px; }
+.doc-actions { display: flex; gap: 14px; margin-top: 12px; }
+.source-link { font-size: 11px; color: var(--dim); }
+.source-link:hover { color: var(--accent-soft); }
+.doc-body { padding: 5px 26px 24px; color: #d8e1e6; overflow-wrap: anywhere; }
+.doc-body > h1:first-child { display: none; }
+.doc-body h2 {
+  color: var(--text);
+  font-size: 17px;
+  letter-spacing: -.01em;
+  margin: 24px 0 8px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(36, 49, 59, .7);
+}
+.doc-body h3 { color: var(--accent-soft); font-size: 14px; margin: 18px 0 6px; }
+.doc-body p { margin: 9px 0; }
+.doc-body ul, .doc-body ol { padding-left: 22px; margin: 8px 0; }
+.doc-body li { margin: 4px 0; }
+.doc-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.doc-body th, .doc-body td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.doc-body th { color: var(--accent-soft); background: rgba(255, 139, 74, .06); font-size: 11px; letter-spacing: .03em; }
+.doc-body tr:last-child td { border-bottom: 0; }
+.doc-body hr { border: 0; border-top: 1px solid var(--line); margin: 22px 0; }
+.doc-body blockquote { border-left: 2px solid var(--accent); color: var(--muted); margin: 12px 0; padding: 2px 0 2px 12px; }
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 48px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  margin: 22px 0;
+}
+.footer {
+  color: var(--dim);
+  font-size: 12px;
+  padding: 8px 4px;
+}
+.footer p { margin: 5px 0; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; gap: 18px; padding: 20px 14px 50px; }
+  .sidebar { position: static; max-height: none; }
+  .hero { padding: 22px; }
+  .doc-header { padding: 22px 18px 0; }
+  .doc-body { padding: 5px 18px 20px; }
+  .hero h1 { max-width: 100%; }
+}
+@media print {
+  body { background: white; color: #111; }
+  .sidebar, .hero-links, .stack, .filter-wrap, .doc-actions, .footer, .skip { display: none !important; }
+  .layout { display: block; max-width: none; padding: 0; }
+  .doc, .hero { box-shadow: none; border-color: #ccc; break-inside: avoid; }
+  .doc-body { color: #111; }
+  .doc-body h2 { color: #111; }
+  .doc-body th { color: #111; background: #f4f4f4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#install-extension">Skip to documents</a>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">G</div>
+      <div>
+        <div class="kicker">Harmonic Labs</div>
+        <strong>Gerolamino documentation</strong>
+        <div class="tagline">Standalone TypeScript Cardano node for the browser.</div>
+      </div>
+    </div>
+    <div class="filter-wrap">
+      <input id="doc-filter" class="filter" type="search" placeholder="Filter documents..." aria-label="Filter documents">
+    </div>
+    <nav class="docs-nav" aria-label="Documentation">
+
+<section class="nav-category">
+  <div class="nav-title">Start here</div>
+  <div class="nav-docs"><a class="nav-link" href="#install-extension" data-doc="install-extension" data-title="Install the extension">Install the extension</a><a class="nav-link" href="#run-local-gerolamo" data-doc="run-local-gerolamo" data-title="Run a local Gerolamo relay">Run a local Gerolamo relay</a></div>
+</section>
+<section class="nav-category">
+  <div class="nav-title">Interfaces</div>
+  <div class="nav-docs"><a class="nav-link" href="#dapp-api" data-doc="dapp-api" data-title="dApp API">dApp API</a><a class="nav-link" href="#blockfrost-through-gerolamino" data-doc="blockfrost-through-gerolamino" data-title="Blockfrost through Gerolamino">Blockfrost through Gerolamino</a></div>
+</section>
+<section class="nav-category">
+  <div class="nav-title">Architecture</div>
+  <div class="nav-docs"><a class="nav-link" href="#ledger-spec" data-doc="ledger-spec" data-title="Local ledger specification">Local ledger specification</a><a class="nav-link" href="#websocket-bearer" data-doc="websocket-bearer" data-title="N2N over WebSocket">N2N over WebSocket</a></div>
+</section>
+<section class="nav-category">
+  <div class="nav-title">Status and evidence</div>
+  <div class="nav-docs"><a class="nav-link" href="#status" data-doc="status" data-title="Project status">Project status</a><a class="nav-link" href="#milestone-4-evidence" data-doc="milestone-4-evidence" data-title="Milestone 4 evidence">Milestone 4 evidence</a></div>
+</section>
+    </nav>
+    <div class="sidebar-foot">
+      <span id="doc-count">8 documents</span>
+      <br>Build with <code>bun run docs</code><br>
+      Serve with <code>bun run docs-serve</code>
+    </div>
+  </aside>
+  <main class="main" id="top">
+    <section class="hero">
+      <div class="eyebrow">Documentation index</div>
+      <h1>Build, load, query, and verify Gerolamino.</h1>
+      <p>Standalone TypeScript Cardano node for the browser. Read the extension install path, the browser dApp API, the local UTxO ledger contract, and the measured status of the node.</p>
+      <div class="hero-links">
+        <a class="hero-link" href="#install-extension">Start with the extension</a>
+        <a class="hero-link" href="#dapp-api">dApp API</a>
+        <a class="hero-link" href="#ledger-spec">Ledger P0</a>
+        <a class="hero-link quiet" href="#status">Status</a>
+      </div>
+      <div class="stack">
+        <span>MV3 browser extension</span>
+        <span>N2N over WebSocket</span>
+        <span>OPFS storage</span>
+        <span>Local UTxO P0</span>
+        <span>Blockfrost-shaped API</span>
+      </div>
+    </section>
+    <div id="doc-empty" class="empty" hidden>No documents match that filter.</div>
+
+<article class="doc" id="install-extension" data-search="Install the extension Build from source, load the MV3 extension in Chrome or Brave, and verify the first start.">
+  <header class="doc-header">
+    <div class="doc-category">Start here</div>
+    <h2>Install the extension</h2>
+    <p class="doc-summary">Build from source, load the MV3 extension in Chrome or Brave, and verify the first start.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./INSTALL_EXTENSION.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#install-extension">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>Install Gerolamino as a browser extension</h1>
+<p>Gerolamino is a local chain reader, not a wallet. It keeps no keys and cannot sign. It needs a Gerolamo peer
+that serves N2N-over-WebSocket; Gerolamo itself is a full node, Gerolamino is the browser light node.</p>
+<p>Supported browsers: Chrome 116+ or Brave (MV3, <code>offscreen</code> document). The extension is loaded unpacked today;
+there is no Chrome Web Store listing in this repository.</p>
+<h2>1. Before you start</h2>
+<ul>
+<li>Bun 1.1+ and git are installed.</li>
+<li>You have a relay URL: <code>ws://host:port/n2n</code> or <code>wss://host/n2n</code>. A Gerolamo peer must listen on that WebSocket
+and serve the matching network magic. Ports are flags on Gerolamo, never environment variables.</li>
+<li>If you do not have a relay yet, run Gerolamo locally first: <a href="#run-local-gerolamo">RUN_LOCAL_GEROLAMO.md</a>.
+The default setup there gives <code>ws://127.0.0.1:3004/n2n</code>.</li>
+<li>Pick the network at the relay: <code>preview</code> (magic 2) or <code>preprod</code> (magic 1). Gerolamino settings offer those two;
+mainnet (magic 764824073) is deferred on the browser side.</li>
+</ul>
+<h2>2. Build the extension</h2>
+<pre><code class="language-bash">git clone https://github.com/HarmonicLabs/gerolamino.git
+cd gerolamino
+bun install
+bun run build
+</code></pre>
+<p><code>bun run build</code> writes the unpacked MV3 extension to <code>dist/</code>. The build also regenerates <code>manifest.json</code> and
+the icons; do not load <code>src/extension/</code> directly, it has no bundled JavaScript.</p>
+<h2>3. Load it in Chrome or Brave</h2>
+<ol>
+<li>Open <code>chrome://extensions</code> (Chrome) or <code>brave://extensions</code> (Brave).</li>
+<li>Turn on <strong>Developer mode</strong>.</li>
+<li>Click <strong>Load unpacked</strong> and select the <code>dist/</code> directory of the Gerolamino checkout.</li>
+<li>Pin Gerolamino to the toolbar if you want the popup one click away.</li>
+<li>The extension id is assigned by the browser on load; do not hard-code it in a dApp.</li>
+</ol>
+<h2>4. Configure the relay</h2>
+<ol>
+<li>Click the Gerolamino icon, then open <strong>Settings</strong> in the popup.</li>
+<li>Network: <code>preview</code> for the local Gerolamo preview setup.</li>
+<li>Relay URL: <code>ws://127.0.0.1:3004/n2n</code> for Gerolamo on the same machine. Replace host and port for a remote
+relay, for example <code>ws://relay.example:3004/n2n</code> or <code>wss://relay.example/n2n</code>.</li>
+<li>Start mode: <code>tip</code> on a first run. <code>chunk</code> starts from the relay's newest complete chunk, <code>mithril</code> from the
+certified Mithril point. A stored tip wins when resuming.</li>
+<li>Save. Settings live in <code>chrome.storage.local</code>; only Gerolamino's own pages can read them.</li>
+</ol>
+<p>Extra relays are optional, must use the same network, and are capped at four. They cross-check the main peer's
+headers; Blockfrost queries fail over only.</p>
+<h2>5. Verify the first start</h2>
+<ul>
+<li>Popup <strong>Relay</strong> shows the peer's tip; <strong>N2N</strong> shows the handshake version and whether light query is available.</li>
+<li><strong>Blocks stored</strong> and <strong>Ledger UTxO</strong> grow after the first block is verified. <strong>Trust</strong> shows local UTxO
+coverage or a stale warning.</li>
+<li>The popup <strong>Storage</strong> card shows immutable chunks, volatile files and the ledger row.</li>
+<li>Health checks outside the browser (replace port with the Gerolamo <code>--port</code>; Docker compose uses <code>3030</code>):
+<pre><code class="language-bash">curl -s http://127.0.0.1:3037/health | jq .
+curl -s http://127.0.0.1:3037/api/v0/ | jq '{version, endpoints}'
+</code></pre>
+(replace the port with the Gerolamo <code>--port</code> value).</li>
+</ul>
+<p>If it does not connect, check in this order: the URL starts with <code>ws://</code> or <code>wss://</code> and ends in <code>/n2n</code>; the
+relay host is reachable; Gerolamo was started with <code>--n2n-ws</code> and the port matches; network magic is the same;
+the firewall or TLS proxy is not blocking WebSocket upgrades. HTTP is not the relay: Gerolamo's HTTP API is
+only for the mini-Blockfrost fallback.</p>
+<h2>6. Reload after a rebuild</h2>
+<pre><code class="language-bash">bun run build
+</code></pre>
+<p>Open <code>chrome://extensions</code>, find Gerolamino, and click <strong>Reload</strong>. Stored chain, ledger and settings survive a
+reload. To start clean, use the popup's wipe action; it removes immutable chunks, volatile files and the local
+UTxO ledger for the selected network, then the node syncs again from the relay.</p>
+<h2>7. dApps and the Blockfrost adapter</h2>
+<p>A page sees <code>window.cardano.gerolamino</code> (<code>apiVersion: &quot;1&quot;</code>, <code>dappApiVersion: &quot;0.1.0&quot;</code>, <code>isWallet: false</code>).
+The extension asks for approval per site and rate-limits queries. The Blockfrost SDK adapter is built as
+<code>dist/gerolamino-blockfrost.js</code>; see <a href="#dapp-api">DAPP_API.md</a> and
+<a href="#blockfrost-through-gerolamino">BLOCKFROST_THROUGH_GEROLAMINO.md</a>.</p>
+<p>For local testing, <code>bun scripts/serve-demo.ts</code> serves the demo at <code>http://127.0.0.1:8787/</code>. The e2e harness
+loads an unpacked build itself:</p>
+<pre><code class="language-bash">bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3004/n2n --start chunk
+</code></pre>
+<h2>8. Limits</h2>
+<p>Gerolamino verifies headers and block bodies, stores the verified chain, and answers UTxO queries with local
+coverage. It does not sign, does not hold keys, and does not perform full ledger-rule/consensus parity yet
+(P0 UTxO projection, coverage-first answers; P1/P2/P3 in <a href="#ledger-spec">LEDGER_SPEC.md</a>).</p>
+</div>
+</article>
+<article class="doc" id="run-local-gerolamo" data-search="Run a local Gerolamo relay Docker and Bun options for the Gerolamo node that serves Gerolamino over N2N-over-WebSocket.">
+  <header class="doc-header">
+    <div class="doc-category">Start here</div>
+    <h2>Run a local Gerolamo relay</h2>
+    <p class="doc-summary">Docker and Bun options for the Gerolamo node that serves Gerolamino over N2N-over-WebSocket.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./RUN_LOCAL_GEROLAMO.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#run-local-gerolamo">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>Run Gerolamo locally as Gerolamino's relay</h1>
+<p>Gerolamino's default relay is now <code>ws://127.0.0.1:3004/n2n</code>: Gerolamo on the same machine. For a remote
+relay, replace host and port; use <code>wss://</code> when TLS is terminated in front of the WebSocket port.</p>
+<p>Gerolamo reads no environment variables. Every setting is a CLI flag or a <code>config.json</code> key. A flag wins over
+the network config; see Gerolamo's <code>docs/CONFIG.md</code> for the full list.</p>
+<h2>Prerequisites</h2>
+<ul>
+<li>Bun 1.1+, git, and a writable data directory.</li>
+<li>Preview is the current pilot network (magic 2). Preprod is magic 1. Mainnet is magic 764824073, but the
+Gerolamino extension currently offers preview and preprod only.</li>
+<li>Gerolamo needs disk and time for its first snapshot or genesis sync; the preview pilot is the tested path.</li>
+</ul>
+<h2>Option A: Docker (recommended for a self-contained relay)</h2>
+<pre><code class="language-bash">git clone https://github.com/HarmonicLabs/gerolamo.git
+cd gerolamo
+</code></pre>
+<p>Gerolamo's bundled <code>docker-compose.yml</code> starts a preview relay from a Mithril snapshot. Gerolamo flags are
+passed in the compose <code>command:</code> list, and node flags go after <code>--</code>. Add WebSocket to the existing command:</p>
+<pre><code class="language-yaml">    command:
+      - --network
+      - preview
+      - --port
+      - &quot;3030&quot;
+      - --bootstrap
+      - mithril
+      - --role
+      - relay
+      - --max-rss-gb
+      - &quot;8&quot;
+      - --
+      - --n2n-ws
+      - --n2n-ws-port
+      - &quot;3004&quot;
+</code></pre>
+<p>Expose the HTTP API and WebSocket port on the host:</p>
+<pre><code class="language-yaml">    ports:
+      - &quot;127.0.0.1:3030:3030&quot;
+      - &quot;127.0.0.1:3004:3004&quot;
+</code></pre>
+<p>For relay access from another machine, bind <code>0.0.0.0</code> and open the ports deliberately:</p>
+<pre><code class="language-yaml">      - &quot;3004:3004&quot;
+</code></pre>
+<p>Docker's first start downloads and verifies the Mithril snapshot; later starts resume from the mounted
+<code>./data/preview</code> directory. Start and verify:</p>
+<pre><code class="language-bash">docker compose up -d --build
+docker compose logs -f gerolamo       # first bootstrap takes a while; wait for /health
+curl -s http://127.0.0.1:3030/health | jq .
+curl -s http://127.0.0.1:3030/api/v0/ | jq '{version, endpoints}'
+</code></pre>
+<p>Gerolamino relay URL: <code>ws://127.0.0.1:3004/n2n</code>. Mini-Blockfrost fallback for Bun/backend code:
+<code>http://127.0.0.1:3030/api/v0/*</code>.</p>
+<h2>Option B: Bun directly (developer setup)</h2>
+<pre><code class="language-bash">git clone https://github.com/HarmonicLabs/gerolamo.git
+cd gerolamo
+bun install
+DATA=&quot;$PWD/data/preview&quot;; mkdir -p &quot;$DATA&quot;
+</code></pre>
+<p>Bootstrap the ledger and block store once (Mithril snapshot; later starts resume):</p>
+<pre><code class="language-bash">bun src/index.ts mithril-bootstrap --network preview \
+  --download-dir &quot;$DATA/snapshots&quot; \
+  --block-store &quot;$DATA/db&quot; \
+  --ledger-state --ledger &quot;$DATA/ledger&quot; \
+  --db &quot;$DATA/preview.db&quot;
+</code></pre>
+<p>Create <code>&quot;$DATA/local-config.json&quot;</code> next to the data (absolute paths work best):</p>
+<pre><code class="language-json">{
+    &quot;role&quot;: &quot;relay&quot;,
+    &quot;ledgerStore&quot;: &quot;lmdb&quot;,
+    &quot;ledgerSqlWrites&quot;: false,
+    &quot;ledgerDir&quot;: &quot;/absolute/path/to/data/preview/ledger&quot;,
+    &quot;blockStoreDir&quot;: &quot;/absolute/path/to/data/preview/db&quot;,
+    &quot;relayStore&quot;: &quot;chunks&quot;,
+    &quot;n2n&quot;: { &quot;enabled&quot;: true, &quot;host&quot;: &quot;127.0.0.1&quot;, &quot;port&quot;: 3001 }
+}
+</code></pre>
+<p>Start the node with its HTTP port and WebSocket bearer:</p>
+<pre><code class="language-bash">bun src/index.ts start-gerolamo --network preview \
+  --port 3037 \
+  --db-path &quot;$DATA/preview.db&quot; \
+  --config &quot;$DATA/local-config.json&quot; \
+  --n2n-ws \
+  --n2n-ws-port 3004 \
+  --n2n-ws-host 127.0.0.1
+</code></pre>
+<p>Optional TCP node-to-node listens on <code>n2n.port</code> (3001 in the example) for ordinary Gerolamo peers; the
+WebSocket listener is the one Gerolamino uses. For a LAN relay, set <code>--n2n-ws-host 0.0.0.0</code> and use the
+machine's address in the extension. Keep one writer per database; choose a unique HTTP/WS port per instance.</p>
+<p>Verify:</p>
+<pre><code class="language-bash">curl -s http://127.0.0.1:3037/health | jq .
+curl -s http://127.0.0.1:3037/api/v0/ | jq '{version, endpoints}'
+ss -ltnp | grep -E ':3037|:3004'
+</code></pre>
+<p>Gerolamino then uses:</p>
+<pre><code class="language-text">Relay URL: ws://127.0.0.1:3004/n2n
+Mini-Blockfrost fallback: http://127.0.0.1:3037/api/v0/*   (Gerolamo HTTP, not the relay)
+Network: preview
+</code></pre>
+<h2>Port map in the docs</h2>
+<table>
+<thead>
+<tr><th>Purpose</th><th>Gerolamo setting</th><th>Example</th></tr>
+</thead>
+<tbody>
+<tr><td>HTTP API, dashboard, mini-Blockfrost</td><td><code>--port</code></td><td><code>3037</code></td></tr>
+<tr><td>N2N-over-WebSocket</td><td><code>--n2n-ws-port</code></td><td><code>3004</code></td></tr>
+<tr><td>Ordinary N2N TCP</td><td><code>--n2n-port</code></td><td><code>3001</code></td></tr>
+<tr><td>N2C unix socket (optional)</td><td><code>--n2c-socket</code></td><td><code>./node.socket</code></td></tr>
+</tbody>
+</table>
+<p><code>--n2n-ws</code> must be enabled for Gerolamino. The WebSocket path is <code>/n2n</code>; Gerolamo also accepts <code>/relay</code> and <code>/</code>.
+Only <code>ws://</code> or <code>wss://</code> URLs are valid in the extension.</p>
+<h2>Remote access and TLS</h2>
+<p>For a relay elsewhere, use its DNS name or address, not a hard-coded address from an example:</p>
+<pre><code class="language-text">ws://&lt;relay-host&gt;:&lt;n2n-ws-port&gt;/n2n
+wss://&lt;relay-host&gt;/n2n
+</code></pre>
+<p>Terminate TLS at a reverse proxy in front of the Gerolamo WebSocket port and keep the relay on the matching
+network magic. A public deployment should rate-limit, monitor <code>/metrics</code>, and keep the node current.</p>
+<h2>Troubleshooting</h2>
+<ul>
+<li><code>ws://</code> URL fails: confirm Gerolamo was started with <code>--n2n-ws</code> and <code>--n2n-ws-port</code>; check <code>ss</code> and <code>/health</code>.</li>
+<li>Wrong network: preview is 2, preprod is 1; the extension setting and the Gerolamo <code>--network</code> must agree.</li>
+<li><code>127.0.0.1</code> fails from another machine: it means loopback on that machine; use the LAN/host name.</li>
+<li>HTTP endpoint fails but relay works: the mini-Blockfrost is on the node's <code>--port</code>, not the WebSocket port.</li>
+<li>First sync is slow: Docker/Bun uses the Mithril snapshot; a fresh preview genesis sync is expected to take
+much longer. Check Gerolamo logs and <code>/metrics</code> rather than assuming the relay is broken.</li>
+</ul>
+</div>
+</article>
+<article class="doc" id="dapp-api" data-search="dApp API CIP-30-shaped discovery, approval, errors, query and submitTx semantics.">
+  <header class="doc-header">
+    <div class="doc-category">Interfaces</div>
+    <h2>dApp API</h2>
+    <p class="doc-summary">CIP-30-shaped discovery, approval, errors, query and submitTx semantics.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./DAPP_API.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#dapp-api">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>Gerolamino dApp API</h1>
+<p><code>window.cardano.gerolamino</code> lets a web page use the visitor's own Cardano node. It follows CIP-30 conventions:
+injection under <code>window.cardano</code>, one <code>enable()</code> approval per site, CBOR hex and the same error objects. Gerolamino holds
+no keys, so it is not a wallet: it reads the chain for the page, says how each answer was verified, and submits
+transactions a wallet already signed.</p>
+<h2>Connecting</h2>
+<pre><code class="language-js">const node = window.cardano?.gerolamino;   // undefined: Gerolamino is not installed
+await node.isEnabled();                    // false until the user allows this site
+const api = await node.enable();           // opens Gerolamino's &quot;Allow this site?&quot; window once
+</code></pre>
+<p><code>enable()</code> rejects with <code>{ code: -3, info }</code> when the user denies or closes the window. The user can remove the site
+later in Gerolamino's Settings (&quot;Connected sites&quot;); calls then fail with code -3 until <code>enable()</code> is called again.</p>
+<h2>Methods</h2>
+<table>
+<thead>
+<tr><th>Method</th><th>Returns</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>getNetworkId()</code></td><td><code>0</code> testnet, <code>1</code> mainnet</td><td>CIP-30</td></tr>
+<tr><td><code>submitTx(txCborHex)</code></td><td>transaction id (hex)</td><td>CIP-30; sent to the network by the node's tx-submission</td></tr>
+<tr><td><code>query(path)</code></td><td><code>{ status, body, source, peer, proof, ledger }</code></td><td>any Blockfrost GET, <code>path</code> under <code>/api/v0</code> (<code>&quot;/blocks/latest&quot;</code>); <code>ledger</code> is <code>{ startSlot, kind, tipSlot }</code> on local UTxO answers</td></tr>
+<tr><td><code>getUtxos(address)</code></td><td>as <code>query</code></td><td><code>/addresses/{address}/utxos</code></td></tr>
+<tr><td><code>getProtocolParameters()</code></td><td>as <code>query</code></td><td><code>/epochs/latest/parameters</code></td></tr>
+<tr><td><code>getAccount(stakeAddress)</code></td><td>as <code>query</code></td><td><code>/accounts/{stakeAddress}</code></td></tr>
+<tr><td><code>getTip()</code></td><td><code>{ slot, height, hash, network, state, peerTip }</code></td><td>this node's newest verified block</td></tr>
+<tr><td><code>getTrust()</code></td><td><code>{ verdict, rows }</code></td><td>the Trust card: block signatures, freshness, density, start point, nonce, stake, peers, local UTxO ledger</td></tr>
+<tr><td><code>getExtensions()</code></td><td><code>[]</code></td><td>CIP-30</td></tr>
+</tbody>
+</table>
+<h3>Where an answer comes from</h3>
+<p><code>query</code> answers carry <code>source</code>:</p>
+<ul>
+<li><code>&quot;local&quot;</code>: from blocks this node verified and stored itself (<code>/blocks/latest</code>, <code>/blocks/{id}</code>, <code>/blocks/{id}/txs</code>,
+<code>/txs/{hash}</code> for stored blocks), or from its local UTxO ledger (<code>/txs/{hash}/utxos</code>,
+<code>/utxo/{txhash:index}</code> while coverage covers the transaction and is not stale; <code>/addresses/{addr}/utxos</code>
+only at genesis/snapshot coverage 0). Local UTxO answers carry
+<code>ledger: { startSlot, kind, tipSlot }</code>, the slot their state is complete from.</li>
+<li><code>&quot;relay&quot;</code>: from a Gerolamo peer that answers from its full ledger (<code>peer</code> names it). The main relay is asked
+first; when it cannot answer (no light query, timeout, 5xx), an extra Gerolamo peer that supports Blockfrost
+queries answers instead, honouring that peer's announced rate limit. A peer that announces capabilities without
+blockfrost is never asked. For <code>/txs/{hash}…</code> the node also asks Mithril for a proof that the transaction is
+on the chain, and <code>proof.status</code> is <code>&quot;certified&quot;</code> (with the certified block range), <code>&quot;too-new&quot;</code>, <code>&quot;mismatch&quot;</code>
+(the peer is wrong) or <code>&quot;unavailable&quot;</code>. A stale or partial local ledger relays instead of inventing UTxO;
+<code>/addresses</code> answers relay unless coverage starts at 0.</li>
+</ul>
+<p><code>status</code> and <code>body</code> are Blockfrost's: a 404 is <code>{ status: 404, body: { status_code: 404, … } }</code>, not an error.</p>
+<h2>Errors</h2>
+<p>CIP-30 objects <code>{ code, info }</code>:</p>
+<table>
+<thead>
+<tr><th>Code</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>-1</td><td>InvalidRequest: unknown method or bad arguments</td></tr>
+<tr><td>-2</td><td>InternalError: the node failed (for example no verified block yet)</td></tr>
+<tr><td>-3</td><td>Refused: the site is not allowed, the user denied it, or the site called too often (60 calls per 10 s)</td></tr>
+<tr><td>1, 2</td><td><code>submitTx</code> only, TxSendError Refused or Failure</td></tr>
+</tbody>
+</table>
+<h2>Security</h2>
+<ul>
+<li>The site's origin is taken from the browser (the content script's sender), never from the page.</li>
+<li>Web pages can only reach the dApp calls; settings, the store and approvals are for Gerolamino's own pages.</li>
+<li>Only http and https pages get the API.</li>
+</ul>
+<h2>Try it</h2>
+<pre><code>bun scripts/serve-demo.ts          # http://127.0.0.1:8787/
+</code></pre>
+<p>Open the page with the extension loaded, press Connect and allow the site. The browser test drives the same page:
+<code>bun scripts/e2e-chrome.ts --chrome /usr/bin/brave-browser --relay ws://127.0.0.1:3039/n2n --dapp</code>.</p>
+</div>
+</article>
+<article class="doc" id="blockfrost-through-gerolamino" data-search="Blockfrost through Gerolamino Local-first reads, peer failover, and the SDK adapter.">
+  <header class="doc-header">
+    <div class="doc-category">Interfaces</div>
+    <h2>Blockfrost through Gerolamino</h2>
+    <p class="doc-summary">Local-first reads, peer failover, and the SDK adapter.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./BLOCKFROST_THROUGH_GEROLAMINO.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#blockfrost-through-gerolamino">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>Blockfrost through Gerolamino (in the browser)</h1>
+<p>Gerolamino is the browser-side Blockfrost gateway: a page does not call <code>window.fetch</code> against a Blockfrost
+proxy; it asks the extension, which answers from its own verified store first and otherwise forwards the
+request to the Gerolamo peer it is connected to (N2N-over-WebSocket light query, request 8, mini-Blockfrost
+backend). If the main relay cannot answer, an extra Gerolamo peer that supports Blockfrost queries answers
+instead (the answer's <code>peer</code> names it, per-peer announced rate limits honoured). No project_id, no CORS, no
+API key; the chain comes over the same socket the node already follows.</p>
+<h2>What a page gets</h2>
+<p><code>window.cardano.gerolamino.enable()</code> (one approval per site origin) returns an api with:</p>
+<ul>
+<li><code>query(path)</code> → <code>{ status, body, source: &quot;local&quot; | &quot;relay&quot;, peer, proof, ledger }</code> for any Blockfrost GET
+path (<code>/blocks/latest</code>, <code>/epochs/latest</code>, <code>/addresses/{addr}/utxos?count=100&amp;page=1</code>,
+<code>/txs/{hash}/utxos</code>, <code>/utxo/{txhash:index}</code>, <code>/txs/{hash}/metadata</code>, <code>/assets/policy/{policy}</code>, ...).
+<code>ledger</code> is <code>{ startSlot, kind, tipSlot }</code> on local UTxO answers.</li>
+<li><code>submitTx(txCborHex)</code> → tx id (a wallet-signed transaction; Gerolamino never signs).</li>
+<li><code>getTip()</code>, <code>getTrust()</code>, <code>getNetworkId()</code>, <code>getUtxos(address)</code>, <code>getAccount(stake)</code>, <code>getProtocolParameters()</code>.</li>
+</ul>
+<p>Limits: 60 calls per 10 s per origin; <code>query</code> paths start with <code>/</code>, max 1024 chars, no <code>..</code>; relayed
+transaction answers carry Mithril proofs when the setting is on.</p>
+<h2>The provider adapter</h2>
+<p><code>src/dapp/blockfrostProvider.ts</code> (built to <code>dist/gerolamino-blockfrost.js</code>) wraps that api in the shape an
+SDK provider expects:</p>
+<pre><code class="language-ts">import { enableGerolamino, gerolaminoProvider, hasGerolamino } from &quot;./gerolamino-blockfrost.js&quot;;
+
+if (hasGerolamino()) {
+    const api = await enableGerolamino();              // approval window once per site
+    const provider = gerolaminoProvider(api);          // hand this to the SDK instead of window.fetch
+    const tip = await provider.json(&quot;/blocks/latest&quot;);
+    const utxos = await provider.getAllPages(&quot;/addresses/&quot; + addr + &quot;/utxos&quot;);  // pages of 100, stops on a short page
+    const txid = await provider.submitTx(signedCborHex);
+}
+</code></pre>
+<p><code>gerolaminoFetch(api)</code> gives a fetch-shaped <code>(url) =&gt; {status, body, source}</code> for SDKs that call a fetch
+function internally; it strips <code>/api/v0</code> from full URLs. <code>provider.get(path, {count, page, order})</code> is the
+paged GET; <code>provider.json</code> throws on non-200.</p>
+<h2>When to use it</h2>
+<ul>
+<li>Browser dApp with Gerolamino installed and connected: use the adapter; reads are local-first (stored block
+facts and local UTxO answers with coverage), then relay-backed, and the page never needs the Gerolamo HTTP
+port. A stale or partial local ledger relays rather than inventing UTxO.</li>
+<li>Bun/backend/CI: use the Gerolamo mini-Blockfrost over HTTP on the node's <code>--port</code>
+(<code>http://127.0.0.1:3037/api/v0/*</code> for a local node, or <code>http://&lt;node-host&gt;:&lt;http-port&gt;/api/v0/*</code>);
+the adapter needs <code>window</code>.</li>
+<li>Fallback: if <code>hasGerolamino()</code> is false (extension absent), keep the OnchainApps/Blockfrost provider; the
+adapter is additive, not a replacement.</li>
+</ul>
+<h2>Proof</h2>
+<p><code>bun test test/blockfrostProvider.test.ts</code> (4 tests: detection/enable, paged GET + error mapping,
+getAllPages, submitTx + fetch shape). Live: <code>bun scripts/adapter-smoke.ts</code> (Brave headless, the real extension,
+the Gerolamo peer): provider.json(&quot;/blocks/latest&quot;) local 200 (preview height 4,803,xxx),
+get(&quot;/epochs/latest&quot;) relay 200 (epoch 1464), getAllPages(&quot;/addresses/{addr}/utxos&quot;) relay 200 (9 UTxOs
+across 2 pages), get(&quot;/blocks/1000&quot;) relay 200. <code>bun scripts/e2e-chrome.ts --dapp</code> drives the same api in
+Brave (<code>query(&quot;/blocks/latest&quot;)</code> → 200 local, <code>query(&quot;/epochs/latest&quot;)</code> → 200 relay, allow/deny per site).
+The ledger P0 e2e (<code>--start chunk</code>) additionally proves <code>query(&quot;/txs/{hash}/utxos&quot;)</code> and <code>query(&quot;/utxo/{ref}&quot;)</code>
+answer locally with <code>ledger: { startSlot, kind, tipSlot }</code> and resume the diff log after the offscreen document
+is recreated.</p>
+</div>
+</article>
+<article class="doc" id="ledger-spec" data-search="Local ledger specification P0 UTxO projection, coverage, digest chain, resume and rollback.">
+  <header class="doc-header">
+    <div class="doc-category">Architecture</div>
+    <h2>Local ledger specification</h2>
+    <p class="doc-summary">P0 UTxO projection, coverage, digest chain, resume and rollback.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./LEDGER_SPEC.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#ledger-spec">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>Gerolamino local ledger (implemented P0, 2026-10-29)</h1>
+<p>Status: P0 implemented and proven; P1 snapshot bootstrap is the next step. This closes the local ledger part of
+Milestone 4 (&quot;Browser adaptation and light node on the browser&quot;): Gerolamino verifies and stores blocks, and now
+maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo peer.</p>
+<h2>Scope and boundaries</h2>
+<ul>
+<li><strong>Local UTxO set.</strong> The node maintains its own UTxO state in OPFS, updated from blocks it verified itself.
+It never takes ledger state from a peer without proof.</li>
+<li><strong>Coverage is first-class.</strong> Every local ledger answer states the slot from which its state is complete. A
+tip/chunk/Mithril start gives coverage <code>startSlot</code>; only a genesis or snapshot bootstrap gives coverage 0.</li>
+<li><strong>Light node, not consensus.</strong> Header/body verification stays as it is. Phase-2 script execution, stake,
+governance, epoch rewards and full ledger rule validation are P2/P3; the UTxO projection says so.</li>
+<li><strong>Pure TypeScript on HarmonicLabs.</strong> Parsing uses <code>@harmoniclabs/cardano-ledger-ts</code> (pinned vendor tarball),
+storage uses the existing OPFS sink pattern; no SQLite, no LMDB, no Bun-only APIs in the extension.</li>
+<li><strong>No keys.</strong> The ledger never signs, validates scripts, or becomes a wallet.</li>
+</ul>
+<h2>Coverage model (implemented shape)</h2>
+<pre><code class="language-ts">interface LedgerCoverage {
+  network: string;
+  startSlot: number | null;              // first verified block applied; null before any block
+  kind: &quot;verified-start&quot; | &quot;snapshot&quot; | &quot;genesis&quot;; // P0 always &quot;verified-start&quot;
+  tipSlot: number | null;
+  blocks: number;
+  utxoCount: number;                     // unspent only
+  digest: string | null;                 // blake2b-256 chain of per-block diffs
+  stale: boolean;                        // a gap or a failed digest/write
+}
+</code></pre>
+<ul>
+<li><code>genesis</code>: complete from slot 0 (only after a genesis replay or snapshot import).</li>
+<li><code>snapshot</code>: complete from a Mithril-certified snapshot slot (UTxO base imported, later blocks applied).</li>
+<li><code>verified-start</code>: the node started at tip/chunk/Mithril; UTxO state covers only outputs seen since that slot.
+<code>/addresses</code> answers relay unless coverage starts at 0.</li>
+<li>A rollback moves <code>tipSlot</code> back but never moves <code>startSlot</code>; if a rollback crosses the start, the ledger
+reports the gap (stale or partial) and does not pretend completeness.</li>
+</ul>
+<h2>Data model</h2>
+<ul>
+<li><code>UtxoRef = txid(hex):index(u16)</code>. <code>LedgerOut</code>:
+<code>{ ref, txHash, address, addressBytes, lovelace, assets: Array&lt;{ policy, name, quantity }&gt;, datumHash?, inlineDatum?, scriptRefHash?, stakeKey?, createdSlot, spentSlot: number | null }</code>.</li>
+<li>Spent outputs stay as tombstones in memory (needed for rollback and tx lookups); P0 does not prune them.</li>
+<li>In-memory indexes: <code>utxos: Map&lt;ref, LedgerOut&gt;</code> (spent included), <code>byAddress: Map&lt;address, Set&lt;ref&gt;&gt;</code>,
+<code>byTx: Map&lt;txHash, { out: ref[]; input: ref[] }&gt;</code>, <code>stakeBalance: Map&lt;credential, bigint&gt;</code> (kept, not yet
+queried). The address is the bech32 string produced by ledger-ts; raw address bytes are kept for stake keys.</li>
+<li>Transaction facts stay in <code>localIndex.ts</code>; the ledger adds UTxO views rather than duplicating block facts.</li>
+<li>Block diff (<code>LedgerBlockDiff</code>): <code>format: 1, slot, hash, txs, invalidTx: number[], created: LedgerOut[], spent: ref[]</code>; per stored diff also <code>prevDigest</code>, <code>digest</code>, <code>unknownInputs</code> (the compiler records unknown
+inputs there).</li>
+</ul>
+<h2>Storage layout (OPFS, implemented)</h2>
+<pre><code class="language-text">gerolamino/&lt;network&gt;/ledger/
+  manifest.json                       # coverage, tip, counters, digest chain, format 1, written last
+  b-&lt;10-digit slot&gt;-&lt;hash8&gt;.ldiff     # one verified block: created/spent diff + unknown inputs + digest chain
+</code></pre>
+<ul>
+<li>File name: <code>b-${slot.padStart(10)}-${hash.slice(0,8)}.ldiff</code> (flat directory, no <code>blocks/</code> subdir).</li>
+<li>The single writer is BrowserNode through the OPFS worker; <code>manifest.json</code> is written after each diff.</li>
+<li>Resume: read the manifest, then replay every diff in slot order, checking <code>prevDigest</code> continuity; a missing
+diff, a missing manifest with diffs present, a corrupt diff, a tip mismatch or a digest mismatch marks the
+ledger stale rather than failing half a block. The ledger loads what it can and refuses local answers while
+stale.</li>
+<li>Rollback within the volatile window: reverse diffs newer than the target slot in bulk (spent outputs become
+unspent again, created outputs leave, counters rebuild), delete their files, rewrite the manifest. No
+snapshot rewrite in P0.</li>
+<li>Compaction: not implemented in P0. The diff set grows with the store; P1 writes a snapshot at <code>slot - k</code> and
+prunes diffs older than it.</li>
+<li>A write failure reverts the in-memory diff, removes the file and throws; BrowserNode catches it, marks the
+ledger stale and keeps the verified chain store intact. A decode failure likewise marks stale, never drops a
+chain block.</li>
+<li>Wipe (<code>wipe-store</code>) removes immutable, volatile and ledger together; the next start rebuilds coverage from
+the first verified block.</li>
+</ul>
+<h2>Bootstrapping</h2>
+<table>
+<thead>
+<tr><th>Mode</th><th>Coverage</th><th>How</th><th>When</th></tr>
+</thead>
+<tbody>
+<tr><td><code>verified-start</code></td><td>first verified slot</td><td>first block at tip/chunk/Mithril</td><td>always works, partial answers</td></tr>
+<tr><td><code>snapshot</code></td><td>snapshot slot</td><td>Mithril ancillary <code>ledger/&lt;slot&gt;/tables</code> (MemPack decoder, sorted entries)</td><td>P1, opt-in; preview tables about 650 MB</td></tr>
+<tr><td><code>genesis</code></td><td>0</td><td>apply every block from genesis (Byron payloads included)</td><td>slow, P2</td></tr>
+</tbody>
+</table>
+<p>Snapshot import steps (P1): verify a Mithril-certified anchor (existing <code>mithrilAnchor</code>), download the ancillary
+<code>tables</code> file (aggregator or Gerolamo peer), verify its manifest signature and Merkle root, stream-decode
+entries with the MemPack decoder, write the base snapshot under the ledger dir, then apply blocks from the
+snapshot slot onward. A bad byte range must fail the Merkle check, never silently drop entries.</p>
+<h2>Block application (P0 UTxO projection, implemented)</h2>
+<p>Input: a verified block's bytes, slot, hash and <code>invalidTransactions</code> flags (body parser).
+Per transaction, in block order:</p>
+<ol>
+<li>If marked phase-2 invalid: spend only its collateral inputs; create no ordinary outputs; record the tx
+index in <code>invalidTx</code>; a collateral return is created at index <code>outputs.length</code> (same rule as Gerolamo).</li>
+<li>Otherwise: spend regular inputs; add outputs (all eras that have Babbage-shaped outputs); reference inputs
+are not spent by ordinary inputs.</li>
+<li>Same-block spends are allowed in the order transactions appear; an input not in the local UTxO is recorded
+in that block's <code>unknownInputs</code> and removes nothing (coverage gap, not a block failure).</li>
+<li>Update address/stake indexes and balances; keep tombstones for spent outputs.</li>
+<li>Compute the diff digest: <code>blake2b-256(prevDigestBytes ‖ JSON({slot, hash, created refs, spent, unknown, invalid}))</code>; store the diff, then the manifest.</li>
+</ol>
+<p>What P0 does <strong>not</strong> do: phase-2 script execution, fee/deposit/balance checks, stake delegation effects,
+governance, epoch rewards, Byron payload-ledger effects. These are P2/P3 work; queries must state it.</p>
+<p>Rollback: reverse a block diff in memory (unspend, delete created, restore balances/counters) and delete its
+diff file. A deeper rollback than the retained diffs rebuilds from the newest snapshot (P1).</p>
+<p>Failures: an undecodable body marks the ledger stale at that block (the chain store keeps going; later diffs can
+still append, but local UTxO answers relay until a rebuild). A result it could not decode is never written as a
+partial diff.</p>
+<h2>Query contract (implemented)</h2>
+<table>
+<thead>
+<tr><th>Query</th><th>Local answer</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>/txs/{hash}/utxos</code></td><td>outputs of a stored tx</td><td>only when the ledger covers the tx's slot; stale ledger relays</td></tr>
+<tr><td><code>/txs/{hash}</code></td><td>existing tx facts + output refs</td><td>local, as before, not ledger-dependent</td></tr>
+<tr><td><code>/utxo/{txhash:index}</code></td><td>Blockfrost-shaped UTxO if unspent</td><td>only from the local ledger; spent/unknown relays</td></tr>
+<tr><td><code>/addresses/{addr}/utxos</code></td><td>only when coverage is complete (start 0)</td><td>partial coverage relays by default</td></tr>
+<tr><td><code>/accounts/{stake}</code></td><td>only with stake balances and complete coverage</td><td>P1/P2</td></tr>
+<tr><td><code>/epochs/latest/parameters</code></td><td>relay</td><td>not ledger state</td></tr>
+</tbody>
+</table>
+<p>Answer shape stays Blockfrost-shaped. Coverage travels in the dApp envelope:
+<code>query()</code> returns <code>{ status, body, source: &quot;local&quot; | &quot;relay&quot;, peer?, proof?, ledger?: { startSlot, kind, tipSlot } }</code>.
+<code>source: &quot;local&quot;</code> is used only for answers the local ledger can fully justify and is not stale; otherwise the
+peer answers. The popup Status card shows ledger blocks, UTxO count and coverage slot; the Trust card gets a
+&quot;Local UTxO&quot; row (verified only for coverage 0; partial coverage is trusted, stale is a warning).</p>
+<h2>Trust and consistency rules</h2>
+<ul>
+<li>Ledger state derives only from blocks this node verified; no peer-supplied UTxO entries enter the store.</li>
+<li>The digest chain is recomputed after every applied block; a resume/diff mismatch marks the ledger stale and
+local answers stop until a rebuild.</li>
+<li>Unknown inputs are recorded per block and shown in stats; partial coverage answers carry coverage metadata
+and never claim genesis completeness.</li>
+<li>Snapshot bootstrap is &quot;certified by Mithril&quot; only after the existing anchor/certificate/Merkle checks; the
+ancillary file's own signature is verified separately.</li>
+<li>Never claim full consensus validation, full address history, or UTxO from genesis unless coverage says so.</li>
+</ul>
+<h2>Acceptance tests (implemented)</h2>
+<p>Unit (<code>bun test</code>, no browser):</p>
+<ul>
+<li>parse real preview block fixtures and apply their UTxO diff; addresses/values/spends are consistent (the
+lovelace value is not duplicated as an empty-policy asset);</li>
+<li>tx outputs and <code>/utxo</code> answers carry <code>{ startSlot, kind, tipSlot }</code>; a stale ledger does not answer locally;</li>
+<li>rollback restores spent outputs and removes created ones; resume agrees; corrupt/tampered diffs and torn
+manifests go stale; digest chain continuity is checked; repeated block idempotence and a same-slot branch
+replacement are tested;</li>
+<li>memory-only ledger (no sink) still answers; unknown input is recorded; <code>markStale</code> persists.</li>
+</ul>
+<p>Live (Brave e2e, Gerolamo preview relay):</p>
+<ul>
+<li>start chunk; wait for ledger blocks, UTxOs and coverage; query a stored transaction <code>/txs/{hash}/utxos</code> via
+the extension and get <code>source: &quot;local&quot;</code> plus coverage; query <code>/utxo/{ref}</code> locally;</li>
+<li>kill/recreate the offscreen document and confirm the ledger resumes from its diff files without stale state;</li>
+<li>screenshot/log evidence stored under the profile scratch, not committed.</li>
+</ul>
+<p>2026-10-29 e2e evidence (Brave, <code>--start chunk --relay ws://192.168.1.173:3004/n2n</code>): first phase 26 ledger
+blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledger blocks after reopen, digest
+<code>7efbc563...</code>; <code>/txs/26da193d.../utxos</code> local with coverage tip 126615857; <code>/utxo/26da193d...:0</code> local; PASS.</p>
+<h2>Phases</h2>
+<table>
+<thead>
+<tr><th>Phase</th><th>Work</th><th>Coverage</th></tr>
+</thead>
+<tbody>
+<tr><td>P0</td><td>UTxO projection, diff log, resume/rollback, tx-scoped local answers</td><td>verified-start</td></tr>
+<tr><td>P1</td><td>Mithril <code>tables</code> snapshot import + MemPack decoder + compaction</td><td>snapshot</td></tr>
+<tr><td>P2</td><td>full ledger rules: fees/deposits, stake, governance, epoch rewards</td><td>snapshot/genesis</td></tr>
+<tr><td>P3</td><td>optional consensus validation parity (phase-2 scripts), proofs for local answers</td><td>full</td></tr>
+</tbody>
+</table>
+<p>Milestone 4 closes on P0 evidence for the stated deliverable (browser extension + local ledger update), with
+P1 and P2 as the next hardening steps; do not claim genesis-complete address history before P1.</p>
+<h2>Decisions resolved</h2>
+<ol>
+<li>Milestone wording: <code>verified-start</code> coverage plus explicit coverage metadata closes &quot;update the local
+ledger state&quot;; the reviewer sees local UTxO answers and their start slot.</li>
+<li>Snapshot source for P1: peer-first <code>tables</code> stream, aggregator fallback (recommended, not yet built).</li>
+<li>Memory budget: P0 keeps the full map in memory; measure before P1 and cap/prune diffs then.</li>
+<li>Failed transaction rule: exclude ordinary outputs of phase-2 invalid txs, collateral only; implemented.</li>
+<li>Local address answers under partial coverage: relay by default, genesis/snapshot coverage answers locally;
+implemented.</li>
+</ol>
+<h2>Dependencies</h2>
+<ul>
+<li><code>@harmoniclabs/cardano-ledger-ts</code> 0.6.0 vendored as <code>vendor/harmoniclabs-cardano-ledger-ts-0.6.0.tgz</code>;
+it is built against HarmonicLabs cbor/plutus-data/uplc 2.x, so keep its nested <code>node_modules/@harmoniclabs</code>
+copies next to the package (Gerolamino's own code stays on cbor 1.6.6 / plutus-data 1.2.6). Its <code>@noble/*</code>
+transitive crypto code is allowed in the browser bundle (build gate extended for ledger-ts).</li>
+<li>Existing OPFS sink/worker, chunk writer, volatile store, Mithril anchor/verifier and light query stay as-is.</li>
+</ul>
+</div>
+</article>
+<article class="doc" id="websocket-bearer" data-search="N2N over WebSocket What the browser client needs from a relay and the open CIP questions.">
+  <header class="doc-header">
+    <div class="doc-category">Architecture</div>
+    <h2>N2N over WebSocket</h2>
+    <p class="doc-summary">What the browser client needs from a relay and the open CIP questions.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./WEBSOCKET_BEARER.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#websocket-bearer">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>N2N over WebSocket: what Gerolamino needs from a peer</h1>
+<p>This page is the working basis for a CIP that lets any Cardano node serve browser nodes. The draft itself is in the
+Gerolamo repository, <code>CIP/n2n-over-websocket/README.md</code>. It describes what
+Gerolamino does as a client today and what Gerolamo does as a server. The open questions at the end are what
+the CIP still has to settle.</p>
+<h2>Transport</h2>
+<ul>
+<li><strong>Connection.</strong> A WebSocket (RFC 6455); <code>wss://</code> in production, through TLS at the node or a reverse proxy.</li>
+<li><strong>Payload.</strong> Binary messages only. The concatenation of all message payloads in one direction is exactly the
+byte stream a TCP N2N peer would send: Ouroboros multiplexer segments, each an 8-byte header plus up to 65 535
+payload bytes.</li>
+<li><strong>Message boundaries.</strong> Senders should put whole segments in each message. Receivers must accept a segment
+split across messages, and several segments in one message, as with TCP.</li>
+<li><strong>No subprotocol.</strong> None is negotiated today; the CIP may define one (see the open questions).</li>
+</ul>
+<h2>Endpoint</h2>
+<table>
+<thead>
+<tr><th>Path</th><th>Status</th></tr>
+</thead>
+<tbody>
+<tr><td><code>/n2n</code></td><td>canonical on Gerolamo</td></tr>
+<tr><td><code>/</code></td><td>accepted by Gerolamo</td></tr>
+<tr><td><code>/relay</code></td><td>accepted by Gerolamo, because the first Gerolamino build always appended it</td></tr>
+</tbody>
+</table>
+<p>Other paths get HTTP 404. The server rejects the upgrade with HTTP 503 when it is at its connection limit.</p>
+<h2>Mini-protocols</h2>
+<p>The same N2N protocols, numbers and state machines as over TCP:</p>
+<table>
+<thead>
+<tr><th>Number</th><th>Protocol</th><th>Gerolamino</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>handshake</td><td>uses</td></tr>
+<tr><td>2</td><td>chain-sync</td><td>uses</td></tr>
+<tr><td>3</td><td>block-fetch</td><td>uses</td></tr>
+<tr><td>4</td><td>tx-submission</td><td>uses</td></tr>
+<tr><td>8</td><td>keep-alive</td><td>uses</td></tr>
+<tr><td>10</td><td>peer-sharing</td><td>does not use</td></tr>
+<tr><td>7</td><td>light query</td><td>Gerolamo extension, used</td></tr>
+</tbody>
+</table>
+<p>Light query is a Gerolamo extension for the epoch nonce, pool stake, immutable chunk files and, since 2026-10-23,
+read-only Blockfrost queries (<code>[8, id, path]</code> → <code>[9, id, status, json]</code>, answered by the peer's own Blockfrost API;
+GET only, 30 per 10 s per peer, answers up to 512 KiB). Gerolamino answers what its stored blocks contain itself and
+asks the peer for the rest (ledger state, blocks before its start point). A peer without request 8 answers <code>[255]</code>. With it, a browser
+node can verify headers and start from a Mithril-certified chunk without a second channel. Whether it belongs in
+the CIP is an open question.</p>
+<h2>Handshake</h2>
+<ul>
+<li><strong>Versions.</strong> The client proposes N2N v14 and v15; the server answers with the highest common version.</li>
+<li><strong>Initiator-only.</strong> A browser cannot accept connections or serve the chain, so the client sets
+<code>initiatorOnlyDiffusionMode: true</code> and <code>peerSharing: 0</code>. The server must not start initiator protocols toward
+it.</li>
+<li><strong>Server side.</strong> Gerolamo answers WebSocket peers with <code>initiatorOnlyDiffusionMode: true</code>, so neither side
+expects duplex use.</li>
+</ul>
+<h2>Liveness</h2>
+<ul>
+<li><strong>Client.</strong> Gerolamino sends keep-alive every 20 s or less. A Chrome MV3 extension also needs traffic at least
+every 30 s to keep its service worker alive.</li>
+<li><strong>Server.</strong> Gerolamo closes a connection idle for 120 s, and its own outbound sessions close when a keep-alive
+reply is overdue for 60 s.</li>
+</ul>
+<h2>What a browser node needs from the server</h2>
+<ul>
+<li><strong>Chain-sync.</strong> Headers from genesis or from a recent point.</li>
+<li><strong>Block-fetch.</strong> Ranges of blocks.</li>
+<li><strong>A way to verify headers.</strong> The epoch nonce and pool stake; today via light query.</li>
+<li><strong>A trusted start.</strong> A complete immutable chunk to start from, which can be checked against a Mithril
+certificate; today via light query, or HTTP from the Mithril aggregator for the certificates.</li>
+</ul>
+<h2>Decided for the CIP: service announcement (2026-10-23)</h2>
+<p>Optional services are announced, never probed, and never in the N2N handshake's version data.</p>
+<ul>
+<li><strong>Why not the version data.</strong> For N2N v14/v15 it is a fixed record (network magic, initiator-only, peer sharing,
+query); cardano-node decodes it strictly, so an extra field breaks the handshake, and changing it needs a new N2N
+version in ouroboros-network.</li>
+<li><strong>Why not probing.</strong> A node's multiplexer may drop the connection on traffic for a mini-protocol it does not run,
+so a client must know before it sends on the light-query protocol.</li>
+<li><strong>Layer 1, at connection setup: the WebSocket subprotocol.</strong> The client offers, best first,
+<code>Sec-WebSocket-Protocol: cardano-n2n.v1+lightquery, cardano-n2n.v1</code>; the server selects the richest it supports.
+A plain N2N node (cardano-node or Dingo behind a proxy) selects <code>cardano-n2n.v1</code>: standard protocols only. The
+browser reads the choice from <code>ws.protocol</code> before any N2N byte, and it is the only response detail browser
+JavaScript can see. A server that selects nothing is treated as standard-only.</li>
+<li><strong>Layer 2, inside the light query: capabilities in the hello.</strong> <code>[4]</code> → <code>[5, magic, version, capabilities]</code>, where
+<code>capabilities</code> lists the request types the peer serves and their limits (nonce, stake, chunks, Blockfrost queries
+with rate and answer size). Clients ask only for what is listed.</li>
+<li><strong>Discovery uses the same names.</strong> The record that tells browsers where WebSocket relays are lists the same
+services, so a browser can choose peers before connecting: standard-only peers for chain-sync, block-fetch and
+cross-checking; light-query peers for nonce, stake, certified starts and ledger queries.</li>
+</ul>
+<h2>Open questions for the CIP</h2>
+<ol>
+<li><strong>Path.</strong> One canonical path (<code>/n2n</code>?), or discovery?</li>
+<li><strong>Subprotocol.</strong> A <code>Sec-WebSocket-Protocol</code> name, for example <code>cardano-n2n.v1</code>, so servers can refuse
+unknown clients cleanly.</li>
+<li><strong>Discovery.</strong>
+<ul>
+<li>Pool relay registrations carry IP, DNS or SRV for TCP only.</li>
+<li>Options: a field in extended pool metadata, an SRV record convention, or peer-sharing extended with a
+WebSocket address type.</li>
+</ul>
+</li>
+<li><strong>Light query.</strong> Standardise nonce and stake (and chunk) queries as a mini-protocol, or require a separate
+HTTP API?</li>
+<li><strong>Browser limits.</strong>
+<ul>
+<li>Origin checks: servers should not rely on them.</li>
+<li>Connection caps per IP.</li>
+<li>Range limits for block-fetch.</li>
+</ul>
+</li>
+<li><strong>Back-pressure.</strong> Whether to cap in-flight bytes per WebSocket, since browsers buffer without bound.</li>
+</ol>
+</div>
+</article>
+<article class="doc" id="status" data-search="Project status Measured state, known gaps, library issues and roadmap.">
+  <header class="doc-header">
+    <div class="doc-category">Status and evidence</div>
+    <h2>Project status</h2>
+    <p class="doc-summary">Measured state, known gaps, library issues and roadmap.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./STATUS.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#status">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>Gerolamino status (2026-10-16, ledger P0 added 2026-10-29)</h1>
+<p>Gerolamino is a standalone Cardano node for the browser, shipped as a Chrome MV3 extension. This page records
+why it was rebuilt, what works, what was measured, what is missing, and the problems found in the libraries it
+depends on.</p>
+<h2>Role and scope (2026-10-22)</h2>
+<p>Gerolamino is the light member of the Gerolamo family, not a smaller copy of all of it.</p>
+<ul>
+<li><strong>What it is.</strong> A data and information node: it follows the chain, verifies what it receives, keeps it in
+OPFS and answers questions about it. It may later act as a relay for other browser peers.</li>
+<li><strong>What it is not.</strong> It will never host a stake pool. Block production, KES keys and leader schedules stay in
+Gerolamo.</li>
+<li><strong>Default use.</strong> Most people will sync from the tip. That path must stay fast, small and dependable. Starting
+from an immutable chunk or a Mithril-certified point are welcome extras, never requirements for the
+default path; the local UTxO projection (P0, 2026-10-29) runs on every path and carries its coverage.</li>
+<li><strong>Relay default (2026-10-29).</strong> The default relay URL is <code>ws://127.0.0.1:3004/n2n</code>, meaning Gerolamo on
+the same machine. Setup: <code>docs/RUN_LOCAL_GEROLAMO.md</code>; extension load: <code>docs/INSTALL_EXTENSION.md</code>.
+The historical <code>192.168.1.173:3004</code> evidence below is a reference deployment, not a requirement.</li>
+<li><strong>Look and feel.</strong> The UI follows Gerolamo's desktop app (Electrobun, <code>gerolamo/desktop</code>), simpler and
+lighter: same dark theme, red-to-orange accent, cards, progress ring and badges. It does not follow the old
+web dashboard. Gerolamino builds it in plain TypeScript and CSS, because it takes no third-party runtime
+packages (no Solid, no Tailwind).</li>
+</ul>
+<h2>Why it was rebuilt</h2>
+<p>The first Gerolamino (HarmonicLabs/gerolamino <code>main</code>, May 2026) was an Effect v4 monorepo. It used Haskell
+<code>lsm-tree</code> compiled to WebAssembly with GHC's WASM backend for storage, and Rust crates compiled to WASM for the
+multiplexer and crypto. It reached peers through a websockify proxy in front of a cardano-node relay.</p>
+<p>On 2026-10-16 we ran it against Gerolamo's native N2N-over-WebSocket bearer:</p>
+<ul>
+<li><strong>Network: worked.</strong> Handshake (version 15), intersection, rollback, and 6 215 blocks streamed in three minutes.</li>
+<li><strong>Storage: failed.</strong> Every block write failed inside its WASM LSM store, whose session never opened in
+genesis mode.</li>
+<li><strong>Before that, a silent stop.</strong> Effect API drift stopped the sync before the socket opened: a renamed
+<code>timeoutOrElse</code> option threw.</li>
+<li><strong>Build.</strong> The storage layer can only be built through Nix and the GHC WASM toolchain.</li>
+</ul>
+<p>The decision was to rebuild it in pure TypeScript on the HarmonicLabs libraries, with no Haskell, no WASM, no
+Effect and no third-party runtime packages, and the chain kept in OPFS. Gerolamino stays its own codebase. It
+does not import Gerolamo; the pieces it shares in spirit (chunk format, header checks, Mithril verification) are
+ported and owned here.</p>
+<h2>What works</h2>
+<table>
+<thead>
+<tr><th>Area</th><th>State</th></tr>
+</thead>
+<tbody>
+<tr><td>N2N over WebSocket</td><td>handshake (v14/v15, initiator-only), chain-sync, block-fetch, keep-alive, tx-submission</td></tr>
+<tr><td>Header checks</td><td>hash and parent link, operational certificate, KES, VRF against the epoch nonce (Praos, TPraos), leader eligibility</td></tr>
+<tr><td>Body checks</td><td>body hash and size against the header; only verified, linked blocks are stored</td></tr>
+<tr><td>Storage</td><td>cardano-node immutable chunk files in OPFS, byte-identical to cardano-node's; resume and rollback across chunk boundaries</td></tr>
+<tr><td>Local UTxO ledger</td><td>P0 UTxO projection from verified blocks: per-block OPFS diff log, digest chain, resume/rollback, coverage on every local UTxO answer; no ledger rules yet</td></tr>
+<tr><td>Start modes</td><td>relay tip, newest complete chunk, Mithril-certified point; a stored tip always wins</td></tr>
+<tr><td>Mithril</td><td>full certificate-chain verification to genesis (STM multi-signatures, BLS12-381, genesis ed25519), Merkle root of the cardano-database digests, chunk digests</td></tr>
+<tr><td>Extension</td><td>service worker keeps the offscreen node alive and recreates it; popup in the desktop app's look (sync ring, epoch bar, tip tiles, verification cards, storage, recent blocks; settings, tx submission, wipe; &quot;Open in a tab&quot; for a wide view)</td></tr>
+<tr><td>Dependencies</td><td>runtime <code>@harmoniclabs/*</code> only (plus ledger-ts's transitive <code>@noble/*</code>); the build fails on anything else</td></tr>
+</tbody>
+</table>
+<h2>Volatile store (2026-10-28)</h2>
+<p>Blocks within k slots of the tip are no longer written into the immutable chunk files. They live in
+<code>gerolamino/&lt;network&gt;/volatile</code> (one <code>v-&lt;slot&gt;.blk</code> file per block, header hash + block bytes) and are
+promoted to the chunk writer only when they are k slots behind the tip (<code>promoteOlderThan(h.slot - k)</code>).
+A rollback inside the k window therefore truncates volatile files only; chunk files are rewritten only
+when a rollback crosses the k boundary. Resume reads the chunks first, then the volatile store, and starts
+at the volatile tip when it is newer. Files under the volatile path: at most about k slots of blocks.</p>
+<p>Live (Brave, <code>scripts/e2e-chrome.ts --start chunk --relay ws://192.168.1.173:3004/n2n</code>, 2026-10-28): PASS.
+The immutable directory held one chunk (29295), the volatile store the newer blocks; after closing and
+recreating the offscreen document the node resumed at the volatile tip (126555200) with no block lost
+(34 stored before, 36 after), and the popup showed 41 blocks with tip slot 126555407.</p>
+<h2>Peer-backed Blockfrost queries (2026-10-28)</h2>
+<p>A Blockfrost GET the local index cannot answer goes to the main relay first. When that peer cannot answer (no
+light query, timeout, connection closed, 5xx, or an announcement without <code>blockfrost</code>), the query fails over to
+an extra Gerolamo peer that speaks the light query: peers that announce <code>blockfrost</code> come first, version-0 peers
+(no announcement) are probed last, and each peer's announced rate/window is honoured (a rate-limited peer is
+skipped, not failed). The answer names the peer that actually answered (<code>peer</code>), and a 503 is returned only when
+no peer answers. Code: <code>src/node/queryRouter.ts</code>; runner candidates: main node first, then watchers
+(<code>src/node/runner.ts</code> <code>queryCandidates</code>).</p>
+<p>Live (Bun, <code>scripts/query-failover-smoke.ts</code>, 2026-10-28): main relay <code>ws://127.0.0.1:9999/n2n</code> dead, extra
+<code>ws://192.168.1.173:3004/n2n</code>: <code>/addresses/{addr}/utxos</code> 200 (peer <code>ws://192.168.1.173:3004/n2n</code>), <code>/epochs/latest</code>
+200 (epoch 1465), <code>/blocks/1000</code> 200 (height 50). PASS.</p>
+<h2>Local UTxO ledger (2026-10-29)</h2>
+<p>Every verified block feeds a local UTxO ledger in <code>gerolamino/&lt;network&gt;/ledger</code>: one
+<code>b-&lt;10-digit slot&gt;-&lt;hash8&gt;.ldiff</code> file with created outputs, spent inputs (collateral only for phase-2
+invalid transactions), unknown inputs and a digest chain, plus a <code>manifest.json</code> written last. Resume
+replays the diffs in slot order and checks <code>prevDigest</code>/<code>digest</code>; rollback reverses diffs newer than the
+target slot and deletes their files. Coverage is first-class: <code>/txs/{hash}/utxos</code> and
+<code>/utxo/{txhash:index}</code> answer locally only while the ledger covers the transaction and is not stale, with
+<code>ledger: { startSlot, kind, tipSlot }</code>; <code>/addresses</code> answers locally only at coverage 0. A decode or write
+failure marks the ledger stale (never the chain store) and stale answers relay to the peer. The popup
+Storage card and Trust card show ledger blocks/UTxO/coverage; wipe removes the ledger too.</p>
+<p>Live (Brave, <code>scripts/e2e-chrome.ts --start chunk --relay ws://192.168.1.173:3004/n2n</code>, 2026-10-29): PASS.
+First phase: 26 ledger blocks, 41 created outputs, 32 spent inputs, 33 UTxO, coverage start slot 126614888,
+digest <code>1e88f6c2...</code>. <code>/txs/26da193d.../utxos</code> local 200 with coverage tip 126615857 and 2 outputs;
+<code>/utxo/26da193d...:0</code> local 200. Offscreen document closed and recreated: 38 ledger blocks, digest
+<code>7efbc563...</code>, no stale state, chain resumed at the stored tip. Unit gates cover apply/spend/resume/rollback,
+digest chain, torn manifest, stale detection, same-slot branch replacement and stale local-answer refusal.</p>
+<h2>Not being fooled by peers (2026-10-23)</h2>
+<p>Signature checks stop a peer from forging blocks. These checks stop it from lying in other ways.</p>
+<table>
+<thead>
+<tr><th>#</th><th>Check</th><th>What it catches</th><th>Code</th><th>Live test</th></tr>
+</thead>
+<tbody>
+<tr><td>1</td><td>Freshness and density</td><td>a stale tip; a private fork from a small pool (too sparse, too few pools)</td><td><code>src/node/trust.ts</code></td><td><code>scripts/trust-smoke.ts</code>: fresh, density 0.63 to 0.78, about 40 pools</td></tr>
+<tr><td>2</td><td>Trust panel</td><td>shows each fact as verified, trusted (still the peer's word) or warning</td><td><code>src/extension/trustView.ts</code></td><td>popup Trust card</td></tr>
+<tr><td>3</td><td>Several peers</td><td>withheld or different blocks, a stale main peer; failover to the longer chain, rollback to the common block on a fork, a peer serving bad headers dropped</td><td><code>src/node/crossCheck.ts</code>, <code>peerWatch.ts</code>, <code>runner.ts</code></td><td><code>scripts/peers-smoke.ts</code>: 3039 and .173 agree; dead main peer replaced in 20 s</td></tr>
+<tr><td>4</td><td>Stake and nonce</td><td>the leader stake from Mithril's certified distribution (artifact N - 2 for epoch N), peer figures compared with it; the nonce confirmed by distinct pools' VRF proofs and by other peers</td><td><code>src/mithril/stake.ts</code>, <code>browserNode.ts</code></td><td><code>scripts/stake-smoke.ts</code>: 646 pools certified, 0 mismatches, nonce confirmed by 48 pools and 2 of 2 peers</td></tr>
+<tr><td>5</td><td>Mithril proofs for relayed answers</td><td>a made-up transaction or a wrong block height in a relayed <code>/txs/{hash}</code> answer</td><td><code>src/mithril/txProof.ts</code>, <code>src/node/txProofCheck.ts</code></td><td><code>scripts/txproof-smoke.ts</code>: proven in blocks 4785195 to 4785209</td></tr>
+</tbody>
+</table>
+<p>Settings: extra relays (up to 4), &quot;Check pool stake with Mithril&quot; and &quot;Check relayed transaction answers with
+Mithril proofs&quot; (both on by default). A first Mithril check walks the certificate chain to genesis (331
+certificates on preview, about 3 minutes in Bun); later checks stop at certificates already verified.</p>
+<p>All five in the browser (Brave, <code>scripts/e2e-chrome.ts --start mithril --relay ws://127.0.0.1:3039/n2n --extra ws://192.168.1.173:3004/n2n --trust</code>, 2026-10-23): PASS. Mithril start: 332 certificates to genesis in
+143 s (19 s verifying), certified point slot 126074844; stake certified for epoch 1459 after 1 more certificate
+(1.3 s); 507 headers and 507 leader checks, 0 bad; nonce confirmed by 47 pools and 2 of 2 peers; .173 agrees;
+a relayed <code>/txs</code> answer proven in blocks 4782420 to 4782434.</p>
+<p>Follow-ups:</p>
+<ul>
+<li>Done 2026-10-23: the Mithril start took about 6 minutes more downloading the cardano-database digests (10 MB;
+the aggregator sends about 27 KB/s). A Gerolamo peer now serves them from its own chunk files (light query
+request 10, <code>digests</code> capability; it hashes its store once, 149 s for preview's 15 GB, and keeps a cache), the
+download runs during the certificate walk, and the list must reproduce the certified Merkle root. Setting
+&quot;Mithril files from&quot;: Gerolamo peer (default) or Mithril aggregator (direct, no peer needed); a peer without
+digests, or with wrong ones, falls back to the aggregator. Mithril start in Bun: 69 s (was about 9 minutes).</li>
+<li>Done 2026-10-29: the anchor is written next to the chunk files (<code>mithril-anchor.json</code>) when the Mithril start
+verifies; a resume reads it and the Trust card shows &quot;Mithril-certified, resumed&quot; (verified) while the stored
+chain still reaches that slot. Brave <code>scripts/e2e-chrome.ts --start mithril</code>: anchor slot 126584621 written,
+after reopen <code>startMode</code> resume-mithril with the same anchor slot, stored 42 → 50 blocks.</li>
+</ul>
+<h2>dApp API (2026-10-23)</h2>
+<p><code>window.cardano.gerolamino</code>, CIP-30 style, for web pages: <code>enable()</code> with a per-site approval window, network
+id, tip, Trust checks, Blockfrost queries answered locally or by the Gerolamo peer (with Mithril proofs on
+transactions) and <code>submitTx</code>. Local UTxO answers carry <code>ledger: { startSlot, kind, tipSlot }</code>; the Trust card
+has a &quot;Local UTxO&quot; row (verified at coverage 0, trusted for partial verified-start, warning when stale). No
+keys, so no signing. Spec and examples in <code>docs/DAPP_API.md</code>; demo page <code>examples/dapp-demo.html</code>
+(<code>bun scripts/serve-demo.ts</code>); browser test <code>scripts/e2e-chrome.ts --dapp</code> (PASS in Brave: allow, calls, deny
+on a second site).</p>
+<h2>Measured</h2>
+<p>All live runs were against Gerolamo's preview relay, <code>ws://192.168.1.173:3004/n2n</code>.</p>
+<table>
+<thead>
+<tr><th>Run</th><th>Result</th></tr>
+</thead>
+<tbody>
+<tr><td><code>bun test</code></td><td>138 pass, 0 fail (1107 expects, 25 files); <code>tsc</code> clean; ledger P0 tests included, 2026-10-29</td></tr>
+<tr><td>Smoke, newest-chunk start, 60 s</td><td>517 headers verified (crypto 517 / 0, leader 517 / 0), 516 bodies checked and stored in 4 chunks, 8.6 headers/s</td></tr>
+<tr><td>Smoke, tip start, 120 s</td><td>follows the tip; one real rollback undone correctly</td></tr>
+<tr><td>Smoke, Mithril start</td><td>325 certificates verified to genesis, 87 165 digests reproduce the certified Merkle root, then 552 / 552 headers</td></tr>
+<tr><td>Chrome for Testing 155, headless</td><td>verified blocks in OPFS after 2.8 s; offscreen document closed and recreated, resumed from the stored tip; popup refuses a malformed transaction</td></tr>
+<tr><td>Brave e2e, chunk start, ledger P0</td><td>26 ledger blocks, 33 UTxO, coverage 126614888; <code>/txs/{hash}/utxos</code> and <code>/utxo/{ref}</code> local with coverage; resume after reopen 38 ledger blocks, digest preserved, PASS (2026-10-29)</td></tr>
+<tr><td>Mithril cross-check against Gerolamo's verifier</td><td>1 757 cases, all agree, including tampered certificates (flipped signature, key, stake, message, previous hash)</td></tr>
+<tr><td>Mithril chain walk</td><td>cold 47–51 s (network-bound, one certificate at a time); warm certificate cache 7–8 s; verification alone 5–7 s for 325 certificates</td></tr>
+</tbody>
+</table>
+<p>The browser e2e drives Chrome over the DevTools Protocol with a small client in <code>scripts/lib/cdp.ts</code>; no Playwright
+or Puppeteer.</p>
+<h2>Speed</h2>
+<p>Header checks cost about 110–170 ms in Bun and 180–290 ms in Chrome. The default ed25519 and VRF in
+<code>@harmoniclabs/crypto</code> are BigInt implementations at 40–65 ms per operation. That is fine at the tip and slow
+from genesis, about 8.6 headers/s.</p>
+<p>The fix stays inside the HarmonicLabs libraries. <code>@harmoniclabs/crypto</code> ships a strict port of noble's ed25519
+under <code>dist/noble/ed25519.js</code> that verifies in about 1 ms; Gerolamo's header validation already uses it. The VRF
+can be rebuilt on the same curve code.</p>
+<h2>Not done</h2>
+<ul>
+<li>Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
+are P2/P3; P0 is a UTxO projection with coverage only.</li>
+<li>No snapshot coverage yet: P1 Mithril <code>tables</code> import is not built, so <code>/addresses</code> answers relay unless a
+future genesis/snapshot run gives coverage 0.</li>
+<li>The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.</li>
+<li>No preprod run yet; there is no preprod Gerolamo relay.</li>
+<li>Real signed transaction submission is untested.</li>
+<li>Byron headers are not verified; Byron payload-ledger effects are outside P0.</li>
+<li>Session counters reset when the offscreen document is recreated (the ledger survives in OPFS).</li>
+<li>The ledger diff set is not compacted in P0; it grows with the store until P1 snapshot/pruning.</li>
+<li>OPFS ledger retries after a stale marker rebuild from the first verified start or the snapshot (P1).</li>
+</ul>
+<h2>Problems found in the HarmonicLabs libraries</h2>
+<p>Each is pinned by a test here and worked around in Gerolamino's own code.</p>
+<ol>
+<li><strong><code>@harmoniclabs/crypto</code> 0.3.1, ed25519 (<code>verifyEd25519Signature_sync</code>).</strong>
+<ul>
+<li><strong>Forgery.</strong> With the identity public key (<code>01 00…00</code>), the signature R = identity, S = 0 verifies for
+any message.</li>
+<li><strong>Too lenient.</strong> It accepts S + ℓ (malleable), non-canonical point encodings, and small-order keys and R.</li>
+<li><strong>Bad lengths.</strong> It throws instead of returning false.</li>
+<li><strong>Wrong typings.</strong> <code>verifyEd25519Signature</code> is typed with the argument order <code>(publicKey, signature, data)</code>, but runs the sync function <code>(signature, message, publicKey)</code>.</li>
+<li><strong>Workaround here.</strong> Gerolamino uses a strict check with dalek <code>verify_strict</code> semantics. Gerolamo's
+header path uses the bundled noble port and is not exposed.</li>
+</ul>
+</li>
+<li><strong><code>@harmoniclabs/crypto</code> 0.3.1, VRF.</strong> <code>VrfProof03.verify</code> accepts a non-canonical response scalar (s + ℓ),
+which libsodium rejects.</li>
+<li><strong><code>@harmoniclabs/crypto</code> 0.3.1, BLS12-381.</strong> <code>bls12_381_G1_uncompress</code> / <code>G2_uncompress</code> accept x ≥ p
+(reduced mod p), where blst returns BAD_ENCODING. This is also a Plutus-builtin conformance issue.</li>
+<li><strong><code>@harmoniclabs/crypto</code>, missing pieces.</strong>
+<ul>
+<li>No blake2s; implemented in <code>src/mithril/blake2s.ts</code>.</li>
+<li>No multi-scalar multiplication; Pippenger in <code>src/mithril/bls.ts</code> cut a 56-signer aggregation from 686 ms
+to 58 ms.</li>
+<li>The package index is CommonJS and bundles every algorithm; <code>src/mithril/hl.ts</code> imports modules directly,
+205 KB instead of 310 KB.</li>
+</ul>
+</li>
+<li><strong><code>@harmoniclabs/ouroboros-miniprotocols-ts</code> 0.0.5-dev7, handshake.</strong>
+<ul>
+<li><code>HandshakeClient.propose(versionTable)</code> never recognises a version table: <code>isVersionTableMap</code> checks the
+string keys of <code>Object.keys</code> with a number-only guard. It then throws
+<code>VersionData :: invalid networkMagic: undefined</code>.</li>
+<li>The default proposal stops at version 14.</li>
+<li>Gerolamino sends its own proposal (<code>src/node/handshake.ts</code>).</li>
+</ul>
+</li>
+</ol>
+<h2>Roadmap</h2>
+<ol>
+<li><strong>Speed.</strong> Use <code>@harmoniclabs/crypto</code>'s fast ed25519 port, and rebuild the VRF on the same curve code.</li>
+<li><strong>N2N over WebSocket as a CIP.</strong> Write it from the server and client experience gathered here, so any node
+can serve Gerolamino peers; see <code>WEBSOCKET_BEARER.md</code>.</li>
+<li><strong>Several peers and chain selection.</strong> Done 2026-10-23 (see &quot;Not being fooled by peers&quot;).</li>
+<li><strong>Volatile store.</strong> Done 2026-10-28 (see &quot;Volatile store&quot;): blocks within k slots of the tip stay in
+<code>volatile</code> files, promoted to immutable chunks as they age; rollbacks inside k touch volatile only.</li>
+<li><strong>Ledger state in OPFS.</strong> P0 done 2026-10-29 (see &quot;Local UTxO ledger&quot;): UTxO projection from verified
+blocks, per-block diff log with digest chain, coverage-first local answers, resume/rollback, stale
+detection. P1 Mithril <code>tables</code> snapshot bootstrap, P2 full ledger rules; the <code>tables</code> file is already a
+sorted run (preview, 2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order,
+650 MB), so it can serve unchanged as a base level with a sparse key index and small sorted delta runs.
+Caveats: those files are signed only by IOG's ancillary Ed25519 key, not the Mithril multi-signature, and
+their values are MemPack, which needs a decoder of our own. Spec: <code>docs/LEDGER_SPEC.md</code> (implemented P0).</li>
+<li><strong>Library fixes upstream.</strong> The issues above, on <code>conformance-fixes</code>-style branches.</li>
+</ol>
+</div>
+</article>
+<article class="doc" id="milestone-4-evidence" data-search="Milestone 4 evidence Requirement mapping, gates, live transcript, gaps and submission bundle.">
+  <header class="doc-header">
+    <div class="doc-category">Status and evidence</div>
+    <h2>Milestone 4 evidence</h2>
+    <p class="doc-summary">Requirement mapping, gates, live transcript, gaps and submission bundle.</p>
+    <div class="doc-actions">
+      <a class="source-link" href="./MILESTONE_4_EVIDENCE.md" target="_blank" rel="noopener">Open raw Markdown</a>
+      <a class="source-link" href="#milestone-4-evidence">Jump to section</a>
+    </div>
+  </header>
+  <div class="doc-body"><h1>Milestone 4 evidence: Browser adaptation and light node on the browser</h1>
+<p>Project: Harmonic Laboratories, Gerolamo (EC-0014-25), milestone 4. Status on treasury.sundae.fi (2026-10-29):
+milestone Paused, 213 days late, no evidence submitted, 95,464.17 ADA allocated.</p>
+<h2>Requirement to deliverable</h2>
+<table>
+<thead>
+<tr><th>Milestone text</th><th>Gerolamino implementation</th><th>Evidence</th></tr>
+</thead>
+<tbody>
+<tr><td>Browser adaptation</td><td>MV3 extension: service worker keeps an offscreen node alive, popup + side panel in Gerolamo's look, approval window, settings, wipe, dApp page API <code>window.cardano.gerolamino</code></td><td><code>dist/</code> built 2026-10-29 (4001 KiB JS), extension id from e2e; popup/panel/tab screenshots</td></tr>
+<tr><td>Light node on the browser</td><td>N2N-over-WebSocket initiator: handshake v14/v15, chain-sync, block-fetch, keep-alive, tx-submission; every header verified (hash/parent link, opcert, KES, VRF, leader) and body hash/size before storage; cardano-node chunk files in OPFS; tip/chunk/Mithril start modes; Mithril certificate chain</td><td><code>bun scripts/node-smoke.ts</code> and Brave e2e PASS; STATUS measured rows</td></tr>
+<tr><td>Local ledger state update</td><td>P0 UTxO projection from verified blocks: per-block <code>b-&lt;slot&gt;-&lt;hash8&gt;.ldiff</code> + <code>manifest.json</code> in <code>gerolamino/&lt;network&gt;/ledger</code>, blake2b digest chain, resume/rollback, coverage-first local <code>/txs/{hash}/utxos</code> and <code>/utxo/{txhash:index}</code> answers, address answers at coverage 0 only</td><td>unit ledger suite, <code>scripts/ledger-smoke.ts</code> PASS, Brave e2e PASS with ledger resume and local UTxO answers</td></tr>
+</tbody>
+</table>
+<p>Deliverable: browser extension. The rebuilt Gerolamino is that extension; the original Effect/WASM Gerolamino
+is documented as the predecessor (<code>docs/STATUS.md</code>, &quot;Why it was rebuilt&quot;).</p>
+<h2>Local ledger P0 (the gap closed on 2026-10-29)</h2>
+<p>Commit <code>d059ea6</code> (<code>Local UTxO ledger P0: verified blocks feed an OPFS diff log</code>, local <code>main</code>; not pushed).</p>
+<ul>
+<li><code>src/node/ledgerApply.ts</code>: UTxO diff from a verified block's own bytes with <code>@harmoniclabs/cardano-ledger-ts</code>
+(<code>MultiEraBlock.fromCbor</code>). Phase-2 invalid transactions spend collateral only and create only a collateral
+return; reference inputs are not spent; unknown inputs are recorded per block.</li>
+<li><code>src/node/ledgerStore.ts</code>: flat OPFS diff log, manifest written last, per-diff digest chain
+(<code>blake2b_256(prevDigestBytes ‖ diff JSON)</code>), resume replay with continuity checks, rollback by reversing
+newer diffs and deleting their files, idempotent re-apply, same-slot branch replacement, stale detection.</li>
+<li>Coverage is carried on every local UTxO answer: <code>window.cardano.gerolamino.query()</code> returns
+<code>ledger: { startSlot, kind, tipSlot }</code>; a stale ledger relays instead of inventing UTxO. <code>/addresses</code> answers
+locally only at coverage 0 (genesis/snapshot, P1), so partial verified-start coverage never claims complete
+address history.</li>
+<li>UI: popup Storage row <code>Ledger UTxO N blocks · M UTxO · from slot S</code>; Trust card <code>Local UTxO</code> row (verified only
+at coverage 0, trusted partial verified-start, warning stale). Wipe removes immutable + volatile + ledger.</li>
+<li>Honest limits: P0 is a UTxO projection with verified-start coverage. Full ledger rules (fees/deposits, stake,
+governance, epoch rewards, phase-2 scripts) are P2/P3; Mithril <code>tables</code> snapshot coverage is P1.</li>
+</ul>
+<h2>Commands and measured output (2026-10-29)</h2>
+<pre><code>bun run typecheck
+  tsc --noEmit -p .                     clean
+
+bun test
+  138 pass, 0 fail (1107 expects, 25 files)
+
+bun run build
+  dist ready: ... (4001 KiB of JS, with Mithril)
+  background/offscreen/popup/opfsWorker/approve/blockfrost/inpage/bridge/mithril bundles
+
+bun scripts/ledger-smoke.ts --seconds 8 --start chunk --relay ws://192.168.1.173:3004/n2n
+  PASS
+  ledgerBlocks 4, ledgerCreated 13, ledgerSpent 8, ledgerUtxoCount 13,
+  ledgerUnknownInputs 8, ledgerInvalidTx 0, ledgerTipSlot 126619300,
+  ledgerCoverageStart 126619215, ledgerDigest ef33ba08fa66f97d5de89a8aae120fb63d73edd34d76628eadc2fa949a573993,
+  ledgerStale false, ledgerFiles 5, ledgerBytes 11642
+  localTxOutputs 2 on c38362b84ae9017f2a337a5255fa8563d03e25f8155e2e9e3cd04fbd8aebd26e,
+  utxoAnswer for ...:0 amounts 6000000 lovelace + assets, coverage { startSlot: 126619215,
+  kind: &quot;verified-start&quot;, tipSlot: 126619300 }
+</code></pre>
+<p>Brave end-to-end (<code>bun scripts/e2e-chrome.ts --chrome /opt/brave.com/brave/brave --no-build --start chunk --relay ws://192.168.1.173:3004/n2n --screenshot ...</code>): PASS.</p>
+<ul>
+<li>First phase wrote OPFS chunk files and ledger diffs; popup Storage showed the ledger row.</li>
+<li><code>/txs/7abbb2c6.../utxos</code> returned <code>source: &quot;local&quot;</code>, status 200, 4 outputs, coverage
+<code>{ startSlot: 126619215, kind: &quot;verified-start&quot;, tipSlot: 126620501 }</code>; <code>/utxo/7abbb2c6...:0</code> returned
+<code>source: &quot;local&quot;</code>.</li>
+<li>Offscreen document closed and recreated: ledger resumed (40 blocks, digest preserved, <code>ledgerStale: false</code>),
+chain resumed at the stored tip (40 stored after reopen vs 30 before), popup row read
+<code>37 blocks · 66 UTxO · from slot 126,619,215</code>.</li>
+<li>Screenshots (profile scratch, not committed):
+<code>popup.png</code>, <code>panel.png</code>, <code>tab.png</code>; the e2e popup probe read <code>37 blocks · 66 UTxO · from slot 126,619,215</code>
+(the run's own sync point; vision tools were unavailable, so the e2e gate is the textual proof).</li>
+</ul>
+<h2>What the reviewer sees</h2>
+<ul>
+<li>Extension source and <code>dist/</code> are in the repo; <code>bun run build</code> reproduces the unpacked extension.</li>
+<li>Local ledger code, unit tests and Live smoke/e2e assertions are in the repo (<code>docs/LEDGER_SPEC.md</code> implemented P0,
+not a draft).</li>
+<li><code>docs/STATUS.md</code> carries the dated evidence and honest gaps; <code>README.md</code>/<code>AGENTS.md</code> carry the API/storage/query
+contracts.</li>
+<li>No keys, no signing: Gerolamino reads the chain and submits wallet-signed CBOR; it never claims to be a wallet.</li>
+</ul>
+<h2>Suggested submission bundle</h2>
+<ol>
+<li>This file (<code>docs/MILESTONE_4_EVIDENCE.md</code>).</li>
+<li><code>docs/STATUS.md</code> sections &quot;Local UTxO ledger (2026-10-29)&quot;, &quot;Volatile store&quot;, &quot;Peer-backed Blockfrost queries&quot;.</li>
+<li><code>docs/LEDGER_SPEC.md</code> (implemented P0) plus <code>src/node/ledgerApply.ts</code>, <code>src/node/ledgerStore.ts</code>.</li>
+<li>Test log: <code>bun test</code> 138 pass/0 fail; <code>bun run typecheck</code> clean; <code>bun run build</code> 4001 KiB.</li>
+<li>Smoke/e2e transcript and screenshots (profile scratch), including <code>ledger: { startSlot, kind, tipSlot }</code>
+and the popup <code>Ledger UTxO</code> row.</li>
+<li>Commit <code>d059ea6</code> (or the pushed hash once the user asks to push).</li>
+</ol>
+<h2>Gaps left, stated honestly</h2>
+<ul>
+<li>P1 Mithril <code>tables</code> snapshot coverage (coverage 0 for addresses) not built; partial verified-start answers relay
+for addresses by design.</li>
+<li>P2 full ledger rules and P3 consensus parity not built; no claim of full validation.</li>
+<li>Preprod run not done yet (preview pilot); signed tx submission remains untested with a real wallet.</li>
+<li>Byron header verification absent; Byron payload effects outside P0.</li>
+</ul>
+</div>
+</article>
+    <footer class="footer">
+      <p>Generated from <code>docs/docs.json</code> and the Markdown beside this page.</p>
+      <p>This page is self-contained. Open <code>docs/index.html</code> directly, or run <code>bun run docs-serve</code>.</p>
+    </footer>
+  </main>
+</div>
+<script>
+(() => {
+  const filter = document.getElementById("doc-filter");
+  const count = document.getElementById("doc-count");
+  const empty = document.getElementById("doc-empty");
+  const sections = Array.from(document.querySelectorAll("article.doc"));
+  const navLinks = Array.from(document.querySelectorAll("a.nav-link[data-doc]"));
+  const navById = new Map(navLinks.map((link) => [link.dataset.doc, link]));
+  const all = sections.length;
+
+  const setCount = (visible) => {
+    count.textContent = filter.value.trim()
+      ? `${visible} of ${all} documents`
+      : `${all} documents`;
+    empty.hidden = !(filter.value.trim() && visible === 0);
+  };
+
+  const applyFilter = () => {
+    const query = filter.value.trim().toLowerCase();
+    let visible = 0;
+    for (const section of sections) {
+      const haystack = section.textContent.toLowerCase();
+      const matches = !query || haystack.includes(query);
+      section.hidden = !matches;
+      const link = navById.get(section.id);
+      if (link) link.hidden = !matches;
+      if (matches) visible += 1;
+    }
+    setCount(visible);
+  };
+
+  filter.addEventListener("input", applyFilter);
+
+  const makeActive = () => {
+    let active = sections[0]?.id;
+    for (const section of sections) {
+      if (section.getBoundingClientRect().top <= 96) active = section.id;
+    }
+    for (const link of navLinks) {
+      const isActive = link.dataset.doc === active;
+      link.classList.toggle("active", isActive);
+      if (isActive) link.setAttribute("aria-current", "location");
+      else link.removeAttribute("aria-current");
+    }
+  };
+  window.addEventListener("scroll", makeActive, { passive: true });
+  window.addEventListener("hashchange", () => setTimeout(makeActive, 50));
+  makeActive();
+  setCount(all);
+})();
+</script>
+</body>
+</html>

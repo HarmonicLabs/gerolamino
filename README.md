@@ -15,6 +15,8 @@ bun test                           # unit tests (network-gated cases skip withou
 bun run build                      # dist/ is the unpacked extension; load it with docs/INSTALL_EXTENSION.md
 bun run smoke -- --seconds 60 --start chunk    # the node core under Bun against the preview relay
 bun run e2e                                    # headless Chrome/Brave with the extension, over CDP
+bun run docs                                   # rebuild docs/index.html from docs/docs.json
+bun run docs-serve                            # serve docs at http://127.0.0.1:8788/
 ```
 
 Live browser run against a Gerolamo relay (the default is the local one from `docs/RUN_LOCAL_GEROLAMO.md`):
@@ -184,6 +186,8 @@ Blockfrost adapter, including local UTxO answers and ledger resume.
 
 ## Docs
 
+- [`docs/index.html`](docs/index.html) self-contained docs hub: all documentation grouped by start, interfaces, architecture, and status.
+- [`docs/docs.json`](docs/docs.json) docs index manifest: categories, titles and summaries used to build the hub.
 - [`AGENTS.md`](AGENTS.md) agent-facing: gates, live endpoints, API and storage contracts, pitfalls.
 - [`docs/STATUS.md`](docs/STATUS.md) dated status: what works, measured results, gaps, library problems.
 - [`docs/DAPP_API.md`](docs/DAPP_API.md) the dApp API and approval/error contract.

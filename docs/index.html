@@ -865,7 +865,7 @@ the first verified block.</p>
 <tr><td><code>genesis</code></td><td>0</td><td>apply every block from genesis (Byron payloads included)</td><td>slow, P2</td></tr>
 </tbody>
 </table>
-<p>Snapshot import (P1, implemented for local files): verify the signed <code>ancillary_manifest.json</code> (SHA-256 of
+<p>Snapshot import (P1, implemented for local files): verify the signed <code>ancillary_manifest.json</code> (Gerolamino's 64-bit SHA-256 of
 <code>tables</code>/<code>meta</code>, network ancillary Ed25519 key), stream-decode entries with the MemPack decoder, build the
 UTxO-only base snapshot (<code>historyComplete: false</code>), install it under the ledger dir, then apply blocks from the
 snapshot slot onward. The aggregator/peer download and the UI switch are the remaining P1 wiring. A tampered
@@ -930,7 +930,8 @@ lovelace value is not duplicated as an empty-policy asset);</li>
 manifests go stale; digest chain continuity is checked; repeated block idempotence and a same-slot branch
 replacement are tested;</li>
 <li>memory-only ledger (no sink) still answers; unknown input is recorded; <code>markStale</code> persists.</li>
-<li>P1 (<code>test/ledgerSnapshot.test.ts</code>): signed ancillary manifest verifies <code>tables</code>/<code>meta</code> SHA-256; a tampered
+<li>P1 (<code>test/ledgerSnapshot.test.ts</code>): signed ancillary manifest verifies <code>tables</code>/<code>meta</code> SHA-256 with Gerolamino's
+64-bit SHA-256 (<code>src/node/sha256.ts</code>, tested against FIPS 180-4 vectors); a tampered
 table fails; stream and whole-file scanners agree across chunk boundaries; snapshot install/resume keeps
 <code>historyComplete: false</code>; compacted bases keep tombstones and drop older diffs; rollback across a compacted
 base stays query-safe; state digest detects tampering.</li>
@@ -1332,6 +1333,8 @@ string keys of <code>Object.keys</code> with a number-only guard. It then throws
 <li>Gerolamino sends its own proposal (<code>src/node/handshake.ts</code>).</li>
 </ul>
 </li>
+<li><strong><code>@harmoniclabs/crypto</code> 0.3.1, SHA-256 length.</strong> <code>sha2_256_sync</code> pads with a 32-bit bit-length; inputs over
+512 MB hash incorrectly (preview <code>tables</code> is 650 MB). Gerolamino uses its own 64-bit SHA-256 (<code>src/node/sha256.ts</code>).</li>
 </ol>
 <h2>Roadmap</h2>
 <ol>

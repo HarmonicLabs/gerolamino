@@ -7,11 +7,12 @@
  * output into the local ledger's `LedgerOut` row. It does not verify the ancillary manifest or the
  * file checksum by itself: callers must verify those before installing the resulting snapshot.
  */
-import { blake2b_224, sha2_256_sync } from "@harmoniclabs/crypto";
+import { blake2b_224 } from "@harmoniclabs/crypto";
 import { Address, Script } from "@harmoniclabs/cardano-ledger-ts";
 import { toHex, fromHex } from "@harmoniclabs/uint8array-utils";
 import { ANCILLARY_VKEYS, parseAncillaryManifest, verifyAncillaryManifestSignature, type AncillaryManifest } from "@harmoniclabs/mithril-ts";
 import { decodeUtxoEntry, type TxOutDecoded, type CompactValueDecoded, type MultiAssetTriple } from "./utxohdMemCodec";
+import { sha256Hex } from "./sha256";
 import { snapshotStateDigest, type LedgerSnapshot } from "./ledgerSnapshot";
 import type { LedgerAsset, LedgerOut } from "./ledgerApply";
 
@@ -100,8 +101,8 @@ export function verifyMithrilTablesFiles(tables: Uint8Array, meta: Uint8Array, m
         return manifest.data[hit]!;
     };
     const tablesExpected = lookup("tables"), metaExpected = lookup("meta");
-    const tablesSha256 = tablesExpected ? toHex(sha2_256_sync(tables)) : null;
-    const metaSha256 = metaExpected ? toHex(sha2_256_sync(meta)) : null;
+    const tablesSha256 = tablesExpected ? sha256Hex(tables) : null;
+    const metaSha256 = metaExpected ? sha256Hex(meta) : null;
     if (tablesExpected && tablesSha256 !== tablesExpected) errors.push(`tables: sha256 ${tablesSha256} differs from the manifest's ${tablesExpected}`);
     if (metaExpected && metaSha256 !== metaExpected) errors.push(`meta: sha256 ${metaSha256} differs from the manifest's ${metaExpected}`);
     return { ok: errors.length === 0, manifest, signatureOk, tablesSha256, metaSha256, errors };

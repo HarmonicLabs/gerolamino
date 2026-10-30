@@ -219,6 +219,8 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
      `VersionData :: invalid networkMagic: undefined`.
    - The default proposal stops at version 14.
    - Gerolamino sends its own proposal (`src/node/handshake.ts`).
+6. **`@harmoniclabs/crypto` 0.3.1, SHA-256 length.** `sha2_256_sync` pads with a 32-bit bit-length; inputs over
+   512 MB hash incorrectly (preview `tables` is 650 MB). Gerolamino uses its own 64-bit SHA-256 (`src/node/sha256.ts`).
 
 ## Roadmap
 

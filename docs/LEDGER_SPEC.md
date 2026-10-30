@@ -90,7 +90,7 @@ gerolamino/<network>/ledger/
 | `snapshot` | snapshot slot | Mithril ancillary `ledger/<slot>/tables` (MemPack decoder, sorted entries) | P1, opt-in; preview tables about 650 MB |
 | `genesis` | 0 | apply every block from genesis (Byron payloads included) | slow, P2 |
 
-Snapshot import (P1, implemented for local files): verify the signed `ancillary_manifest.json` (SHA-256 of
+Snapshot import (P1, implemented for local files): verify the signed `ancillary_manifest.json` (Gerolamino's 64-bit SHA-256 of
 `tables`/`meta`, network ancillary Ed25519 key), stream-decode entries with the MemPack decoder, build the
 UTxO-only base snapshot (`historyComplete: false`), install it under the ledger dir, then apply blocks from the
 snapshot slot onward. The aggregator/peer download and the UI switch are the remaining P1 wiring. A tampered
@@ -159,7 +159,8 @@ Unit (`bun test`, no browser):
   manifests go stale; digest chain continuity is checked; repeated block idempotence and a same-slot branch
   replacement are tested;
 - memory-only ledger (no sink) still answers; unknown input is recorded; `markStale` persists.
-- P1 (`test/ledgerSnapshot.test.ts`): signed ancillary manifest verifies `tables`/`meta` SHA-256; a tampered
+- P1 (`test/ledgerSnapshot.test.ts`): signed ancillary manifest verifies `tables`/`meta` SHA-256 with Gerolamino's
+  64-bit SHA-256 (`src/node/sha256.ts`, tested against FIPS 180-4 vectors); a tampered
   table fails; stream and whole-file scanners agree across chunk boundaries; snapshot install/resume keeps
   `historyComplete: false`; compacted bases keep tombstones and drop older diffs; rollback across a compacted
   base stays query-safe; state digest detects tampering.

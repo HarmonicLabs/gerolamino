@@ -85,7 +85,7 @@ Brave end-to-end (`bun scripts/e2e-chrome.ts --chrome /opt/brave.com/brave/brave
 1. This file (`docs/MILESTONE_4_EVIDENCE.md`).
 2. `docs/STATUS.md` sections "Local UTxO ledger (2026-10-29)", "Volatile store", "Peer-backed Blockfrost queries".
 3. `docs/LEDGER_SPEC.md` (implemented P0) plus `src/node/ledgerApply.ts`, `src/node/ledgerStore.ts`.
-4. Test log: `bun test` 152 pass/0 fail (1194 expects); `bun run typecheck` clean; `bun run build` 4011 KiB of JS.
+4. Test log: `bun test` 154 pass/0 fail (1208 expects); `bun run typecheck` clean; `bun run build` 4011 KiB of JS.
 5. Smoke/e2e transcript and screenshots (profile scratch), including `ledger: { startSlot, kind, tipSlot }`
    and the popup `Ledger UTxO` row.
 6. Commit `d059ea6` (or the pushed hash once the user asks to push).

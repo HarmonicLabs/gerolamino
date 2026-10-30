@@ -103,6 +103,7 @@ function ledgerOutDoc(o: LedgerOut): Record<string, unknown> {
 function txUtxosDoc(ctx: QueryContext, txHash: string): unknown[] | null {
     const outs = ctx.ledger?.txOutputs(txHash);
     if (!outs || !outs.length || ctx.ledger!.coverage.stale) return null;
+    if (ctx.ledger!.coverage.kind === "snapshot" && !ctx.ledger!.historyComplete) return null;
     const start = ctx.ledger!.coverage.startSlot;
     if (start == null || outs.some((o) => o.createdSlot < start)) return null;
     const e = ctx.index.tx(txHash);
@@ -119,7 +120,9 @@ function utxoDoc(ctx: QueryContext, ref: string): Record<string, unknown> | null
 
 /** Address UTxOs only when the ledger covers from slot 0 (P1 snapshot/genesis); otherwise relay. */
 function addressUtxosDoc(ctx: QueryContext, address: string): unknown[] | null {
-    if (!ctx.ledger || ctx.ledger.coverage.startSlot !== 0 || ctx.ledger.coverage.stale) return null;
+    if (!ctx.ledger || ctx.ledger.coverage.stale) return null;
+    const cov = ctx.ledger.coverage;
+    if (cov.startSlot !== 0 && cov.kind !== "snapshot") return null;
     return ctx.ledger.addressUtxos(address).map(ledgerOutDoc);
 }
 

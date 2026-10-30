@@ -11,6 +11,7 @@ import { blake2b_256 } from "@harmoniclabs/crypto";
 import { fromHex, toHex } from "@harmoniclabs/uint8array-utils";
 import type { FileSink } from "./chunkWriter";
 import type { LedgerBlockDiff, LedgerOut } from "./ledgerApply";
+import { LEDGER_SNAPSHOT, snapshotLooksValid, snapshotStateDigest, diffCounters, type LedgerSnapshot } from "./ledgerSnapshot";
 
 export interface LedgerCoverage {
     network: string;
@@ -48,6 +49,15 @@ interface LedgerManifest {
     digest: string | null;
     stale: boolean;
     at: number;
+    /** P1 base snapshot this ledger resumed from / compacted to. */
+    baseSlot?: number | null;
+    baseDigest?: string | null;
+    baseBlocks?: number;
+    baseCreated?: number;
+    baseSpent?: number;
+    baseUnknownInputs?: number;
+    baseInvalidTx?: number;
+    historyComplete?: boolean;
 }
 
 interface StoredDiff extends LedgerBlockDiff {
@@ -76,6 +86,7 @@ export class LocalLedger {
     private readonly stakeBalance = new Map<string, bigint>();
     private readonly diffs = new Map<number, StoredDiff>();
     private manifest: LedgerManifest | null = null;
+    private snapshot: LedgerSnapshot | null = null;
     private digest: string | null = null;
     private lastError: string | null = null;
 
@@ -97,7 +108,7 @@ export class LocalLedger {
     }
 
     get stats(): LedgerStats {
-        let invalid = 0;
+        let invalid = this.manifest?.baseInvalidTx ?? 0;
         for (const d of this.diffs.values()) invalid += d.invalidTx.length;
         return {
             ...this.coverage,
@@ -108,6 +119,10 @@ export class LocalLedger {
             lastError: this.lastError,
         };
     }
+
+    /** True when the base holds spent tombstones as well as unspent UTxO (P0/local compaction); false for an
+     * imported UTxO-only Mithril snapshot. */
+    get historyComplete(): boolean { return this.manifest?.historyComplete ?? this.snapshot?.historyComplete ?? true; }
 
     /** Read the manifest and replay the diff log; throws only when a stored diff is unreadable in a way that
      * makes a partial state unsafe. A missing diff or a digest chain break marks the ledger stale but loads the
@@ -127,10 +142,32 @@ export class LocalLedger {
                 this.manifest = parsed?.format === LEDGER_FORMAT ? parsed : null;
                 if (!this.manifest) corruptManifest = true;
             } catch { this.manifest = null; corruptManifest = true; }
+        } else {
+            this.manifest = null;
         }
-        let prev: string | null = null;
-        let stale = corruptManifest || (files.length > 0 && !manifestBytes) || (this.manifest?.stale ?? false);
-        for (const f of files) {
+        let stale = corruptManifest || (!manifestBytes && files.length > 0) || (this.manifest?.stale ?? false);
+        const snapshotBytes = await this.sink?.read?.(LEDGER_SNAPSHOT) ?? null;
+        if (snapshotBytes) {
+            try {
+                const parsed = JSON.parse(new TextDecoder().decode(snapshotBytes));
+                if (!snapshotLooksValid(parsed, this.network)) {
+                    stale = true;
+                } else {
+                    this.snapshot = parsed;
+                    if (this.snapshot.stateDigest !== snapshotStateDigest(this.snapshot.utxos)) stale = true;
+                    if (this.manifest) {
+                        if (this.manifest.baseSlot !== this.snapshot.slot || this.manifest.startSlot !== this.snapshot.startSlot || this.manifest.kind !== this.snapshot.kind) stale = true;
+                        if (this.manifest.baseDigest != null && this.manifest.baseDigest !== this.snapshot.digest) stale = true;
+                    }
+                    this.restoreSnapshot(this.snapshot);
+                }
+            } catch { stale = true; }
+        } else if (this.manifest?.baseSlot != null) {
+            stale = true;
+        }
+        let prev: string | null = this.snapshot?.digest ?? null;
+        const activeFiles = files.filter((f) => !this.snapshot || f.slot > this.snapshot.slot);
+        for (const f of activeFiles) {
             const bytes = await this.sink!.read(f.name);
             if (!bytes) { stale = true; continue; }
             let d: StoredDiff;
@@ -144,8 +181,10 @@ export class LocalLedger {
             prev = d.digest;
         }
         this.digest = prev;
-        if (this.manifest && this.manifest.tipSlot != null && (files.length === 0 || files[files.length - 1]!.slot !== this.manifest.tipSlot)) stale = true;
+        const tip = activeFiles[activeFiles.length - 1]?.slot ?? this.snapshot?.slot ?? null;
+        if (this.manifest && this.manifest.tipSlot != null && tip !== this.manifest.tipSlot) stale = true;
         if (this.manifest && this.manifest.digest !== prev) stale = true;
+        if (this.manifest?.baseSlot != null && this.manifest.baseSlot !== this.snapshot?.slot) stale = true;
         this.syncManifest(stale);
         return this.stats;
     }
@@ -160,6 +199,7 @@ export class LocalLedger {
         hash = hash.toLowerCase();
         const existing = this.diffs.get(slot);
         if (existing && existing.hash === hash) return; // idempotent re-apply
+        if (this.snapshot && slot <= this.snapshot.slot && !existing) throw new Error(`ledger: block ${slot} is below the snapshot base ${this.snapshot.slot}`);
         const oldDiffName = existing ? ledgerDiffName(slot, existing.hash) : null;
         if (existing) {
             // same slot on a new branch (rollback that kept the slot): undo the old diff first
@@ -189,19 +229,104 @@ export class LocalLedger {
         }
     }
 
+    /**
+     * Install a verified snapshot base: UTxO rows at `snapshot.slot`, with its digest and counters. Used by
+     * the P1 Mithril `tables` import; local compaction goes through `compactTo` so it can keep the original
+     * coverage start and tombstones.
+     */
+    async installSnapshot(snapshot: LedgerSnapshot, opts: { verifyStateDigest?: boolean } = {}): Promise<void> {
+        if (!snapshotLooksValid(snapshot, this.network)) throw new Error("ledger: invalid snapshot");
+        if (opts.verifyStateDigest !== false && snapshot.stateDigest !== snapshotStateDigest(snapshot.utxos)) throw new Error("ledger: snapshot state digest mismatch");
+        this.clear();
+        this.snapshot = snapshot;
+        this.restoreSnapshot(snapshot);
+        this.digest = snapshot.digest;
+        this.syncManifest();
+        if (!this.sink) return;
+        await this.sink.write(LEDGER_SNAPSHOT, new TextEncoder().encode(JSON.stringify(snapshot)));
+        await this.sink.write(LEDGER_MANIFEST, new TextEncoder().encode(JSON.stringify(this.manifest)));
+    }
+
+    /**
+     * P1 local compaction: write a base snapshot at `slot`, keep only diffs newer than it, and drop the older
+     * diff files. The snapshot keeps the original coverage start and every spent tombstone, so `/txs/...`
+     * remains complete. A rollback below the snapshot slot marks the ledger stale; a deeper rebuild is P1 work.
+     */
+    async compactTo(slot: number): Promise<number> {
+        if (!Number.isInteger(slot) || slot < 0) throw new Error("ledger: bad compaction slot");
+        const sorted = [...this.diffs.values()].sort((a, b) => a.slot - b.slot);
+        if (!sorted.length) return 0;
+        const tip = sorted[sorted.length - 1]!.slot;
+        const baseSlot = this.snapshot?.slot ?? null;
+        const lowest = baseSlot ?? sorted[0]!.slot;
+        if (slot < lowest) throw new Error(`ledger: compaction slot ${slot} is below the base ${lowest}`);
+        if (slot > tip) throw new Error(`ledger: compaction slot ${slot} is above the tip ${tip}`);
+        const newer = sorted.filter((d) => d.slot > slot);
+        const older = sorted.filter((d) => d.slot <= slot);
+        for (const d of [...newer].sort((a, b) => b.slot - a.slot)) this.reverseDiff(d);
+        const oldBase = this.snapshot;
+        const startSlot = oldBase?.startSlot ?? this.manifest?.startSlot ?? sorted[0]!.slot;
+        const kind = oldBase?.kind ?? this.manifest?.kind ?? "verified-start";
+        const counts = diffCounters(older);
+        const digestAt = older.length ? older[older.length - 1]!.digest : oldBase?.digest;
+        if (!digestAt) throw new Error("ledger: cannot compact without a digest");
+        const utxos = [...this.utxos.values()].sort((a, b) => a.ref.localeCompare(b.ref));
+        const snapshot: LedgerSnapshot = {
+            format: 1,
+            network: this.network,
+            startSlot,
+            kind,
+            slot,
+            digest: digestAt,
+            stateDigest: snapshotStateDigest(utxos),
+            blocks: (oldBase?.blocks ?? 0) + counts.blocks,
+            created: (oldBase?.created ?? 0) + counts.created,
+            spent: (oldBase?.spent ?? 0) + counts.spent,
+            unknownInputs: (oldBase?.unknownInputs ?? 0) + counts.unknownInputs,
+            invalidTx: (oldBase?.invalidTx ?? 0) + counts.invalidTx,
+            historyComplete: oldBase?.historyComplete ?? true,
+            utxos,
+            at: Date.now(),
+        };
+        this.snapshot = snapshot;
+        this.diffs.clear();
+        for (const d of newer) this.diffs.set(d.slot, d);
+        this.digest = digestAt;
+        for (const d of [...newer].sort((a, b) => a.slot - b.slot)) {
+            this.applyDiff(d);
+            this.digest = d.digest;
+        }
+        this.syncManifest();
+        if (!this.sink) return older.length;
+        await this.sink.write(LEDGER_SNAPSHOT, new TextEncoder().encode(JSON.stringify(snapshot)));
+        await this.sink.write(LEDGER_MANIFEST, new TextEncoder().encode(JSON.stringify(this.manifest)));
+        for (const d of older) await this.sink.remove?.(ledgerDiffName(d.slot, d.hash));
+        return older.length;
+    }
+
     /** Reverse every diff newer than `slot`, delete their files and write the manifest. Returns blocks undone. */
     async rollbackTo(slot: number): Promise<number> {
         const undone = [...this.diffs.values()].filter((d) => d.slot > slot).sort((a, b) => b.slot - a.slot);
-        if (!undone.length) return 0;
+        if (!undone.length) {
+            if (this.snapshot && slot < this.snapshot.slot) {
+                this.lastError = `ledger rolled back below snapshot slot ${this.snapshot.slot} to ${slot}`;
+                this.syncManifest(true);
+                if (this.sink) await this.sink.write(LEDGER_MANIFEST, new TextEncoder().encode(JSON.stringify(this.manifest)));
+            }
+            return 0;
+        }
         for (const d of undone) {
             this.reverseDiff(d);
             this.diffs.delete(d.slot);
         }
         this.digest = undone[undone.length - 1]!.prevDigest;
+        if (this.snapshot && slot < this.snapshot.slot) this.lastError = `ledger rolled back below snapshot slot ${this.snapshot.slot} to ${slot}`;
         if (this.sink) {
             for (const d of undone) await this.sink.remove?.(ledgerDiffName(d.slot, d.hash));
-            this.syncManifest();
+            this.syncManifest(!!this.snapshot && slot < this.snapshot.slot);
             await this.sink.write(LEDGER_MANIFEST, new TextEncoder().encode(JSON.stringify(this.manifest)));
+        } else if (this.snapshot && slot < this.snapshot.slot) {
+            this.syncManifest(true);
         }
         return undone.length;
     }
@@ -237,7 +362,22 @@ export class LocalLedger {
 
     private clear(): void {
         this.utxos.clear(); this.byAddress.clear(); this.byTx.clear(); this.stakeBalance.clear(); this.diffs.clear();
+        this.snapshot = null;
         this.digest = null; this.lastError = null;
+    }
+
+    /** Install the UTxO state of a snapshot base (tombstones included when the snapshot carries them). */
+    private restoreSnapshot(s: LedgerSnapshot): void {
+        for (const u of s.utxos) {
+            this.utxos.set(u.ref, u);
+            let set = this.byAddress.get(u.address);
+            if (!set) this.byAddress.set(u.address, set = new Set());
+            set.add(u.ref);
+            let t = this.byTx.get(u.txHash);
+            if (!t) this.byTx.set(u.txHash, t = { out: [], input: [] });
+            if (!t.out.includes(u.ref)) t.out.push(u.ref);
+            if (u.spentSlot == null && u.stakeKey) this.stakeBalance.set(u.stakeKey, (this.stakeBalance.get(u.stakeKey) ?? 0n) + BigInt(u.lovelace));
+        }
     }
 
     private applyDiff(d: LedgerBlockDiff, recordUnknown = false): string[] {
@@ -297,17 +437,38 @@ export class LocalLedger {
 
     private syncManifest(stale = this.manifest?.stale ?? false): void {
         const loaded = [...this.diffs.values()].sort((a, b) => a.slot - b.slot);
-        const start = loaded[0]?.slot ?? null;
+        const snap = this.snapshot;
         const tip = loaded[loaded.length - 1] ?? null;
+        const start = snap?.startSlot ?? loaded[0]?.slot ?? this.manifest?.startSlot ?? null;
+        const kind = snap?.kind ?? this.manifest?.kind ?? "verified-start";
+        const baseBlocks = snap?.blocks ?? 0;
+        const baseCreated = snap?.created ?? 0;
+        const baseSpent = snap?.spent ?? 0;
+        const baseUnknown = snap?.unknownInputs ?? 0;
+        const baseInvalid = snap?.invalidTx ?? 0;
+        const baseSlot = snap?.slot ?? null;
+        const tipSlot = tip?.slot ?? baseSlot;
+        const digest = this.digest;
+        const utxoCount = [...this.utxos.values()].filter((u) => u.spentSlot == null).length;
         this.manifest = {
-            format: LEDGER_FORMAT, network: this.network, startSlot: start, kind: "verified-start",
-            tipSlot: tip?.slot ?? null, blocks: loaded.length, utxoCount: [...this.utxos.values()].filter((u) => u.spentSlot == null).length,
-            created: loaded.reduce((a, d) => a + d.created.length, 0),
-            spent: loaded.reduce((a, d) => a + d.spent.length, 0),
-            unknownInputs: loaded.reduce((a, d) => a + d.unknownInputs.length, 0),
-            invalidTx: loaded.reduce((a, d) => a + d.invalidTx.length, 0),
-            digest: this.digest, stale, at: Date.now(),
+            format: LEDGER_FORMAT, network: this.network, startSlot: start, kind,
+            tipSlot, blocks: baseBlocks + loaded.length, utxoCount,
+            created: baseCreated + loaded.reduce((a, d) => a + d.created.length, 0),
+            spent: baseSpent + loaded.reduce((a, d) => a + d.spent.length, 0),
+            unknownInputs: baseUnknown + loaded.reduce((a, d) => a + d.unknownInputs.length, 0),
+            invalidTx: baseInvalid + loaded.reduce((a, d) => a + d.invalidTx.length, 0),
+            digest, stale, at: Date.now(),
         };
+        if (snap) {
+            this.manifest.baseSlot = snap.slot;
+            this.manifest.baseDigest = snap.digest;
+            this.manifest.baseBlocks = snap.blocks;
+            this.manifest.baseCreated = snap.created;
+            this.manifest.baseSpent = snap.spent;
+            this.manifest.baseUnknownInputs = snap.unknownInputs;
+            this.manifest.baseInvalidTx = snap.invalidTx;
+            this.manifest.historyComplete = snap.historyComplete;
+        }
     }
 
     /** Coverage statement for an answer: P0 has no genesis/snapshot completeness yet. */

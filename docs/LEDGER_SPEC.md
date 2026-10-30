@@ -1,6 +1,6 @@
 # Gerolamino local ledger (implemented P0, 2026-10-29)
 
-Status: P0 implemented and proven; P1 snapshot bootstrap is the next step. This closes the local ledger part of
+Status: P0 implemented and proven; P1 snapshot import and local compaction implemented 2026-10-30 (local files, streaming decoder, signed ancillary manifest check, full preview count 3,169,305 entries). The aggregator download/UI is the remaining P1 wiring. This closes the local ledger part of
 Milestone 4 ("Browser adaptation and light node on the browser"): Gerolamino verifies and stores blocks, and now
 maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo peer.
 
@@ -34,7 +34,7 @@ interface LedgerCoverage {
 - `genesis`: complete from slot 0 (only after a genesis replay or snapshot import).
 - `snapshot`: complete from a Mithril-certified snapshot slot (UTxO base imported, later blocks applied).
 - `verified-start`: the node started at tip/chunk/Mithril; UTxO state covers only outputs seen since that slot.
-  `/addresses` answers relay unless coverage starts at 0.
+  `/addresses` answers relay unless coverage starts at 0 or the base is a snapshot.
 - A rollback moves `tipSlot` back but never moves `startSlot`; if a rollback crosses the start, the ledger
   reports the gap (stale or partial) and does not pretend completeness.
 
@@ -43,7 +43,7 @@ interface LedgerCoverage {
 - `UtxoRef = txid(hex):index(u16)`. `LedgerOut`:
   `{ ref, txHash, address, addressBytes, lovelace, assets: Array<{ policy, name, quantity }>, datumHash?,
     inlineDatum?, scriptRefHash?, stakeKey?, createdSlot, spentSlot: number | null }`.
-- Spent outputs stay as tombstones in memory (needed for rollback and tx lookups); P0 does not prune them.
+- Spent outputs stay as tombstones in memory (needed for rollback and tx lookups); local compaction keeps them in the base snapshot, so a snapshot base remains query-compatible.
 - In-memory indexes: `utxos: Map<ref, LedgerOut>` (spent included), `byAddress: Map<address, Set<ref>>`,
   `byTx: Map<txHash, { out: ref[]; input: ref[] }>`, `stakeBalance: Map<credential, bigint>` (kept, not yet
   queried). The address is the bech32 string produced by ledger-ts; raw address bytes are kept for stake keys.
@@ -57,8 +57,11 @@ interface LedgerCoverage {
 ```text
 gerolamino/<network>/ledger/
   manifest.json                       # coverage, tip, counters, digest chain, format 1, written last
-  b-<10-digit slot>-<hash8>.ldiff     # one verified block: created/spent diff + unknown inputs + digest chain
+  snapshot.json                       # P1 base at a slot: UTxO rows + spent tombstones + counters (optional)
+  b-<10-digit slot>-<hash8>.ldiff     # one verified block newer than the base: created/spent diff + digest chain
 ```
+
+- `snapshot.json` is the base under the per-block diff log. It carries `format`, `network`, original `startSlot`, coverage `kind`, `slot`, chain `digest`, state `stateDigest`, cumulative counters and `historyComplete` (`true` for local compaction, `false` for a Mithril `tables` import). Resume reads it once and replays only diffs newer than its slot.
 
 - File name: `b-${slot.padStart(10)}-${hash.slice(0,8)}.ldiff` (flat directory, no `blocks/` subdir).
 - The single writer is BrowserNode through the OPFS worker; `manifest.json` is written after each diff.
@@ -67,10 +70,12 @@ gerolamino/<network>/ledger/
   ledger stale rather than failing half a block. The ledger loads what it can and refuses local answers while
   stale.
 - Rollback within the volatile window: reverse diffs newer than the target slot in bulk (spent outputs become
-  unspent again, created outputs leave, counters rebuild), delete their files, rewrite the manifest. No
-  snapshot rewrite in P0.
-- Compaction: not implemented in P0. The diff set grows with the store; P1 writes a snapshot at `slot - k` and
-  prunes diffs older than it.
+  unspent again, created outputs leave, counters rebuild), delete their files, rewrite the manifest. Local
+  compaction treats the snapshot slot as a base; rolling back below it marks the ledger stale and keeps the
+  snapshot state (a deeper rebuild is future work).
+- Compaction (`compactTo(slot)`): write the UTxO state at `slot` as `snapshot.json` (spent tombstones included,
+  original `startSlot` kept), drop every diff file at or below `slot`, then re-apply the newer diffs on top of
+  the base. A rollback below the snapshot slot never pretends to reconstruct the missing history.
 - A write failure reverts the in-memory diff, removes the file and throws; BrowserNode catches it, marks the
   ledger stale and keeps the verified chain store intact. A decode failure likewise marks stale, never drops a
   chain block.
@@ -85,10 +90,11 @@ gerolamino/<network>/ledger/
 | `snapshot` | snapshot slot | Mithril ancillary `ledger/<slot>/tables` (MemPack decoder, sorted entries) | P1, opt-in; preview tables about 650 MB |
 | `genesis` | 0 | apply every block from genesis (Byron payloads included) | slow, P2 |
 
-Snapshot import steps (P1): verify a Mithril-certified anchor (existing `mithrilAnchor`), download the ancillary
-`tables` file (aggregator or Gerolamo peer), verify its manifest signature and Merkle root, stream-decode
-entries with the MemPack decoder, write the base snapshot under the ledger dir, then apply blocks from the
-snapshot slot onward. A bad byte range must fail the Merkle check, never silently drop entries.
+Snapshot import (P1, implemented for local files): verify the signed `ancillary_manifest.json` (SHA-256 of
+`tables`/`meta`, network ancillary Ed25519 key), stream-decode entries with the MemPack decoder, build the
+UTxO-only base snapshot (`historyComplete: false`), install it under the ledger dir, then apply blocks from the
+snapshot slot onward. The aggregator/peer download and the UI switch are the remaining P1 wiring. A tampered
+manifest or table fails before any ledger state is written.
 
 ## Block application (P0 UTxO projection, implemented)
 
@@ -119,10 +125,10 @@ partial diff.
 
 | Query | Local answer | Notes |
 |---|---|---|
-| `/txs/{hash}/utxos` | outputs of a stored tx | only when the ledger covers the tx's slot; stale ledger relays |
+| `/txs/{hash}/utxos` | outputs of a stored tx | only when the ledger covers the tx's slot and history is complete; a snapshot with `historyComplete: false` relays |
 | `/txs/{hash}` | existing tx facts + output refs | local, as before, not ledger-dependent |
 | `/utxo/{txhash:index}` | Blockfrost-shaped UTxO if unspent | only from the local ledger; spent/unknown relays |
-| `/addresses/{addr}/utxos` | only when coverage is complete (start 0) | partial coverage relays by default |
+| `/addresses/{addr}/utxos` | only when coverage is complete (start 0) or the base is a snapshot | partial verified-start coverage relays by default |
 | `/accounts/{stake}` | only with stake balances and complete coverage | P1/P2 |
 | `/epochs/latest/parameters` | relay | not ledger state |
 
@@ -153,6 +159,12 @@ Unit (`bun test`, no browser):
   manifests go stale; digest chain continuity is checked; repeated block idempotence and a same-slot branch
   replacement are tested;
 - memory-only ledger (no sink) still answers; unknown input is recorded; `markStale` persists.
+- P1 (`test/ledgerSnapshot.test.ts`): signed ancillary manifest verifies `tables`/`meta` SHA-256; a tampered
+  table fails; stream and whole-file scanners agree across chunk boundaries; snapshot install/resume keeps
+  `historyComplete: false`; compacted bases keep tombstones and drop older diffs; rollback across a compacted
+  base stays query-safe; state digest detects tampering.
+- Smoke scripts: `scripts/ledger-smoke.ts` (local block ledger); `scripts/mithril-tables-smoke.ts` (P1 import, 20,000 real preview rows decoded with 0 errors; full `--count-only` count 3,169,305 entries)
+  from local `tables`/`meta`, optional signed manifest, snapshot install and local/relay query checks).
 
 Live (Brave e2e, Gerolamo preview relay):
 - start chunk; wait for ledger blocks, UTxOs and coverage; query a stored transaction `/txs/{hash}/utxos` via
@@ -169,19 +181,20 @@ blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledge
 | Phase | Work | Coverage |
 |---|---|---|
 | P0 | UTxO projection, diff log, resume/rollback, tx-scoped local answers | verified-start |
-| P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot |
+| P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot | implemented for local files; aggregator/UI wiring next |
 | P2 | full ledger rules: fees/deposits, stake, governance, epoch rewards | snapshot/genesis |
 | P3 | optional consensus validation parity (phase-2 scripts), proofs for local answers | full |
 
 Milestone 4 closes on P0 evidence for the stated deliverable (browser extension + local ledger update), with
-P1 and P2 as the next hardening steps; do not claim genesis-complete address history before P1.
+P1 core import/compaction implemented and P2 as the next hardening step; do not claim genesis-complete address
+history before a snapshot base is installed and blocks after it are applied.
 
 ## Decisions resolved
 
 1. Milestone wording: `verified-start` coverage plus explicit coverage metadata closes "update the local
    ledger state"; the reviewer sees local UTxO answers and their start slot.
-2. Snapshot source for P1: peer-first `tables` stream, aggregator fallback (recommended, not yet built).
-3. Memory budget: P0 keeps the full map in memory; measure before P1 and cap/prune diffs then.
+2. Snapshot source for P1: local files implemented with signed ancillary manifest verification; peer-first `tables` stream and aggregator fallback still recommended for the browser start mode.
+3. Memory budget: P0 keeps the full map in memory; the full preview scan uses ~4.2 GiB RSS with the `scanMithrilTables` row array, so plan streaming rows for the browser import.
 4. Failed transaction rule: exclude ordinary outputs of phase-2 invalid txs, collateral only; implemented.
 5. Local address answers under partial coverage: relay by default, genesis/snapshot coverage answers locally;
    implemented.

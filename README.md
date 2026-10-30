@@ -197,6 +197,7 @@ Blockfrost adapter, including local UTxO answers and ledger resume.
 - [`docs/INSTALL_EXTENSION.md`](docs/INSTALL_EXTENSION.md) step-by-step unpacked install, first relay, verification and reload.
 - [`docs/RUN_LOCAL_GEROLAMO.md`](docs/RUN_LOCAL_GEROLAMO.md) run Gerolamo locally as the relay (Docker and Bun flags).
 - [`docs/LEDGER_SPEC.md`](docs/LEDGER_SPEC.md) the local UTxO ledger: implemented P0 coverage model, OPFS
-  diff log, resume/rollback and digest chain; P1 snapshot bootstrap next.
+  diff log, resume/rollback and digest chain; P1 `tables` import/compaction for local files and streaming
+  decoder implemented, aggregator/UI wiring next.
 - [`docs/MILESTONE_4_EVIDENCE.md`](docs/MILESTONE_4_EVIDENCE.md) the milestone 4 submission file: requirement to
   deliverable mapping, measured gates, Brave e2e transcript, honest gaps and bundle checklist.

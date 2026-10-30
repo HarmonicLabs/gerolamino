@@ -180,15 +180,15 @@ can be rebuilt on the same curve code.
 
 - Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
   are P2/P3; P0 is a UTxO projection with coverage only.
-- No snapshot coverage yet: P1 Mithril `tables` import is not built, so `/addresses` answers relay unless a
-  future genesis/snapshot run gives coverage 0.
+- P1 snapshot base is from local files only: signed ancillary manifest check, streaming MemPack decoder and `snapshot.json`; the aggregator/peer download and UI start mode are still missing. `/addresses` answers relay when no snapshot base is installed.
+- The ledger diff set above a snapshot base is compacted on demand (`compactTo`); there is no automatic
+  compaction threshold yet.
+- OPFS ledger retries after a stale marker rebuild from the first verified start or the snapshot base.
 - The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.
 - No preprod run yet; there is no preprod Gerolamo relay.
 - Real signed transaction submission is untested.
 - Byron headers are not verified; Byron payload-ledger effects are outside P0.
 - Session counters reset when the offscreen document is recreated (the ledger survives in OPFS).
-- The ledger diff set is not compacted in P0; it grows with the store until P1 snapshot/pruning.
-- OPFS ledger retries after a stale marker rebuild from the first verified start or the snapshot (P1).
 
 ## Problems found in the HarmonicLabs libraries
 
@@ -230,9 +230,11 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
    `volatile` files, promoted to immutable chunks as they age; rollbacks inside k touch volatile only.
 5. **Ledger state in OPFS.** P0 done 2026-10-29 (see "Local UTxO ledger"): UTxO projection from verified
    blocks, per-block diff log with digest chain, coverage-first local answers, resume/rollback, stale
-   detection. P1 Mithril `tables` snapshot bootstrap, P2 full ledger rules; the `tables` file is already a
-   sorted run (preview, 2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order,
-   650 MB), so it can serve unchanged as a base level with a sparse key index and small sorted delta runs.
+   detection. P1 snapshot work done 2026-10-30 for local files: streaming MemPack `tables` decoder, signed
+   ancillary manifest check, UTxO-only `snapshot.json` base, optional compaction; the aggregator/peer download
+   and UI start mode are next. P2 full ledger rules; the `tables` file is already a sorted run (preview,
+   2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order, 650 MB), so it can serve
+   unchanged as a base level with a sparse key index and small sorted delta runs.
    Caveats: those files are signed only by IOG's ancillary Ed25519 key, not the Mithril multi-signature, and
-   their values are MemPack, which needs a decoder of our own. Spec: `docs/LEDGER_SPEC.md` (implemented P0).
+   their values are MemPack, which needs a decoder of our own. Spec: `docs/LEDGER_SPEC.md` (P0 + local P1 import).
 6. **Library fixes upstream.** The issues above, on `conformance-fixes`-style branches.

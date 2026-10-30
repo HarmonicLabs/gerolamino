@@ -85,15 +85,16 @@ Brave end-to-end (`bun scripts/e2e-chrome.ts --chrome /opt/brave.com/brave/brave
 1. This file (`docs/MILESTONE_4_EVIDENCE.md`).
 2. `docs/STATUS.md` sections "Local UTxO ledger (2026-10-29)", "Volatile store", "Peer-backed Blockfrost queries".
 3. `docs/LEDGER_SPEC.md` (implemented P0) plus `src/node/ledgerApply.ts`, `src/node/ledgerStore.ts`.
-4. Test log: `bun test` 138 pass/0 fail; `bun run typecheck` clean; `bun run build` 4001 KiB.
+4. Test log: `bun test` 152 pass/0 fail (1194 expects); `bun run typecheck` clean; `bun run build` 4011 KiB of JS.
 5. Smoke/e2e transcript and screenshots (profile scratch), including `ledger: { startSlot, kind, tipSlot }`
    and the popup `Ledger UTxO` row.
 6. Commit `d059ea6` (or the pushed hash once the user asks to push).
 
 ## Gaps left, stated honestly
 
-- P1 Mithril `tables` snapshot coverage (coverage 0 for addresses) not built; partial verified-start answers relay
-  for addresses by design.
+- P1 Mithril `tables` snapshot coverage is implemented for local files (signed ancillary manifest check, streaming
+  MemPack decoder, `snapshot.json` base, compaction); the aggregator/peer download and UI start mode are not wired yet.
+  Partial verified-start answers relay for addresses by design.
 - P2 full ledger rules and P3 consensus parity not built; no claim of full validation.
 - Preprod run not done yet (preview pilot); signed tx submission remains untested with a real wallet.
 - Byron header verification absent; Byron payload effects outside P0.

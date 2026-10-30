@@ -1,6 +1,6 @@
 {
     "name": "gerolamino",
-    "version": "0.2.0-dev.1",
+    "version": "0.2.0",
     "private": true,
     "type": "module",
     "description": "Gerolamino: a standalone Cardano node for the browser (Chrome extension), pure TypeScript on the HarmonicLabs libraries, chain stored in OPFS, peers over N2N-over-WebSocket",

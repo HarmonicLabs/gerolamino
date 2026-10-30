@@ -6,6 +6,12 @@ that serves N2N-over-WebSocket; Gerolamo itself is a full node, Gerolamino is th
 Supported browsers: Chrome 116+ or Brave (MV3, `offscreen` document). The extension is loaded unpacked today;
 there is no Chrome Web Store listing in this repository.
 
+## From a GitHub release
+
+Download `gerolamino-0.2.0-extension.zip` from the repository's Releases page, unzip it, and point
+**Load unpacked** at the folder with `manifest.json` in it. The release zip is the same unpacked build as
+`dist/`; it is not a signed Chrome Web Store package. Check the accompanying `SHA256SUMS` before loading.
+
 ## 1. Before you start
 
 - Bun 1.1+ and git are installed.

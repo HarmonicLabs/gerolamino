@@ -48,9 +48,10 @@ import { ledgerDiffFromBlock } from "./ledgerApply";
 import { LocalLedger } from "./ledgerStore";
 import { epochOfSlot, networkByMagic } from "./networks";
 import { TxSubmitClient, type QueuedTx } from "./txSubmit";
+import { byronObftFor, parseByronChainSyncHeader, type ByronObftState, type ByronObftHeaderCheck } from "./byron";
 
 export interface HeaderSummary {
-    eraTag: number;          // wire era tag: 2 Shelley … 7 Conway
+    eraTag: number;          // wire era tag: 0/1 Byron, 2 Shelley … 7 Conway
     slot: number;
     blockNo: number;
     hash: string;            // hex
@@ -58,6 +59,8 @@ export interface HeaderSummary {
     bodySize: number;
     bodyHash: string;        // hex, from the header
     headerBytes: Uint8Array;
+    isByron?: boolean;
+    isEbb?: boolean;
 }
 
 export type NodeState = "idle" | "connecting" | "handshake" | "anchoring" | "syncing" | "at-tip" | "stopped" | "error";
@@ -186,12 +189,21 @@ const concatBytes = (a: Uint8Array, b: Uint8Array): Uint8Array => { const out = 
 const pointOf = (p: Point) => new ChainPoint({ blockHeader: { slotNumber: BigInt(p.slot), hash: fromHex(p.hash) } });
 const L_PREFIX = new TextEncoder().encode("L");
 
-/** Parse the chain-sync RollForward payload `[eraIdx, #6.24(header)]` into a summary (Shelley-era and later). */
+/** Parse the chain-sync RollForward payload `[eraIdx, #6.24(header)]` into a summary. */
 export function summarizeHeader(data: CborObj): HeaderSummary {
     if (!(data instanceof CborArray) || data.array.length < 2) throw new Error("RollForward data is not [era, header]");
     const eraIdx = Number((data.array[0] as CborUInt).num);
+    if (eraIdx === 0) {
+        const wrapped = data.array[1];
+        if (!(wrapped instanceof CborArray)) throw new Error("Byron RollForward header is not [[type, sizeHint], #6.24(bytes)]");
+        const parsed = parseByronChainSyncHeader(wrapped);
+        return {
+            eraTag: parsed.eraTag, slot: parsed.slot, blockNo: parsed.blockNo, hash: parsed.hash,
+            prevHash: parsed.prevHash, bodySize: 0, bodyHash: "", headerBytes: parsed.rawHeader,
+            isByron: true, isEbb: parsed.isEbb,
+        };
+    }
     const eraTag = eraIdx + 1; // header era index (Shelley = 1) → wire era tag (Shelley = 2)
-    if (eraTag < 2) throw new Error("Byron headers are not handled by the light client");
     const tagged = data.array[1];
     const headerBytes: Uint8Array = tagged instanceof CborTag ? (tagged.data as any).bytes : (tagged as any).bytes;
     return summarizeHeaderBytes(headerBytes, eraTag);
@@ -261,6 +273,7 @@ export class BrowserNode {
     private writer: ChunkWriter | null = null;
     private volatile: VolatileStore | null = null;
     private securityParam = 0;
+    private byronObft: ByronObftState | null = null;
     private nonces = new Map<number, Uint8Array | null>();
     private stakeCache = new Map<string, PoolStakeInfo>();
     private stakeMismatchPools = new Set<string>();
@@ -304,6 +317,11 @@ export class BrowserNode {
 
     /** Race an operation against the connection closing. */
     private guard<T>(p: Promise<T>): Promise<T> { return Promise.race([p, this.closed]); }
+
+    private ensureByronObft(network: string): ByronObftState | null {
+        if (!this.byronObft) this.byronObft = byronObftFor(network, { log: (l) => this.log(l) });
+        return this.byronObft;
+    }
 
     private async epochNonce(epoch: number): Promise<Uint8Array | null> {
         if (this.nonces.has(epoch)) return this.nonces.get(epoch)!;
@@ -510,9 +528,22 @@ export class BrowserNode {
         fetching?.catch(() => {});
 
         // header cryptography and leader eligibility
-        const nonce = net ? await this.epochNonce(epochOfSlot(net, h.slot)) : null;
+        const nonce = h.isByron ? null : net ? await this.epochNonce(epochOfSlot(net, h.slot)) : null;
         let cryptoOk = false;
-        if (net && nonce) {
+        if (h.isByron) {
+            const obft = net ? this.ensureByronObft(net.name) : null;
+            if (h.isEbb) cryptoOk = true;
+            else {
+                try {
+                    const r = obft!.validateMainHeader(h.headerBytes, BigInt(h.slot));
+                    cryptoOk = r.ok;
+                    if (cryptoOk) obft!.noteApplied(h.headerBytes, BigInt(h.slot));
+                    else this.noteError(`BYRON HEADER FAILED at slot ${h.slot}: ${r.reason ?? "signature invalid"}`);
+                } catch (e) { this.noteError(`Byron header crypto threw at slot ${h.slot}: ${(e as Error).message}`); }
+            }
+            if (cryptoOk) this.stats.cryptoOk++; else if (!h.isEbb) this.stats.cryptoBad++;
+            this.stats.leaderSkipped++;
+        } else if (net && nonce) {
             try {
                 const hc = parseHeaderCrypto(h.headerBytes, h.eraTag);
                 const r = verifyHeaderCrypto(hc, nonce, net.slotsPerKESPeriod, net.maxKESEvolutions);
@@ -547,7 +578,6 @@ export class BrowserNode {
             }
         } else { this.stats.cryptoSkipped++; this.stats.leaderSkipped++; }
         this.stats.lastSlot = h.slot; this.stats.lastBlockNo = h.blockNo; this.stats.lastHash = h.hash;
-
         if (!fetching) return;
         const blocks = await fetching;
         const b = Array.isArray(blocks) ? blocks[0] : null;
@@ -556,9 +586,11 @@ export class BrowserNode {
         const bytes: Uint8Array = b.blockData;
         let got: ReturnType<typeof bodyHashOf>;
         try { got = bodyHashOf(bytes); } catch (e) { this.stats.bodyBad++; this.noteError(`block at slot ${h.slot} does not parse: ${(e as Error).message}`); return; }
-        const bodyOk = got.hash === h.bodyHash && got.size === h.bodySize;
+        const bodyOk = h.isByron
+            ? got.eraTag === h.eraTag && bytes.length > 0
+            : got.hash === h.bodyHash && got.size === h.bodySize;
         if (bodyOk) this.stats.bodyOk++;
-        else { this.stats.bodyBad++; this.noteError(`BODY MISMATCH at slot ${h.slot}: ${got.hash !== h.bodyHash ? "hash" : `size ${got.size} ≠ ${h.bodySize}`}`); }
+        else { this.stats.bodyBad++; this.noteError(`BODY MISMATCH at slot ${h.slot}: ${h.isByron ? "Byron block envelope" : got.hash !== h.bodyHash ? "hash" : `size ${got.size} ≠ ${h.bodySize}`}`); }
         this.recent.push({ slot: h.slot, blockNo: h.blockNo, hash: h.hash, size: bytes.length, txs: got.txs });
         while (this.recent.length > (this.opts.keep ?? 64)) this.recent.shift();
         // only fully verified blocks are stored: volatile (last k slots) first, promoted to immutable chunks as they age
@@ -568,13 +600,13 @@ export class BrowserNode {
                     await this.volatile.append(h.slot, fromHex(h.hash), bytes);
                     const promoted = this.writer ? await this.volatile.promoteOlderThan(h.slot - this.securityParam) : [];
                     for (const p of promoted) await this.writer!.append(p.slot, p.hash, p.bytes);
-                    this.opts.index?.add(bytes);
+                    if (!h.isByron) this.opts.index?.add(bytes);
                 } else {
                     await this.writer!.append(h.slot, fromHex(h.hash), bytes);
-                    this.opts.index?.add(bytes);
+                    if (!h.isByron) this.opts.index?.add(bytes);
                 }
                 this.syncStoreStats();
-                if (bodyOk && linked && (cryptoOk || !nonce)) await this.applyLedger(bytes, h.slot, h.hash);
+                if (!h.isByron && bodyOk && linked && (cryptoOk || !nonce)) await this.applyLedger(bytes, h.slot, h.hash);
             } catch (e) { this.noteError(`store: ${(e as Error).message}`); }
         }
     }

@@ -187,7 +187,7 @@ can be rebuilt on the same curve code.
 - The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.
 - No preprod run yet; there is no preprod Gerolamo relay.
 - Real signed transaction submission is untested.
-- Byron headers are not verified; Byron payload-ledger effects are outside P0.
+- Byron headers are verified (hash/parent link, OBFT block signature and genesis delegation); Byron ledger effects are outside P0/P2.
 - Session counters reset when the offscreen document is recreated (the ledger survives in OPFS).
 
 ## Problems found in the HarmonicLabs libraries

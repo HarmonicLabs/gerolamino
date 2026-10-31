@@ -10,7 +10,8 @@
         "types": ["bun"],
         "allowImportingTsExtensions": true,
         "verbatimModuleSyntax": false,
-        "isolatedModules": true
-    },
+        "isolatedModules": true,
+        "resolveJsonModule": true
+        },
     "include": ["src", "scripts", "test"]
 }

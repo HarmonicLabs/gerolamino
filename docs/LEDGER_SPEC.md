@@ -10,7 +10,7 @@ maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo
   It never takes ledger state from a peer without proof.
 - **Coverage is first-class.** Every local ledger answer states the slot from which its state is complete. A
   tip/chunk/Mithril start gives coverage `startSlot`; only a genesis or snapshot bootstrap gives coverage 0.
-- **Light node, not consensus.** Header/body verification stays as it is. Phase-2 script execution, stake,
+- **Light node, not consensus.** Header/body verification stays as it is, including Byron OBFT header checks; phase-2 script execution, stake,
   governance, epoch rewards and full ledger rule validation are P2/P3; the UTxO projection says so.
 - **Pure TypeScript on HarmonicLabs.** Parsing uses `@harmoniclabs/cardano-ledger-ts` (pinned vendor tarball),
   storage uses the existing OPFS sink pattern; no SQLite, no LMDB, no Bun-only APIs in the extension.
@@ -112,7 +112,8 @@ Per transaction, in block order:
    invalid}))`; store the diff, then the manifest.
 
 What P0 does **not** do: phase-2 script execution, fee/deposit/balance checks, stake delegation effects,
-governance, epoch rewards, Byron payload-ledger effects. These are P2/P3 work; queries must state it.
+governance, epoch rewards, and Byron payload-ledger effects. Byron headers themselves are verified (hash,
+parent link, OBFT signature and genesis delegation) in `src/node/byron.ts`; these are P2/P3 ledger effects.
 
 Rollback: reverse a block diff in memory (unspend, delete created, restore balances/counters) and delete its
 diff file. A deeper rollback than the retained diffs rebuilds from the newest snapshot (P1).
@@ -164,6 +165,8 @@ Unit (`bun test`, no browser):
   table fails; stream and whole-file scanners agree across chunk boundaries; snapshot install/resume keeps
   `historyComplete: false`; compacted bases keep tombstones and drop older diffs; rollback across a compacted
   base stays query-safe; state digest detects tampering.
+- Byron (`test/byronHeader.test.ts`): preprod EBB and main headers hash/parent/slot match the fixture; the OBFT
+  genesis delegation state verifies real main-block signatures; a tampered header fails.
 - Smoke scripts: `scripts/ledger-smoke.ts` (local block ledger); `scripts/mithril-tables-smoke.ts` (P1 import, 20,000 real preview rows decoded with 0 errors; full `--count-only` count 3,169,305 entries)
   from local `tables`/`meta`, optional signed manifest, snapshot install and local/relay query checks).
 

@@ -777,7 +777,7 @@ maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo
 It never takes ledger state from a peer without proof.</li>
 <li><strong>Coverage is first-class.</strong> Every local ledger answer states the slot from which its state is complete. A
 tip/chunk/Mithril start gives coverage <code>startSlot</code>; only a genesis or snapshot bootstrap gives coverage 0.</li>
-<li><strong>Light node, not consensus.</strong> Header/body verification stays as it is. Phase-2 script execution, stake,
+<li><strong>Light node, not consensus.</strong> Header/body verification stays as it is, including Byron OBFT header checks; phase-2 script execution, stake,
 governance, epoch rewards and full ledger rule validation are P2/P3; the UTxO projection says so.</li>
 <li><strong>Pure TypeScript on HarmonicLabs.</strong> Parsing uses <code>@harmoniclabs/cardano-ledger-ts</code> (pinned vendor tarball),
 storage uses the existing OPFS sink pattern; no SQLite, no LMDB, no Bun-only APIs in the extension.</li>
@@ -888,7 +888,8 @@ in that block's <code>unknownInputs</code> and removes nothing (coverage gap, no
 <li>Compute the diff digest: <code>blake2b-256(prevDigestBytes ‖ JSON({slot, hash, created refs, spent, unknown, invalid}))</code>; store the diff, then the manifest.</li>
 </ol>
 <p>What P0 does <strong>not</strong> do: phase-2 script execution, fee/deposit/balance checks, stake delegation effects,
-governance, epoch rewards, Byron payload-ledger effects. These are P2/P3 work; queries must state it.</p>
+governance, epoch rewards, and Byron payload-ledger effects. Byron headers themselves are verified (hash,
+parent link, OBFT signature and genesis delegation) in <code>src/node/byron.ts</code>; these are P2/P3 ledger effects.</p>
 <p>Rollback: reverse a block diff in memory (unspend, delete created, restore balances/counters) and delete its
 diff file. A deeper rollback than the retained diffs rebuilds from the newest snapshot (P1).</p>
 <p>Failures: an undecodable body marks the ledger stale at that block (the chain store keeps going; later diffs can
@@ -939,6 +940,8 @@ replacement are tested;</li>
 table fails; stream and whole-file scanners agree across chunk boundaries; snapshot install/resume keeps
 <code>historyComplete: false</code>; compacted bases keep tombstones and drop older diffs; rollback across a compacted
 base stays query-safe; state digest detects tampering.</li>
+<li>Byron (<code>test/byronHeader.test.ts</code>): preprod EBB and main headers hash/parent/slot match the fixture; the OBFT
+genesis delegation state verifies real main-block signatures; a tampered header fails.</li>
 <li>Smoke scripts: <code>scripts/ledger-smoke.ts</code> (local block ledger); <code>scripts/mithril-tables-smoke.ts</code> (P1 import, 20,000 real preview rows decoded with 0 errors; full <code>--count-only</code> count 3,169,305 entries)
 from local <code>tables</code>/<code>meta</code>, optional signed manifest, snapshot install and local/relay query checks).</li>
 </ul>
@@ -1298,7 +1301,7 @@ compaction threshold yet.</li>
 <li>The epoch nonce is confirmed, not computed: computing it needs the whole previous epoch's headers.</li>
 <li>No preprod run yet; there is no preprod Gerolamo relay.</li>
 <li>Real signed transaction submission is untested.</li>
-<li>Byron headers are not verified; Byron payload-ledger effects are outside P0.</li>
+<li>Byron headers are verified (hash/parent link, OBFT block signature and genesis delegation); Byron ledger effects are outside P0/P2.</li>
 <li>Session counters reset when the offscreen document is recreated (the ledger survives in OPFS).</li>
 </ul>
 <h2>Problems found in the HarmonicLabs libraries</h2>

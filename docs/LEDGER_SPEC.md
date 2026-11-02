@@ -167,6 +167,9 @@ Unit (`bun test`, no browser):
   base stays query-safe; state digest detects tampering.
 - Byron (`test/byronHeader.test.ts`): preprod EBB and main headers hash/parent/slot match the fixture; the OBFT
   genesis delegation state verifies real main-block signatures; a tampered header fails.
+- P2/P3 (`test/ledgerRules.test.ts`, `test/phase2P2Real.test.ts`, `test/phase2Context.test.ts`): core value/fee
+  rules pass a synthetic rejection test and a real preview transaction body; the script-context bridge evaluates a
+  real preview Plutus transaction (the witness script returns success).
 - Smoke scripts: `scripts/ledger-smoke.ts` (local block ledger); `scripts/mithril-tables-smoke.ts` (P1 import, 20,000 real preview rows decoded with 0 errors; full `--count-only` count 3,169,305 entries)
   from local `tables`/`meta`, optional signed manifest, snapshot install and local/relay query checks).
 

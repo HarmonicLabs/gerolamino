@@ -9,7 +9,7 @@
  */
 import { blake2b_256 } from "@harmoniclabs/crypto";
 import { toHex } from "@harmoniclabs/uint8array-utils";
-import type { LedgerBlockDiff, LedgerOut } from "./ledgerApply";
+import type { LedgerBlockDiff, LedgerOut, LedgerP2State } from "./ledgerApply";
 import type { LedgerCoverage } from "./ledgerStore";
 
 export const LEDGER_SNAPSHOT = "snapshot.json";
@@ -36,6 +36,10 @@ export interface LedgerSnapshot {
     invalidTx: number;
     /** True when spent tombstones are present; false for UTxO-only Mithril imports. */
     historyComplete: boolean;
+    /** P2 protocol counters/stake-governance state at `slot` (optional for older snapshots). */
+    p2?: LedgerP2State;
+    /** Digest of `p2` when present, separate from the UTxO digest. */
+    p2Digest?: string;
     utxos: LedgerOut[];
     at: number;
 }
@@ -80,6 +84,10 @@ export function snapshotStateDigest(utxos: LedgerOut[]): string {
     }
     flush();
     return toHex(acc ?? blake2b_256(new Uint8Array(0)));
+}
+
+export function p2StateDigest(p2: LedgerP2State): string {
+    return toHex(blake2b_256(new TextEncoder().encode(JSON.stringify(p2))));
 }
 
 /** Validate the structural parts of a parsed snapshot without trusting its digest fields. */

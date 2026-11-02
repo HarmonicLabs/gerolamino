@@ -200,6 +200,7 @@ Blockfrost adapter, including local UTxO answers and ledger resume.
   diff log, resume/rollback and digest chain; P1 `tables` import/compaction for local files and streaming
   decoder implemented, extension local-file/peer/aggregator import wired; P2 value/fee checks and P3 flat
   script evaluation with the script-context bridge are in `src/node/ledgerRules.ts`, `src/node/plutusEval.ts`
-  and `src/node/phase2Context.ts`; full stake/governance/epoch and script-context parity remain in progress.
+  and `src/node/phase2Context.ts`; P2 counters (fees/deposits/stake/governance) persist and roll back with the ledger.
+  Full epoch/stake-rule and cost-model parity remain in progress.
 - [`docs/MILESTONE_4_EVIDENCE.md`](docs/MILESTONE_4_EVIDENCE.md) the milestone 4 submission file: requirement to
   deliverable mapping, measured gates, Brave e2e transcript, honest gaps and bundle checklist.

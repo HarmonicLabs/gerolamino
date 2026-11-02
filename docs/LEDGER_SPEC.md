@@ -189,8 +189,8 @@ blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledge
 |---|---|---|
 | P0 | UTxO projection, diff log, resume/rollback, tx-scoped local answers | verified-start |
 | P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot | local files, peer raw files, extension UI and aggregator archive fallback done |
-| P2 | full ledger rules: fees/deposits, stake, governance, epoch rewards | snapshot/genesis | core value/fee/input rules implemented (`ledgerRules.ts`); full stake/gov/epoch rules still evolving |
-| P3 | optional consensus validation parity (phase-2 scripts), proofs for local answers | full | script evaluator core (`plutusEval.ts`) and script-context bridge (`phase2Context.ts`) implemented; full cost-model/budget parity still evolving |
+| P2 | full ledger rules: fees/deposits, stake, governance, epoch rewards | snapshot/genesis | core value/fee/input rules and persisted fees/deposits/stake/gov counters (`ledgerRules.ts`, `ledgerStore.ts`); full epoch/stake-rule parity still evolving |
+| P3 | optional consensus validation parity (phase-2 scripts), proofs for local answers | full | script evaluator + script-context bridge with declared-budget check (`plutusEval.ts`, `phase2Context.ts`); full cost-model parity still evolving |
 
 Milestone 4 closes on P0 evidence for the stated deliverable (browser extension + local ledger update), with
 P1 core import/compaction implemented and P2 as the next hardening step; do not claim genesis-complete address

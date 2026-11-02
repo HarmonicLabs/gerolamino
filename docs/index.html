@@ -1309,9 +1309,10 @@ can be rebuilt on the same curve code.</p>
 <ul>
 <li>Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
 are P2/P3; P0 is a UTxO projection with coverage only. P2 core value/fee/input checks are in
-<code>src/node/ledgerRules.ts</code> and P3 flat script evaluation is in <code>src/node/plutusEval.ts</code>; the script-context
-bridge is <code>src/node/phase2Context.ts</code> (TxInfo / ScriptPurpose / ScriptInfo). Full stake, governance, epoch and
-cost-model/budget parity remains in progress.</li>
+<code>src/node/ledgerRules.ts</code>; P2 protocol counters (fees, deposits, withdrawals, treasury, stake/gov registrations
+and delegations) persist in <code>snapshot.json</code> and roll back with diffs; P3 flat evaluation and the TxInfo/ScriptPurpose/
+ScriptInfo bridge with declared-budget checks live in <code>src/node/plutusEval.ts</code> and <code>src/node/phase2Context.ts</code>.
+Full epoch/stake-rule and cost-model parity remains in progress.</li>
 <li>P1 snapshot base is from local files, the Gerolamo peer's raw <code>tables</code>/<code>meta</code> routes, or the Mithril aggregator archive; signed ancillary manifest check, streaming MemPack decoder and <code>snapshot.json</code> are wired through the popup. A separate start-mode switch is not needed because the installed base resumes automatically.</li>
 <li>The ledger diff set above a snapshot base is compacted on demand (<code>compactTo</code>); there is no automatic
 compaction threshold yet.</li>
@@ -1473,7 +1474,7 @@ contracts.</li>
 <li>This file (<code>docs/MILESTONE_4_EVIDENCE.md</code>).</li>
 <li><code>docs/STATUS.md</code> sections &quot;Local UTxO ledger (2026-10-29)&quot;, &quot;Volatile store&quot;, &quot;Peer-backed Blockfrost queries&quot;.</li>
 <li><code>docs/LEDGER_SPEC.md</code> (implemented P0) plus <code>src/node/ledgerApply.ts</code>, <code>src/node/ledgerStore.ts</code>.</li>
-<li>Test log: <code>bun test</code> 167 pass/0 fail (1264 expects); <code>bun run typecheck</code> clean; <code>bun run build</code> 4218 KiB of JS.</li>
+<li>Test log: <code>bun test</code> 168 pass/0 fail (1272 expects); <code>bun run typecheck</code> clean; <code>bun run build</code> 4225 KiB of JS.</li>
 <li>Smoke/e2e transcript and screenshots (profile scratch), including <code>ledger: { startSlot, kind, tipSlot }</code>
 and the popup <code>Ledger UTxO</code> row.</li>
 <li>Commit <code>d059ea6</code> (or the pushed hash once the user asks to push).</li>

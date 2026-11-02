@@ -23,8 +23,8 @@ export function evaluatePlutusScript(scriptBytes: Uint8Array, args: Data[] = [],
         for (const arg of args) term = new Application(term, UPLCConst.data(arg));
         const machine = opts.costModel ? new (Machine as any)(opts.costModel) : null;
         const r = machine ? (machine as any).eval(term) : (Machine as any).eval(term);
-        const mem = r?.budgetSpent?._exBudgetMem?.toString?.() ?? r?.budgetSpent?.mem?.toString?.();
-        const steps = r?.budgetSpent?._exBudgetCPU?.toString?.() ?? r?.budgetSpent?.steps?.toString?.();
+        const steps = r?.budgetSpent?.cpu?.toString?.() ?? r?.budgetSpent?.steps?.toString?.();
+        const mem = r?.budgetSpent?.mem?.toString?.() ?? r?.budgetSpent?.memory?.toString?.();
         return { ok: true, logs: r?.logs ?? [], budget: mem != null && steps != null ? { mem: BigInt(mem), steps: BigInt(steps) } : undefined };
     } catch (e) {
         return { ok: false, error: (e as Error)?.message ?? String(e) };

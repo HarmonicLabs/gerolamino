@@ -35,6 +35,22 @@ export interface LedgerBlockDiff {
     created: LedgerOut[];
     spent: string[];
     unknownInputs: string[];
+    /** P2 deltas (fees/deposits/withdrawals/stake/gov); optional for old logs. */
+    p2?: LedgerP2Diff;
+}
+
+export interface LedgerP2Diff {
+    fees: string; deposits: string; withdrawals: string; treasury: string; donation: string;
+    minted: string[];
+    stakeRegistered: string[]; stakeUnregistered: string[]; stakeDelegations: Array<[string, string]>;
+    poolRegistrations: string[]; poolRetirements: string[]; governanceDeposits: string[];
+}
+
+export interface LedgerP2State {
+    fees: string; deposits: string; withdrawals: string; treasury: string; donation: string;
+    minted: string[];
+    stakeRegistered: string[]; stakeUnregistered: string[]; stakeDelegations: Array<[string, string]>;
+    poolRegistrations: string[]; poolRetirements: string[]; governanceDeposits: string[];
 }
 
 /** Raw bytes of a ledger-ts Address from the CBOR slice it was parsed from (null when unavailable). */
@@ -168,17 +184,65 @@ function inputRefs(inputs: any[]): string[] {
  * Parse a verified block's bytes into its UTxO diff. Byron blocks (no Shelley tx bodies) give an empty diff.
  * Throws when the block cannot be decoded, so a partial diff never lands.
  */
+const ZERO_P2: LedgerP2Diff = { fees: "0", deposits: "0", withdrawals: "0", treasury: "0", donation: "0", minted: [], stakeRegistered: [], stakeUnregistered: [], stakeDelegations: [], poolRegistrations: [], poolRetirements: [], governanceDeposits: [] };
+function bigStr(v: any): string { try { return BigInt(v?.toString?.() ?? v ?? 0n).toString(); } catch { return "0"; } }
+function certKind(c: any): string { return String(c?.__typename ?? c?.type ?? c?.tag ?? "").toLowerCase(); }
+function credentialOf(c: any): string {
+    const x = c?.stakeCredential ?? c?.credential ?? c?.stakeCred;
+    return x == null ? "" : String(x?.toString?.() ?? x).toLowerCase();
+}
+function poolOf(c: any): string { const x = c?.poolKeyHash ?? c?.poolId ?? c?.pool; return x == null ? "" : String(x.toString?.() ?? x).toLowerCase(); }
+function p2DeltaOfBody(body: any, invalid: boolean): LedgerP2Diff {
+    if (invalid) return { ...ZERO_P2, fees: bigStr(body.fee) };
+    const p2: LedgerP2Diff = { ...ZERO_P2, fees: bigStr(body.fee) };
+    for (const w of (body.withdrawals?.map ?? []) as any[]) p2.withdrawals = (BigInt(p2.withdrawals) + BigInt(bigStr(w.amount))).toString();
+    p2.treasury = bigStr(body.treasury);
+    p2.donation = bigStr(body.donation);
+    for (const c of ((body.certs ?? body.certificates ?? []) as any[])) {
+        const kind = certKind(c), cred = credentialOf(c), pool = poolOf(c);
+        if (kind.includes("stake") && (kind.includes("reg") || kind.includes("registration")) && !kind.includes("unreg")) {
+            if (cred) p2.stakeRegistered.push(cred);
+            p2.deposits = (BigInt(p2.deposits) + 2000000n).toString();
+        } else if (kind.includes("unreg") || kind.includes("dereg")) {
+            if (cred) p2.stakeUnregistered.push(cred);
+        } else if (kind.includes("deleg")) {
+            if (cred && pool) p2.stakeDelegations.push([cred, pool]);
+        } else if (kind.includes("pool") && (kind.includes("reg") || kind.includes("registration"))) {
+            if (pool) p2.poolRegistrations.push(pool);
+            p2.deposits = (BigInt(p2.deposits) + 500000000n).toString();
+        } else if (kind.includes("pool") && kind.includes("retire")) {
+            if (pool) p2.poolRetirements.push(pool);
+        }
+    }
+    for (const proposal of (body.proposalProcedures?.map ?? body.proposals ?? []) as any[]) {
+        const deposit = proposal?.deposit ?? proposal?.depositAmount;
+        if (deposit != null) p2.governanceDeposits.push(bigStr(deposit));
+        else p2.governanceDeposits.push("0");
+    }
+    return p2;
+}
+
+function mergeP2(a: LedgerP2Diff, b: LedgerP2Diff): LedgerP2Diff {
+    return { fees: (BigInt(a.fees)+BigInt(b.fees)).toString(), deposits: (BigInt(a.deposits)+BigInt(b.deposits)).toString(),
+        withdrawals: (BigInt(a.withdrawals)+BigInt(b.withdrawals)).toString(), treasury: (BigInt(a.treasury)+BigInt(b.treasury)).toString(),
+        donation: (BigInt(a.donation)+BigInt(b.donation)).toString(), minted: [...a.minted, ...b.minted],
+        stakeRegistered: [...a.stakeRegistered, ...b.stakeRegistered], stakeUnregistered: [...a.stakeUnregistered, ...b.stakeUnregistered],
+        stakeDelegations: [...a.stakeDelegations, ...b.stakeDelegations], poolRegistrations: [...a.poolRegistrations, ...b.poolRegistrations],
+        poolRetirements: [...a.poolRetirements, ...b.poolRetirements], governanceDeposits: [...a.governanceDeposits, ...b.governanceDeposits] };
+}
+
 export function ledgerDiffFromBlock(bytes: Uint8Array, slot: number, hash: string): LedgerBlockDiff {
     const m = MultiEraBlock.fromCbor(bytes);
     const block: any = m.block;
     const bodies: any[] = Array.isArray(block?.transactionBodies) ? block.transactionBodies : [];
     if (bodies.length === 0) return { format: 1, slot, hash, txs: 0, invalidTx: [], created: [], spent: [], unknownInputs: [] };
     const invalid = new Set<number>(((block?.invalidTransactions ?? []) as Array<number | bigint>).map((i) => Number(i)));
-    const diff: LedgerBlockDiff = { format: 1, slot, hash, txs: bodies.length, invalidTx: [...invalid], created: [], spent: [], unknownInputs: [] };
+    const diff: LedgerBlockDiff = { format: 1, slot, hash, txs: bodies.length, invalidTx: [...invalid], created: [], spent: [], unknownInputs: [], p2: { ...ZERO_P2 } };
     const seenSpent = new Set<string>();
     bodies.forEach((body, txIndex) => {
         const txHash = String(body.hash.toString()).toLowerCase();
         if (!/^[0-9a-f]{64}$/.test(txHash)) return;
+        if (diff.p2) diff.p2 = mergeP2(diff.p2, p2DeltaOfBody(body, invalid.has(txIndex)));
         if (invalid.has(txIndex)) {
             for (const ref of inputRefs(body.collateralInputs ?? [])) if (!seenSpent.has(ref)) { seenSpent.add(ref); diff.spent.push(ref); }
             if (body.collateralReturn) diff.created.push(outFromTxOut(txHash, (body.outputs ?? []).length, body.collateralReturn, slot));

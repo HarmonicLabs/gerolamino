@@ -11,7 +11,8 @@ import { blake2b_256 } from "@harmoniclabs/crypto";
 import { fromHex, toHex } from "@harmoniclabs/uint8array-utils";
 import type { FileSink } from "./chunkWriter";
 import type { LedgerBlockDiff, LedgerOut } from "./ledgerApply";
-import { LEDGER_SNAPSHOT, snapshotLooksValid, snapshotStateDigest, diffCounters, type LedgerSnapshot } from "./ledgerSnapshot";
+import { LEDGER_SNAPSHOT, snapshotLooksValid, snapshotStateDigest, p2StateDigest, diffCounters, type LedgerSnapshot } from "./ledgerSnapshot";
+import type { LedgerP2Diff, LedgerP2State } from "./ledgerApply";
 
 export interface LedgerCoverage {
     network: string;
@@ -31,6 +32,11 @@ export interface LedgerStats extends LedgerCoverage {
     spent: number;
     unknownInputs: number;
     invalidTx: number;
+    p2Fees: string;
+    p2Deposits: string;
+    p2Withdrawals: string;
+    p2Treasury: string;
+    p2Donation: string;
     lastError: string | null;
 }
 
@@ -58,6 +64,15 @@ interface LedgerManifest {
     baseUnknownInputs?: number;
     baseInvalidTx?: number;
     historyComplete?: boolean;
+    /** P2 protocol counters at the tip (optional for old manifests). */
+    p2Fees?: string;
+    p2Deposits?: string;
+    p2Withdrawals?: string;
+    p2Treasury?: string;
+    p2Donation?: string;
+    p2StakeRegistrations?: number;
+    p2StakeDelegations?: number;
+    p2GovernanceDeposits?: number;
 }
 
 interface StoredDiff extends LedgerBlockDiff {
@@ -79,6 +94,36 @@ const concat = (a: Uint8Array, b: Uint8Array): Uint8Array => {
     const out = new Uint8Array(a.length + b.length); out.set(a); out.set(b, a.length); return out;
 };
 
+function zeroP2(): LedgerP2State {
+    return { fees: "0", deposits: "0", withdrawals: "0", treasury: "0", donation: "0", minted: [], stakeRegistered: [], stakeUnregistered: [], stakeDelegations: [], poolRegistrations: [], poolRetirements: [], governanceDeposits: [] };
+}
+function addP2(a: LedgerP2State, d: LedgerP2Diff): LedgerP2State {
+    return {
+        fees: (BigInt(a.fees) + BigInt(d.fees)).toString(), deposits: (BigInt(a.deposits) + BigInt(d.deposits)).toString(),
+        withdrawals: (BigInt(a.withdrawals) + BigInt(d.withdrawals)).toString(), treasury: (BigInt(a.treasury) + BigInt(d.treasury)).toString(),
+        donation: (BigInt(a.donation) + BigInt(d.donation)).toString(), minted: [...a.minted, ...d.minted],
+        stakeRegistered: [...a.stakeRegistered, ...d.stakeRegistered], stakeUnregistered: [...a.stakeUnregistered, ...d.stakeUnregistered],
+        stakeDelegations: [...a.stakeDelegations, ...d.stakeDelegations], poolRegistrations: [...a.poolRegistrations, ...d.poolRegistrations],
+        poolRetirements: [...a.poolRetirements, ...d.poolRetirements], governanceDeposits: [...a.governanceDeposits, ...d.governanceDeposits],
+    };
+}
+function removeOne<T>(arr: T[], value: T): T[] { const i = arr.indexOf(value); if (i >= 0) arr.splice(i, 1); return arr; }
+function subP2(a: LedgerP2State, d: LedgerP2Diff): LedgerP2State {
+    const stake = [...a.stakeDelegations]; for (const pair of d.stakeDelegations) { const i = stake.findIndex((p) => p[0] === pair[0] && p[1] === pair[1]); if (i >= 0) stake.splice(i, 1); }
+    return {
+        fees: (BigInt(a.fees) - BigInt(d.fees) < 0n ? 0n : BigInt(a.fees) - BigInt(d.fees)).toString(),
+        deposits: (BigInt(a.deposits) - BigInt(d.deposits) < 0n ? 0n : BigInt(a.deposits) - BigInt(d.deposits)).toString(),
+        withdrawals: (BigInt(a.withdrawals) - BigInt(d.withdrawals) < 0n ? 0n : BigInt(a.withdrawals) - BigInt(d.withdrawals)).toString(),
+        treasury: (BigInt(a.treasury) - BigInt(d.treasury) < 0n ? 0n : BigInt(a.treasury) - BigInt(d.treasury)).toString(),
+        donation: (BigInt(a.donation) - BigInt(d.donation) < 0n ? 0n : BigInt(a.donation) - BigInt(d.donation)).toString(),
+        minted: removeOne([...a.minted], d.minted[0]), stakeRegistered: d.stakeRegistered.reduce((s, v) => removeOne(s, v), [...a.stakeRegistered]),
+        stakeUnregistered: d.stakeUnregistered.reduce((s, v) => removeOne(s, v), [...a.stakeUnregistered]),
+        stakeDelegations: stake, poolRegistrations: d.poolRegistrations.reduce((s, v) => removeOne(s, v), [...a.poolRegistrations]),
+        poolRetirements: d.poolRetirements.reduce((s, v) => removeOne(s, v), [...a.poolRetirements]),
+        governanceDeposits: d.governanceDeposits.reduce((s, v) => removeOne(s, v), [...a.governanceDeposits]),
+    };
+}
+
 export class LocalLedger {
     private readonly utxos = new Map<string, LedgerOut>();
     private readonly byAddress = new Map<string, Set<string>>();
@@ -89,6 +134,7 @@ export class LocalLedger {
     private snapshot: LedgerSnapshot | null = null;
     private digest: string | null = null;
     private lastError: string | null = null;
+    private p2: LedgerP2State = zeroP2();
 
     constructor(private readonly sink: FileSink | null | undefined, readonly network: string) {}
 
@@ -116,6 +162,8 @@ export class LocalLedger {
             spent: this.manifest?.spent ?? 0,
             unknownInputs: this.manifest?.unknownInputs ?? 0,
             invalidTx: invalid,
+            p2Fees: this.p2.fees, p2Deposits: this.p2.deposits, p2Withdrawals: this.p2.withdrawals,
+            p2Treasury: this.p2.treasury, p2Donation: this.p2.donation,
             lastError: this.lastError,
         };
     }
@@ -155,6 +203,8 @@ export class LocalLedger {
                 } else {
                     this.snapshot = parsed;
                     if (this.snapshot.stateDigest !== snapshotStateDigest(this.snapshot.utxos)) stale = true;
+                    if (this.snapshot.p2 && this.snapshot.p2Digest && this.snapshot.p2Digest !== p2StateDigest(this.snapshot.p2)) stale = true;
+                    this.p2 = this.snapshot.p2 ? structuredClone(this.snapshot.p2) : zeroP2();
                     if (this.manifest) {
                         if (this.manifest.baseSlot !== this.snapshot.slot || this.manifest.startSlot !== this.snapshot.startSlot || this.manifest.kind !== this.snapshot.kind) stale = true;
                         if (this.manifest.baseDigest != null && this.manifest.baseDigest !== this.snapshot.digest) stale = true;
@@ -237,10 +287,12 @@ export class LocalLedger {
     async installSnapshot(snapshot: LedgerSnapshot, opts: { verifyStateDigest?: boolean } = {}): Promise<void> {
         if (!snapshotLooksValid(snapshot, this.network)) throw new Error("ledger: invalid snapshot");
         if (opts.verifyStateDigest !== false && snapshot.stateDigest !== snapshotStateDigest(snapshot.utxos)) throw new Error("ledger: snapshot state digest mismatch");
+        if (opts.verifyStateDigest !== false && snapshot.p2 && snapshot.p2Digest && snapshot.p2Digest !== p2StateDigest(snapshot.p2)) throw new Error("ledger: snapshot P2 state digest mismatch");
         this.clear();
         this.snapshot = snapshot;
         this.restoreSnapshot(snapshot);
         this.digest = snapshot.digest;
+        this.p2 = snapshot.p2 ? structuredClone(snapshot.p2) : zeroP2();
         this.syncManifest();
         if (!this.sink) return;
         await this.sink.write(LEDGER_SNAPSHOT, new TextEncoder().encode(JSON.stringify(snapshot)));
@@ -285,6 +337,8 @@ export class LocalLedger {
             unknownInputs: (oldBase?.unknownInputs ?? 0) + counts.unknownInputs,
             invalidTx: (oldBase?.invalidTx ?? 0) + counts.invalidTx,
             historyComplete: oldBase?.historyComplete ?? true,
+            p2: structuredClone(this.p2),
+            p2Digest: p2StateDigest(this.p2),
             utxos,
             at: Date.now(),
         };
@@ -362,6 +416,7 @@ export class LocalLedger {
 
     private clear(): void {
         this.utxos.clear(); this.byAddress.clear(); this.byTx.clear(); this.stakeBalance.clear(); this.diffs.clear();
+        this.p2 = zeroP2();
         this.snapshot = null;
         this.digest = null; this.lastError = null;
     }
@@ -404,6 +459,7 @@ export class LocalLedger {
             if (!t.input.includes(ref)) t.input.push(ref);
         }
         if (recordUnknown) d.unknownInputs = unknown;
+        if (d.p2) this.p2 = addP2(this.p2, d.p2);
         return unknown;
     }
 
@@ -426,11 +482,12 @@ export class LocalLedger {
             const t = this.byTx.get(o.txHash);
             if (t) { const i = t.out.indexOf(o.ref); if (i >= 0) t.out.splice(i, 1); if (!t.out.length && !t.input.length) this.byTx.delete(o.txHash); }
         }
+        if (d.p2) this.p2 = subP2(this.p2, d.p2);
     }
 
     private nextDigest(prev: string | null, d: LedgerBlockDiff, unknown: string[]): string {
         const payload = new TextEncoder().encode(JSON.stringify({
-            slot: d.slot, hash: d.hash, created: d.created.map((o) => o.ref), spent: d.spent, unknown, invalid: d.invalidTx,
+            slot: d.slot, hash: d.hash, created: d.created.map((o) => o.ref), spent: d.spent, unknown, invalid: d.invalidTx, p2: d.p2 ?? null,
         }));
         return toHex(blake2b_256(concat(prev ? fromHex(prev) : new Uint8Array(0), payload)));
     }
@@ -457,6 +514,10 @@ export class LocalLedger {
             spent: baseSpent + loaded.reduce((a, d) => a + d.spent.length, 0),
             unknownInputs: baseUnknown + loaded.reduce((a, d) => a + d.unknownInputs.length, 0),
             invalidTx: baseInvalid + loaded.reduce((a, d) => a + d.invalidTx.length, 0),
+            p2Fees: this.p2.fees, p2Deposits: this.p2.deposits, p2Withdrawals: this.p2.withdrawals,
+            p2Treasury: this.p2.treasury, p2Donation: this.p2.donation,
+            p2StakeRegistrations: this.p2.stakeRegistered.length, p2StakeDelegations: this.p2.stakeDelegations.length,
+            p2GovernanceDeposits: this.p2.governanceDeposits.length,
             digest, stale, at: Date.now(),
         };
         if (snap) {

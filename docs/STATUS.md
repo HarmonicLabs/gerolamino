@@ -180,9 +180,10 @@ can be rebuilt on the same curve code.
 
 - Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
   are P2/P3; P0 is a UTxO projection with coverage only. P2 core value/fee/input checks are in
-  `src/node/ledgerRules.ts` and P3 flat script evaluation is in `src/node/plutusEval.ts`; the script-context
-  bridge is `src/node/phase2Context.ts` (TxInfo / ScriptPurpose / ScriptInfo). Full stake, governance, epoch and
-  cost-model/budget parity remains in progress.
+  `src/node/ledgerRules.ts`; P2 protocol counters (fees, deposits, withdrawals, treasury, stake/gov registrations
+  and delegations) persist in `snapshot.json` and roll back with diffs; P3 flat evaluation and the TxInfo/ScriptPurpose/
+  ScriptInfo bridge with declared-budget checks live in `src/node/plutusEval.ts` and `src/node/phase2Context.ts`.
+  Full epoch/stake-rule and cost-model parity remains in progress.
 - P1 snapshot base is from local files, the Gerolamo peer's raw `tables`/`meta` routes, or the Mithril aggregator archive; signed ancillary manifest check, streaming MemPack decoder and `snapshot.json` are wired through the popup. A separate start-mode switch is not needed because the installed base resumes automatically.
 - The ledger diff set above a snapshot base is compacted on demand (`compactTo`); there is no automatic
   compaction threshold yet.

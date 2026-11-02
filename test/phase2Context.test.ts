@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fromHex, toHex } from "@harmoniclabs/uint8array-utils";
 import { TxOut } from "@harmoniclabs/cardano-ledger-ts";
+import { dataToCbor } from "@harmoniclabs/plutus-data";
+import { encodeData, fromLibData } from "../src/node/plutus/data";
 import job from "./fixtures/plutus-preview-804660-0.json" with { type: "json" };
 import { phase2OfTx } from "../src/node/phase2Context";
 import { unitsOf } from "../src/node/rules/value";
@@ -14,15 +16,17 @@ describe("P3 phase-2 real preview transaction", () => {
             const o = TxOut.fromCbor(fromHex(hex));
             const datum = (o as any).datum;
             const datumBytes = datum && typeof datum.toBuffer === "function" ? datum.toBuffer() : null;
+            const inline = datum && datumBytes == null ? (() => { try { return toHex(encodeData(fromLibData(datum))); } catch { return null; } })() : null;
+            const rs = (o as any).refScript;
             resolved.set(ref, {
                 ref,
                 address: o.address?.toString?.() ?? "",
                 value: unitsOf(o.value),
-                referenceScriptHash: (o as any).refScript?.hash?.toString?.() ?? null,
+                referenceScriptHash: rs ? toHex(rs.hash.toBuffer()) : null,
                 hasDatum: !!datum,
                 datumHash: datumBytes && datumBytes.length === 32 ? toHex(datumBytes) : null,
-                inlineDatumCbor: datum && datum?.toJson && datum?.toCbor ? (() => { try { const c = datum.toCbor(); return toHex(c.toBuffer?.() ?? c); } catch { return null; } })() : null,
-                referenceScriptCbor: (o as any).refScript?.toCbor?.() ? toHex((o as any).refScript.toCbor().toBuffer?.() ?? (o as any).refScript.toCbor()) : null,
+                inlineDatumCbor: inline,
+                referenceScriptCbor: rs ? toHex(rs.toCborBytes()) : null,
             });
         }
         const r = phase2OfTx(job.era, Number(job.params.protocol_major_ver), fromHex(job.bodyHex), fromHex(job.witnessHex), resolved, (slot) => BigInt(job.slot ?? 0) * 1000n + BigInt(slot) * 1000n);

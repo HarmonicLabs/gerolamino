@@ -5,6 +5,9 @@
  * `src/node/plutus/context.ts` (ported from Gerolamo); this module is the Gerolamino entry point.
  */
 import { Cbor, CborBytes } from "@harmoniclabs/cbor";
+import { blake2b_224 } from "@harmoniclabs/crypto";
+import { toHex, fromHex } from "@harmoniclabs/uint8array-utils";
+import { Script } from "@harmoniclabs/cardano-ledger-ts";
 import { TxContext, type ContextInput, type Purpose, type Redeemer } from "./plutus/context";
 import { evaluatePlutusScript, type PlutusVerdict } from "./plutusEval";
 import { DConstr, encodeData } from "./plutus/data";
@@ -18,13 +21,40 @@ export interface Phase2Outcome extends PlutusVerdict {
     declared?: { mem: bigint; cpu: bigint };
 }
 
+function scriptLanguage(type: string | number): 1 | 2 | 3 | 4 | null {
+    const t = String(type);
+    return t.includes("V1") ? 1 : t.includes("V2") ? 2 : t.includes("V3") ? 3 : t.includes("V4") ? 4 : null;
+}
+
+function findScript(ctx: TxContext, hash: string, resolved: Map<string, ResolvedUtxo>): { lang: 1 | 2 | 3 | 4; bytes: Uint8Array } | undefined {
+    const direct = ctx.witnessScripts.get(hash);
+    if (direct) return direct;
+    for (const s of ctx.witnessScripts.values()) {
+        let flat = s.bytes;
+        try { const n = Cbor.parse(s.bytes); if (n instanceof CborBytes) flat = n.bytes; } catch { /* raw flat */ }
+        if (toHex(blake2b_224(flat)) === hash) return s;
+    }
+    for (const u of resolved.values()) {
+        if (!u.referenceScriptCbor || u.referenceScriptHash !== hash) continue;
+        try {
+            const script = Script.fromCbor(fromHex(u.referenceScriptCbor));
+            const lang = scriptLanguage(script.type);
+            if (!lang) continue;
+            return { lang, bytes: script.bytes };
+        } catch { /* malformed reference script */ }
+    }
+    return undefined;
+}
+
 export function contextOf(input: ContextInput): TxContext { return new TxContext(input); }
 
 /** Script bytes in a witness set are one CBOR bytestring holding the flat program. */
 function unwrapFlat(bytes: Uint8Array): Uint8Array {
-    const n = Cbor.parse(bytes);
-    if (!(n instanceof CborBytes)) throw new Error("phase2 script is not a CBOR bytestring");
-    return n.bytes;
+    try {
+        const n = Cbor.parse(bytes);
+        if (n instanceof CborBytes) return n.bytes;
+    } catch { /* reference scripts carry flat bytes directly */ }
+    return bytes;
 }
 
 function argumentsFor(ctx: TxContext, p: Purpose, r: Redeemer, lang: 1 | 2 | 3): any[] {
@@ -49,7 +79,7 @@ export function evaluatePhase2(input: ContextInput): { ok: boolean; error: strin
         if (!p) { outcomes.push({ ok: false, error: `redeemer ${r.tag}:${r.index} points to nothing` }); continue; }
         const hash = ctx.scriptHashOf(p);
         if (!hash) { outcomes.push({ ok: false, error: `redeemer ${r.tag}:${r.index} is not script-locked` }); continue; }
-        const script = ctx.witnessScripts.get(hash);
+        const script = findScript(ctx, hash, input.resolved);
         if (!script || (script.lang !== 1 && script.lang !== 2 && script.lang !== 3)) {
             outcomes.push({ ok: false, error: `script ${hash.slice(0, 12)}… not found` }); continue;
         }
@@ -58,7 +88,9 @@ export function evaluatePhase2(input: ContextInput): { ok: boolean; error: strin
             outcomes.push({ ok: false, scriptHash: hash, language: script.lang, error: (e as Error).message }); continue;
         }
         const applied = evaluatePlutusScript(unwrapFlat(script.bytes), args.map((a) => dataFromCbor(encodeData(a))));
-        outcomes.push({ ...applied, scriptHash: hash, language: script.lang, redeemer: { tag: r.tag, index: r.index }, declared: { mem: r.mem, cpu: r.cpu } });
+        const declared = { mem: r.mem, cpu: r.cpu };
+        const budgetError = applied.ok && applied.budget && (applied.budget.mem > declared.mem || applied.budget.steps > declared.cpu) ? `budget exceeded: spent ${applied.budget.mem}/${applied.budget.steps}, declared ${declared.mem}/${declared.cpu}` : null;
+        outcomes.push({ ...applied, ok: applied.ok && budgetError == null, error: applied.error ?? budgetError ?? undefined, scriptHash: hash, language: script.lang, redeemer: { tag: r.tag, index: r.index }, declared });
     }
     return { ok: outcomes.every((o) => o.ok), error: null, outcomes };
 }

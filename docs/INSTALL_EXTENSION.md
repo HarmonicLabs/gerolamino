@@ -18,7 +18,9 @@ The Settings tab has a **Snapshot import** panel: choose the ancillary `tables` 
 snapshot slot, and click **Import snapshot**. A Gerolamo peer that serves its ledger directory over
 `/api/v0/gerolamo/ledger/{slot}/tables` and `/meta` can fill those files with **Fetch from peer** instead. The
 extension writes them to `gerolamino/<network>/snapshot-source`, verifies `ancillary_manifest.json` when supplied,
-builds the UTxO base and restarts the ledger from that slot. The import is a UTxO-at-slot base, not full history.
+builds the UTxO base and restarts the ledger from that slot. The **Fetch from aggregator** button selects the newest
+Mithril cardano-database snapshot and extracts `tables`/`meta`/manifest from its ancillary `.tar.zst` in the
+browser. The import is a UTxO-at-slot base, not full history.
 
 ## 1. Before you start
 

@@ -398,7 +398,9 @@ there is no Chrome Web Store listing in this repository.</p>
 snapshot slot, and click <strong>Import snapshot</strong>. A Gerolamo peer that serves its ledger directory over
 <code>/api/v0/gerolamo/ledger/{slot}/tables</code> and <code>/meta</code> can fill those files with <strong>Fetch from peer</strong> instead. The
 extension writes them to <code>gerolamino/&lt;network&gt;/snapshot-source</code>, verifies <code>ancillary_manifest.json</code> when supplied,
-builds the UTxO base and restarts the ledger from that slot. The import is a UTxO-at-slot base, not full history.</p>
+builds the UTxO base and restarts the ledger from that slot. The <strong>Fetch from aggregator</strong> button selects the newest
+Mithril cardano-database snapshot and extracts <code>tables</code>/<code>meta</code>/manifest from its ancillary <code>.tar.zst</code> in the
+browser. The import is a UTxO-at-slot base, not full history.</p>
 <h2>1. Before you start</h2>
 <ul>
 <li>Bun 1.1+ and git are installed.</li>
@@ -774,7 +776,7 @@ is recreated.</p>
     </div>
   </header>
   <div class="doc-body"><h1>Gerolamino local ledger (implemented P0, 2026-10-29)</h1>
-<p>Status: P0 implemented and proven; P1 snapshot import and local compaction implemented 2026-10-30 (local files, streaming decoder, signed ancillary manifest check, full preview count 3,169,305 entries), with the extension local-file UI and a Gerolamo peer raw-file endpoint wired. The aggregator archive fallback is the remaining P1 wiring. This closes the local ledger part of
+<p>Status: P0 implemented and proven; P1 snapshot import and local compaction implemented 2026-10-30 (local files, streaming decoder, signed ancillary manifest check, full preview count 3,169,305 entries), with the extension local-file UI, a Gerolamo peer raw-file endpoint and the Mithril aggregator <code>.tar.zst</code> fallback wired. This closes the local ledger part of
 Milestone 4 (&quot;Browser adaptation and light node on the browser&quot;): Gerolamino verifies and stores blocks, and now
 maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo peer.</p>
 <h2>Scope and boundaries</h2>
@@ -878,7 +880,7 @@ the first verified block.</p>
 <p>Snapshot import (P1, implemented for local files): verify the signed <code>ancillary_manifest.json</code> (Gerolamino's 64-bit SHA-256 of
 <code>tables</code>/<code>meta</code>, network ancillary Ed25519 key), stream-decode entries with the MemPack decoder, build the
 UTxO-only base snapshot (<code>historyComplete: false</code>), install it under the ledger dir, then apply blocks from the
-snapshot slot onward. The extension has a local-file picker and a Gerolamo peer fetch (<code>/gerolamo/ledger/{slot}/tables</code> and <code>/meta</code>); an aggregator archive fallback is still missing. A tampered
+snapshot slot onward. The extension has a local-file picker, a Gerolamo peer fetch (<code>/gerolamo/ledger/{slot}/tables</code> and <code>/meta</code>) and a Mithril aggregator <code>.tar.zst</code> fallback with browser zstd/tar extraction. A tampered
 manifest or table fails before any ledger state is written.</p>
 <h2>Block application (P0 UTxO projection, implemented)</h2>
 <p>Input: a verified block's bytes, slot, hash and <code>invalidTransactions</code> flags (body parser).
@@ -1300,7 +1302,7 @@ can be rebuilt on the same curve code.</p>
 <ul>
 <li>Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
 are P2/P3; P0 is a UTxO projection with coverage only.</li>
-<li>P1 snapshot base is from local files and the Gerolamo peer's raw <code>tables</code>/<code>meta</code> routes; signed ancillary manifest check, streaming MemPack decoder and <code>snapshot.json</code> are wired through the popup. The Mithril aggregator archive fallback and a separate start-mode switch are still missing. <code>/addresses</code> answers relay when no snapshot base is installed.</li>
+<li>P1 snapshot base is from local files, the Gerolamo peer's raw <code>tables</code>/<code>meta</code> routes, or the Mithril aggregator archive; signed ancillary manifest check, streaming MemPack decoder and <code>snapshot.json</code> are wired through the popup. A separate start-mode switch is not needed because the installed base resumes automatically.</li>
 <li>The ledger diff set above a snapshot base is compacted on demand (<code>compactTo</code>); there is no automatic
 compaction threshold yet.</li>
 <li>OPFS ledger retries after a stale marker rebuild from the first verified start or the snapshot base.</li>
@@ -1360,7 +1362,7 @@ can serve Gerolamino peers; see <code>WEBSOCKET_BEARER.md</code>.</li>
 <li><strong>Ledger state in OPFS.</strong> P0 done 2026-10-29 (see &quot;Local UTxO ledger&quot;): UTxO projection from verified
 blocks, per-block diff log with digest chain, coverage-first local answers, resume/rollback, stale
 detection. P1 snapshot work done 2026-10-30 for local files: streaming MemPack <code>tables</code> decoder, signed
-ancillary manifest check, UTxO-only <code>snapshot.json</code> base, optional compaction, and the extension local-file/peer import UI. The Mithril aggregator archive fallback is next. P2 full ledger rules; the <code>tables</code> file is already a sorted run (preview,
+ancillary manifest check, UTxO-only <code>snapshot.json</code> base, optional compaction, the extension local-file/peer import UI and the aggregator archive fallback. P2 full ledger rules; the <code>tables</code> file is already a sorted run (preview,
 2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order, 650 MB), so it can serve
 unchanged as a base level with a sparse key index and small sorted delta runs.
 Caveats: those files are signed only by IOG's ancillary Ed25519 key, not the Mithril multi-signature, and
@@ -1461,7 +1463,7 @@ contracts.</li>
 <li>This file (<code>docs/MILESTONE_4_EVIDENCE.md</code>).</li>
 <li><code>docs/STATUS.md</code> sections &quot;Local UTxO ledger (2026-10-29)&quot;, &quot;Volatile store&quot;, &quot;Peer-backed Blockfrost queries&quot;.</li>
 <li><code>docs/LEDGER_SPEC.md</code> (implemented P0) plus <code>src/node/ledgerApply.ts</code>, <code>src/node/ledgerStore.ts</code>.</li>
-<li>Test log: <code>bun test</code> 159 pass/0 fail (1243 expects); <code>bun run typecheck</code> clean; <code>bun run build</code> 4194 KiB of JS.</li>
+<li>Test log: <code>bun test</code> 161 pass/0 fail (1248 expects); <code>bun run typecheck</code> clean; <code>bun run build</code> 4218 KiB of JS.</li>
 <li>Smoke/e2e transcript and screenshots (profile scratch), including <code>ledger: { startSlot, kind, tipSlot }</code>
 and the popup <code>Ledger UTxO</code> row.</li>
 <li>Commit <code>d059ea6</code> (or the pushed hash once the user asks to push).</li>

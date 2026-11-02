@@ -7,6 +7,7 @@ import type { StatusReply } from "./messages";
 import { trustView } from "./trustView";
 import { DEFAULT_SETTINGS, MAX_EXTRA_RELAYS, validRelayUrl, type Settings } from "./settings";
 import { OpfsSink } from "../node/opfsSink";
+import { downloadAncillaryLedger, listMithrilSnapshots } from "../node/mithrilAggregator";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const send = <T = any>(m: object): Promise<T> => chrome.runtime.sendMessage({ to: "background", ...m });
@@ -428,6 +429,35 @@ async function fetchPeerSnapshot(): Promise<void> {
     } finally { button.disabled = false; }
 }
 $("snapshotFetch").addEventListener("click", () => { void fetchPeerSnapshot(); });
+
+async function fetchAggregatorSnapshot(): Promise<void> {
+    const network = (currentSettings?.network ?? "preview") as Settings["network"];
+    const slot = Number($<HTMLInputElement>("snapshotSlot").value);
+    const msg = $("snapshot-msg");
+    if (!Number.isInteger(slot) || slot <= 0) { msg.textContent = "snapshot slot must be a positive integer"; msg.className = "small bad"; return; }
+    const button = $<HTMLButtonElement>("snapshotAggregator"); button.disabled = true;
+    try {
+        msg.textContent = "listing Mithril snapshots…"; msg.className = "small dim";
+        const base = $<HTMLInputElement>("snapshotAggregatorUrl").value.trim();
+        const list = await listMithrilSnapshots(network, base ? ((url) => fetch(url)) : fetch, base || undefined);
+        if (!list.length) throw new Error("the aggregator returned no cardano-database snapshots");
+        const latest = list[0]!;
+        msg.textContent = `downloading ${latest.hash.slice(0, 12)}… (ancillary archive)`;
+        const files = await downloadAncillaryLedger(network, latest.hash, slot, base ? ((url) => fetch(url)) : fetch, (l) => { msg.textContent = l; }, base || undefined);
+        const sink = new OpfsSink(snapshotSourcePath(network), { workerUrl: new URL("./opfsWorker.js", import.meta.url) });
+        await sink.write("tables", files.tables);
+        await sink.write("meta", files.meta);
+        await sink.remove("ancillary_manifest.json");
+        if (files.manifest) await sink.write("ancillary_manifest.json", files.manifest);
+        const r = await send<{ ok: boolean; error?: string; snapshotSlot?: number; utxos?: number }>({ type: "import-snapshot", network, slot });
+        msg.textContent = r?.ok ? `snapshot imported: slot ${r.snapshotSlot}, ${fmtNum(r.utxos ?? 0)} UTxO` : `not imported: ${r?.error ?? "no answer"}`;
+        msg.className = `small ${r?.ok ? "ok" : "bad"}`;
+        if (r?.ok) void poll();
+    } catch (e) {
+        msg.textContent = `not imported: ${(e as Error).message}`; msg.className = "small bad";
+    } finally { button.disabled = false; }
+}
+$("snapshotAggregator").addEventListener("click", () => { void fetchAggregatorSnapshot(); });
 
 $("settings").addEventListener("input", () => { formDirty = true; });
 $("settings").addEventListener("submit", async (ev) => {

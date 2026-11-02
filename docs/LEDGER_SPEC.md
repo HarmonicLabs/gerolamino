@@ -1,6 +1,6 @@
 # Gerolamino local ledger (implemented P0, 2026-10-29)
 
-Status: P0 implemented and proven; P1 snapshot import and local compaction implemented 2026-10-30 (local files, streaming decoder, signed ancillary manifest check, full preview count 3,169,305 entries), with the extension local-file UI and a Gerolamo peer raw-file endpoint wired. The aggregator archive fallback is the remaining P1 wiring. This closes the local ledger part of
+Status: P0 implemented and proven; P1 snapshot import and local compaction implemented 2026-10-30 (local files, streaming decoder, signed ancillary manifest check, full preview count 3,169,305 entries), with the extension local-file UI, a Gerolamo peer raw-file endpoint and the Mithril aggregator `.tar.zst` fallback wired. This closes the local ledger part of
 Milestone 4 ("Browser adaptation and light node on the browser"): Gerolamino verifies and stores blocks, and now
 maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo peer.
 
@@ -93,7 +93,7 @@ gerolamino/<network>/ledger/
 Snapshot import (P1, implemented for local files): verify the signed `ancillary_manifest.json` (Gerolamino's 64-bit SHA-256 of
 `tables`/`meta`, network ancillary Ed25519 key), stream-decode entries with the MemPack decoder, build the
 UTxO-only base snapshot (`historyComplete: false`), install it under the ledger dir, then apply blocks from the
-snapshot slot onward. The extension has a local-file picker and a Gerolamo peer fetch (`/gerolamo/ledger/{slot}/tables` and `/meta`); an aggregator archive fallback is still missing. A tampered
+snapshot slot onward. The extension has a local-file picker, a Gerolamo peer fetch (`/gerolamo/ledger/{slot}/tables` and `/meta`) and a Mithril aggregator `.tar.zst` fallback with browser zstd/tar extraction. A tampered
 manifest or table fails before any ledger state is written.
 
 ## Block application (P0 UTxO projection, implemented)
@@ -185,7 +185,7 @@ blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledge
 | Phase | Work | Coverage |
 |---|---|---|
 | P0 | UTxO projection, diff log, resume/rollback, tx-scoped local answers | verified-start |
-| P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot | local files, peer raw files and extension UI done; aggregator archive fallback next |
+| P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot | local files, peer raw files, extension UI and aggregator archive fallback done |
 | P2 | full ledger rules: fees/deposits, stake, governance, epoch rewards | snapshot/genesis |
 | P3 | optional consensus validation parity (phase-2 scripts), proofs for local answers | full |
 

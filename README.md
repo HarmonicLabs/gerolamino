@@ -46,9 +46,9 @@ extension over the Chrome DevTools Protocol with `scripts/lib/cdp.ts`.
   transactions, and a per-block diff log with a digest chain. Stored transactions answer
   `/txs/{hash}/utxos` and `/utxo/{txhash:index}` locally with coverage; address queries answer locally only
   from genesis/snapshot coverage, otherwise the Gerolamo peer answers.
-- **What it does not do.** Full ledger rules, phase-2 script execution, stake/governance/epoch reward
-  accounting and full consensus validation are not implemented (P2/P3). Say "UTxO projection from verified
-  blocks with coverage", never "full node validation" or "UTxO from genesis".
+- **What it does not do.** Full epoch/stake/reward accounting and full consensus validation are not implemented;
+  phase-2 scripts run on the ledger's CEK with the epoch's named cost models (P3 core). Say "UTxO projection from
+  verified blocks with coverage", never "full node validation" or "UTxO from genesis".
 - **Peers.** N2N-over-WebSocket as the initiator only (a browser cannot serve): handshake, chain-sync,
   block-fetch, keep-alive, tx-submission, plus Gerolamo's light-query protocol (Mithril digests, nonce,
   stake, chunks, Blockfrost). The bearer is meant to become a CIP; see `docs/WEBSOCKET_BEARER.md`.
@@ -198,9 +198,9 @@ Blockfrost adapter, including local UTxO answers and ledger resume.
 - [`docs/RUN_LOCAL_GEROLAMO.md`](docs/RUN_LOCAL_GEROLAMO.md) run Gerolamo locally as the relay (Docker and Bun flags).
 - [`docs/LEDGER_SPEC.md`](docs/LEDGER_SPEC.md) the local UTxO ledger: implemented P0 coverage model, OPFS
   diff log, resume/rollback and digest chain; P1 `tables` import/compaction for local files and streaming
-  decoder implemented, extension local-file/peer/aggregator import wired; P2 value/fee checks and P3 flat
-  script evaluation with the script-context bridge are in `src/node/ledgerRules.ts`, `src/node/plutusEval.ts`
-  and `src/node/phase2Context.ts`; P2 counters (fees/deposits/stake/governance) persist and roll back with the ledger.
-  Full epoch/stake-rule and cost-model parity remain in progress.
+  decoder implemented, extension local-file/peer/aggregator import wired; P2 value/fee checks and P3 ledger CEK
+  with named cost models and the script-context bridge are in `src/node/ledgerRules.ts`, `src/node/plutus/cek.ts`,
+  `src/node/plutusEval.ts` and `src/node/phase2Context.ts`; P2 counters (fees/deposits/stake/governance) persist and roll back with the ledger.
+  Full epoch/stake-rule and epoch-reward parity remain in progress; nine real preview fixtures pin exact phase-2 units.
 - [`docs/MILESTONE_4_EVIDENCE.md`](docs/MILESTONE_4_EVIDENCE.md) the milestone 4 submission file: requirement to
   deliverable mapping, measured gates, Brave e2e transcript, honest gaps and bundle checklist.

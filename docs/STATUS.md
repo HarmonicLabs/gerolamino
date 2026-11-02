@@ -1,4 +1,4 @@
-# Gerolamino status (2026-10-16, ledger P0 added 2026-10-29)
+# Gerolamino status (2026-11-02; ledger P0 2026-10-29, P2 counters and P3 CEK parity 2026-11-02)
 
 Gerolamino is a standalone Cardano node for the browser, shipped as a Chrome MV3 extension. This page records
 why it was rebuilt, what works, what was measured, what is missing, and the problems found in the libraries it
@@ -51,7 +51,7 @@ ported and owned here.
 | Header checks | hash and parent link, operational certificate, KES, VRF against the epoch nonce (Praos, TPraos), leader eligibility |
 | Body checks | body hash and size against the header; only verified, linked blocks are stored |
 | Storage | cardano-node immutable chunk files in OPFS, byte-identical to cardano-node's; resume and rollback across chunk boundaries |
-| Local UTxO ledger | P0 UTxO projection from verified blocks: per-block OPFS diff log, digest chain, resume/rollback, coverage on every local UTxO answer; no ledger rules yet |
+| Local UTxO ledger | P0 UTxO projection from verified blocks: per-block OPFS diff log, digest chain, resume/rollback, coverage on every local UTxO answer; P2 fees/deposits/withdrawals/stake/gov counters persist in `snapshot.json` and replay from real preview blocks; P3 phase-2 scripts run on the ledger's CEK with named cost models (9 real preview fixtures, exact budgets) |
 | Start modes | relay tip, newest complete chunk, Mithril-certified point; a stored tip always wins |
 | Mithril | full certificate-chain verification to genesis (STM multi-signatures, BLS12-381, genesis ed25519), Merkle root of the cardano-database digests, chunk digests |
 | Extension | service worker keeps the offscreen node alive and recreates it; popup in the desktop app's look (sync ring, epoch bar, tip tiles, verification cards, storage, recent blocks; settings, tx submission, wipe; "Open in a tab" for a wide view) |
@@ -154,7 +154,7 @@ All live runs were against Gerolamo's preview relay, `ws://192.168.1.173:3004/n2
 
 | Run | Result |
 |---|---|
-| `bun test` | 138 pass, 0 fail (1107 expects, 25 files); `tsc` clean; ledger P0 tests included, 2026-10-29 |
+| `bun test` | 184 pass, 0 fail (1361 expects, 35 files); `tsc` clean; ledger P0/P2/P3 tests included, 2026-11-02 |
 | Smoke, newest-chunk start, 60 s | 517 headers verified (crypto 517 / 0, leader 517 / 0), 516 bodies checked and stored in 4 chunks, 8.6 headers/s |
 | Smoke, tip start, 120 s | follows the tip; one real rollback undone correctly |
 | Smoke, Mithril start | 325 certificates verified to genesis, 87 165 digests reproduce the certified Merkle root, then 552 / 552 headers |
@@ -181,9 +181,11 @@ can be rebuilt on the same curve code.
 - Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
   are P2/P3; P0 is a UTxO projection with coverage only. P2 core value/fee/input checks are in
   `src/node/ledgerRules.ts`; P2 protocol counters (fees, deposits, withdrawals, treasury, stake/gov registrations
-  and delegations) persist in `snapshot.json` and roll back with diffs; P3 flat evaluation and the TxInfo/ScriptPurpose/
-  ScriptInfo bridge with declared-budget checks live in `src/node/plutusEval.ts` and `src/node/phase2Context.ts`.
-  Full epoch/stake-rule and cost-model parity remains in progress.
+  and delegations) persist in `snapshot.json`, replay from real preview blocks and roll back with diffs; P3 runs
+  the ledger's CEK (`src/node/plutus/cek.ts`) with ParamName cost models (`costs.ts`) and the TxInfo/ScriptPurpose/
+  ScriptInfo bridge with declared-budget and unit-return checks (`plutusEval.ts`, `phase2Context.ts`). Nine real
+  preview fixtures reproduce the ledger's exact spent units and verdicts (`test/phase2Parity.test.ts`).
+  Full epoch/stake-rule, epoch-reward and remaining Conway cross-era parity is still in progress.
 - P1 snapshot base is from local files, the Gerolamo peer's raw `tables`/`meta` routes, or the Mithril aggregator archive; signed ancillary manifest check, streaming MemPack decoder and `snapshot.json` are wired through the popup. A separate start-mode switch is not needed because the installed base resumes automatically.
 - The ledger diff set above a snapshot base is compacted on demand (`compactTo`); there is no automatic
   compaction threshold yet.
@@ -225,6 +227,10 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
    - Gerolamino sends its own proposal (`src/node/handshake.ts`).
 6. **`@harmoniclabs/crypto` 0.3.1, SHA-256 length.** `sha2_256_sync` pads with a 32-bit bit-length; inputs over
    512 MB hash incorrectly (preview `tables` is 650 MB). Gerolamino uses its own 64-bit SHA-256 (`src/node/sha256.ts`).
+7. **`@harmoniclabs/plutus-machine` 2.1.3, published tarball drift.** npm gives two different contents under the
+   same version; the older one silently spends 1.27 M more cpu on the BLS fixture and errors on protocol-11
+   `case`/dropList scripts. Gerolamino vendors Gerolamo's installed `2.1.3` (plus the same `cbor`/`plutus-data`/
+   `cardano-costmodels-ts` overrides) and `test/phase2Parity.test.ts` pins exact budgets.
 
 ## Roadmap
 
@@ -237,7 +243,7 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
 5. **Ledger state in OPFS.** P0 done 2026-10-29 (see "Local UTxO ledger"): UTxO projection from verified
    blocks, per-block diff log with digest chain, coverage-first local answers, resume/rollback, stale
    detection. P1 snapshot work done 2026-10-30 for local files: streaming MemPack `tables` decoder, signed
-   ancillary manifest check, UTxO-only `snapshot.json` base, optional compaction, the extension local-file/peer import UI and the aggregator archive fallback. P2 full ledger rules; the `tables` file is already a sorted run (preview,
+   ancillary manifest check, UTxO-only `snapshot.json` base, optional compaction, the extension local-file/peer import UI and the aggregator archive fallback. P2 counters and P3 CEK/cost-model parity done 2026-11-02: real preview fees/deposits/governance replay plus snapshot round-trip, and nine real preview phase-2 fixtures match the ledger's exact units; full epoch/stake-rule and epoch-reward parity remains. The `tables` file is already a sorted run (preview,
    2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order, 650 MB), so it can serve
    unchanged as a base level with a sparse key index and small sorted delta runs.
    Caveats: those files are signed only by IOG's ancillary Ed25519 key, not the Mithril multi-signature, and

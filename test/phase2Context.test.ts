@@ -29,7 +29,7 @@ describe("P3 phase-2 real preview transaction", () => {
                 referenceScriptCbor: rs ? toHex(rs.toCborBytes()) : null,
             });
         }
-        const r = phase2OfTx(job.era, Number(job.params.protocol_major_ver), fromHex(job.bodyHex), fromHex(job.witnessHex), resolved, (slot) => BigInt(job.slot ?? 0) * 1000n + BigInt(slot) * 1000n);
+        const r = phase2OfTx(job.era, Number(job.params.protocol_major_ver), fromHex(job.bodyHex), fromHex(job.witnessHex), resolved, (slot) => BigInt(1666656000 + Number(job.slot ?? 0) + Number(slot)) * 1000n);
         expect(r.outcomes.length).toBeGreaterThan(0);
         expect(r.outcomes[0]!.scriptHash).toMatch(/^[0-9a-f]{56}$/);
         expect(r.outcomes[0]!.ok).toBe(true);

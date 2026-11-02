@@ -1,5 +1,5 @@
 {
-  "lockfileVersion": 2,
+  "lockfileVersion": 3,
   "configVersion": 1,
   "workspaces": {
     "": {
@@ -13,7 +13,7 @@
         "@harmoniclabs/mithril-ts": "file:vendor/harmoniclabs-mithril-ts-0.1.1.tgz",
         "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.5-dev7",
         "@harmoniclabs/plutus-data": "1.2.6",
-        "@harmoniclabs/plutus-machine": "2.1.3",
+        "@harmoniclabs/plutus-machine": "file:vendor/harmoniclabs-plutus-machine-2.1.3.tgz",
         "@harmoniclabs/uint8array-utils": "^1.0.4",
         "@harmoniclabs/uplc": "1.4.1",
       },
@@ -21,6 +21,15 @@
         "@types/bun": "^1.4.3",
         "typescript": "^5.9.3",
       },
+    },
+  },
+  "overrides": {
+    "@harmoniclabs/cardano-costmodels-ts": "file:vendor/harmoniclabs-cardano-costmodels-ts-1.7.0.tgz",
+    "@harmoniclabs/cbor@^2": {
+      ".": "file:vendor/harmoniclabs-cbor-2.1.0.tgz",
+    },
+    "@harmoniclabs/plutus-data@^2": {
+      ".": "file:vendor/harmoniclabs-plutus-data-2.1.0.tgz",
     },
   },
   "packages": {
@@ -34,7 +43,7 @@
 
     "@harmoniclabs/bytestring": ["@harmoniclabs/bytestring@1.0.0", "", { "dependencies": { "@harmoniclabs/uint8array-utils": "^1.0.0" } }, "sha512-d5m10O0okKc6QNX0pSRriFTkk/kNMnMBGbo5X3kEZwKaXTI4tDVoTZBL7bwbYHwOEdSxWJjVtlO9xtB7ZrYZNg=="],
 
-    "@harmoniclabs/cardano-costmodels-ts": ["@harmoniclabs/cardano-costmodels-ts@1.7.0", "", { "dependencies": { "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" }, "peerDependencies": { "@harmoniclabs/cbor": "^2.0.2" } }, "sha512-ak9IzlKuvy63pSYp+NL0AWWd2c37apQdkX1S2wQKNZDS1ifknApsmovZH+wAQcreHESmyj3t+gx5NxikSd2GAQ=="],
+    "@harmoniclabs/cardano-costmodels-ts": ["@harmoniclabs/cardano-costmodels-ts@vendor/harmoniclabs-cardano-costmodels-ts-1.7.0.tgz", { "dependencies": { "@harmoniclabs/cbor": "^2.0.2", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-5HG/qYkBaYxHrx0IbwI/X934wUt/Tko8tDa9qVD+Lrr2THn1NieLoOqbpjcmC8U9ZUXcky2+0fR1O6fj94AZYQ=="],
 
     "@harmoniclabs/cardano-ledger-ts": ["@harmoniclabs/cardano-ledger-ts@vendor/harmoniclabs-cardano-ledger-ts-0.6.0.tgz", { "dependencies": { "@harmoniclabs/bigint-utils": "^1.0.0", "@harmoniclabs/bip32_ed25519": "^0.1.3", "@harmoniclabs/cardano-costmodels-ts": "^1.6.1", "@harmoniclabs/cbor": "^2.0.1", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/pair": "^1.0.0", "@harmoniclabs/plutus-data": "^2.0.1", "@harmoniclabs/plutus-machine": "^3.0.3", "@harmoniclabs/uint8array-utils": "^1.0.4", "@harmoniclabs/uplc": "^2.0.5" } }, "sha512-RtEM48gbHv5OgX8EtooeHi8KgsTYrOk90DDM7gWfg//zxPXnHf7fQHXFtCXVAITopreCWCZ0cj9aFe2Mc5k4VQ=="],
 
@@ -56,7 +65,7 @@
 
     "@harmoniclabs/plutus-data": ["@harmoniclabs/plutus-data@1.2.6", "", { "dependencies": { "@harmoniclabs/biguint": "^1.0.0", "@harmoniclabs/crypto": "^0.2.4", "@harmoniclabs/uint8array-utils": "^1.0.0" }, "peerDependencies": { "@harmoniclabs/bytestring": "^1.0.0", "@harmoniclabs/cbor": "^1.3.0" } }, "sha512-rF046GZ07XDpjZBNybALKYSycjxCLzXKbhLylu9pRuZiii5fVXReEfgtLB29TsPBvGY6ZBeiyHgJnLgm+huZBw=="],
 
-    "@harmoniclabs/plutus-machine": ["@harmoniclabs/plutus-machine@2.1.3", "", { "dependencies": { "@harmoniclabs/bigint-utils": "^1.0.0", "@harmoniclabs/cardano-costmodels-ts": "^1.3.0", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3" }, "peerDependencies": { "@harmoniclabs/bytestring": "^1.0.0", "@harmoniclabs/cbor": "^1.6.6", "@harmoniclabs/pair": "^1.0.0", "@harmoniclabs/plutus-data": "^1.2.6", "@harmoniclabs/uplc": "^1.4.1" } }, "sha512-7wVg8x+WHlj9LmJrQK7/XJ++LpprbZBeuy4EK24XyOGdwmxX1h9mjqUYwf07FeoygIQrlfZkbDvsu1dSJFyCMg=="],
+    "@harmoniclabs/plutus-machine": ["@harmoniclabs/plutus-machine@vendor/harmoniclabs-plutus-machine-2.1.3.tgz", { "dependencies": { "@harmoniclabs/bigint-utils": "^1.0.0", "@harmoniclabs/cardano-costmodels-ts": "^1.3.0", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3" }, "peerDependencies": { "@harmoniclabs/bytestring": "^1.0.0", "@harmoniclabs/cbor": "^1.6.6", "@harmoniclabs/pair": "^1.0.0", "@harmoniclabs/plutus-data": "^1.2.6", "@harmoniclabs/uplc": "^1.4.1" } }, "sha512-1QKypgxGzwRIF418OKc5BwuM3rA2z2T9okQ6cI9U+tjcRQB3eMz4XXGsxyoeaa3fRurrMpZRb52OQ92yLdwqmA=="],
 
     "@harmoniclabs/uint8array-utils": ["@harmoniclabs/uint8array-utils@1.0.4", "", {}, "sha512-Z454prSbX4geXGHyjjcn9vm6u9NsD3VJykv8f8yE1VjIXSPitaLPEnm8u2+B+GMp1chYlLilOq+kW4OvJ6y28A=="],
 
@@ -76,9 +85,11 @@
 
     "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
 
-    "@harmoniclabs/cardano-ledger-ts/@harmoniclabs/cbor": ["@harmoniclabs/cbor@2.1.0", "", { "dependencies": { "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-XmMrpHIEAXjRbWUM/E/xlFTIaa6/Z0yJNj8I7bZXC+8lZPnWy160iOoKnFTgOYPLSMknytvLxbgwztRyVUIstQ=="],
+    "@harmoniclabs/cardano-costmodels-ts/@harmoniclabs/cbor": ["@harmoniclabs/cbor@vendor/harmoniclabs-cbor-2.1.0.tgz", { "dependencies": { "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-r3rMx0i2rxmqSctwDIEAV0hPCf8teWIs3c092k7Z+hrc1AVzCugDBDbDUPJAsA79feHdKigDWYjO/s3eMTRWbw=="],
 
-    "@harmoniclabs/cardano-ledger-ts/@harmoniclabs/plutus-data": ["@harmoniclabs/plutus-data@2.1.0", "", { "dependencies": { "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" }, "peerDependencies": { "@harmoniclabs/cbor": "^2.1.0" } }, "sha512-punE0sSczlyBoBVV2H2lheNJgRErMQiKDK2aiW5T4B/9+naBLx3V/H+ZKAJnic5FJgJIyl95w07L9syIe9eaow=="],
+    "@harmoniclabs/cardano-ledger-ts/@harmoniclabs/cbor": ["@harmoniclabs/cbor@vendor/harmoniclabs-cbor-2.1.0.tgz", { "dependencies": { "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-r3rMx0i2rxmqSctwDIEAV0hPCf8teWIs3c092k7Z+hrc1AVzCugDBDbDUPJAsA79feHdKigDWYjO/s3eMTRWbw=="],
+
+    "@harmoniclabs/cardano-ledger-ts/@harmoniclabs/plutus-data": ["@harmoniclabs/plutus-data@vendor/harmoniclabs-plutus-data-2.1.0.tgz", { "dependencies": { "@harmoniclabs/cbor": "^2.0.1", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-XQEPWQaXtOW7jtpc7HzsckLSI5+Cb2wprFYFWuMku5W+fVUTrYm9KKAtnNIfLynXTpmoLcm23/2PKPhB5Sk3Bg=="],
 
     "@harmoniclabs/cardano-ledger-ts/@harmoniclabs/plutus-machine": ["@harmoniclabs/plutus-machine@3.0.5", "", { "dependencies": { "@harmoniclabs/bigint-utils": "^1.0.0", "@harmoniclabs/cardano-costmodels-ts": "^1.6.1", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3", "@noble/curves": "1.9.7", "@noble/hashes": "1.7.2" }, "peerDependencies": { "@harmoniclabs/cbor": "^2.0.1", "@harmoniclabs/plutus-data": "^2.0.1", "@harmoniclabs/uplc": "^2.0.6" } }, "sha512-mj0rYjxb9BSxBTWweDsb25Wtjl3VLIJOWJLXMHNlS9YfPwhBpWvh+wcRvKCXckA78LPsPuWTVi/0c1rtdj4S4A=="],
 

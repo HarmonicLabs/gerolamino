@@ -40,10 +40,10 @@ bun run typecheck
   tsc --noEmit -p .                     clean
 
 bun test
-  138 pass, 0 fail (1107 expects, 25 files)
+  184 pass, 0 fail (1361 expects, 35 files)
 
 bun run build
-  dist ready: ... (4001 KiB of JS, with Mithril)
+  dist ready: ... (4319 KiB of JS, with Mithril)
   background/offscreen/popup/opfsWorker/approve/blockfrost/inpage/bridge/mithril bundles
 
 bun scripts/ledger-smoke.ts --seconds 8 --start chunk --relay ws://192.168.1.173:3004/n2n
@@ -85,7 +85,7 @@ Brave end-to-end (`bun scripts/e2e-chrome.ts --chrome /opt/brave.com/brave/brave
 1. This file (`docs/MILESTONE_4_EVIDENCE.md`).
 2. `docs/STATUS.md` sections "Local UTxO ledger (2026-10-29)", "Volatile store", "Peer-backed Blockfrost queries".
 3. `docs/LEDGER_SPEC.md` (implemented P0) plus `src/node/ledgerApply.ts`, `src/node/ledgerStore.ts`.
-4. Test log: `bun test` 168 pass/0 fail (1272 expects); `bun run typecheck` clean; `bun run build` 4225 KiB of JS.
+4. Test log: `bun test` 184 pass/0 fail (1361 expects); `bun run typecheck` clean; `bun run build` 4319 KiB of JS.
 5. Smoke/e2e transcript and screenshots (profile scratch), including `ledger: { startSlot, kind, tipSlot }`
    and the popup `Ledger UTxO` row.
 6. Commit `d059ea6` (or the pushed hash once the user asks to push).
@@ -93,8 +93,8 @@ Brave end-to-end (`bun scripts/e2e-chrome.ts --chrome /opt/brave.com/brave/brave
 ## Gaps left, stated honestly
 
 - P1 Mithril `tables` snapshot coverage is implemented for local files (signed ancillary manifest check, streaming
-  MemPack decoder, `snapshot.json` base, compaction); the aggregator/peer download and UI start mode are not wired yet.
+  MemPack decoder, `snapshot.json` base, compaction); extension local-file/peer/aggregator import is wired.
   Partial verified-start answers relay for addresses by design.
-- P2 full ledger rules and P3 consensus parity not built; no claim of full validation.
+- P2 full ledger rules and P3 consensus parity remain hardening work; phase-2 CEK/cost-model parity is built and pinned by real preview fixtures. No claim of full validation.
 - Preprod run not done yet (preview pilot); signed tx submission remains untested with a real wallet.
-- Byron header verification absent; Byron payload effects outside P0.
+- Byron header verification is built (`src/node/byron.ts`); Byron payload effects stay outside P0/P2.

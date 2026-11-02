@@ -789,8 +789,9 @@ maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo
 It never takes ledger state from a peer without proof.</li>
 <li><strong>Coverage is first-class.</strong> Every local ledger answer states the slot from which its state is complete. A
 tip/chunk/Mithril start gives coverage <code>startSlot</code>; only a genesis or snapshot bootstrap gives coverage 0.</li>
-<li><strong>Light node, not consensus.</strong> Header/body verification stays as it is, including Byron OBFT header checks; phase-2 script execution, stake,
-governance, epoch rewards and full ledger rule validation are P2/P3; the UTxO projection says so.</li>
+<li><strong>Light node, not consensus.</strong> Header/body verification stays as it is, including Byron OBFT header checks;
+phase-2 scripts run on the ledger's CEK (P3 core), while stake, governance, epoch-reward and full ledger rule
+validation remain P2/P3 hardening; the UTxO projection says so.</li>
 <li><strong>Pure TypeScript on HarmonicLabs.</strong> Parsing uses <code>@harmoniclabs/cardano-ledger-ts</code> (pinned vendor tarball),
 storage uses the existing OPFS sink pattern; no SQLite, no LMDB, no Bun-only APIs in the extension.</li>
 <li><strong>No keys.</strong> The ledger never signs, validates scripts, or becomes a wallet.</li>
@@ -954,9 +955,10 @@ table fails; stream and whole-file scanners agree across chunk boundaries; snaps
 base stays query-safe; state digest detects tampering.</li>
 <li>Byron (<code>test/byronHeader.test.ts</code>): preprod EBB and main headers hash/parent/slot match the fixture; the OBFT
 genesis delegation state verifies real main-block signatures; a tampered header fails.</li>
-<li>P2/P3 (<code>test/ledgerRules.test.ts</code>, <code>test/phase2P2Real.test.ts</code>, <code>test/phase2Context.test.ts</code>): core value/fee
-rules pass a synthetic rejection test and a real preview transaction body; the script-context bridge evaluates a
-real preview Plutus transaction (the witness script returns success).</li>
+<li>P2/P3 (<code>test/ledgerRules.test.ts</code>, <code>test/phase2P2Real.test.ts</code>, <code>test/phase2Context.test.ts</code>, <code>test/phase2Parity.test.ts</code>): core value/fee
+rules pass a synthetic rejection test and a real preview transaction body; real preview block diffs replay fees,
+deposits and governance proposals into the ledger and round-trip through <code>snapshot.json</code>; nine real preview phase-2
+fixtures reproduce the ledger's exact spent units and verdicts (including declared-budget and <code>is_valid</code> mismatches).</li>
 <li>Smoke scripts: <code>scripts/ledger-smoke.ts</code> (local block ledger); <code>scripts/mithril-tables-smoke.ts</code> (P1 import, 20,000 real preview rows decoded with 0 errors; full <code>--count-only</code> count 3,169,305 entries)
 from local <code>tables</code>/<code>meta</code>, optional signed manifest, snapshot install and local/relay query checks).</li>
 </ul>
@@ -1143,7 +1145,7 @@ HTTP API?</li>
       <a class="source-link" href="#status">Jump to section</a>
     </div>
   </header>
-  <div class="doc-body"><h1>Gerolamino status (2026-10-16, ledger P0 added 2026-10-29)</h1>
+  <div class="doc-body"><h1>Gerolamino status (2026-11-02; ledger P0 2026-10-29, P2 counters and P3 CEK parity 2026-11-02)</h1>
 <p>Gerolamino is a standalone Cardano node for the browser, shipped as a Chrome MV3 extension. This page records
 why it was rebuilt, what works, what was measured, what is missing, and the problems found in the libraries it
 depends on.</p>
@@ -1192,7 +1194,7 @@ ported and owned here.</p>
 <tr><td>Header checks</td><td>hash and parent link, operational certificate, KES, VRF against the epoch nonce (Praos, TPraos), leader eligibility</td></tr>
 <tr><td>Body checks</td><td>body hash and size against the header; only verified, linked blocks are stored</td></tr>
 <tr><td>Storage</td><td>cardano-node immutable chunk files in OPFS, byte-identical to cardano-node's; resume and rollback across chunk boundaries</td></tr>
-<tr><td>Local UTxO ledger</td><td>P0 UTxO projection from verified blocks: per-block OPFS diff log, digest chain, resume/rollback, coverage on every local UTxO answer; no ledger rules yet</td></tr>
+<tr><td>Local UTxO ledger</td><td>P0 UTxO projection from verified blocks: per-block OPFS diff log, digest chain, resume/rollback, coverage on every local UTxO answer; P2 fees/deposits/withdrawals/stake/gov counters persist in <code>snapshot.json</code> and replay from real preview blocks; P3 phase-2 scripts run on the ledger's CEK with named cost models (9 real preview fixtures, exact budgets)</td></tr>
 <tr><td>Start modes</td><td>relay tip, newest complete chunk, Mithril-certified point; a stored tip always wins</td></tr>
 <tr><td>Mithril</td><td>full certificate-chain verification to genesis (STM multi-signatures, BLS12-381, genesis ed25519), Merkle root of the cardano-database digests, chunk digests</td></tr>
 <tr><td>Extension</td><td>service worker keeps the offscreen node alive and recreates it; popup in the desktop app's look (sync ring, epoch bar, tip tiles, verification cards, storage, recent blocks; settings, tx submission, wipe; &quot;Open in a tab&quot; for a wide view)</td></tr>
@@ -1286,7 +1288,7 @@ on a second site).</p>
 <tr><th>Run</th><th>Result</th></tr>
 </thead>
 <tbody>
-<tr><td><code>bun test</code></td><td>138 pass, 0 fail (1107 expects, 25 files); <code>tsc</code> clean; ledger P0 tests included, 2026-10-29</td></tr>
+<tr><td><code>bun test</code></td><td>184 pass, 0 fail (1361 expects, 35 files); <code>tsc</code> clean; ledger P0/P2/P3 tests included, 2026-11-02</td></tr>
 <tr><td>Smoke, newest-chunk start, 60 s</td><td>517 headers verified (crypto 517 / 0, leader 517 / 0), 516 bodies checked and stored in 4 chunks, 8.6 headers/s</td></tr>
 <tr><td>Smoke, tip start, 120 s</td><td>follows the tip; one real rollback undone correctly</td></tr>
 <tr><td>Smoke, Mithril start</td><td>325 certificates verified to genesis, 87 165 digests reproduce the certified Merkle root, then 552 / 552 headers</td></tr>
@@ -1310,9 +1312,11 @@ can be rebuilt on the same curve code.</p>
 <li>Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
 are P2/P3; P0 is a UTxO projection with coverage only. P2 core value/fee/input checks are in
 <code>src/node/ledgerRules.ts</code>; P2 protocol counters (fees, deposits, withdrawals, treasury, stake/gov registrations
-and delegations) persist in <code>snapshot.json</code> and roll back with diffs; P3 flat evaluation and the TxInfo/ScriptPurpose/
-ScriptInfo bridge with declared-budget checks live in <code>src/node/plutusEval.ts</code> and <code>src/node/phase2Context.ts</code>.
-Full epoch/stake-rule and cost-model parity remains in progress.</li>
+and delegations) persist in <code>snapshot.json</code>, replay from real preview blocks and roll back with diffs; P3 runs
+the ledger's CEK (<code>src/node/plutus/cek.ts</code>) with ParamName cost models (<code>costs.ts</code>) and the TxInfo/ScriptPurpose/
+ScriptInfo bridge with declared-budget and unit-return checks (<code>plutusEval.ts</code>, <code>phase2Context.ts</code>). Nine real
+preview fixtures reproduce the ledger's exact spent units and verdicts (<code>test/phase2Parity.test.ts</code>).
+Full epoch/stake-rule, epoch-reward and remaining Conway cross-era parity is still in progress.</li>
 <li>P1 snapshot base is from local files, the Gerolamo peer's raw <code>tables</code>/<code>meta</code> routes, or the Mithril aggregator archive; signed ancillary manifest check, streaming MemPack decoder and <code>snapshot.json</code> are wired through the popup. A separate start-mode switch is not needed because the installed base resumes automatically.</li>
 <li>The ledger diff set above a snapshot base is compacted on demand (<code>compactTo</code>); there is no automatic
 compaction threshold yet.</li>
@@ -1361,6 +1365,10 @@ string keys of <code>Object.keys</code> with a number-only guard. It then throws
 </li>
 <li><strong><code>@harmoniclabs/crypto</code> 0.3.1, SHA-256 length.</strong> <code>sha2_256_sync</code> pads with a 32-bit bit-length; inputs over
 512 MB hash incorrectly (preview <code>tables</code> is 650 MB). Gerolamino uses its own 64-bit SHA-256 (<code>src/node/sha256.ts</code>).</li>
+<li><strong><code>@harmoniclabs/plutus-machine</code> 2.1.3, published tarball drift.</strong> npm gives two different contents under the
+same version; the older one silently spends 1.27 M more cpu on the BLS fixture and errors on protocol-11
+<code>case</code>/dropList scripts. Gerolamino vendors Gerolamo's installed <code>2.1.3</code> (plus the same <code>cbor</code>/<code>plutus-data</code>/
+<code>cardano-costmodels-ts</code> overrides) and <code>test/phase2Parity.test.ts</code> pins exact budgets.</li>
 </ol>
 <h2>Roadmap</h2>
 <ol>
@@ -1373,7 +1381,7 @@ can serve Gerolamino peers; see <code>WEBSOCKET_BEARER.md</code>.</li>
 <li><strong>Ledger state in OPFS.</strong> P0 done 2026-10-29 (see &quot;Local UTxO ledger&quot;): UTxO projection from verified
 blocks, per-block diff log with digest chain, coverage-first local answers, resume/rollback, stale
 detection. P1 snapshot work done 2026-10-30 for local files: streaming MemPack <code>tables</code> decoder, signed
-ancillary manifest check, UTxO-only <code>snapshot.json</code> base, optional compaction, the extension local-file/peer import UI and the aggregator archive fallback. P2 full ledger rules; the <code>tables</code> file is already a sorted run (preview,
+ancillary manifest check, UTxO-only <code>snapshot.json</code> base, optional compaction, the extension local-file/peer import UI and the aggregator archive fallback. P2 counters and P3 CEK/cost-model parity done 2026-11-02: real preview fees/deposits/governance replay plus snapshot round-trip, and nine real preview phase-2 fixtures match the ledger's exact units; full epoch/stake-rule and epoch-reward parity remains. The <code>tables</code> file is already a sorted run (preview,
 2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order, 650 MB), so it can serve
 unchanged as a base level with a sparse key index and small sorted delta runs.
 Caveats: those files are signed only by IOG's ancillary Ed25519 key, not the Mithril multi-signature, and
@@ -1431,10 +1439,10 @@ governance, epoch rewards, phase-2 scripts) are P2/P3; Mithril <code>tables</cod
   tsc --noEmit -p .                     clean
 
 bun test
-  138 pass, 0 fail (1107 expects, 25 files)
+  184 pass, 0 fail (1361 expects, 35 files)
 
 bun run build
-  dist ready: ... (4001 KiB of JS, with Mithril)
+  dist ready: ... (4319 KiB of JS, with Mithril)
   background/offscreen/popup/opfsWorker/approve/blockfrost/inpage/bridge/mithril bundles
 
 bun scripts/ledger-smoke.ts --seconds 8 --start chunk --relay ws://192.168.1.173:3004/n2n
@@ -1474,7 +1482,7 @@ contracts.</li>
 <li>This file (<code>docs/MILESTONE_4_EVIDENCE.md</code>).</li>
 <li><code>docs/STATUS.md</code> sections &quot;Local UTxO ledger (2026-10-29)&quot;, &quot;Volatile store&quot;, &quot;Peer-backed Blockfrost queries&quot;.</li>
 <li><code>docs/LEDGER_SPEC.md</code> (implemented P0) plus <code>src/node/ledgerApply.ts</code>, <code>src/node/ledgerStore.ts</code>.</li>
-<li>Test log: <code>bun test</code> 168 pass/0 fail (1272 expects); <code>bun run typecheck</code> clean; <code>bun run build</code> 4225 KiB of JS.</li>
+<li>Test log: <code>bun test</code> 184 pass/0 fail (1361 expects); <code>bun run typecheck</code> clean; <code>bun run build</code> 4319 KiB of JS.</li>
 <li>Smoke/e2e transcript and screenshots (profile scratch), including <code>ledger: { startSlot, kind, tipSlot }</code>
 and the popup <code>Ledger UTxO</code> row.</li>
 <li>Commit <code>d059ea6</code> (or the pushed hash once the user asks to push).</li>
@@ -1482,11 +1490,11 @@ and the popup <code>Ledger UTxO</code> row.</li>
 <h2>Gaps left, stated honestly</h2>
 <ul>
 <li>P1 Mithril <code>tables</code> snapshot coverage is implemented for local files (signed ancillary manifest check, streaming
-MemPack decoder, <code>snapshot.json</code> base, compaction); the aggregator/peer download and UI start mode are not wired yet.
+MemPack decoder, <code>snapshot.json</code> base, compaction); extension local-file/peer/aggregator import is wired.
 Partial verified-start answers relay for addresses by design.</li>
-<li>P2 full ledger rules and P3 consensus parity not built; no claim of full validation.</li>
+<li>P2 full ledger rules and P3 consensus parity remain hardening work; phase-2 CEK/cost-model parity is built and pinned by real preview fixtures. No claim of full validation.</li>
 <li>Preprod run not done yet (preview pilot); signed tx submission remains untested with a real wallet.</li>
-<li>Byron header verification absent; Byron payload effects outside P0.</li>
+<li>Byron header verification is built (<code>src/node/byron.ts</code>); Byron payload effects stay outside P0/P2.</li>
 </ul>
 </div>
 </article>

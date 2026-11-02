@@ -184,7 +184,10 @@ function inputRefs(inputs: any[]): string[] {
  * Parse a verified block's bytes into its UTxO diff. Byron blocks (no Shelley tx bodies) give an empty diff.
  * Throws when the block cannot be decoded, so a partial diff never lands.
  */
-const ZERO_P2: LedgerP2Diff = { fees: "0", deposits: "0", withdrawals: "0", treasury: "0", donation: "0", minted: [], stakeRegistered: [], stakeUnregistered: [], stakeDelegations: [], poolRegistrations: [], poolRetirements: [], governanceDeposits: [] };
+/** Fresh arrays: every block diff owns its counters, never a shared ZERO_P2 literal. */
+function freshP2(): LedgerP2Diff {
+    return { fees: "0", deposits: "0", withdrawals: "0", treasury: "0", donation: "0", minted: [], stakeRegistered: [], stakeUnregistered: [], stakeDelegations: [], poolRegistrations: [], poolRetirements: [], governanceDeposits: [] };
+}
 function bigStr(v: any): string { try { return BigInt(v?.toString?.() ?? v ?? 0n).toString(); } catch { return "0"; } }
 function certKind(c: any): string { return String(c?.__typename ?? c?.type ?? c?.tag ?? "").toLowerCase(); }
 function credentialOf(c: any): string {
@@ -192,13 +195,19 @@ function credentialOf(c: any): string {
     return x == null ? "" : String(x?.toString?.() ?? x).toLowerCase();
 }
 function poolOf(c: any): string { const x = c?.poolKeyHash ?? c?.poolId ?? c?.pool; return x == null ? "" : String(x.toString?.() ?? x).toLowerCase(); }
+/** Ledger-ts fields are arrays, `null` for missing Conway `Maybe`s, or objects carrying their list under `map`/`entries`. */
+function typeList(v: any): any[] {
+    if (Array.isArray(v)) return v;
+    for (const k of ["map", "entries", "items", "certificates", "procedures"]) { const x = v?.[k]; if (Array.isArray(x)) return x; }
+    return [];
+}
 function p2DeltaOfBody(body: any, invalid: boolean): LedgerP2Diff {
-    if (invalid) return { ...ZERO_P2, fees: bigStr(body.fee) };
-    const p2: LedgerP2Diff = { ...ZERO_P2, fees: bigStr(body.fee) };
-    for (const w of (body.withdrawals?.map ?? []) as any[]) p2.withdrawals = (BigInt(p2.withdrawals) + BigInt(bigStr(w.amount))).toString();
-    p2.treasury = bigStr(body.treasury);
-    p2.donation = bigStr(body.donation);
-    for (const c of ((body.certs ?? body.certificates ?? []) as any[])) {
+    if (invalid) return { ...freshP2(), fees: bigStr(body.fee) };
+    const p2: LedgerP2Diff = { ...freshP2(), fees: bigStr(body.fee) };
+    for (const w of typeList(body.withdrawals) as any[]) p2.withdrawals = (BigInt(p2.withdrawals) + BigInt(bigStr(w.amount ?? w.reward ?? w))).toString();
+    p2.treasury = bigStr(body.treasury ?? body.currentTreasuryValue ?? body.treasuryValue);
+    p2.donation = bigStr(body.donation ?? body.donationValue);
+    for (const c of typeList(body.certs ?? body.certificates)) {
         const kind = certKind(c), cred = credentialOf(c), pool = poolOf(c);
         if (kind.includes("stake") && (kind.includes("reg") || kind.includes("registration")) && !kind.includes("unreg")) {
             if (cred) p2.stakeRegistered.push(cred);
@@ -214,7 +223,7 @@ function p2DeltaOfBody(body: any, invalid: boolean): LedgerP2Diff {
             if (pool) p2.poolRetirements.push(pool);
         }
     }
-    for (const proposal of (body.proposalProcedures?.map ?? body.proposals ?? []) as any[]) {
+    for (const proposal of typeList(body.proposalProcedures ?? body.proposals) as any[]) {
         const deposit = proposal?.deposit ?? proposal?.depositAmount;
         if (deposit != null) p2.governanceDeposits.push(bigStr(deposit));
         else p2.governanceDeposits.push("0");
@@ -237,7 +246,7 @@ export function ledgerDiffFromBlock(bytes: Uint8Array, slot: number, hash: strin
     const bodies: any[] = Array.isArray(block?.transactionBodies) ? block.transactionBodies : [];
     if (bodies.length === 0) return { format: 1, slot, hash, txs: 0, invalidTx: [], created: [], spent: [], unknownInputs: [] };
     const invalid = new Set<number>(((block?.invalidTransactions ?? []) as Array<number | bigint>).map((i) => Number(i)));
-    const diff: LedgerBlockDiff = { format: 1, slot, hash, txs: bodies.length, invalidTx: [...invalid], created: [], spent: [], unknownInputs: [], p2: { ...ZERO_P2 } };
+    const diff: LedgerBlockDiff = { format: 1, slot, hash, txs: bodies.length, invalidTx: [...invalid], created: [], spent: [], unknownInputs: [], p2: freshP2() };
     const seenSpent = new Set<string>();
     bodies.forEach((body, txIndex) => {
         const txHash = String(body.hash.toString()).toLowerCase();

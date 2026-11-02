@@ -10,8 +10,9 @@ maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo
   It never takes ledger state from a peer without proof.
 - **Coverage is first-class.** Every local ledger answer states the slot from which its state is complete. A
   tip/chunk/Mithril start gives coverage `startSlot`; only a genesis or snapshot bootstrap gives coverage 0.
-- **Light node, not consensus.** Header/body verification stays as it is, including Byron OBFT header checks; phase-2 script execution, stake,
-  governance, epoch rewards and full ledger rule validation are P2/P3; the UTxO projection says so.
+- **Light node, not consensus.** Header/body verification stays as it is, including Byron OBFT header checks;
+  phase-2 scripts run on the ledger's CEK (P3 core), while stake, governance, epoch-reward and full ledger rule
+  validation remain P2/P3 hardening; the UTxO projection says so.
 - **Pure TypeScript on HarmonicLabs.** Parsing uses `@harmoniclabs/cardano-ledger-ts` (pinned vendor tarball),
   storage uses the existing OPFS sink pattern; no SQLite, no LMDB, no Bun-only APIs in the extension.
 - **No keys.** The ledger never signs, validates scripts, or becomes a wallet.
@@ -167,9 +168,10 @@ Unit (`bun test`, no browser):
   base stays query-safe; state digest detects tampering.
 - Byron (`test/byronHeader.test.ts`): preprod EBB and main headers hash/parent/slot match the fixture; the OBFT
   genesis delegation state verifies real main-block signatures; a tampered header fails.
-- P2/P3 (`test/ledgerRules.test.ts`, `test/phase2P2Real.test.ts`, `test/phase2Context.test.ts`): core value/fee
-  rules pass a synthetic rejection test and a real preview transaction body; the script-context bridge evaluates a
-  real preview Plutus transaction (the witness script returns success).
+- P2/P3 (`test/ledgerRules.test.ts`, `test/phase2P2Real.test.ts`, `test/phase2Context.test.ts`, `test/phase2Parity.test.ts`): core value/fee
+  rules pass a synthetic rejection test and a real preview transaction body; real preview block diffs replay fees,
+  deposits and governance proposals into the ledger and round-trip through `snapshot.json`; nine real preview phase-2
+  fixtures reproduce the ledger's exact spent units and verdicts (including declared-budget and `is_valid` mismatches).
 - Smoke scripts: `scripts/ledger-smoke.ts` (local block ledger); `scripts/mithril-tables-smoke.ts` (P1 import, 20,000 real preview rows decoded with 0 errors; full `--count-only` count 3,169,305 entries)
   from local `tables`/`meta`, optional signed manifest, snapshot install and local/relay query checks).
 
@@ -190,7 +192,7 @@ blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledge
 | P0 | UTxO projection, diff log, resume/rollback, tx-scoped local answers | verified-start |
 | P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot | local files, peer raw files, extension UI and aggregator archive fallback done |
 | P2 | full ledger rules: fees/deposits, stake, governance, epoch rewards | snapshot/genesis | core value/fee/input rules and persisted fees/deposits/stake/gov counters (`ledgerRules.ts`, `ledgerStore.ts`); full epoch/stake-rule parity still evolving |
-| P3 | optional consensus validation parity (phase-2 scripts), proofs for local answers | full | script evaluator + script-context bridge with declared-budget check (`plutusEval.ts`, `phase2Context.ts`); full cost-model parity still evolving |
+| P3 | optional consensus validation parity (phase-2 scripts), proofs for local answers | full | ledger CEK + script-context bridge with declared-budget and unit-return checks (`plutus/cek.ts`, `plutusEval.ts`, `phase2Context.ts`); nine real preview fixtures match exact spent units; full epoch/stake-rule parity still evolving |
 
 Milestone 4 closes on P0 evidence for the stated deliverable (browser extension + local ledger update), with
 P1 core import/compaction implemented and P2 as the next hardening step; do not claim genesis-complete address

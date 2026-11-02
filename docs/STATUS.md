@@ -180,7 +180,7 @@ can be rebuilt on the same curve code.
 
 - Full ledger rules (fees/deposits, stake delegation, governance, epoch rewards) and phase-2 script execution
   are P2/P3; P0 is a UTxO projection with coverage only.
-- P1 snapshot base is from local files only: signed ancillary manifest check, streaming MemPack decoder and `snapshot.json`; the aggregator/peer download and UI start mode are still missing. `/addresses` answers relay when no snapshot base is installed.
+- P1 snapshot base is from local files and the Gerolamo peer's raw `tables`/`meta` routes; signed ancillary manifest check, streaming MemPack decoder and `snapshot.json` are wired through the popup. The Mithril aggregator archive fallback and a separate start-mode switch are still missing. `/addresses` answers relay when no snapshot base is installed.
 - The ledger diff set above a snapshot base is compacted on demand (`compactTo`); there is no automatic
   compaction threshold yet.
 - OPFS ledger retries after a stale marker rebuild from the first verified start or the snapshot base.
@@ -233,8 +233,7 @@ Each is pinned by a test here and worked around in Gerolamino's own code.
 5. **Ledger state in OPFS.** P0 done 2026-10-29 (see "Local UTxO ledger"): UTxO projection from verified
    blocks, per-block diff log with digest chain, coverage-first local answers, resume/rollback, stale
    detection. P1 snapshot work done 2026-10-30 for local files: streaming MemPack `tables` decoder, signed
-   ancillary manifest check, UTxO-only `snapshot.json` base, optional compaction; the aggregator/peer download
-   and UI start mode are next. P2 full ledger rules; the `tables` file is already a sorted run (preview,
+   ancillary manifest check, UTxO-only `snapshot.json` base, optional compaction, and the extension local-file/peer import UI. The Mithril aggregator archive fallback is next. P2 full ledger rules; the `tables` file is already a sorted run (preview,
    2026-10-22: 3 169 305 entries, 34-byte keys in strictly ascending byte order, 650 MB), so it can serve
    unchanged as a base level with a sparse key index and small sorted delta runs.
    Caveats: those files are signed only by IOG's ancillary Ed25519 key, not the Mithril multi-signature, and

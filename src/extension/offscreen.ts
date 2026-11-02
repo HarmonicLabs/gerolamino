@@ -6,12 +6,15 @@
  */
 import { NodeRunner, type RunnerStats } from "../node/runner";
 import { OpfsSink } from "../node/opfsSink";
+import { LocalLedger } from "../node/ledgerStore";
+import { snapshotFromTables, verifyMithrilTablesFiles } from "../node/mithrilTables";
 import { isToOffscreen, parseTxHex, toMessageSafe, type Reply, type ToOffscreen } from "./messages";
 import { DEFAULT_SETTINGS, normalizeSettings, sameSettings, type Settings } from "./settings";
 
 const storePath = (network: string) => `gerolamino/${network}/immutable`;
 const volatilePath = (network: string) => `gerolamino/${network}/volatile`;
 const ledgerPath = (network: string) => `gerolamino/${network}/ledger`;
+const snapshotSourcePath = (network: string) => `gerolamino/${network}/snapshot-source`;
 const workerUrl = new URL("./opfsWorker.js", import.meta.url);
 const pendingLogs: string[] = [];
 let runner: NodeRunner | null = null;
@@ -76,6 +79,33 @@ async function handle(msg: ToOffscreen): Promise<Reply<any>> {
                 const id = runner.submitTx(parseTxHex(msg.cbor));
                 log(`transaction ${id} queued for the relay`);
                 return { ok: true, id };
+            }
+            case "import-snapshot": {
+                const network = String(msg.network);
+                if (network !== "preview" && network !== "preprod") throw new Error(`snapshot import network must be preview or preprod`);
+                if (!Number.isInteger(msg.slot) || msg.slot <= 0) throw new Error("snapshot slot must be a positive integer");
+                const source = new OpfsSink(snapshotSourcePath(network), { workerUrl });
+                const tables = await source.read("tables");
+                const meta = await source.read("meta");
+                if (!tables || !meta) throw new Error("no tables/meta files in the extension's snapshot-source OPFS directory");
+                const manifestBytes = await source.read("ancillary_manifest.json");
+                const manifest = manifestBytes ? new TextDecoder().decode(manifestBytes) : null;
+                if (manifest) {
+                    const v = verifyMithrilTablesFiles(tables, meta, manifest, msg.slot, network);
+                    if (!v.ok) throw new Error(`ancillary manifest verification failed: ${v.errors.join("; ")}`);
+                    log(`snapshot manifest verified: signature ${v.signatureOk ? "ok" : "missing"}, tables ${v.tablesSha256?.slice(0, 12)}…`);
+                }
+                log(`snapshot import: ${tables.length} table byte(s), slot ${msg.slot}, network ${network}; building the UTxO base…`);
+                const imported = snapshotFromTables(tables, meta, msg.slot, network);
+                const current = runner;
+                if (current) await current.stop();
+                const ledger = new LocalLedger(new OpfsSink(ledgerPath(network), { workerUrl }), network);
+                await ledger.installSnapshot(imported.snapshot, { verifyStateDigest: false });
+                log(`snapshot installed: ${imported.decoded} UTxO from slot ${imported.snapshot.startSlot}; ledger resumes from it`);
+                if (settings.network === network) settings = { ...settings, startMode: settings.startMode === "tip" ? "snapshot" : settings.startMode };
+                await refreshOpfs();
+                runner = makeRunner(settings); runner.start();
+                return { ok: true, snapshotSlot: imported.snapshot.startSlot, utxos: imported.decoded };
             }
             case "query": {
                 if (!runner) throw new Error("the node is not running");

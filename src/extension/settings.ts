@@ -4,7 +4,7 @@
  * tip (or the stored tip when resuming), no extra relays.
  */
 export type NetworkName = "preview" | "preprod";
-export type StartModeSetting = "tip" | "chunk" | "mithril";
+export type StartModeSetting = "tip" | "chunk" | "mithril" | "snapshot";
 
 export interface Settings {
     network: NetworkName;
@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
 });
 
 export const NETWORK_NAMES: readonly NetworkName[] = ["preview", "preprod"];
-export const START_MODES: readonly StartModeSetting[] = ["tip", "chunk", "mithril"];
+export const START_MODES: readonly StartModeSetting[] = ["tip", "chunk", "mithril", "snapshot"];
 
 /** A relay URL must be ws:// or wss:// with a host. */
 export function validRelayUrl(s: unknown): s is string {

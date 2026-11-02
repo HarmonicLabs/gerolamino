@@ -28,7 +28,7 @@ import { toHex } from "@harmoniclabs/uint8array-utils";
 export interface RunnerConfig {
     relayUrl: string;
     network: "preview" | "preprod" | "mainnet";
-    startMode: "tip" | "mithril" | "chunk";
+    startMode: "tip" | "mithril" | "chunk" | "snapshot";
     /** More relays, watched headers-only and cross-checked against the main one. */
     extraRelays?: string[];
     /** Check the leader stake against Mithril's certified stake distribution (fetched from the aggregator). */
@@ -407,7 +407,7 @@ export class NodeRunner {
         while (this.running) {
             const net = networkByName(this.config.network);
             if (!net) { this.errors.push(`unknown network ${this.config.network}`); this.running = false; break; }
-            const start: StartMode = this.config.startMode;
+            const start: StartMode = this.config.startMode === "snapshot" ? "tip" : this.config.startMode;
             if (this.indexNetwork !== net.name) {
                 this.index.clear();
                 this.observer.clear();

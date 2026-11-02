@@ -6,6 +6,7 @@ import { connectionLabel, epochProgress, fmtBytes, fmtNum, fmtSlotsBehind, fmtSl
 import type { StatusReply } from "./messages";
 import { trustView } from "./trustView";
 import { DEFAULT_SETTINGS, MAX_EXTRA_RELAYS, validRelayUrl, type Settings } from "./settings";
+import { OpfsSink } from "../node/opfsSink";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const send = <T = any>(m: object): Promise<T> => chrome.runtime.sendMessage({ to: "background", ...m });
@@ -46,7 +47,7 @@ function fillForm(s: Settings): void {
     $<HTMLSelectElement>("mithrilDigests").value = s.mithrilDigests ?? "peer";
 }
 
-const START_LABEL: Record<string, string> = { tip: "tip sync", chunk: "chunk start", mithril: "Mithril start", resume: "resumed", point: "from a point" };
+const START_LABEL: Record<string, string> = { tip: "tip sync", chunk: "chunk start", mithril: "Mithril start", snapshot: "snapshot base", resume: "resumed", point: "from a point" };
 
 function setLive(kind: "on" | "off" | "wait", label: string): void {
     $("live-dot").className = `dot ${kind}`;
@@ -367,6 +368,66 @@ async function renderSites(): Promise<void> {
     }) : [Object.assign(document.createElement("li"), { className: "dim", textContent: "none" })]));
 }
 void renderSites();
+
+// P1 local files: write the three files into the extension's snapshot-source OPFS directory, then ask the
+// offscreen document to build `snapshot.json` and install it in the ledger. Large tables stay as one buffer
+// here; no Node builtins, no aggregator archive path.
+const snapshotSourcePath = (network: string) => `gerolamino/${network}/snapshot-source`;
+async function importSnapshot(): Promise<void> {
+    const network = (currentSettings?.network ?? "preview") as Settings["network"];
+    const tablesFile = $<HTMLInputElement>("snapshotTables").files?.[0] ?? null;
+    const metaFile = $<HTMLInputElement>("snapshotMeta").files?.[0] ?? null;
+    const manifestFile = $<HTMLInputElement>("snapshotManifest").files?.[0] ?? null;
+    const slot = Number($<HTMLInputElement>("snapshotSlot").value);
+    const msg = $("snapshot-msg");
+    if (!tablesFile || !metaFile) { msg.textContent = "choose tables and meta"; msg.className = "small bad"; return; }
+    if (!Number.isInteger(slot) || slot <= 0) { msg.textContent = "snapshot slot must be a positive integer"; msg.className = "small bad"; return; }
+    if (!OpfsSink.available()) { msg.textContent = "this browser has no OPFS"; msg.className = "small bad"; return; }
+    const button = $<HTMLButtonElement>("snapshotImport"); button.disabled = true;
+    try {
+        msg.textContent = "writing files to OPFS…"; msg.className = "small dim";
+        const sink = new OpfsSink(snapshotSourcePath(network), { workerUrl: new URL("./opfsWorker.js", import.meta.url) });
+        await sink.write("tables", new Uint8Array(await tablesFile.arrayBuffer()));
+        await sink.write("meta", new Uint8Array(await metaFile.arrayBuffer()));
+        await sink.remove("ancillary_manifest.json");
+        if (manifestFile) await sink.write("ancillary_manifest.json", new Uint8Array(await manifestFile.arrayBuffer()));
+        const r = await send<{ ok: boolean; error?: string; snapshotSlot?: number; utxos?: number }>({ type: "import-snapshot", network, slot });
+        msg.textContent = r?.ok ? `snapshot imported: slot ${r.snapshotSlot}, ${fmtNum(r.utxos ?? 0)} UTxO` : `not imported: ${r?.error ?? "no answer"}`;
+        msg.className = `small ${r?.ok ? "ok" : "bad"}`;
+        if (r?.ok) void poll();
+    } catch (e) {
+        msg.textContent = `not imported: ${(e as Error).message}`; msg.className = "small bad";
+    } finally { button.disabled = false; }
+}
+async function fetchPeerSnapshot(): Promise<void> {
+    const base = $<HTMLInputElement>("snapshotPeerUrl").value.trim() || "http://127.0.0.1:3030/api/v0/gerolamo/ledger";
+    const network = (currentSettings?.network ?? "preview") as Settings["network"];
+    const slot = Number($<HTMLInputElement>("snapshotSlot").value);
+    const msg = $("snapshot-msg");
+    if (!Number.isInteger(slot) || slot <= 0) { msg.textContent = "snapshot slot must be a positive integer"; msg.className = "small bad"; return; }
+    if (!/^https?:$/i.test(new URL(base).protocol)) { msg.textContent = "peer base must be http:// or https://"; msg.className = "small bad"; return; }
+    const button = $<HTMLButtonElement>("snapshotFetch"); button.disabled = true;
+    try {
+        msg.textContent = "fetching tables/meta from the Gerolamo peer…"; msg.className = "small dim";
+        const url = base.replace(/\/+$/, "");
+        const [tables, meta] = await Promise.all([
+            fetch(`${url}/${slot}/tables`, { headers: { Accept: "application/octet-stream" } }),
+            fetch(`${url}/${slot}/meta`, { headers: { Accept: "application/json" } }),
+        ]);
+        if (!tables.ok || !meta.ok) throw new Error(`peer answered ${tables.status}/${meta.status}; is /gerolamo/ledger enabled on that Gerolamo node?`);
+        const sink = new OpfsSink(snapshotSourcePath(network), { workerUrl: new URL("./opfsWorker.js", import.meta.url) });
+        await sink.write("tables", new Uint8Array(await tables.arrayBuffer()));
+        await sink.write("meta", new Uint8Array(await meta.arrayBuffer()));
+        await sink.remove("ancillary_manifest.json");
+        const r = await send<{ ok: boolean; error?: string; snapshotSlot?: number; utxos?: number }>({ type: "import-snapshot", network, slot });
+        msg.textContent = r?.ok ? `snapshot imported: slot ${r.snapshotSlot}, ${fmtNum(r.utxos ?? 0)} UTxO` : `not imported: ${r?.error ?? "no answer"}`;
+        msg.className = `small ${r?.ok ? "ok" : "bad"}`;
+        if (r?.ok) void poll();
+    } catch (e) {
+        msg.textContent = `not imported: ${(e as Error).message}`; msg.className = "small bad";
+    } finally { button.disabled = false; }
+}
+$("snapshotFetch").addEventListener("click", () => { void fetchPeerSnapshot(); });
 
 $("settings").addEventListener("input", () => { formDirty = true; });
 $("settings").addEventListener("submit", async (ev) => {

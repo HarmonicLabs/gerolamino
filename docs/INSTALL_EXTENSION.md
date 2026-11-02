@@ -12,6 +12,14 @@ Download `gerolamino-0.2.0-extension.zip` from the repository's Releases page, u
 **Load unpacked** at the folder with `manifest.json` in it. The release zip is the same unpacked build as
 `dist/`; it is not a signed Chrome Web Store package. Check the accompanying `SHA256SUMS` before loading.
 
+## Snapshot import (optional, P1)
+
+The Settings tab has a **Snapshot import** panel: choose the ancillary `tables` and `meta` files, enter the
+snapshot slot, and click **Import snapshot**. A Gerolamo peer that serves its ledger directory over
+`/api/v0/gerolamo/ledger/{slot}/tables` and `/meta` can fill those files with **Fetch from peer** instead. The
+extension writes them to `gerolamino/<network>/snapshot-source`, verifies `ancillary_manifest.json` when supplied,
+builds the UTxO base and restarts the ledger from that slot. The import is a UTxO-at-slot base, not full history.
+
 ## 1. Before you start
 
 - Bun 1.1+ and git are installed.

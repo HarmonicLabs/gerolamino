@@ -153,6 +153,7 @@
             <option value="tip">relay tip (or stored tip)</option>
             <option value="chunk">relay's immutable tip</option>
             <option value="mithril">Mithril-certified point</option>
+            <option value="snapshot">snapshot base (imported files)</option>
           </select>
         </label>
         <label>Mithril files from
@@ -164,6 +165,21 @@
       </div>
       <label class="check"><input id="certifiedStake" name="certifiedStake" type="checkbox"> Check pool stake with Mithril <span class="dim">(aggregator download, then cached)</span></label>
       <label class="check"><input id="txProofs" name="txProofs" type="checkbox"> Check relayed transaction answers with Mithril proofs</label>
+      <h3 class="small dim">Snapshot import (P1 local files)</h3>
+      <div class="row">
+        <label class="file">Tables <input id="snapshotTables" type="file" accept=".bin,.cbor,application/octet-stream"></label>
+        <label class="file">Meta <input id="snapshotMeta" type="file" accept=".json,application/json"></label>
+        <label class="file">Manifest <input id="snapshotManifest" type="file" accept=".json,application/json"></label>
+      </div>
+      <div class="row">
+        <label>Snapshot slot <input id="snapshotSlot" type="number" min="1" step="1" placeholder="slot"></label>
+        <button id="snapshotImport" type="button" class="btn">Import snapshot</button>
+      </div>
+      <div class="row">
+        <label>Gerolamo ledger base <input id="snapshotPeerUrl" type="url" placeholder="http://127.0.0.1:3030/api/v0/gerolamo/ledger" style="width:100%"></label>
+        <button id="snapshotFetch" type="button" class="btn">Fetch from peer</button>
+      </div>
+      <p id="snapshot-msg" class="small" role="status"></p>
       <div class="row">
         <button type="submit" class="btn primary">Save and restart</button>
         <button id="wipe" type="button" class="btn danger">Wipe stored chain</button>

@@ -19,6 +19,7 @@ export type ToBackground =
     | { to: "background"; type: "submit-tx"; cbor: string }
     | { to: "background"; type: "query"; path: string }
     | { to: "background"; type: "wipe-store" }
+    | { to: "background"; type: "import-snapshot"; network: string; slot: number }
     | { to: "background"; type: "offscreen-ready" }
     | { to: "background"; type: "stats"; stats: unknown }
     | { to: "background"; type: "log"; lines: string[] }
@@ -31,7 +32,8 @@ export type ToOffscreen =
     | { to: "offscreen"; type: "apply-settings"; settings: Settings }
     | { to: "offscreen"; type: "submit-tx"; cbor: string }
     | { to: "offscreen"; type: "query"; path: string }
-    | { to: "offscreen"; type: "wipe-store" };
+    | { to: "offscreen"; type: "wipe-store" }
+    | { to: "offscreen"; type: "import-snapshot"; network: string; slot: number };
 
 export type Reply<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -104,6 +106,9 @@ export class BackgroundHub {
                 case "wipe-store":
                     await this.deps.ensureOffscreen();
                     return await this.forward({ to: "offscreen", type: "wipe-store" });
+                case "import-snapshot":
+                    await this.deps.ensureOffscreen();
+                    return await this.forward({ to: "offscreen", type: "import-snapshot", network: msg.network, slot: msg.slot });
                 case "offscreen-ready":
                     return { ok: true, settings: await loadSettings(this.deps.storage) };
                 case "stats":

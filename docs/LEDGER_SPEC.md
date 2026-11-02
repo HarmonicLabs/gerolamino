@@ -1,6 +1,6 @@
 # Gerolamino local ledger (implemented P0, 2026-10-29)
 
-Status: P0 implemented and proven; P1 snapshot import and local compaction implemented 2026-10-30 (local files, streaming decoder, signed ancillary manifest check, full preview count 3,169,305 entries). The aggregator download/UI is the remaining P1 wiring. This closes the local ledger part of
+Status: P0 implemented and proven; P1 snapshot import and local compaction implemented 2026-10-30 (local files, streaming decoder, signed ancillary manifest check, full preview count 3,169,305 entries), with the extension local-file UI and a Gerolamo peer raw-file endpoint wired. The aggregator archive fallback is the remaining P1 wiring. This closes the local ledger part of
 Milestone 4 ("Browser adaptation and light node on the browser"): Gerolamino verifies and stores blocks, and now
 maintains its own UTxO projection in OPFS instead of taking UTxO from a Gerolamo peer.
 
@@ -93,7 +93,7 @@ gerolamino/<network>/ledger/
 Snapshot import (P1, implemented for local files): verify the signed `ancillary_manifest.json` (Gerolamino's 64-bit SHA-256 of
 `tables`/`meta`, network ancillary Ed25519 key), stream-decode entries with the MemPack decoder, build the
 UTxO-only base snapshot (`historyComplete: false`), install it under the ledger dir, then apply blocks from the
-snapshot slot onward. The aggregator/peer download and the UI switch are the remaining P1 wiring. A tampered
+snapshot slot onward. The extension has a local-file picker and a Gerolamo peer fetch (`/gerolamo/ledger/{slot}/tables` and `/meta`); an aggregator archive fallback is still missing. A tampered
 manifest or table fails before any ledger state is written.
 
 ## Block application (P0 UTxO projection, implemented)
@@ -185,7 +185,7 @@ blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledge
 | Phase | Work | Coverage |
 |---|---|---|
 | P0 | UTxO projection, diff log, resume/rollback, tx-scoped local answers | verified-start |
-| P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot | implemented for local files; aggregator/UI wiring next |
+| P1 | Mithril `tables` snapshot import + MemPack decoder + compaction | snapshot | local files, peer raw files and extension UI done; aggregator archive fallback next |
 | P2 | full ledger rules: fees/deposits, stake, governance, epoch rewards | snapshot/genesis |
 | P3 | optional consensus validation parity (phase-2 scripts), proofs for local answers | full |
 
@@ -197,7 +197,7 @@ history before a snapshot base is installed and blocks after it are applied.
 
 1. Milestone wording: `verified-start` coverage plus explicit coverage metadata closes "update the local
    ledger state"; the reviewer sees local UTxO answers and their start slot.
-2. Snapshot source for P1: local files implemented with signed ancillary manifest verification; peer-first `tables` stream and aggregator fallback still recommended for the browser start mode.
+2. Snapshot source for P1: local files and the Gerolamo raw-file endpoint are implemented with signed ancillary manifest verification; the aggregator archive fallback (zstd/tar in the browser or a raw endpoint) still recommended.
 3. Memory budget: P0 keeps the full map in memory; the full preview scan uses ~4.2 GiB RSS with the `scanMithrilTables` row array, so plan streaming rows for the browser import.
 4. Failed transaction rule: exclude ordinary outputs of phase-2 invalid txs, collateral only; implemented.
 5. Local address answers under partial coverage: relay by default, genesis/snapshot coverage answers locally;

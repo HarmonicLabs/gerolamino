@@ -8,7 +8,7 @@ there is no Chrome Web Store listing in this repository.
 
 ## From a GitHub release
 
-Download `gerolamino-0.2.0-extension.zip` from the repository's Releases page, unzip it, and point
+Download `gerolamino-0.2.1-extension.zip` from the repository's Releases page, unzip it, and point
 **Load unpacked** at the folder with `manifest.json` in it. The release zip is the same unpacked build as
 `dist/`; it is not a signed Chrome Web Store package. Check the accompanying `SHA256SUMS` before loading.
 
@@ -21,6 +21,12 @@ extension writes them to `gerolamino/<network>/snapshot-source`, verifies `ancil
 builds the UTxO base and restarts the ledger from that slot. The **Fetch from aggregator** button selects the newest
 Mithril cardano-database snapshot and extracts `tables`/`meta`/manifest from its ancillary `.tar.zst` in the
 browser. The import is a UTxO-at-slot base, not full history.
+
+## Release state
+
+Current release: **0.2.1** (`gerolamino-0.2.1-extension.zip`, SHA-256
+`639969e691f14eefa1a1f4db81c0729741d7482b32374ae57b7e5796972e9ca0`). Release `0.2.0` remains available
+for the earlier build.
 
 ## 1. Before you start
 

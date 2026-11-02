@@ -160,6 +160,7 @@ All live runs were against Gerolamo's preview relay, `ws://192.168.1.173:3004/n2
 | Smoke, Mithril start | 325 certificates verified to genesis, 87 165 digests reproduce the certified Merkle root, then 552 / 552 headers |
 | Chrome for Testing 155, headless | verified blocks in OPFS after 2.8 s; offscreen document closed and recreated, resumed from the stored tip; popup refuses a malformed transaction |
 | Brave e2e, chunk start, ledger P0 | 26 ledger blocks, 33 UTxO, coverage 126614888; `/txs/{hash}/utxos` and `/utxo/{ref}` local with coverage; resume after reopen 38 ledger blocks, digest preserved, PASS (2026-10-29) |
+| Brave e2e, chunk start, CEK build | 36/36 headers (crypto + leader OK), 35 ledger blocks, 98 UTxO, coverage 126973467; offscreen recreate resumed at 126974629 (40 blocks); popup 44 blocks/105 UTxO; local tx/UTxO plus relay query PASS (2026-11-02) |
 | Mithril cross-check against Gerolamo's verifier | 1 757 cases, all agree, including tampered certificates (flipped signature, key, stake, message, previous hash) |
 | Mithril chain walk | cold 47–51 s (network-bound, one certificate at a time); warm certificate cache 7–8 s; verification alone 5–7 s for 325 certificates |
 

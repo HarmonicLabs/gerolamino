@@ -972,6 +972,9 @@ the extension and get <code>source: &quot;local&quot;</code> plus coverage; quer
 <p>2026-10-29 e2e evidence (Brave, <code>--start chunk --relay ws://192.168.1.173:3004/n2n</code>): first phase 26 ledger
 blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledger blocks after reopen, digest
 <code>7efbc563...</code>; <code>/txs/26da193d.../utxos</code> local with coverage tip 126615857; <code>/utxo/26da193d...:0</code> local; PASS.</p>
+<p>2026-11-02 e2e evidence (Brave, same <code>.173</code> relay, CEK build): 36 headers verified (crypto 36/0, leader 36/0,
+bodies 36/0), 35 ledger blocks, 98 UTxO, coverage 126973467; offscreen recreate resumed at 126974629 with 40
+blocks; popup 44 blocks/105 UTxO; local tx/UTxO and relay query PASS.</p>
 <h2>Phases</h2>
 <table>
 <thead>
@@ -1294,6 +1297,7 @@ on a second site).</p>
 <tr><td>Smoke, Mithril start</td><td>325 certificates verified to genesis, 87 165 digests reproduce the certified Merkle root, then 552 / 552 headers</td></tr>
 <tr><td>Chrome for Testing 155, headless</td><td>verified blocks in OPFS after 2.8 s; offscreen document closed and recreated, resumed from the stored tip; popup refuses a malformed transaction</td></tr>
 <tr><td>Brave e2e, chunk start, ledger P0</td><td>26 ledger blocks, 33 UTxO, coverage 126614888; <code>/txs/{hash}/utxos</code> and <code>/utxo/{ref}</code> local with coverage; resume after reopen 38 ledger blocks, digest preserved, PASS (2026-10-29)</td></tr>
+<tr><td>Brave e2e, chunk start, CEK build</td><td>36/36 headers (crypto + leader OK), 35 ledger blocks, 98 UTxO, coverage 126973467; offscreen recreate resumed at 126974629 (40 blocks); popup 44 blocks/105 UTxO; local tx/UTxO plus relay query PASS (2026-11-02)</td></tr>
 <tr><td>Mithril cross-check against Gerolamo's verifier</td><td>1 757 cases, all agree, including tampered certificates (flipped signature, key, stake, message, previous hash)</td></tr>
 <tr><td>Mithril chain walk</td><td>cold 47–51 s (network-bound, one certificate at a time); warm certificate cache 7–8 s; verification alone 5–7 s for 325 certificates</td></tr>
 </tbody>
@@ -1457,16 +1461,12 @@ bun scripts/ledger-smoke.ts --seconds 8 --start chunk --relay ws://192.168.1.173
 </code></pre>
 <p>Brave end-to-end (<code>bun scripts/e2e-chrome.ts --chrome /opt/brave.com/brave/brave --no-build --start chunk --relay ws://192.168.1.173:3004/n2n --screenshot ...</code>): PASS.</p>
 <ul>
-<li>First phase wrote OPFS chunk files and ledger diffs; popup Storage showed the ledger row.</li>
-<li><code>/txs/7abbb2c6.../utxos</code> returned <code>source: &quot;local&quot;</code>, status 200, 4 outputs, coverage
-<code>{ startSlot: 126619215, kind: &quot;verified-start&quot;, tipSlot: 126620501 }</code>; <code>/utxo/7abbb2c6...:0</code> returned
-<code>source: &quot;local&quot;</code>.</li>
-<li>Offscreen document closed and recreated: ledger resumed (40 blocks, digest preserved, <code>ledgerStale: false</code>),
-chain resumed at the stored tip (40 stored after reopen vs 30 before), popup row read
-<code>37 blocks · 66 UTxO · from slot 126,619,215</code>.</li>
-<li>Screenshots (profile scratch, not committed):
-<code>popup.png</code>, <code>panel.png</code>, <code>tab.png</code>; the e2e popup probe read <code>37 blocks · 66 UTxO · from slot 126,619,215</code>
-(the run's own sync point; vision tools were unavailable, so the e2e gate is the textual proof).</li>
+<li>2026-11-02 (CEK build, <code>.173</code> relay): first phase 36 headers verified (crypto 36/0, leader 36/0, bodies
+36/0), 35 ledger blocks, 98 UTxO, coverage <code>{ startSlot: 126973467, kind: &quot;verified-start&quot;, tipSlot: 126974534 }</code>; offscreen document closed and recreated: resumed at slot 126974629 with 40 ledger blocks and
+the digest preserved, popup read <code>44 blocks · 105 UTxO · from slot 126,973,467</code>.</li>
+<li>The run's local <code>/txs/{hash}/utxos</code> and <code>/utxo/{hash}:1</code> answered <code>source: &quot;local&quot;</code>; the relay query answered
+200; popup refused a malformed transaction. Screenshots (profile scratch, not committed): <code>popup.png</code>,
+<code>panel.png</code>, <code>tab.png</code>.</li>
 </ul>
 <h2>What the reviewer sees</h2>
 <ul>

@@ -60,16 +60,13 @@ bun scripts/ledger-smoke.ts --seconds 8 --start chunk --relay ws://192.168.1.173
 Brave end-to-end (`bun scripts/e2e-chrome.ts --chrome /opt/brave.com/brave/brave --no-build --start chunk
 --relay ws://192.168.1.173:3004/n2n --screenshot ...`): PASS.
 
-- First phase wrote OPFS chunk files and ledger diffs; popup Storage showed the ledger row.
-- `/txs/7abbb2c6.../utxos` returned `source: "local"`, status 200, 4 outputs, coverage
-  `{ startSlot: 126619215, kind: "verified-start", tipSlot: 126620501 }`; `/utxo/7abbb2c6...:0` returned
-  `source: "local"`.
-- Offscreen document closed and recreated: ledger resumed (40 blocks, digest preserved, `ledgerStale: false`),
-  chain resumed at the stored tip (40 stored after reopen vs 30 before), popup row read
-  `37 blocks · 66 UTxO · from slot 126,619,215`.
-- Screenshots (profile scratch, not committed):
-  `popup.png`, `panel.png`, `tab.png`; the e2e popup probe read `37 blocks · 66 UTxO · from slot 126,619,215`
-  (the run's own sync point; vision tools were unavailable, so the e2e gate is the textual proof).
+- 2026-11-02 (CEK build, `.173` relay): first phase 36 headers verified (crypto 36/0, leader 36/0, bodies
+  36/0), 35 ledger blocks, 98 UTxO, coverage `{ startSlot: 126973467, kind: "verified-start", tipSlot:
+  126974534 }`; offscreen document closed and recreated: resumed at slot 126974629 with 40 ledger blocks and
+  the digest preserved, popup read `44 blocks · 105 UTxO · from slot 126,973,467`.
+- The run's local `/txs/{hash}/utxos` and `/utxo/{hash}:1` answered `source: "local"`; the relay query answered
+  200; popup refused a malformed transaction. Screenshots (profile scratch, not committed): `popup.png`,
+  `panel.png`, `tab.png`.
 
 ## What the reviewer sees
 

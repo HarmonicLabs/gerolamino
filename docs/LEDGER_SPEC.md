@@ -185,6 +185,10 @@ Live (Brave e2e, Gerolamo preview relay):
 blocks, 41 created, 32 spent, 33 UTxO, coverage start 126614888; resume 38 ledger blocks after reopen, digest
 `7efbc563...`; `/txs/26da193d.../utxos` local with coverage tip 126615857; `/utxo/26da193d...:0` local; PASS.
 
+2026-11-02 e2e evidence (Brave, same `.173` relay, CEK build): 36 headers verified (crypto 36/0, leader 36/0,
+bodies 36/0), 35 ledger blocks, 98 UTxO, coverage 126973467; offscreen recreate resumed at 126974629 with 40
+blocks; popup 44 blocks/105 UTxO; local tx/UTxO and relay query PASS.
+
 ## Phases
 
 | Phase | Work | Coverage |

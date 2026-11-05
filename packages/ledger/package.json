@@ -12,7 +12,7 @@
     "type-check": "tsgo --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@harmoniclabs/crypto": "^0.3.0",
+    "@harmoniclabs/crypto": "^0.3.1",
     "codecs": "workspace:*",
     "es-toolkit": "^1.46.1",
     "wasm-utils": "workspace:*"

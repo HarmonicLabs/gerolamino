@@ -138,7 +138,7 @@
     "packages/ledger": {
       "name": "ledger",
       "dependencies": {
-        "@harmoniclabs/crypto": "^0.3.0",
+        "@harmoniclabs/crypto": "^0.3.1",
         "codecs": "workspace:*",
         "es-toolkit": "^1.46.1",
         "wasm-utils": "workspace:*",
@@ -148,9 +148,9 @@
       "name": "miniprotocols",
       "version": "0.0.5-dev7",
       "dependencies": {
-        "@harmoniclabs/cbor": "^2.0.1",
+        "@harmoniclabs/cbor": "^2.1.0",
         "@harmoniclabs/obj-utils": "^1.0.0",
-        "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.5-dev7",
+        "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.6-dev0",
         "@harmoniclabs/uint8array-utils": "^1.0.4",
         "codecs": "workspace:*",
         "es-toolkit": "^1.46.1",
@@ -179,7 +179,6 @@
     },
   },
   "overrides": {
-    "//": "Defense-in-depth against the Shai-Hulud (2025-09-16), Shai-Hulud 2.0 (2025-11-24), and Mini Shai-Hulud (2026-05-12) npm supply-chain waves. Each pin floors at the first SAFE version following the corresponding compromise. Audit verified clean — none of these packages was resolved to a bad version, but pinning prevents a future indirect dep from re-introducing one. Update only when the upstream releases a new patch >= these floors.",
     "ansi-regex": ">=6.2.2",
     "ansi-styles": ">=6.2.3",
     "backslash": ">=0.2.2",
@@ -388,15 +387,13 @@
 
     "@harmoniclabs/bitstream": ["@harmoniclabs/bitstream@1.0.0", "", { "dependencies": { "@harmoniclabs/uint8array-utils": "^1.0.0" } }, "sha512-Ed/I46IuCiytE5QiMmmUo9kPJcypM7OuUqoRaAXUALL5C6LKLpT6kYE1qeuhLkx2/WvkHT18jcOX6jhM/nmqoA=="],
 
-    "@harmoniclabs/bytestring": ["@harmoniclabs/bytestring@1.0.0", "", { "dependencies": { "@harmoniclabs/uint8array-utils": "^1.0.0" } }, "sha512-d5m10O0okKc6QNX0pSRriFTkk/kNMnMBGbo5X3kEZwKaXTI4tDVoTZBL7bwbYHwOEdSxWJjVtlO9xtB7ZrYZNg=="],
+    "@harmoniclabs/cbor": ["@harmoniclabs/cbor@2.1.0", "", { "dependencies": { "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-XmMrpHIEAXjRbWUM/E/xlFTIaa6/Z0yJNj8I7bZXC+8lZPnWy160iOoKnFTgOYPLSMknytvLxbgwztRyVUIstQ=="],
 
-    "@harmoniclabs/cbor": ["@harmoniclabs/cbor@2.0.1", "", { "dependencies": { "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-pUtDFokDa0GfxWxYLeFev5PuFqAb1SHpQYbekApSdxzS3lbMiyrdFAsrPCl0EEpLpEey3hyAxYDLMeJHxA+miQ=="],
-
-    "@harmoniclabs/crypto": ["@harmoniclabs/crypto@0.3.0", "", { "dependencies": { "@harmoniclabs/bitstream": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3" } }, "sha512-UvmGQOLFVFhRIDYLpcWbPQLXl9advCt0h02Z/BtBuXtHiy35WRxKQ3njcUKI0v6zGITuvqQhsf6VOPMeekLdeA=="],
+    "@harmoniclabs/crypto": ["@harmoniclabs/crypto@0.3.1", "", { "dependencies": { "@harmoniclabs/bitstream": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3" } }, "sha512-KA9KgI+2c+9KddAU0A5mTAC/O94J25IwvU6z6wzvgIZMYY5f4VxWLvPWA6aRpAe9pO7hOC9s5hu1FzZWxJkZ5A=="],
 
     "@harmoniclabs/obj-utils": ["@harmoniclabs/obj-utils@1.0.0", "", {}, "sha512-EO1bQBZAORrutcP+leP5YNDwNd/9TOE23VEvs3ktniXg6w0knUrLjUIl2Pkcbs/D1VQxqmsNpXho+vaMj00qxA=="],
 
-    "@harmoniclabs/ouroboros-miniprotocols-ts": ["@harmoniclabs/ouroboros-miniprotocols-ts@0.0.5-dev7", "", { "dependencies": { "@harmoniclabs/cbor": "^1.6.5", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3", "@types/node": "^20.1.7" } }, "sha512-6Hf0+b9+PXkHCyVxfhtnyjtiH6eX6oVDkZ0Vzj21ZcCSGgr/RLMaphZaYUYXpAX9Izj4Z2st6jpU270OzTllTQ=="],
+    "@harmoniclabs/ouroboros-miniprotocols-ts": ["@harmoniclabs/ouroboros-miniprotocols-ts@0.0.6-dev0", "", { "dependencies": { "@harmoniclabs/cbor": "^2.0.2", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3", "@types/node": "^20.1.7" } }, "sha512-78oqLDCD/rhb7QePf3iVKsl9RdmvMxMihTWjKHxJAT1MrGdufG4akzz5hR0EvZSwnJ1TasuzUKBeK35R8mPRqA=="],
 
     "@harmoniclabs/uint8array-utils": ["@harmoniclabs/uint8array-utils@1.0.4", "", {}, "sha512-Z454prSbX4geXGHyjjcn9vm6u9NsD3VJykv8f8yE1VjIXSPitaLPEnm8u2+B+GMp1chYlLilOq+kW4OvJ6y28A=="],
 
@@ -1553,8 +1550,6 @@
     "@corvu/popover/@corvu/utils": ["@corvu/utils@0.3.2", "", { "dependencies": { "@floating-ui/dom": "^1.6.7" }, "peerDependencies": { "solid-js": "^1.8" } }, "sha512-ZWlyWEE8qV9+CB9OAyo2bTrZGXQN9ZeM+JfYv89zoR+lRACKTDuoOZEdiyL8Uc7U5dUSH1uTqKhTTnaHWb+wZA=="],
 
     "@corvu/tooltip/solid-presence": ["solid-presence@0.2.0", "", { "dependencies": { "@corvu/utils": "~0.4.2" }, "peerDependencies": { "solid-js": "^1.8" } }, "sha512-YM92o+jvpzX3XGaD4rLYmq/Kc2ZVh47GSCLEufHBFQQIurvZTs8SoGJxO8BJGNDxBKdcS8F3dYhW1SDXp4BNjA=="],
-
-    "@harmoniclabs/ouroboros-miniprotocols-ts/@harmoniclabs/cbor": ["@harmoniclabs/cbor@1.6.6", "", { "dependencies": { "@harmoniclabs/bytestring": "^1.0.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3" } }, "sha512-nOcts7PhkKCbqPKwP3/IsIQACwJvqchpT88cwvKspB+oR09YfB1LC1NrUTsFg1DusLRydVsOwR07KgYTF5uNOA=="],
 
     "@pnpm/network.ca-file/graceful-fs": ["graceful-fs@4.2.10", "", {}, "sha512-9ByhssR2fPVsNZj478qUUbKfmL0+t5BDVyjShtyZZLiK7ZDAArFFfopyOTj0M05wE2tJPisA4iTnnXl2YoPvOA=="],
 

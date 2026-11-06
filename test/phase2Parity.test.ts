@@ -36,7 +36,7 @@ function loadJob(name: string): {
             ref,
             address: o.address?.toString?.() ?? "",
             value: unitsOf(o.value),
-            referenceScriptHash: rs ? toHex(rs.hash.toBuffer()) : null,
+            referenceScriptHash: rs ? toHex(rs.hash.toBytes()) : null,
             hasDatum: !!datum,
             datumHash: datumBytes && datumBytes.length === 32 ? toHex(datumBytes) : null,
             inlineDatumCbor: inline,

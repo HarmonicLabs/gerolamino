@@ -22,7 +22,7 @@ describe("P3 phase-2 real preview transaction", () => {
                 ref,
                 address: o.address?.toString?.() ?? "",
                 value: unitsOf(o.value),
-                referenceScriptHash: rs ? toHex(rs.hash.toBuffer()) : null,
+                referenceScriptHash: rs ? toHex(rs.hash.toBytes()) : null,
                 hasDatum: !!datum,
                 datumHash: datumBytes && datumBytes.length === 32 ? toHex(datumBytes) : null,
                 inlineDatumCbor: inline,

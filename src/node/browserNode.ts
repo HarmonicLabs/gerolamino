@@ -29,7 +29,7 @@ import {
     Multiplexer,
 } from "@harmoniclabs/ouroboros-miniprotocols-ts";
 import { fromHex, toHex } from "@harmoniclabs/uint8array-utils";
-import { arrayElements, bytesAt, uintAt } from "./cbor";
+import { arrayElements, bytesAt, countAt, uintAt } from "./cbor";
 import { decodePrimary, decodeSecondaryEntry, filledRelativeSlots, SECONDARY_ENTRY_SIZE } from "./chunkFormat";
 import { ChunkWriter, type FileSink } from "./chunkWriter";
 import { VolatileStore } from "./volatileStore";
@@ -228,6 +228,16 @@ export function bodyHashOf(block: Uint8Array): { hash: string; eraTag: number; t
     const outer = arrayElements(block, 0);
     const eraTag = Number(uintAt(block, outer[0]!.start));
     const parts = arrayElements(block, outer[1]!.start);
+    if (eraTag >= 8) {
+        // Dijkstra block: [header, block_body([transactions, leios, peras])]; block_body_hash is
+        // blake2b-256 over the block_body item itself (Gerolamo bodyHash.ts, era 8).
+        const bodyRange = parts[1]!;
+        const hash = hex(blake2b_256(block.subarray(bodyRange.start, bodyRange.end)));
+        const size = bodyRange.end - bodyRange.start;
+        const txRange = arrayElements(block, bodyRange.start)[0]!;
+        const txs = countAt(block, txRange.start);
+        return { hash, eraTag, txs, size };
+    }
     const seg = (i: number) => block.subarray(parts[i]!.start, parts[i]!.end);
     const segs = [seg(1), seg(2), seg(3)];
     if (eraTag >= 5 && parts.length > 4) segs.push(seg(4)); // Alonzo+: invalid transactions

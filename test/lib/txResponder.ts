@@ -16,7 +16,7 @@ export class TestTxResponder {
     constructor(private readonly window = 5) {}
 
     private requestIds(ack: number): Uint8Array {
-        return Cbor.encode(new CborArray([new CborUInt(0), new CborSimple(true), new CborUInt(ack), new CborUInt(this.window)])).toBuffer();
+        return Cbor.encode(new CborArray([new CborUInt(0), new CborSimple(true), new CborUInt(ack), new CborUInt(this.window)]));
     }
 
     receive(bytes: Uint8Array): Uint8Array[] {
@@ -35,7 +35,7 @@ export class TestTxResponder {
                 const want = ids.filter((id) => !this.mempool.has(id));
                 if (want.length) {
                     this.fetching = want;
-                    out.push(Cbor.encode(new CborArray([new CborUInt(2), new CborArray(want.map((id) => new CborArray([new CborUInt(6), new CborBytes(Uint8Array.from(id.match(/../g)!, (h) => parseInt(h, 16)))])), { indefinite: true })])).toBuffer());
+                    out.push(Cbor.encode(new CborArray([new CborUInt(2), new CborArray(want.map((id) => new CborArray([new CborUInt(6), new CborBytes(Uint8Array.from(id.match(/../g)!, (h) => parseInt(h, 16)))])), { indefinite: true })])));
                 } else out.push(this.ack());
             } else if (tag === 3) {
                 for (const t of (m.array[1] as CborArray).array as CborObj[]) {

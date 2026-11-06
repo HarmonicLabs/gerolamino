@@ -20,7 +20,7 @@ function fakeRelay(opts: { split?: boolean; silent?: boolean } = {}) {
             else if (tag === 2) reply = new CborArray([new CborUInt(3), q[1]!, new CborUInt(1_000_000n), new CborUInt(50_000_000n), new CborUInt(1), new CborUInt(20)]);
             else if (tag === 6) reply = new CborArray([new CborUInt(7), q[1]!, new CborBytes(new Uint8Array(3000).fill(1)), new CborBytes(new Uint8Array([1, 0, 0, 0, 0])), new CborBytes(new Uint8Array())]);
             else reply = new CborArray([new CborUInt(255)]);
-            const out = Cbor.encode(reply).toBuffer();
+            const out = Cbor.encode(reply);
             queueMicrotask(() => {
                 if (opts.split && out.length > 10) { deliver?.(out.subarray(0, 7)); deliver?.(out.subarray(7)); }
                 else deliver?.(out);

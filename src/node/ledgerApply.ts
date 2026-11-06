@@ -6,7 +6,7 @@
  * governance effects stay out (P2); this is a light-node projection, not consensus validation.
  */
 import { Cbor, CborArray, CborBytes, CborMap, CborObj, CborTag, CborUInt } from "@harmoniclabs/cbor";
-import { blake2b_224 } from "@harmoniclabs/crypto";
+import { blake2b_224, blake2b_256 } from "@harmoniclabs/crypto";
 import { MultiEraBlock } from "@harmoniclabs/cardano-ledger-ts";
 import { toHex } from "@harmoniclabs/uint8array-utils";
 
@@ -79,7 +79,7 @@ function scriptHashOfWrapped(wrapped: Uint8Array): string | null {
         const lang = Number((arr.array[0] as CborUInt).num);
         const body = arr.array[1];
         if (!body) return null;
-        const scriptBytes = lang === 0 ? Cbor.encode(body).toBuffer() : body instanceof CborBytes ? body.bytes : null;
+        const scriptBytes = lang === 0 ? Cbor.encode(body) : body instanceof CborBytes ? body.bytes : null;
         if (!scriptBytes) return null;
         const pre = new Uint8Array(1 + scriptBytes.length);
         pre[0] = lang;
@@ -244,7 +244,9 @@ export function ledgerDiffFromBlock(bytes: Uint8Array, slot: number, hash: strin
     const m = MultiEraBlock.fromCbor(bytes);
     const block: any = m.block;
     const bodies: any[] = Array.isArray(block?.transactionBodies) ? block.transactionBodies : [];
-    if (bodies.length === 0) return { format: 1, slot, hash, txs: 0, invalidTx: [], created: [], spent: [], unknownInputs: [] };
+    const eraTag = Number(m.era ?? block?.era ?? 0);
+    if (eraTag >= 8) return dijkstraLedgerDiff(block, bodies, slot, hash);
+    if (bodies.length === 0) return { format: 1, slot, hash, txs: 0, invalidTx: [], created: [], spent: [], unknownInputs: [], p2: freshP2() };
     const invalid = new Set<number>(((block?.invalidTransactions ?? []) as Array<number | bigint>).map((i) => Number(i)));
     const diff: LedgerBlockDiff = { format: 1, slot, hash, txs: bodies.length, invalidTx: [...invalid], created: [], spent: [], unknownInputs: [], p2: freshP2() };
     const seenSpent = new Set<string>();
@@ -260,5 +262,66 @@ export function ledgerDiffFromBlock(bytes: Uint8Array, slot: number, hash: strin
         for (const ref of inputRefs(body.inputs ?? [])) if (!seenSpent.has(ref)) { seenSpent.add(ref); diff.spent.push(ref); }
         (body.outputs ?? []).forEach((o: any, i: number) => diff.created.push(outFromTxOut(txHash, i, o, slot)));
     });
+    return diff;
+}
+
+/** Blake2b-256 of a Dijkstra (sub-)transaction body's original bytes, as its transaction id. */
+function dijkstraBodyHash(body: any): string {
+    const h = String(body?.hash?.toString?.() ?? "").toLowerCase();
+    if (/^[0-9a-f]{64}$/.test(h)) return h;
+    const bytes = body?.cborRef?.toBuffer?.() ?? body?.toCborBytes?.() ?? null;
+    if (!bytes) throw new Error("Dijkstra body bytes unavailable");
+    return toHex(blake2b_256(bytes));
+}
+
+/** P2 deltas of one Dijkstra body, including its sub-transactions (which carry no fee). */
+function dijkstraP2Delta(tx: any, valid: boolean): LedgerP2Diff {
+    const body = tx?.body ?? tx;
+    const p2 = p2DeltaOfBody(body, !valid);
+    for (const sub of typeList(body?.subTransactions)) {
+        const sb = sub?.body ?? sub;
+        const d = p2DeltaOfBody(sb, false);
+        p2.fees = (BigInt(p2.fees) + BigInt(d.fees)).toString();
+        p2.deposits = (BigInt(p2.deposits) + BigInt(d.deposits)).toString();
+        p2.withdrawals = (BigInt(p2.withdrawals) + BigInt(d.withdrawals)).toString();
+        p2.treasury = (BigInt(p2.treasury) + BigInt(d.treasury)).toString();
+        p2.donation = (BigInt(p2.donation) + BigInt(d.donation)).toString();
+        p2.minted.push(...d.minted);
+        p2.stakeRegistered.push(...d.stakeRegistered); p2.stakeUnregistered.push(...d.stakeUnregistered);
+        p2.stakeDelegations.push(...d.stakeDelegations); p2.poolRegistrations.push(...d.poolRegistrations);
+        p2.poolRetirements.push(...d.poolRetirements); p2.governanceDeposits.push(...d.governanceDeposits);
+    }
+    for (const b of [body, ...typeList(body?.subTransactions).map((s: any) => s?.body ?? s)]) {
+        for (const w of typeList(b?.directDeposits)) p2.deposits = (BigInt(p2.deposits) + BigInt(bigStr(w?.amount ?? w))).toString();
+    }
+    return p2;
+}
+
+/** UTxO and P2 effects of a Dijkstra block: top-level transactions plus their sub-transactions. */
+function dijkstraLedgerDiff(block: any, bodies: any[], slot: number, hash: string): LedgerBlockDiff {
+    const txs = Array.isArray(block?.transactions) ? block.transactions as any[] : [];
+    const diff: LedgerBlockDiff = { format: 1, slot, hash, txs: txs.length, invalidTx: [], created: [], spent: [], unknownInputs: [], p2: freshP2() };
+    const seenSpent = new Set<string>();
+    for (const [txIndex, tx] of txs.entries()) {
+        const body = tx?.body ?? bodies[txIndex];
+        if (!body) continue;
+        const valid = tx?.isScriptValid !== false;
+        if (!valid) diff.invalidTx.push(txIndex);
+        diff.p2 = mergeP2(diff.p2 ?? freshP2(), dijkstraP2Delta(tx, valid));
+        const topHash = dijkstraBodyHash(body);
+        if (!valid) {
+            for (const ref of inputRefs(body.collateralInputs ?? [])) if (!seenSpent.has(ref)) { seenSpent.add(ref); diff.spent.push(ref); }
+            if (body.collateralReturn) diff.created.push(outFromTxOut(topHash, (body.outputs ?? []).length, body.collateralReturn, slot));
+            continue;
+        }
+        for (const sub of typeList(body.subTransactions)) {
+            const sb = sub?.body ?? sub;
+            const subHash = dijkstraBodyHash(sb);
+            for (const ref of inputRefs(sb.inputs ?? [])) if (!seenSpent.has(ref)) { seenSpent.add(ref); diff.spent.push(ref); }
+            (sb.outputs ?? []).forEach((o: any, i: number) => diff.created.push(outFromTxOut(subHash, i, o, slot)));
+        }
+        for (const ref of inputRefs(body.inputs ?? [])) if (!seenSpent.has(ref)) { seenSpent.add(ref); diff.spent.push(ref); }
+        (body.outputs ?? []).forEach((o: any, i: number) => diff.created.push(outFromTxOut(topHash, i, o, slot)));
+    }
     return diff;
 }

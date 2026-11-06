@@ -94,7 +94,7 @@ export class LightQueryClient {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => { const i = this.queue.findIndex((q) => q.timer === timer); if (i >= 0) this.queue.splice(i, 1); reject(new Error("light query timed out")); }, timeoutMs);
             this.queue.push({ resolve, reject, timer });
-            this.mux.send(Cbor.encode(msg).toBuffer(), { protocol: LIGHT_QUERY_PROTOCOL as any, hasAgency: true });
+            this.mux.send(Cbor.encode(msg), { protocol: LIGHT_QUERY_PROTOCOL as any, hasAgency: true });
         });
     }
 

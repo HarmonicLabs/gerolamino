@@ -23,7 +23,7 @@ export interface PlutusVerdict {
 
 export interface PlutusEvalOpts {
     format?: "flat" | "cbor";
-    lang?: 1 | 2 | 3;
+    lang?: 1 | 2 | 3 | 4;
     pv?: number;
     /** The epoch's cost-model list for the language (ParamName order); defaults when absent. */
     costValues?: ReadonlyArray<number | bigint | string>;
@@ -34,7 +34,7 @@ export interface PlutusEvalOpts {
 
 const INT64_MAX = 9223372036854775807n;
 
-function defaultValues(lang: 1 | 2 | 3): Array<number | bigint> {
+function defaultValues(lang: 1 | 2 | 3 | 4): Array<number | bigint> {
     const names = lang === 1 ? PARAM_NAMES_V1 : lang === 2 ? PARAM_NAMES_V2 : PARAM_NAMES_V3;
     const model = lang === 1 ? defaultV1Costs : lang === 2 ? defaultV2Costs : defaultV3Costs;
     return names.map((n) => (model as any)[n] ?? INT64_MAX);
@@ -44,7 +44,7 @@ function defaultValues(lang: 1 | 2 | 3): Array<number | bigint> {
  * Build the ledger's cost model for one language from the epoch's `cost_models` list
  * (the same names and order the ledger uses). Exported for callers that want the raw model.
  */
-export function buildCostModel(lang: 1 | 2 | 3, values: ReadonlyArray<number | bigint | string>, pv = 9): any {
+export function buildCostModel(lang: 1 | 2 | 3 | 4, values: ReadonlyArray<number | bigint | string>, pv = 9): any {
     return { lang, values, pv };
 }
 
@@ -58,7 +58,7 @@ function unwrapFlat(bytes: Uint8Array): Uint8Array {
 export function evaluatePlutusScript(scriptBytes: Uint8Array, args: readonly any[] = [], opts: PlutusEvalOpts = {}): PlutusVerdict {
     try {
         if (scriptBytes.length === 0) return { ok: false, error: "empty script" };
-        const lang = (opts.lang ?? 3) as 1 | 2 | 3;
+        const lang = (opts.lang ?? 3) as 1 | 2 | 3 | 4;
         const pv = opts.pv ?? 10;
         const flat = opts.format === "cbor" ? unwrapFlat(scriptBytes) : scriptBytes;
         const prog = decodeProgram(flat, lang, pv);

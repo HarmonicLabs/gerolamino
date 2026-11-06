@@ -71,9 +71,9 @@ function unwrapFlat(bytes: Uint8Array): Uint8Array {
     return bytes;
 }
 
-function argumentsFor(ctx: TxContext, p: Purpose, r: Redeemer, lang: 1 | 2 | 3): any[] {
+function argumentsFor(ctx: TxContext, p: Purpose, r: Redeemer, lang: 1 | 2 | 3 | 4): any[] {
     const info = ctx.txInfo(lang);
-    if (lang === 3) return [new DConstr(0n, [info, r.data, ctx.scriptInfoData(p)])];
+    if (lang >= 3) return [new DConstr(0n, [info, r.data, ctx.scriptInfoData(p)])];
     const sc = new DConstr(0n, [info, ctx.purposeData(p, lang)]);
     const args: any[] = [];
     if (p.tag === 0) {
@@ -86,7 +86,7 @@ function argumentsFor(ctx: TxContext, p: Purpose, r: Redeemer, lang: 1 | 2 | 3):
 }
 
 /** Cost-model list for a language from the epoch params (vanilla or script-data keyed). */
-function costValuesFor(input: Phase2Input, lang: 1 | 2 | 3): ReadonlyArray<number | bigint | string> | undefined {
+function costValuesFor(input: Phase2Input, lang: 1 | 2 | 3 | 4): ReadonlyArray<number | bigint | string> | undefined {
     const cm = input.params?.cost_models as Record<string, any> | undefined;
     if (!cm) return undefined;
     const values = cm[`PlutusV${lang}`] ?? cm[`PlutusScriptV${lang}`] ?? cm[String(lang)];
@@ -107,18 +107,18 @@ export function evaluatePhase2(input: Phase2Input): { ok: boolean; error: string
         const hash = ctx.scriptHashOf(p);
         if (!hash) { outcomes.push({ ok: false, error: `redeemer ${r.tag}:${r.index} is not script-locked` }); continue; }
         const script = findScript(ctx, hash, input.resolved);
-        if (!script || (script.lang !== 1 && script.lang !== 2 && script.lang !== 3)) {
+        if (!script) {
             outcomes.push({ ok: false, error: `script ${hash.slice(0, 12)}… not found` }); continue;
         }
         let args: any[];
-        try { args = argumentsFor(ctx, p, r, script.lang as 1 | 2 | 3); } catch (e) {
+        try { args = argumentsFor(ctx, p, r, script.lang); } catch (e) {
             outcomes.push({ ok: false, scriptHash: hash, language: script.lang, error: (e as Error).message }); continue;
         }
-        const costValues = costValuesFor(input, script.lang as 1 | 2 | 3);
+        const costValues = costValuesFor(input, script.lang);
         const declared = { mem: r.mem, cpu: r.cpu };
-        const applied = evaluatePlutusScript(unwrapFlat(script.bytes), args, { lang: script.lang as 1 | 2 | 3, pv: input.params?.pv ?? input.pv, costValues, declared });
+        const applied = evaluatePlutusScript(unwrapFlat(script.bytes), args, { lang: script.lang, pv: input.params?.pv ?? input.pv, costValues, declared });
         const budgetError = applied.ok && applied.budget && (applied.budget.mem > declared.mem || applied.budget.steps > declared.cpu) ? `budget exceeded: spent ${applied.budget.mem}/${applied.budget.steps}, declared ${declared.mem}/${declared.cpu}` : null;
-        const unitError = applied.ok && script.lang === 3 && applied.unit === false ? "a Plutus V3 script must return unit" : null;
+        const unitError = applied.ok && script.lang >= 3 && applied.unit === false ? "a Plutus V3/V4 script must return unit" : null;
         outcomes.push({ ...applied, ok: applied.ok && budgetError == null && unitError == null, error: applied.error ?? budgetError ?? unitError ?? undefined, scriptHash: hash, language: script.lang, redeemer: { tag: r.tag, index: r.index }, declared });
     }
     return { ok: outcomes.every((o) => o.ok), error: null, outcomes };

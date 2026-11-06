@@ -62,6 +62,24 @@ export function indexBlock(block: Uint8Array): IndexedBlock {
         ? (() => { const oc = arrayElements(block, hb[8]!.start); return { hotVkey: bytesAt(block, oc[0]!.start), counter: uintAt(block, oc[1]!.start) }; })()
         : { hotVkey: bytesAt(block, hb[9]!.start), counter: uintAt(block, hb[10]!.start) };
     const prevAt = hb[2]!.start;
+    if (eraTag >= 8) {
+        // Dijkstra block: [header, block_body([transaction, ...], leios, peras; transaction =
+        // [body, witnesses, auxiliary/nil, is_valid])]; the header body stays the 12-field Praos shape.
+        const bodyParts = arrayElements(block, parts[1]!.start);
+        const txRanges = arrayElements(block, bodyParts[0]!.start);
+        const txs = txRanges.map((r, i) => {
+            const tp = arrayElements(block, r.start);
+            const auxStart = tp[2]?.start;
+            const auxLen = auxStart != null && (block[auxStart]! >> 5) === 5 ? tp[2]!.end - tp[2]!.start : 0;
+            const valid = tp[3] == null || block[tp[3]!.start] === 0xf5;
+            return indexTx(block, tp[0]!, tp[1]!, auxLen, i, valid);
+        });
+        return {
+            hash: toHex(blake2b_256(header)), height: Number(uintAt(block, hb[0]!.start)), slot: Number(uintAt(block, hb[1]!.start)),
+            prevHash: block[prevAt] === 0xf6 ? null : toHex(bytesAt(block, prevAt)), size: block.length, eraTag,
+            issuerVkey: bytesAt(block, hb[3]!.start), vrfVkey: bytesAt(block, hb[4]!.start), opCert, txs,
+        };
+    }
     const bodies = arrayElements(block, parts[1]!.start);
     const wits = arrayElements(block, parts[2]!.start);
     const aux = new Map<number, number>(mapEntries(block, parts[3]!.start).map(({ k, v }) => [Number(uintAt(block, k.start)), v.end - v.start]));

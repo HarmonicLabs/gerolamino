@@ -8,8 +8,8 @@ import { TestTxResponder } from "./lib/txResponder";
 /** A transaction-shaped CBOR value `[body, witnesses, true, null]` with a distinct body per seed. */
 function sampleTx(seed: number): { id: string; bytes: Uint8Array } {
     const body = new CborMap([{ k: new CborUInt(0), v: new CborArray([new CborArray([new CborBytes(new Uint8Array(32).fill(seed)), new CborUInt(0)])]) }, { k: new CborUInt(2), v: new CborUInt(170_000 + seed) }]);
-    const bodyBytes = Cbor.encode(body).toBuffer();
-    const tx = Cbor.encode(new CborArray([body, new CborMap([]), new CborSimple(true), new CborSimple(null)])).toBuffer();
+    const bodyBytes = Cbor.encode(body);
+    const tx = Cbor.encode(new CborArray([body, new CborMap([]), new CborSimple(true), new CborSimple(null)]));
     return { id: toHex(blake2b_256(bodyBytes)), bytes: tx };
 }
 
@@ -31,7 +31,7 @@ describe("tx-submission client", () => {
     test("txIdOf is the blake2b-256 of the body bytes", () => {
         const a = sampleTx(3);
         expect(toHex(txIdOf(a.bytes))).toBe(a.id);
-        expect(() => txIdOf(Cbor.encode(new CborArray([new CborUInt(1)])).toBuffer())).toThrow();
+        expect(() => txIdOf(Cbor.encode(new CborArray([new CborUInt(1)])))).toThrow();
     });
 
     test("the relay's blocking request waits; a submitted tx is announced, fetched, accepted and acknowledged", async () => {

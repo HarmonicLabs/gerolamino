@@ -73,8 +73,8 @@ export function base64ToBytes(s: string): Uint8Array {
     return out;
 }
 
-function cborUInt(n: bigint | number): Uint8Array { return Cbor.encode(new CborUInt(BigInt(n))).toBuffer(); }
-function cborBytes(b: Uint8Array): Uint8Array { return Cbor.encode(new CborBytes(b)).toBuffer(); }
+function cborUInt(n: bigint | number): Uint8Array { return Cbor.encode(new CborUInt(BigInt(n))); }
+function cborBytes(b: Uint8Array): Uint8Array { return Cbor.encode(new CborBytes(b)); }
 
 /** Byron `KeyHash` of a 64-byte XPub, hex. */
 export function byronKeyHash(xpub: Uint8Array): string {

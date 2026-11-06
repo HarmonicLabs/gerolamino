@@ -319,7 +319,7 @@ export class TxContext {
     }
 
     // ── translation ──
-    private txOutRef(ref: [Uint8Array, bigint], lang: number): Data { return lang === 3 ? C(0, [B(ref[0]), I(ref[1])]) : C(0, [C(0, [B(ref[0])]), I(ref[1])]); }
+    private txOutRef(ref: [Uint8Array, bigint], lang: number): Data { return lang >= 3 ? C(0, [B(ref[0]), I(ref[1])]) : C(0, [C(0, [B(ref[0])]), I(ref[1])]); }
     private txOut(o: OutView, lang: number, source: string): Data | null {
         if (!o.raw) { if (this.era === 5 && lang === 1) return null; cerr(`ByronTxOutInContext (${source})`); }
         const addr = addressData(o.raw!)!;
@@ -398,7 +398,7 @@ export class TxContext {
 
     /** V3 `ScriptPurpose` / V1–V2 `ScriptPurpose` of a redeemer's item. */
     purposeData(p: Purpose, lang: number): Data {
-        if (lang === 3) {
+        if (lang >= 3) {
             switch (p.tag) {
                 case 0: return C(1, [this.txOutRef(p.ref, 3)]);
                 case 1: return C(0, [B(p.policy)]);
@@ -425,7 +425,7 @@ export class TxContext {
     }
 
     /** TxInfo for a language; throws ContextError when the transaction cannot be translated. */
-    txInfo(lang: 1 | 2 | 3): Data {
+    txInfo(lang: 1 | 2 | 3 | 4): Data {
         const hit = this.infoCache.get(lang);
         if (hit instanceof ContextError) throw hit;
         if (hit) return hit;
@@ -439,9 +439,9 @@ export class TxContext {
         }
     }
 
-    private buildTxInfo(lang: 1 | 2 | 3): Data {
+    private buildTxInfo(lang: 1 | 2 | 3 | 4): Data {
         const conway = this.era >= 7;
-        if (conway && lang !== 3) {
+        if (conway && lang !== 3 && lang !== 4) {
             if (this.voters.length) cerr("VotingProceduresFieldNotSupported");
             if (this.proposals.length) cerr("ProposalProceduresFieldNotSupported");
             const don = field(this.body, 22);
@@ -449,7 +449,7 @@ export class TxContext {
             if (field(this.body, 21)) cerr("CurrentTreasuryFieldNotSupported");
         }
         if (lang === 1 && this.era === 6 && this.refInputs.length) cerr("ReferenceInputsNotSupported");
-        if (lang === 3 && this.pv >= 11) {
+        if (lang >= 3 && this.pv >= 11) {
             const ins = new Set(this.inputs.map((r) => `${toHex(r[0])}:${r[1]}`));
             if (this.refInputs.some((r) => ins.has(`${toHex(r[0])}:${r[1]}`))) cerr("ReferenceInputsNotDisjointFromInputs");
         }
@@ -459,11 +459,11 @@ export class TxContext {
         const outputs = arr(field(this.body, 1)).map((o, i) => this.txOut(outOfCbor(o, scriptHashOf), lang, `output ${i}`)).filter((x): x is Data => x !== null);
         const fee = uintOf(field(this.body, 2));
         const mintAssets = multiAssetOf(field(this.body, 9));
-        const certs = lang === 3 ? this.certs.map((c) => this.txCertV3(c)) : this.certs.map((c) => this.dcert(c));
+        const certs = lang >= 3 ? this.certs.map((c) => this.txCertV3(c)) : this.certs.map((c) => this.dcert(c));
         const sigs = arr(field(this.body, 14)).map(bytesOf).sort(cmpBytes)
             .filter((x, i, all) => i === 0 || cmpBytes(x, all[i - 1]!) !== 0).map(B);
         const datums = [...this.datums.values()].sort((a, b) => cmpBytes(a.hash, b.hash));
-        const txId = lang === 3 ? B(this.txId) : C(0, [B(this.txId)]);
+        const txId = lang >= 3 ? B(this.txId) : C(0, [B(this.txId)]);
         if (lang === 1) {
             return C(0, [
                 L(inputs), L(outputs), valueData(fee, new Map()), valueData(0n, mintAssets), L(certs),

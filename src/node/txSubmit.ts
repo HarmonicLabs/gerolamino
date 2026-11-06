@@ -67,7 +67,7 @@ export class TxSubmitClient {
 
     list(): QueuedTx[] { return [...this.txs].map(([id, t]) => ({ id, size: t.bytes.length, state: t.state })); }
 
-    private send(m: CborObj): void { this.mux.send(Cbor.encode(m).toBuffer(), { protocol: MiniProtocol.TxSubmission, hasAgency: true }); }
+    private send(m: CborObj): void { this.mux.send(Cbor.encode(m), { protocol: MiniProtocol.TxSubmission, hasAgency: true }); }
 
     private receive(payload: Uint8Array): void {
         const bytes = this.pending ? concat(this.pending, payload) : payload;

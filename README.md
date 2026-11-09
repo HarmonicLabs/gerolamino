@@ -59,8 +59,13 @@ does not serve them.
 ## API for web pages (dApps)
 
 `window.cardano.gerolamino` follows CIP-30 conventions (`apiVersion` is the CIP-30 string `"1"`,
-`dappApiVersion` is Gerolamino's own `"0.1.0"`, `isWallet: false`). A page discovers it by sweeping
-`Object.keys(window.cardano)` (the namespace is not a list) and calling `isEnabled()`/`enable()`.
+`dappApiVersion` is Gerolamino's own dApp API revision, now `"0.2.0"`, `build` names the shipped artefact,
+`isWallet: false`). A page discovers it by sweeping `Object.keys(window.cardano)` (the namespace is not a
+list) and calling `isEnabled()`/`enable()`.
+
+Two additions matter for integrations: `getNetwork()` returns `"preview" | "preprod" | "mainnet"` because
+CIP-30's `getNetworkId()` cannot split preprod from preview, and `revoke()` drops this site's approval from
+the page, so "disconnect" no longer needs a trip to Settings.
 
 | Method | Returns |
 |---|---|

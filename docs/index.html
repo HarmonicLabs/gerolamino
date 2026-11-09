@@ -466,7 +466,7 @@ only for the mini-Blockfrost fallback.</p>
 reload. To start clean, use the popup's wipe action; it removes immutable chunks, volatile files and the local
 UTxO ledger for the selected network, then the node syncs again from the relay.</p>
 <h2>7. dApps and the Blockfrost adapter</h2>
-<p>A page sees <code>window.cardano.gerolamino</code> (<code>apiVersion: &quot;1&quot;</code>, <code>dappApiVersion: &quot;0.1.0&quot;</code>, <code>isWallet: false</code>).
+<p>A page sees <code>window.cardano.gerolamino</code> (<code>apiVersion: &quot;1&quot;</code>, <code>dappApiVersion: &quot;0.2.0&quot;</code>, <code>build</code>, <code>isWallet: false</code>).
 The extension asks for approval per site and rate-limits queries. The Blockfrost SDK adapter is built as
 <code>dist/gerolamino-blockfrost.js</code>; see <a href="#dapp-api">DAPP_API.md</a> and
 <a href="#blockfrost-through-gerolamino">BLOCKFROST_THROUGH_GEROLAMINO.md</a>.</p>
@@ -647,7 +647,9 @@ later in Gerolamino's Settings (&quot;Connected sites&quot;); calls then fail wi
 <tr><th>Method</th><th>Returns</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>getNetworkId()</code></td><td><code>0</code> testnet, <code>1</code> mainnet</td><td>CIP-30</td></tr>
+<tr><td><code>getNetworkId()</code></td><td><code>0</code> testnet, <code>1</code> mainnet</td><td>CIP-30; cannot split preprod from preview</td></tr>
+<tr><td><code>getNetwork()</code></td><td><code>&quot;preview&quot;</code>, <code>&quot;preprod&quot;</code> or <code>&quot;mainnet&quot;</code></td><td>Gerolamino addition; use this for a network guard</td></tr>
+<tr><td><code>revoke()</code></td><td><code>{ revoked: boolean }</code></td><td>drops this site's approval; no approval needed to call it</td></tr>
 <tr><td><code>submitTx(txCborHex)</code></td><td>transaction id (hex)</td><td>CIP-30; sent to the network by the node's tx-submission</td></tr>
 <tr><td><code>query(path)</code></td><td><code>{ status, body, source, peer, proof, ledger }</code></td><td>any Blockfrost GET, <code>path</code> under <code>/api/v0</code> (<code>&quot;/blocks/latest&quot;</code>); <code>ledger</code> is <code>{ startSlot, kind, tipSlot }</code> on local UTxO answers</td></tr>
 <tr><td><code>getUtxos(address)</code></td><td>as <code>query</code></td><td><code>/addresses/{address}/utxos</code></td></tr>
@@ -675,6 +677,26 @@ on the chain, and <code>proof.status</code> is <code>&quot;certified&quot;</code
 <code>/addresses</code> answers relay unless coverage starts at 0.</li>
 </ul>
 <p><code>status</code> and <code>body</code> are Blockfrost's: a 404 is <code>{ status: 404, body: { status_code: 404, … } }</code>, not an error.</p>
+<h3>Provider fields</h3>
+<table>
+<thead>
+<tr><th>Field</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name</code></td><td><code>&quot;Gerolamino&quot;</code></td></tr>
+<tr><td><code>apiVersion</code></td><td><code>&quot;1&quot;</code> (CIP-30 initial API)</td></tr>
+<tr><td><code>dappApiVersion</code></td><td>Gerolamino's own dApp API revision (<code>&quot;0.2.0&quot;</code>)</td></tr>
+<tr><td><code>build</code></td><td>the shipped artefact, e.g. <code>gerolamino-0.3.0</code>; quote it in a support report</td></tr>
+<tr><td><code>isWallet</code></td><td><code>false</code> (no keys, no signing)</td></tr>
+</tbody>
+</table>
+<h2>Revoking from the page</h2>
+<pre><code class="language-js">const api = await window.cardano.gerolamino.enable();
+// ... later, without visiting Settings:
+const { revoked } = await api.revoke();   // true when the site was approved, false when it was not
+</code></pre>
+<p><code>revoke()</code> is the only method that works before <code>enable()</code>; afterwards every call is refused with code -3
+until the site approves again. It revokes the caller's own origin only, taken from the browser.</p>
 <h2>Errors</h2>
 <p>CIP-30 objects <code>{ code, info }</code>:</p>
 <table>

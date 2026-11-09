@@ -5,7 +5,9 @@
  *
  *   window.cardano.gerolamino.enable()          → api (asks the user once per site)
  *   window.cardano.gerolamino.isEnabled()        → boolean
- *   api.getNetworkId()                           → 0 testnet, 1 mainnet (CIP-30)
+ *   api.getNetworkId()                           → 0 testnet, 1 mainnet (CIP-30; cannot split preprod from preview)
+ *   api.getNetwork()                             → "preview" | "preprod" | "mainnet" (Gerolamino extension to CIP-30)
+ *   api.revoke()                                 → { revoked }  drop this site's approval, no settings trip
  *   api.submitTx(txCborHex)                      → transaction id (CIP-30)
  *   api.query(path)                              → { status, body, source: "local" | "relay", proof? }  a Blockfrost GET
  *   api.getTip()                                 → { slot, height, hash, network, state }  this node's verified tip
@@ -19,7 +21,7 @@
 import type { KeyValueArea } from "./settings";
 import { trustView } from "./trustView";
 
-export const DAPP_API_VERSION = "0.1.0";
+export { DAPP_API_VERSION } from "./dappVersion";
 export const DAPPS_KEY = "gerolamino.dapps";
 export const DAPP_RATE = 60;
 export const DAPP_WINDOW_MS = 10_000;
@@ -30,7 +32,7 @@ export const TxSendError = { Refused: 1, Failure: 2 } as const;
 export interface DappError { code: number; info: string }
 export type DappReply = { ok: true; result: unknown } | { ok: false; error: DappError };
 
-export const DAPP_METHODS = ["isEnabled", "enable", "getNetworkId", "submitTx", "query", "getTip", "getTrust", "getUtxos", "getProtocolParameters", "getAccount"] as const;
+export const DAPP_METHODS = ["isEnabled", "enable", "revoke", "getNetworkId", "getNetwork", "submitTx", "query", "getTip", "getTrust", "getUtxos", "getProtocolParameters", "getAccount"] as const;
 export type DappMethod = (typeof DAPP_METHODS)[number];
 
 export interface ApprovedSite { origin: string; approvedAt: number }
@@ -105,9 +107,20 @@ export class DappHub {
                 await this.deps.approvals.approve(origin, this.now());
                 return { ok: true, result: true };
             }
+            // revoke needs no prior approval: it is the one call a page may make to give the site back
+            if (method === "revoke") {
+                const was = await this.deps.approvals.has(origin);
+                await this.deps.approvals.revoke(origin);
+                return { ok: true, result: { revoked: was } };
+            }
             if (!(await this.deps.approvals.has(origin))) return err(APIError.Refused, "call enable() first");
             switch (method as DappMethod) {
                 case "getNetworkId": return { ok: true, result: (await this.deps.network()) === "mainnet" ? 1 : 0 };
+                case "getNetwork": {
+                    const network = await this.deps.network();
+                    if (network !== "preview" && network !== "preprod" && network !== "mainnet") return err(APIError.InternalError, `this node reports an unknown network: ${String(network)}`);
+                    return { ok: true, result: network };
+                }
                 case "submitTx": {
                     const cbor = args[0];
                     if (typeof cbor !== "string" || !/^([0-9a-fA-F]{2})+$/.test(cbor)) return err(APIError.InvalidRequest, "submitTx(cbor): a signed transaction as hex CBOR");

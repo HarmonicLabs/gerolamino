@@ -20,7 +20,9 @@ later in Gerolamino's Settings ("Connected sites"); calls then fail with code -3
 
 | Method | Returns | Notes |
 |---|---|---|
-| `getNetworkId()` | `0` testnet, `1` mainnet | CIP-30 |
+| `getNetworkId()` | `0` testnet, `1` mainnet | CIP-30; cannot split preprod from preview |
+| `getNetwork()` | `"preview"`, `"preprod"` or `"mainnet"` | Gerolamino addition; use this for a network guard |
+| `revoke()` | `{ revoked: boolean }` | drops this site's approval; no approval needed to call it |
 | `submitTx(txCborHex)` | transaction id (hex) | CIP-30; sent to the network by the node's tx-submission |
 | `query(path)` | `{ status, body, source, peer, proof, ledger }` | any Blockfrost GET, `path` under `/api/v0` (`"/blocks/latest"`); `ledger` is `{ startSlot, kind, tipSlot }` on local UTxO answers |
 | `getUtxos(address)` | as `query` | `/addresses/{address}/utxos` |
@@ -48,6 +50,27 @@ later in Gerolamino's Settings ("Connected sites"); calls then fail with code -3
   `/addresses` answers relay unless coverage starts at 0.
 
 `status` and `body` are Blockfrost's: a 404 is `{ status: 404, body: { status_code: 404, … } }`, not an error.
+
+### Provider fields
+
+| Field | Value |
+|---|---|
+| `name` | `"Gerolamino"` |
+| `apiVersion` | `"1"` (CIP-30 initial API) |
+| `dappApiVersion` | Gerolamino's own dApp API revision (`"0.2.0"`) |
+| `build` | the shipped artefact, e.g. `gerolamino-0.3.0`; quote it in a support report |
+| `isWallet` | `false` (no keys, no signing) |
+
+## Revoking from the page
+
+```js
+const api = await window.cardano.gerolamino.enable();
+// ... later, without visiting Settings:
+const { revoked } = await api.revoke();   // true when the site was approved, false when it was not
+```
+
+`revoke()` is the only method that works before `enable()`; afterwards every call is refused with code -3
+until the site approves again. It revokes the caller's own origin only, taken from the browser.
 
 ## Errors
 

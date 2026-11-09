@@ -277,7 +277,8 @@ try {
                 const api = await window.cardano.gerolamino.enable();
                 const q = await api.query("/blocks/latest"), q2 = await api.query("/epochs/latest");
                 return { apiVersion: window.cardano.gerolamino.apiVersion, dappApiVersion: window.cardano.gerolamino.dappApiVersion,
-                    isWallet: window.cardano.gerolamino.isWallet,
+                    build: window.cardano.gerolamino.build, isWallet: window.cardano.gerolamino.isWallet,
+                    network: await api.getNetwork(),
                     net: await api.getNetworkId(), tip: await api.getTip(), trust: (await api.getTrust()).verdict.label,
                     latest: { source: q.source, status: q.status, height: q.body && q.body.height }, epoch: { source: q2.source, status: q2.status, epoch: q2.body && q2.body.epoch },
                     params: (await api.getProtocolParameters()).status, enabled: await window.cardano.gerolamino.isEnabled() };
@@ -288,10 +289,24 @@ try {
             const refusedQuery = await cdp.evaluate<string>(b, "window.cardano.gerolamino.isEnabled().then(String)");
             log(`dApp ${siteB}: approval window showed ${denied.shown}; Deny → ${denied.result}; isEnabled ${refusedQuery}`);
             const sites = await cdp.evaluate<any>(popSession, `chrome.runtime.sendMessage({ to: "background", type: "dapp-list" })`);
-            results.dapp = { allowed, calls, denied, sites: sites?.sites?.map((s: any) => s.origin) };
+            // page-callable revoke: the site drops its own approval, and is refused until it asks again
+            const revoked = await cdp.evaluate<any>(a, `(async () => {
+                const api = await window.cardano.gerolamino.enable();
+                const r = await api.revoke();
+                const after = await window.cardano.gerolamino.isEnabled();
+                let refused = false;
+                try { await api.query("/blocks/latest"); } catch (e) { refused = /"?-3"?/.test(JSON.stringify(e)); }
+                return { r, after, refused };
+            })()`, 30_000).catch((e: Error) => ({ error: e.message }));
+            const sitesAfter = await cdp.evaluate<any>(popSession, `chrome.runtime.sendMessage({ to: "background", type: "dapp-list" })`);
+            results.dapp = { allowed, calls, denied, sites: sites?.sites?.map((s: any) => s.origin), revoked, sitesAfter: sitesAfter?.sites?.map((s: any) => s.origin) };
             const ok = before === false && allowed.result === "enabled" && allowed.shown === siteA && calls?.net === 0 && calls?.tip?.slot > 0 && calls?.latest?.source === "local"
                 && calls?.epoch?.source === "relay" && calls?.epoch?.status === 200 && calls?.enabled === true
-                && /"code":-3/.test(denied.result) && refusedQuery === "false" && JSON.stringify(sites?.sites?.map((s: any) => s.origin)) === JSON.stringify([siteA]);
+                && calls?.network === "preview" && typeof calls?.build === "string" && calls.build.startsWith("gerolamino-")
+                && revoked?.r?.revoked === true && revoked?.after === false && revoked?.refused === true
+                && JSON.stringify(sites?.sites?.map((s: any) => s.origin)) === JSON.stringify([siteA])
+                && JSON.stringify(sitesAfter?.sites?.map((s: any) => s.origin)) === "[]"
+                && /"code":-3/.test(denied.result) && refusedQuery === "false";
             if (!ok) throw new Error("the dApp API did not behave as expected");
         } finally { server.stop(true); }
     }

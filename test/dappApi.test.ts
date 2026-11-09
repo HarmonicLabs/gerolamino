@@ -106,4 +106,46 @@ describe("dApp API (window.cardano.gerolamino)", () => {
         await h.handle(SITE, "enable", []);
         expect(asked).toEqual([SITE, SITE]);
     });
+
+    test("getNetwork names the network where CIP-30's id cannot", async () => {
+        const { h } = hub({ network: "preprod" });
+        // before approval only presence is answerable
+        expect(await h.handle(SITE, "getNetwork", [])).toMatchObject({ ok: false, error: { code: APIError.Refused } });
+        await h.handle(SITE, "enable", []);
+        expect(await h.handle(SITE, "getNetworkId", [])).toEqual({ ok: true, result: 0 });
+        expect(await h.handle(SITE, "getNetwork", [])).toEqual({ ok: true, result: "preprod" });
+
+        const mainnet = hub({ network: "mainnet" });
+        await mainnet.h.handle(SITE, "enable", []);
+        expect(await mainnet.h.handle(SITE, "getNetwork", [])).toEqual({ ok: true, result: "mainnet" });
+        expect(await mainnet.h.handle(SITE, "getNetworkId", [])).toEqual({ ok: true, result: 1 });
+
+        const odd = hub({ network: "weirdnet" });
+        await odd.h.handle(SITE, "enable", []);
+        expect(await odd.h.handle(SITE, "getNetwork", [])).toMatchObject({ ok: false, error: { code: APIError.InternalError } });
+    });
+
+    test("revoke is page-callable, needs no approval, and reports what it did", async () => {
+        const { h, approvals, asked } = hub();
+        // nothing approved yet: honest false, not a refusal
+        expect(await h.handle(SITE, "revoke", [])).toEqual({ ok: true, result: { revoked: false } });
+
+        await h.handle(SITE, "enable", []);
+        expect(await h.handle(SITE, "revoke", [])).toEqual({ ok: true, result: { revoked: true } });
+        expect(await approvals.has(SITE)).toBe(false);
+        // the site is refused until it approves again
+        expect(await h.handle(SITE, "query", ["/blocks/latest"])).toMatchObject({ ok: false, error: { code: APIError.Refused } });
+        await h.handle(SITE, "enable", []);
+        expect(asked).toEqual([SITE, SITE]);
+        expect(await h.handle(SITE, "revoke", [])).toEqual({ ok: true, result: { revoked: true } });
+    });
+
+    test("revoke of one site leaves another site's approval alone", async () => {
+        const { h } = hub();
+        const OTHER = "https://other.example";
+        await h.handle(SITE, "enable", []);
+        await h.handle(OTHER, "enable", []);
+        expect(await h.handle(SITE, "revoke", [])).toEqual({ ok: true, result: { revoked: true } });
+        expect((await h.handle(OTHER, "query", ["/blocks/latest"])).ok).toBe(true);
+    });
 });

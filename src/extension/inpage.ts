@@ -3,6 +3,8 @@
  * (dappApi.ts has the methods). Calls go to the bridge content script with window.postMessage and come back the same
  * way; nothing here is trusted by the extension, which takes the site's origin from the browser.
  */
+import { DAPP_API_VERSION, DAPP_BUILD } from "./dappVersion";
+
 type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
 
 (() => {
@@ -29,6 +31,10 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
 
     const api = Object.freeze({
         getNetworkId: () => call("getNetworkId"),
+        /** Gerolamino extension: the network by NAME, because CIP-30's id cannot split preprod from preview. */
+        getNetwork: () => call("getNetwork"),
+        /** Drop this site's approval; no trip to Settings. */
+        revoke: () => call("revoke"),
         submitTx: (tx: string) => call("submitTx", tx),
         query: (path: string) => call("query", path),
         getTip: () => call("getTip"),
@@ -44,7 +50,9 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
         /** CIP-30 §Initial API: apiVersion is the string "1". */
         apiVersion: "1",
         /** Gerolamino's own dApp API version (experimental namespace value, not CIP-30). */
-        dappApiVersion: "0.1.0",
+        dappApiVersion: DAPP_API_VERSION,
+        /** Which artefact answered, for support triage from a screenshot. */
+        build: DAPP_BUILD,
         icon: "data:image/svg+xml;utf8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff2d55"/><stop offset="1" stop-color="#ff9f0a"/></linearGradient></defs><circle cx="32" cy="32" r="30" fill="#0b0d12"/><circle cx="32" cy="32" r="22" fill="none" stroke="url(#g)" stroke-width="6"/></svg>`),
         /** Not a wallet: no keys, no signing. A full node API for pages (dappApi.ts). */
         isWallet: false,

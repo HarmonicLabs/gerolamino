@@ -101,7 +101,7 @@ UTxO ledger for the selected network, then the node syncs again from the relay.
 
 ## 7. dApps and the Blockfrost adapter
 
-A page sees `window.cardano.gerolamino` (`apiVersion: "1"`, `dappApiVersion: "0.1.0"`, `isWallet: false`).
+A page sees `window.cardano.gerolamino` (`apiVersion: "1"`, `dappApiVersion: "0.2.0"`, `build`, `isWallet: false`).
 The extension asks for approval per site and rate-limits queries. The Blockfrost SDK adapter is built as
 `dist/gerolamino-blockfrost.js`; see [DAPP_API.md](DAPP_API.md) and
 [BLOCKFROST_THROUGH_GEROLAMINO.md](BLOCKFROST_THROUGH_GEROLAMINO.md).

@@ -13,7 +13,7 @@
         "@harmoniclabs/mithril-ts": "file:vendor/harmoniclabs-mithril-ts-0.1.1.tgz",
         "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.6-dev0",
         "@harmoniclabs/plutus-data": "^2.1.0",
-        "@harmoniclabs/plutus-machine": "^3.0.5",
+        "@harmoniclabs/plutus-machine": "3.0.3",
         "@harmoniclabs/uint8array-utils": "^1.0.4",
         "@harmoniclabs/uplc": "^2.0.7",
       },
@@ -23,10 +23,13 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@harmoniclabs/plutus-machine@3.0.3": "patches/@harmoniclabs%2Fplutus-machine@3.0.3.patch",
+  },
   "overrides": {
     "@harmoniclabs/cardano-costmodels-ts": "file:vendor/harmoniclabs-cardano-costmodels-ts-1.7.0.tgz",
     "@harmoniclabs/cardano-ledger-ts": {
-      "@harmoniclabs/plutus-machine": "^3.0.5",
+      "@harmoniclabs/plutus-machine": "3.0.3",
     },
     "@harmoniclabs/cbor@^2": {
       ".": "file:vendor/harmoniclabs-cbor-2.1.0.tgz",
@@ -64,7 +67,7 @@
 
     "@harmoniclabs/plutus-data": ["@harmoniclabs/plutus-data@vendor/harmoniclabs-plutus-data-2.1.0.tgz", { "dependencies": { "@harmoniclabs/cbor": "^2.0.1", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.4" } }, "sha512-XQEPWQaXtOW7jtpc7HzsckLSI5+Cb2wprFYFWuMku5W+fVUTrYm9KKAtnNIfLynXTpmoLcm23/2PKPhB5Sk3Bg=="],
 
-    "@harmoniclabs/plutus-machine": ["@harmoniclabs/plutus-machine@3.0.5", "", { "dependencies": { "@harmoniclabs/bigint-utils": "^1.0.0", "@harmoniclabs/cardano-costmodels-ts": "^1.6.1", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3", "@noble/curves": "1.9.7", "@noble/hashes": "1.7.2" }, "peerDependencies": { "@harmoniclabs/cbor": "^2.0.1", "@harmoniclabs/plutus-data": "^2.0.1", "@harmoniclabs/uplc": "^2.0.6" } }, "sha512-mj0rYjxb9BSxBTWweDsb25Wtjl3VLIJOWJLXMHNlS9YfPwhBpWvh+wcRvKCXckA78LPsPuWTVi/0c1rtdj4S4A=="],
+    "@harmoniclabs/plutus-machine": ["@harmoniclabs/plutus-machine@3.0.3", "", { "dependencies": { "@harmoniclabs/bigint-utils": "^1.0.0", "@harmoniclabs/cardano-costmodels-ts": "^1.6.1", "@harmoniclabs/crypto": "^0.3.0", "@harmoniclabs/obj-utils": "^1.0.0", "@harmoniclabs/uint8array-utils": "^1.0.3", "@noble/curves": "1.9.7", "@noble/hashes": "1.7.2" }, "peerDependencies": { "@harmoniclabs/cbor": "^2.0.1", "@harmoniclabs/plutus-data": "^2.0.1", "@harmoniclabs/uplc": "^2.0.6" } }, "sha512-G/nU8H+om2H2c2nqRtXba1K8Q5TrezwXSP1LwjOAfyr9weQqFRfdmrIe0zC0RJKiMMi/KwMISj1cDYqdrqlU/w=="],
 
     "@harmoniclabs/uint8array-utils": ["@harmoniclabs/uint8array-utils@1.0.4", "", {}, "sha512-Z454prSbX4geXGHyjjcn9vm6u9NsD3VJykv8f8yE1VjIXSPitaLPEnm8u2+B+GMp1chYlLilOq+kW4OvJ6y28A=="],
 

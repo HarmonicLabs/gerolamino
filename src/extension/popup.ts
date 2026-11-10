@@ -63,7 +63,8 @@ function setProgress(pct: number): void {
     const bar = $("sync-bar");
     bar.style.width = `${pct}%`;
     bar.classList.toggle("done", done);
-    $("sync-pct-text").textContent = `${pct.toFixed(2)}%`;
+    // the ring already carries the percentage; this row reports distance so the two are not the same datum twice
+    $("sync-pct-text").textContent = "";
 }
 
 function renderRecent(rows: Array<{ slot: number; blockNo: number; hash: string; size: number; txs: number }>): void {
@@ -125,6 +126,7 @@ function render(r: StatusReply): void {
     setText("t-relay", relay != null ? fmtNum(relay) : "–");
     setText("t-relay-sub", s.serverTip ? `#${fmtNum(s.serverTip.blockNo)}` : "");
     const behind = ours != null && relay != null ? Math.max(0, relay - ours) : null;
+    setText("sync-pct-text", behind == null ? "–" : behind <= 0 ? "at tip" : `${fmtNum(behind)} slots behind`);
     setText("s-behind", behind == null ? "–" : behind <= 0 ? "at tip" : fmtSlotsShort(behind), `value ${behind == null ? "" : behind <= 120 ? "ok glow" : "warn"}`);
     $("s-behind").parentElement!.setAttribute("data-tooltip", `Slots between our tip and the relay's (${fmtSlotsBehind(ours, relay)}). One slot is one second.`);
     setText("s-version", s.version != null ? `v${s.version}` : "–");

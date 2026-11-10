@@ -1,48 +1,49 @@
 {
-    "name": "gerolamino",
-    "version": "0.3.0",
-    "private": true,
-    "type": "module",
-    "description": "Gerolamino: a standalone Cardano node for the browser (Chrome extension), pure TypeScript on the HarmonicLabs libraries, chain stored in OPFS, peers over N2N-over-WebSocket",
-    "license": "Apache-2.0",
-    "author": "Harmonic Laboratories",
-    "scripts": {
-        "build": "bun scripts/build.ts",
-        "test": "bun test",
-        "typecheck": "tsc --noEmit -p .",
-        "smoke": "bun scripts/node-smoke.ts",
-        "ledger-smoke": "bun scripts/ledger-smoke.ts",
-        "mithril-tables-smoke": "bun scripts/mithril-tables-smoke.ts",
-        "e2e": "bun scripts/e2e-chrome.ts",
-        "docs": "bun scripts/docs.ts",
-        "docs-serve": "bun scripts/serve-docs.ts"
+  "name": "gerolamino",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Gerolamino: a standalone Cardano node for the browser (Chrome extension), pure TypeScript on the HarmonicLabs libraries, chain stored in OPFS, peers over N2N-over-WebSocket",
+  "license": "Apache-2.0",
+  "author": "Harmonic Laboratories",
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "smoke": "bun scripts/node-smoke.ts",
+    "ledger-smoke": "bun scripts/ledger-smoke.ts",
+    "mithril-tables-smoke": "bun scripts/mithril-tables-smoke.ts",
+    "e2e": "bun scripts/e2e-chrome.ts",
+    "docs": "bun scripts/docs.ts",
+    "docs-serve": "bun scripts/serve-docs.ts",
+    "bench:crypto": "bun scripts/bench-crypto.ts --n 10 --header"
+  },
+  "dependencies": {
+    "@harmoniclabs/cardano-math-ts": "^0.0.5",
+    "@harmoniclabs/cbor": "^2.1.0",
+    "@harmoniclabs/crypto": "^0.3.1",
+    "@harmoniclabs/cardano-ledger-ts": "file:vendor/harmoniclabs-cardano-ledger-ts-0.6.1.tgz",
+    "@harmoniclabs/kes": "file:vendor/harmoniclabs-kes-0.1.0.tgz",
+    "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.6-dev0",
+    "@harmoniclabs/plutus-data": "^2.1.0",
+    "@harmoniclabs/plutus-machine": "3.0.3",
+    "@harmoniclabs/uplc": "^2.0.7",
+    "@harmoniclabs/uint8array-utils": "^1.0.4",
+    "@harmoniclabs/mithril-ts": "file:vendor/harmoniclabs-mithril-ts-0.1.1.tgz"
+  },
+  "overrides": {
+    "@harmoniclabs/cardano-ledger-ts": {
+      "@harmoniclabs/plutus-machine": "3.0.3"
     },
-    "dependencies": {
-        "@harmoniclabs/cardano-math-ts": "^0.0.5",
-        "@harmoniclabs/cbor": "^2.1.0",
-        "@harmoniclabs/crypto": "^0.3.1",
-        "@harmoniclabs/cardano-ledger-ts": "file:vendor/harmoniclabs-cardano-ledger-ts-0.6.1.tgz",
-        "@harmoniclabs/kes": "file:vendor/harmoniclabs-kes-0.1.0.tgz",
-        "@harmoniclabs/ouroboros-miniprotocols-ts": "^0.0.6-dev0",
-        "@harmoniclabs/plutus-data": "^2.1.0",
-        "@harmoniclabs/plutus-machine": "3.0.3",
-        "@harmoniclabs/uplc": "^2.0.7",
-        "@harmoniclabs/uint8array-utils": "^1.0.4",
-        "@harmoniclabs/mithril-ts": "file:vendor/harmoniclabs-mithril-ts-0.1.1.tgz"
-    },
-    "overrides": {
-        "@harmoniclabs/cardano-ledger-ts": {
-            "@harmoniclabs/plutus-machine": "3.0.3"
-        },
-        "@harmoniclabs/cbor@^2": "file:vendor/harmoniclabs-cbor-2.1.0.tgz",
-        "@harmoniclabs/plutus-data@^2": "file:vendor/harmoniclabs-plutus-data-2.1.0.tgz",
-        "@harmoniclabs/cardano-costmodels-ts": "file:vendor/harmoniclabs-cardano-costmodels-ts-1.7.0.tgz"
-    },
-    "patchedDependencies": {
-        "@harmoniclabs/plutus-machine@3.0.3": "patches/@harmoniclabs%2Fplutus-machine@3.0.3.patch"
-    },
-    "devDependencies": {
-        "@types/bun": "^1.4.3",
-        "typescript": "^5.9.3"
-    }
+    "@harmoniclabs/cbor@^2": "file:vendor/harmoniclabs-cbor-2.1.0.tgz",
+    "@harmoniclabs/plutus-data@^2": "file:vendor/harmoniclabs-plutus-data-2.1.0.tgz",
+    "@harmoniclabs/cardano-costmodels-ts": "file:vendor/harmoniclabs-cardano-costmodels-ts-1.7.0.tgz"
+  },
+  "patchedDependencies": {
+    "@harmoniclabs/plutus-machine@3.0.3": "patches/@harmoniclabs%2Fplutus-machine@3.0.3.patch"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^5.9.3"
+  }
 }

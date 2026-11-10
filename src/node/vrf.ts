@@ -11,7 +11,10 @@
  * the VRF response scalar s must be canonical (s < ℓ; `VrfProof03.verify` accepts s + ℓ), and so must an
  * ed25519 signature's S (`verifyEd25519Signature_sync` accepts S + ℓ).
  */
-import { VrfProof03, VrfProof10, verifyEd25519Signature_sync } from "@harmoniclabs/crypto";
+import { VrfProof03, VrfProof10 } from "@harmoniclabs/crypto";
+// The noble port that ships inside @harmoniclabs/crypto: RFC 8032 verify in ~1.4 ms against ~84 ms for the
+// BigInt implementation. Same package, same bytes in, same verdict out (proved in scripts/bench-crypto.ts).
+import { ed25519 as nobleEd25519 } from "@harmoniclabs/crypto/dist/noble/ed25519.js";
 
 /** Order of the ed25519 prime-order subgroup. */
 const L = (1n << 252n) + 27742317777372353535851937790883648493n;
@@ -47,11 +50,12 @@ export function vrf03ProofToHash(proof: Uint8Array): Uint8Array | null {
 }
 
 /**
- * Plain ed25519 signature check (opcert and the KES leaf); never throws. Rejects a non-canonical S (S ≥ ℓ) as
- * libsodium and RFC 8032 do: `verifyEd25519Signature_sync` alone accepts S + ℓ, i.e. malleated signatures.
+ * Plain ed25519 signature check (opcert and every KES leaf); never throws. Uses the noble port that ships in
+ * @harmoniclabs/crypto with `zip215: false` (strict RFC 8032: cofactorless small-order rules, canonical S),
+ * and still rejects a non-canonical S explicitly, so a malleated signature can never pass.
  */
 export function ed25519Verify(sig: Uint8Array, msg: Uint8Array, pk: Uint8Array): boolean {
     if (sig.length !== 64 || pk.length !== 32) return false;
     if (leToBigint(sig.subarray(32, 64)) >= L) return false;
-    try { return verifyEd25519Signature_sync(sig, msg, pk); } catch { return false; }
+    try { return nobleEd25519.verify(sig, msg, pk, { zip215: false }); } catch { return false; }
 }

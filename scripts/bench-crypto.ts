@@ -129,3 +129,26 @@ if (process.argv.includes("--pool")) {
     console.log(`  ${count} headers: serial ${serialMs.toFixed(0)} ms (${(serialMs / count).toFixed(1)} ms each), pool(4) ${poolMs.toFixed(0)} ms (${(poolMs / count).toFixed(1)} ms each)`);
     console.log(`  speedup ${(serialMs / poolMs).toFixed(2)}x; every verdict equals the inline one: ${allMatch}`);
 }
+
+
+// ---- ECVRF: the library port vs the noble group layer (same algorithm, same verdict) ----
+if (process.argv.includes("--ecvrf")) {
+    const { preprodFixture } = await import("../test/lib/chunkReader");
+    const { locateHeader } = await import("../src/node/chunkFormat");
+    const { parseHeaderCrypto } = await import("../src/node/headerVerify");
+    const { praosVrfInput } = await import("../src/node/vrfInputs");
+    const { vrf03VerifyNoble } = await import("../src/node/vrf03Noble");
+    const { vrf03Verify } = await import("../src/node/vrf");
+    const fx = preprodFixture();
+    const l = locateHeader(fx.conway);
+    const h = parseHeaderCrypto(fx.conway.subarray(l.headerOffset, l.headerOffset + l.headerSize), l.eraTag);
+    const alpha = praosVrfInput(BigInt(h.slot), fx.nonceEpoch310);
+    const proof = h.vrf!.proof;
+    const a = vrf03Verify(h.vrfVkey, alpha, proof);
+    const b = vrf03VerifyNoble(h.vrfVkey, alpha, proof);
+    const same = !!a && !!b && a.length === b.length && a.every((x: number, i: number) => x === b[i]);
+    console.log("\nECVRF draft-03 verify, real Conway header:");
+    await time("VrfProof03 (rust port, BigInt)", N, () => vrf03Verify(h.vrfVkey, alpha, proof));
+    await time("noble group ops + port algorithm", N, () => vrf03VerifyNoble(h.vrfVkey, alpha, proof));
+    console.log(`  identical output: ${same}`);
+}

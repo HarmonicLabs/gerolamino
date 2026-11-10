@@ -12,6 +12,7 @@
  * ed25519 signature's S (`verifyEd25519Signature_sync` accepts S + ℓ).
  */
 import { VrfProof03, VrfProof10 } from "@harmoniclabs/crypto";
+import { vrf03VerifyNoble } from "./vrf03Noble";
 // The noble port that ships inside @harmoniclabs/crypto: RFC 8032 verify in ~1.4 ms against ~84 ms for the
 // BigInt implementation. Same package, same bytes in, same verdict out (proved in scripts/bench-crypto.ts).
 import { ed25519 as nobleEd25519 } from "@harmoniclabs/crypto/dist/noble/ed25519.js";
@@ -25,10 +26,26 @@ function leToBigint(b: Uint8Array): bigint {
     return x;
 }
 
-/** Verify a draft-03 proof; returns the 64-byte VRF output (proof hash) or null. */
+/**
+ * Verify a draft-03 proof; returns the 64-byte VRF output (proof hash) or null.
+ *
+ * Fast path: the noble group layer (`vrf03Noble.ts`), 36 ms -> 6.6 ms on a real header, with the suite bytes,
+ * hash-to-curve and challenge coming from the same port the reference uses. A refusal from the fast path is
+ * then re-checked by the reference implementation: a bug in the fast path may cost time, but it cannot reject
+ * a valid block on its own.
+ */
 export function vrf03Verify(publicKey: Uint8Array, alpha: Uint8Array, proof: Uint8Array): Uint8Array | null {
     if (proof.length !== 80 || publicKey.length !== 32) return null;
     if (leToBigint(proof.subarray(48, 80)) >= L) return null; // non-canonical response, rejected by libsodium
+    const fast = vrf03VerifyNoble(publicKey, alpha, proof);
+    if (fast) return fast;
+    return vrf03VerifyReference(publicKey, alpha, proof);
+}
+
+/** The @harmoniclabs/crypto port, kept as the arbiter for a refusal from the fast path. */
+export function vrf03VerifyReference(publicKey: Uint8Array, alpha: Uint8Array, proof: Uint8Array): Uint8Array | null {
+    if (proof.length !== 80 || publicKey.length !== 32) return null;
+    if (leToBigint(proof.subarray(48, 80)) >= L) return null;
     let p: VrfProof03;
     try { p = VrfProof03.fromBytes(proof); } catch { return null; }
     try { if (!p.verify(publicKey, alpha)) return null; } catch { return null; }

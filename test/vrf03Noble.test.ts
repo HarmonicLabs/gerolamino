@@ -4,7 +4,8 @@ import { ed25519 } from "@harmoniclabs/crypto/dist/noble/ed25519.js";
 import { locateHeader } from "../src/node/chunkFormat";
 import { parseHeaderCrypto } from "../src/node/headerVerify";
 import { praosVrfInput, tpraosVrfInput } from "../src/node/vrfInputs";
-import { vrf03VerifyNoble } from "../src/node/vrf03Noble";
+import { hashToCurveNoble, vrf03VerifyNoble } from "../src/node/vrf03Noble";
+import { vrf_ed25519_sha512_ell2_hash_to_curve } from "@harmoniclabs/crypto/dist/rust_vrf_reimpl/vrf03.js";
 import { preprodFixture } from "./lib/chunkReader";
 
 const hex = (b: Uint8Array): string => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -32,6 +33,25 @@ const headerOf = (block: Uint8Array) => {
         ? { vrfVkey: h.vrfVkey, proof: h.vrf.proof, alpha: praosVrfInput(BigInt(h.slot), fx.nonceEpoch310), expected: h.vrf.output }
         : { vrfVkey: h.vrfVkey, proof: h.leaderVrf!.proof, alpha: tpraosVrfInput(BigInt(h.slot), fx.nonceEpoch4, "leader"), expected: h.leaderVrf!.output };
 };
+
+describe("noble hash_to_curve is byte-identical to the port", () => {
+    test("200 random (public key, alpha) pairs produce the same compressed point", () => {
+        for (let i = 0; i < 200; i++) {
+            const pk = rand(32);
+            const alpha = rand(i % 37);
+            const fast = hashToCurveNoble(pk, alpha);
+            const slow = vrf_ed25519_sha512_ell2_hash_to_curve(pk, alpha).compress();
+            expect(hex(fast)).toBe(hex(slow));
+        }
+    }, 120_000);
+
+    test("real header inputs produce the same compressed point", () => {
+        for (const block of [fx.conway, fx.shelley]) {
+            const { vrfVkey, alpha } = headerOf(block);
+            expect(hex(hashToCurveNoble(vrfVkey, alpha))).toBe(hex(vrf_ed25519_sha512_ell2_hash_to_curve(vrfVkey, alpha).compress()));
+        }
+    }, 60_000);
+});
 
 describe("noble ECVRF verify agrees with @harmoniclabs/crypto on every case", () => {
     test("real preview headers: same verdict, same output", () => {

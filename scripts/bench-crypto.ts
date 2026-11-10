@@ -138,7 +138,7 @@ if (process.argv.includes("--ecvrf")) {
     const { parseHeaderCrypto } = await import("../src/node/headerVerify");
     const { praosVrfInput } = await import("../src/node/vrfInputs");
     const { vrf03VerifyNoble } = await import("../src/node/vrf03Noble");
-    const { vrf03Verify } = await import("../src/node/vrf");
+    const { vrf03Verify, vrf03VerifyReference } = await import("../src/node/vrf");
     const fx = preprodFixture();
     const l = locateHeader(fx.conway);
     const h = parseHeaderCrypto(fx.conway.subarray(l.headerOffset, l.headerOffset + l.headerSize), l.eraTag);
@@ -148,8 +148,8 @@ if (process.argv.includes("--ecvrf")) {
     const b = vrf03VerifyNoble(h.vrfVkey, alpha, proof);
     const same = !!a && !!b && a.length === b.length && a.every((x: number, i: number) => x === b[i]);
     console.log("\nECVRF draft-03 verify, real Conway header:");
-    await time("VrfProof03 (rust port, BigInt)", N, () => vrf03Verify(h.vrfVkey, alpha, proof));
-    await time("noble group ops + port algorithm", N, () => vrf03VerifyNoble(h.vrfVkey, alpha, proof));
+    await time("VrfProof03 (rust port) [reference]", N, () => vrf03VerifyReference(h.vrfVkey, alpha, proof));
+    await time("noble: verify (Fp elligator + curve)", N, () => vrf03VerifyNoble(h.vrfVkey, alpha, proof));
     console.log(`  identical output: ${same}`);
 }
 

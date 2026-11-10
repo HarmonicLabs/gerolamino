@@ -90,3 +90,42 @@ if (process.argv.includes("--header")) {
     }
     console.log(`  flags: opcert=${last.opcertOk} kes=${last.kesOk} vrf=${last.vrfOk}, detail=${JSON.stringify(last.detail)}`);
 }
+
+
+// ---- worker pool vs serial, on the same real header repeated ----
+if (process.argv.includes("--pool")) {
+    const { preprodFixture } = await import("../test/lib/chunkReader");
+    const { locateHeader } = await import("../src/node/chunkFormat");
+    const { networkByMagic } = await import("../src/node/networks");
+    const { createVrfPool, inlineVerdict } = await import("../src/node/vrfPool");
+    const fx = preprodFixture();
+    const net = networkByMagic(1)!;
+    const l = locateHeader(fx.conway);
+    const task = {
+        headerBytes: fx.conway.subarray(l.headerOffset, l.headerOffset + l.headerSize),
+        eraTag: l.eraTag,
+        nonce: fx.nonceEpoch310,
+        slotsPerKESPeriod: net.slotsPerKESPeriod,
+        maxKESEvolutions: net.maxKESEvolutions
+    };
+    const count = Math.max(2, arg("batch", 8));
+    const reference = inlineVerdict(task);
+
+    const t0 = performance.now();
+    for (let i = 0; i < count; i++) inlineVerdict(task);
+    const serialMs = performance.now() - t0;
+
+    const pool = createVrfPool({
+        size: 4,
+        workerFactory: () => new Worker(new URL("../src/node/vrfWorker.ts", import.meta.url), { type: "module" }) as any
+    });
+    console.log(`\npool: kind=${pool.kind} size=${pool.size}`);
+    const t1 = performance.now();
+    const verdicts = await pool.verifyBatch(Array.from({ length: count }, () => task));
+    const poolMs = performance.now() - t1;
+    pool.close();
+
+    const allMatch = verdicts.every((v: any) => v.opcertOk === reference.opcertOk && v.kesOk === reference.kesOk && v.vrfOk === reference.vrfOk);
+    console.log(`  ${count} headers: serial ${serialMs.toFixed(0)} ms (${(serialMs / count).toFixed(1)} ms each), pool(4) ${poolMs.toFixed(0)} ms (${(poolMs / count).toFixed(1)} ms each)`);
+    console.log(`  speedup ${(serialMs / poolMs).toFixed(2)}x; every verdict equals the inline one: ${allMatch}`);
+}

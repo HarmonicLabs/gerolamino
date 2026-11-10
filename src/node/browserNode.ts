@@ -35,6 +35,7 @@ import { ChunkWriter, type FileSink } from "./chunkWriter";
 import { VolatileStore } from "./volatileStore";
 import { proposeBrowserHandshake } from "./handshake";
 import { parseHeaderCrypto, verifyHeaderCrypto } from "./headerVerify";
+import { createVrfPool, type HeaderVerdict, type VrfVerifier } from "./vrfPool";
 import { isSlotLeader } from "./leaderMath";
 import { LightQueryClient, N2N_WS_SUBPROTOCOL, type PoolStakeInfo } from "./lightQuery";
 import type { PeerQueryLimits } from "./queryRouter";
@@ -89,6 +90,8 @@ export interface NodeStats {
     cryptoBad: number;
     cryptoSkipped: number;
     cryptoMs: number;
+    /** Headers whose crypto was verified off the main thread (worker pool); not counted in cryptoMs. */
+    vrfOffloaded: number;
     nonceEpoch: number | null;
     /** The epoch nonce of `nonceEpoch` (hex), as the peer gave it. */
     nonceHex: string | null;
@@ -163,6 +166,8 @@ export interface BrowserNodeOptions {
     certifiedStake?: (epoch: number) => CertifiedStakeView | null;
     /** Freshness and density (trust.ts): started at the intersection, fed every header whose signatures verified. */
     observer?: ChainObserver;
+    /** Header-crypto verifier. Default: a worker pool (falls back to this thread); pass createInlineVrfVerifier() to force inline. */
+    vrfVerifier?: VrfVerifier;
     /** Every header the main peer serves (hash and link checked), for cross-checking other peers (crossCheck.ts). */
     headerLog?: HeaderLog;
     /** Roll the store back to this point before resuming (a failover to a longer fork: the newest common block). */
@@ -263,7 +268,7 @@ export function emptyStats(endpoint: string): NodeStats {
     return {
         endpoint, state: "idle", version: null, remoteInitiatorOnly: null, serverTip: null, intersect: "", startMode: "",
         headers: 0, linkOk: 0, linkBad: 0, blocksFetched: 0, bodyOk: 0, bodyBad: 0, rollbacks: 0, rolledBackBlocks: 0,
-        cryptoOk: 0, cryptoBad: 0, cryptoSkipped: 0, cryptoMs: 0, nonceEpoch: null, nonceHex: null, leaderOk: 0, leaderBad: 0, leaderSkipped: 0, stakeCertified: 0, stakeMismatches: 0, lightQuery: null, wsProtocol: null, services: null,
+        cryptoOk: 0, cryptoBad: 0, cryptoSkipped: 0, cryptoMs: 0, vrfOffloaded: 0, nonceEpoch: null, nonceHex: null, leaderOk: 0, leaderBad: 0, leaderSkipped: 0, stakeCertified: 0, stakeMismatches: 0, lightQuery: null, wsProtocol: null, services: null,
         storedBlocks: 0, storedBytes: 0, storedChunks: 0, storedTipSlot: null, resumedFrom: null, anchor: null, anchorFile: null,
         ledgerBlocks: 0, ledgerUtxoCount: 0, ledgerCreated: 0, ledgerSpent: 0, ledgerUnknownInputs: 0,
         ledgerInvalidTx: 0, ledgerTipSlot: null, ledgerCoverageStart: null, ledgerDigest: null, ledgerStale: false, ledgerError: null,
@@ -275,6 +280,8 @@ export function emptyStats(endpoint: string): NodeStats {
 export class BrowserNode {
     readonly stats: NodeStats;
     private readonly opts: BrowserNodeOptions;
+    /** Header crypto runs here: a worker pool when Workers exist, this thread otherwise. */
+    private readonly vrf: VrfVerifier = createVrfPool();
     private mux: Multiplexer | null = null;
     private socket: WebSocket | null = null;
     private stopped = false;
@@ -475,13 +482,24 @@ export class BrowserNode {
 
             // 3. follow
             let expectPrev: string | null = from?.hash ?? null;
+            /** One header of look-ahead: its crypto runs while the previous header is applied. */
+            const pipeline: Array<{ h: HeaderSummary; expectPrev: string | null; verdict: Promise<HeaderVerdict | null> }> = [];
+            // the hash the NEXT header will be linked against: the last PUSHED one, not the last applied one,
+            // because up to `depth` headers are queued ahead of the application
+            let pushedPrev: string | null = expectPrev;
             while (!this.stopped) {
                 const msg: any = await this.guard(cs.requestNext());
                 if (msg instanceof ChainSyncRollBackwards) {
+                    while (pipeline.length) {
+                        const item = pipeline.shift()!;
+                        await this.processHeader(item.h, item.expectPrev, bf, net, await item.verdict);
+                        expectPrev = item.h.hash;
+                    }
                     this.stats.serverTip = tipOf(msg) ?? this.stats.serverTip;
                     const p = (msg as any).point?.blockHeader;
                     const slot = p ? Number(p.slotNumber) : -1;
                     expectPrev = p ? hex(p.hash) : null;
+                    pushedPrev = expectPrev;
                     if (this.stats.lastSlot != null && slot < this.stats.lastSlot) {
                         this.stats.rollbacks++;
                         let dropped = 0;
@@ -504,10 +522,24 @@ export class BrowserNode {
                 this.stats.serverTip = tipOf(msg) ?? this.stats.serverTip;
                 let h: HeaderSummary;
                 try { h = summarizeHeader(msg.data); } catch (e) { this.noteError(`header skipped: ${(e as Error).message}`); continue; }
-                await this.processHeader(h, expectPrev, bf, net);
-                expectPrev = h.hash;
-                this.stats.state = this.stats.serverTip && h.slot >= this.stats.serverTip.slot ? "at-tip" : "syncing";
-                this.emit();
+                // Start this header's crypto now and keep it in flight while the previous one is applied, so the
+                // VRF runs in a worker (or, inline, at least does not wait behind ledger I/O). Order is preserved
+                // by draining from the front; a rollback or the end of the stream drains first.
+                pipeline.push({ h, expectPrev: pushedPrev, verdict: this.verifyAhead(h, net) });
+                pushedPrev = h.hash;
+                // one header in flight per worker: catch-up verifies several headers at once, the tip keeps depth 1
+                while (pipeline.length > Math.max(1, this.vrf.size)) {
+                    const item = pipeline.shift()!;
+                    await this.processHeader(item.h, item.expectPrev, bf, net, await item.verdict);
+                    expectPrev = item.h.hash;
+                    this.stats.state = this.stats.serverTip && item.h.slot >= this.stats.serverTip.slot ? "at-tip" : "syncing";
+                    this.emit();
+                }
+            }
+            while (pipeline.length) {
+                const item = pipeline.shift()!;
+                await this.processHeader(item.h, item.expectPrev, bf, net, await item.verdict);
+                expectPrev = item.h.hash;
             }
             return { reason: "stopped" };
         } catch (err) {
@@ -522,7 +554,26 @@ export class BrowserNode {
         }
     }
 
-    private async processHeader(h: HeaderSummary, expectPrev: string | null, bf: BlockFetchClient, net: ReturnType<typeof networkByMagic>): Promise<void> {
+    /** Start a header's crypto without waiting for it (see the pipeline in the chain-sync loop). */
+    private async verifyAhead(h: HeaderSummary, net: ReturnType<typeof networkByMagic>): Promise<HeaderVerdict | null> {
+        if (h.isByron || !net) return null;
+        try {
+            const nonce = await this.epochNonce(epochOfSlot(net, h.slot));
+            if (!nonce) return null;
+            const [verdict] = await this.vrf.verifyBatch([{
+                headerBytes: h.headerBytes,
+                eraTag: h.eraTag,
+                nonce,
+                slotsPerKESPeriod: net.slotsPerKESPeriod,
+                maxKESEvolutions: net.maxKESEvolutions
+            }]);
+            return verdict ?? null;
+        } catch {
+            return null;   // fall back to verifying inline, never to accepting
+        }
+    }
+
+    private async processHeader(h: HeaderSummary, expectPrev: string | null, bf: BlockFetchClient, net: ReturnType<typeof networkByMagic>, precomputed?: HeaderVerdict | null): Promise<void> {
         const now = Date.now();
         this.stats.headers++;
         this.stats.firstHeaderAt ??= now; this.stats.lastHeaderAt = now;
@@ -556,8 +607,14 @@ export class BrowserNode {
         } else if (net && nonce) {
             try {
                 const hc = parseHeaderCrypto(h.headerBytes, h.eraTag);
-                const r = verifyHeaderCrypto(hc, nonce, net.slotsPerKESPeriod, net.maxKESEvolutions);
-                this.stats.cryptoMs += r.ms.opcert + r.ms.kes + r.ms.vrf;
+                let r: { opcertOk: boolean; kesOk: boolean; vrfOk: boolean; detail: string[]; ms: { opcert: number; kes: number; vrf: number } };
+                if (precomputed) {
+                    r = { ...precomputed, detail: precomputed.detail ?? [], ms: { opcert: 0, kes: 0, vrf: 0 } };
+                    this.stats.vrfOffloaded = (this.stats.vrfOffloaded ?? 0) + 1;
+                } else {
+                    r = verifyHeaderCrypto(hc, nonce, net.slotsPerKESPeriod, net.maxKESEvolutions);
+                    this.stats.cryptoMs += r.ms.opcert + r.ms.kes + r.ms.vrf;
+                }
                 cryptoOk = r.opcertOk && r.kesOk && r.vrfOk;
                 if (cryptoOk) { this.stats.cryptoOk++; this.opts.observer?.observe({ slot: h.slot, blockNo: h.blockNo, hash: h.hash, poolId: hex(blake2b_224(hc.issuerVkey)) }); } else { this.stats.cryptoBad++; this.noteError(`HEADER CRYPTO FAILED at slot ${h.slot}: ${r.detail.join("; ")}`); }
                 const epoch = epochOfSlot(net, h.slot);

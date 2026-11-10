@@ -26,6 +26,8 @@ const entries: Record<string, string> = {
     offscreen: join(ext, "offscreen.ts"),
     popup: join(ext, "popup.ts"),
     opfsWorker: join(root, "src/node/opfsWorker.ts"),
+    // header crypto off the main thread (see src/node/vrfPool.ts)
+    vrfWorker: join(root, "src/node/vrfWorker.ts"),
     approve: join(ext, "approve.ts"),
     // the dApp Blockfrost transport (Blockfrost GETs through window.cardano.gerolamino, not window.fetch)
     "gerolamino-blockfrost": join(root, "src/dapp/blockfrostProvider.ts"),

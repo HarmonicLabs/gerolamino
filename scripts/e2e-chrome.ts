@@ -35,6 +35,7 @@ const timeoutSec = Number(arg("timeout", startMode === "tip" ? "300" : startMode
 const extra = arg("extra");
 let trustTx = arg("tx");
 const relay = arg("relay");
+const network = arg("network", "");   // preprod | preview; empty keeps the stored setting
 const dist = join(root, "dist");
 const t0 = Date.now();
 const log = (s: string) => console.log(`[e2e ${((Date.now() - t0) / 1000).toFixed(1).padStart(6)}s] ${s}`);
@@ -106,6 +107,7 @@ try {
     const settingsUpdate: Record<string, unknown> = {};
     if (startMode !== "tip") settingsUpdate.startMode = startMode;
     if (relay) settingsUpdate.relayUrl = relay;
+    if (network) settingsUpdate.network = network;
     if (extra) settingsUpdate.extraRelays = [extra];
     if (Object.keys(settingsUpdate).length) {
         const r = await cdp.evaluate(offSession, `chrome.runtime.sendMessage({ to: "background", type: "set-settings", settings: ${JSON.stringify(settingsUpdate)} })`);
@@ -304,7 +306,7 @@ try {
             results.dapp = { allowed, calls, denied, sites: sites?.sites?.map((s: any) => s.origin), revoked, sitesAfter: sitesAfter?.sites?.map((s: any) => s.origin) };
             const ok = before === false && allowed.result === "enabled" && allowed.shown === siteA && calls?.net === 0 && calls?.tip?.slot > 0 && calls?.latest?.source === "local"
                 && calls?.epoch?.source === "relay" && calls?.epoch?.status === 200 && calls?.enabled === true
-                && calls?.network === "preview" && typeof calls?.build === "string" && calls.build.startsWith("gerolamino-")
+                && calls?.network === (network || "preview") && typeof calls?.build === "string" && calls.build.startsWith("gerolamino-")
                 && revoked?.r?.revoked === true && revoked?.after === false && revoked?.refused === true
                 && JSON.stringify(sites?.sites?.map((s: any) => s.origin)) === JSON.stringify([siteA])
                 && JSON.stringify(sitesAfter?.sites?.map((s: any) => s.origin)) === "[]"

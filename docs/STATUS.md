@@ -138,6 +138,14 @@ Follow-ups:
   chain still reaches that slot. Brave `scripts/e2e-chrome.ts --start mithril`: anchor slot 126584621 written,
   after reopen `startMode` resume-mithril with the same anchor slot, stored 42 → 50 blocks.
 
+## Storage management (2026-11-10)
+
+OPFS is per network, and the popup now shows it: `storage-list` walks `gerolamino/<network>/*` and returns
+bytes, file and chunk counts per network (directories without a chain/ledger part, such as `mithril-certs`, are
+skipped), and `wipe-network` deletes one named network's four directories and restarts the node if it was the
+active one. The Storage card renders one row per network with a two-click delete. Preview and preprod can
+therefore coexist, and a testnet can be purged without touching the other.
+
 ## dApp API (2026-10-23)
 
 `window.cardano.gerolamino`, CIP-30 style, for web pages: `enable()` with a per-site approval window, network

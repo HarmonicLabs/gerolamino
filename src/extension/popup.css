@@ -310,3 +310,20 @@ body.wide .value, body.wide .tile .value { font-size: 16px; letter-spacing: norm
   .dot.on, .dot.off, .shimmer, .blocks tr.fresh td { animation: none; }
   .ring-arc, .bar-fill { transition: none; }
 }
+
+/* stored networks: one row per network, with its own delete button */
+.store-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.store-rows li {
+    display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px;
+    padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: rgba(6, 10, 13, 0.5); font-size: 12px;
+}
+.store-rows .net { font-family: var(--font-mono); color: var(--text); }
+.store-rows .net .live { color: var(--green); font-size: 10px; margin-left: 6px; letter-spacing: .4px; }
+.store-rows .size { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.store-rows button {
+    border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
+    background: transparent; color: var(--text-dim); cursor: pointer; font: inherit; font-size: 11px;
+}
+.store-rows button.confirm { border-color: var(--accent); color: var(--accent-bright); }
+.store-rows button:hover { color: var(--text); }

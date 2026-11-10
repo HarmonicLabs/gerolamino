@@ -96,7 +96,13 @@ bun run build
 ```
 
 Open `chrome://extensions`, find Gerolamino, and click **Reload**. Stored chain, ledger and settings survive a
-reload. The Mithril certificate cache (OPFS `gerolamino/mithril-certs/<network>`) survives it too: a second
+reload.
+
+Each network keeps its own store (`gerolamino/<network>/immutable|volatile|ledger|snapshot-source`), and
+switching networks does not delete the other one. The popup's Storage card lists every network it finds with
+its size, marks the running one, and deletes any of them individually (two clicks, with a confirm step); deleting
+the running network makes the node restart from scratch. That is the supported way to purge a testnet before
+moving to another one. The Mithril certificate cache (OPFS `gerolamino/mithril-certs/<network>`) survives it too: a second
 Mithril start on the same profile walks the same 350 certificates in ~9 s instead of ~59 s, all from cache. To start clean, use the popup's wipe action; it removes immutable chunks, volatile files and the local
 UTxO ledger for the selected network, then the node syncs again from the relay.
 

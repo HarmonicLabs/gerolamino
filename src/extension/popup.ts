@@ -358,6 +358,71 @@ function message(id: string, text: string, ok: boolean): void {
 }
 
 // ---- sites allowed to use window.cardano.gerolamino (dappApi.ts) ----
+
+/** Every network stored in this profile, each with its own two-step delete. */
+async function renderStores(): Promise<void> {
+    const ul = $("storage-networks");
+    if (!ul) return;
+    const r: any = await send({ type: "storage-list" });
+    ul.replaceChildren();
+    if (!r?.ok) {
+        const li = document.createElement("li");
+        li.className = "dim";
+        li.textContent = `unavailable: ${r?.error ?? "no answer"}`;
+        ul.append(li);
+        return;
+    }
+    const stores: Array<{ network: string; bytes: number; files: number; chunks: number; active: boolean }> = r.stores ?? [];
+    if (!stores.length) {
+        const li = document.createElement("li");
+        li.className = "dim";
+        li.textContent = "nothing stored yet";
+        ul.append(li);
+        return;
+    }
+    for (const s of stores) {
+        const li = document.createElement("li");
+        const net = document.createElement("span");
+        net.className = "net";
+        net.textContent = s.network;
+        if (s.active) {
+            const live = document.createElement("span");
+            live.className = "live";
+            live.textContent = "RUNNING";
+            net.append(live);
+        }
+        const size = document.createElement("span");
+        size.className = "size";
+        size.textContent = s.files === 0
+            ? "empty"
+            : `${fmtBytes(s.bytes)} · ${fmtNum(s.files)} file(s)${s.chunks ? ` · ${fmtNum(s.chunks)} chunk(s)` : ""}`;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = "Delete";
+        // two clicks, because this removes a chain the node spent real time verifying
+        let armed = false;
+        let timer: number | undefined;
+        btn.addEventListener("click", async () => {
+            if (!armed) {
+                armed = true;
+                btn.textContent = "Confirm delete";
+                btn.classList.add("confirm");
+                timer = window.setTimeout(() => { armed = false; btn.textContent = "Delete"; btn.classList.remove("confirm"); }, 4000);
+                return;
+            }
+            window.clearTimeout(timer);
+            btn.disabled = true;
+            btn.textContent = "deleting…";
+            const res: any = await send({ type: "wipe-network", network: s.network });
+            message("storage-msg", res?.ok ? `${s.network} deleted${res.restarted ? " · the node is restarting from scratch" : ""}.` : `Delete failed: ${res?.error ?? "no answer"}`, !!res?.ok);
+            newestBlock = null;
+            void renderStores();
+        });
+        li.append(net, size, btn);
+        ul.append(li);
+    }
+}
+
 async function renderSites(): Promise<void> {
     const r = await send<{ ok: boolean; sites?: Array<{ origin: string; approvedAt: number }> }>({ type: "dapp-list" });
     const sites = r?.sites ?? [];
@@ -510,6 +575,7 @@ $("wipe").addEventListener("click", async () => {
     const r = await send({ type: "wipe-store" });
     message("settings-msg", r?.ok ? "Stored chain and local ledger wiped." : `Wipe failed: ${r?.error ?? "no answer"}`, !!r?.ok);
     newestBlock = null;
+    void renderStores();
 });
 // "Open in a tab": the same page, full width.
 const tabBtn = $<HTMLButtonElement>("btn-tab");
@@ -537,3 +603,4 @@ panelBtn.addEventListener("click", () => {
 
 void poll();
 setInterval(() => { void poll(); }, 1000);
+void renderStores();

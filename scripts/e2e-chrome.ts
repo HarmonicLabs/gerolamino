@@ -136,6 +136,14 @@ try {
     results.firstPhase = s && { state: s.state, version: s.version, headers: s.headers, cryptoOk: s.cryptoOk, cryptoBad: s.cryptoBad, leaderOk: s.leaderOk, leaderBad: s.leaderBad, bodyOk: s.bodyOk, bodyBad: s.bodyBad, storedBlocks: s.storedBlocks, opfs: s.opfs, serverTip: s.serverTip, lastSlot: s.lastSlot, cryptoMsPerHeader: s.cryptoOk ? Math.round(s.cryptoMs / s.cryptoOk) : null, startMode: s.startMode, anchorSlot: s.anchor?.slot ?? s.anchorFile?.slot ?? null, ledgerBlocks: s.ledgerBlocks, ledgerCreated: s.ledgerCreated, ledgerSpent: s.ledgerSpent, ledgerUtxoCount: s.ledgerUtxoCount, ledgerUnknownInputs: s.ledgerUnknownInputs, ledgerTipSlot: s.ledgerTipSlot, ledgerCoverageStart: s.ledgerCoverageStart, ledgerDigest: s.ledgerDigest, ledgerStale: s.ledgerStale, ledgerError: s.ledgerError };
     const phase1 = !!s && s.cryptoOk >= want && s.storedBlocks >= want && (s.opfs?.chunks ?? 0) > 0 && !s.cryptoBad && !s.linkBad && !s.bodyBad && !s.leaderBad;
     if (!phase1) throw new Error(`headers/blocks did not verify and land in OPFS within ${timeoutSec} s`);
+
+    // the popup's "stored chains" list: one row per network in OPFS, with its size
+    const stores: any = await cdp.evaluate<any>(offSession, `chrome.runtime.sendMessage({ to: "background", type: "storage-list" })`);
+    const listed = (stores?.stores ?? []) as Array<{ network: string; bytes: number; files: number; active: boolean }>;
+    log(`storage-list: ${JSON.stringify(listed.map((x) => ({ network: x.network, bytes: x.bytes, files: x.files, active: x.active })))}`);
+    results.storage = listed;
+    if (!stores?.ok) throw new Error(`storage-list failed: ${stores?.error ?? "no answer"}`);
+    if (!listed.some((x) => x.network === s.network && x.bytes > 0)) throw new Error(`storage-list does not show ${s.network} with its bytes`);
     const files = await cdp.evaluate<string[]>(offSession, `(async () => { let d = await navigator.storage.getDirectory(); for (const p of ["gerolamino", ${JSON.stringify(s.network)}, "immutable"]) d = await d.getDirectoryHandle(p); const out = []; for await (const [n, h] of d) { try { out.push(n + " " + (await h.getFile()).size); } catch { /* raced with the node rewriting it */ } } return out.sort(); })()`);
     log(`OPFS gerolamino/${s.network}/immutable: ${files.join(", ")}`);
     results.opfsFiles = files;

@@ -42,6 +42,72 @@ function status(): (RunnerStats & { opfs: typeof opfs; settings: Settings }) | n
     return runner ? { ...runner.stats(), opfs, settings } : null;
 }
 
+/** The OPFS subdirectories one network owns. */
+const NETWORK_PARTS = ["immutable", "volatile", "ledger", "snapshot-source"] as const;
+
+export interface NetworkStore {
+    network: string;
+    bytes: number;
+    files: number;
+    chunks: number;
+    /** Which parts exist, so the popup can say what deleting it removes. */
+    parts: string[];
+    /** True for the network the node is running on. */
+    active: boolean;
+}
+
+/**
+ * Every network with an OPFS store in this profile, with its size. Switching between preview and preprod does
+ * not delete the other one, so the popup has to show them separately rather than a single "wipe" button.
+ */
+async function listNetworkStores(): Promise<NetworkStore[]> {
+    if (!OpfsSink.available()) return [];
+    const root = await navigator.storage.getDirectory();
+    let group: any;
+    try { group = await root.getDirectoryHandle("gerolamino"); } catch { return []; }
+    const out: NetworkStore[] = [];
+    for await (const [name, handle] of group as any) {
+        if (handle?.kind !== "directory") continue;
+        const net = await group.getDirectoryHandle(name);
+        let bytes = 0, files = 0, chunks = 0;
+        const parts: string[] = [];
+        for (const part of NETWORK_PARTS) {
+            let dir: any;
+            try { dir = await net.getDirectoryHandle(part); } catch { continue; }
+            parts.push(part);
+            for await (const [, fileHandle] of dir as any) {
+                if (fileHandle?.kind !== "file") continue;
+                try { const f = await fileHandle.getFile(); bytes += f.size; files++; if (f.name.endsWith(".chunk")) chunks++; } catch { /* raced with a delete */ }
+            }
+        }
+        // `gerolamino/` also holds things that are not networks (e.g. mithril-certs); a real store has at
+        // least one of the chain/ledger directories.
+        if (!parts.length) continue;
+        out.push({ network: name, bytes, files, chunks, parts, active: name === settings.network });
+    }
+    return out.sort((a, b) => a.network.localeCompare(b.network));
+}
+
+/**
+ * Delete one network's whole OPFS store (chain, volatile, ledger, snapshot sources). Stops the node first when
+ * the target is the active network, then restarts it from scratch; other networks are untouched.
+ */
+async function wipeNetworkStore(network: string): Promise<{ network: string; restarted: boolean }> {
+    if (!/^[a-z0-9_-]{1,32}$/i.test(network)) throw new Error(`not a network name: ${network}`);
+    const active = settings.network === network;
+    const current = runner;
+    if (active && current) await current.stop();
+    for (const part of NETWORK_PARTS) await new OpfsSink(`gerolamino/${network}/${part}`, { workerUrl }).wipe();
+    // the directory itself can still hold files the sink did not own
+    try { const root = await navigator.storage.getDirectory(); const group = await root.getDirectoryHandle("gerolamino"); await group.removeEntry(network, { recursive: true }); } catch { /* already gone */ }
+    log(`OPFS store for ${network} deleted (chain, volatile, ledger, snapshot sources)`);
+    let restarted = false;
+    if (active) { runner = makeRunner(settings); runner.start(); restarted = true; log(`node restarted on ${network} from scratch`); }
+    await refreshOpfs();
+    void publish();
+    return { network, restarted };
+}
+
 async function refreshOpfs(): Promise<void> {
     try {
         if (!OpfsSink.available()) { opfs = null; return; }
@@ -111,6 +177,12 @@ async function handle(msg: ToOffscreen): Promise<Reply<any>> {
                 if (!runner) throw new Error("the node is not running");
                 const answer = await runner.query(String(msg.path ?? ""));
                 return { ok: true, answer: toMessageSafe(answer) };
+            }
+            case "storage-list":
+                return { ok: true, stores: await listNetworkStores() };
+            case "wipe-network": {
+                const target = String((msg as any).network ?? "");
+                return { ok: true, ...(await wipeNetworkStore(target)) };
             }
             case "wipe-store": {
                 const r = runner;

@@ -19,6 +19,8 @@ export type ToBackground =
     | { to: "background"; type: "submit-tx"; cbor: string }
     | { to: "background"; type: "query"; path: string }
     | { to: "background"; type: "wipe-store" }
+    | { to: "background"; type: "storage-list" }
+    | { to: "background"; type: "wipe-network"; network: string }
     | { to: "background"; type: "import-snapshot"; network: string; slot: number }
     | { to: "background"; type: "offscreen-ready" }
     | { to: "background"; type: "stats"; stats: unknown }
@@ -33,6 +35,8 @@ export type ToOffscreen =
     | { to: "offscreen"; type: "submit-tx"; cbor: string }
     | { to: "offscreen"; type: "query"; path: string }
     | { to: "offscreen"; type: "wipe-store" }
+    | { to: "offscreen"; type: "storage-list" }
+    | { to: "offscreen"; type: "wipe-network"; network: string }
     | { to: "offscreen"; type: "import-snapshot"; network: string; slot: number };
 
 export type Reply<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -106,6 +110,12 @@ export class BackgroundHub {
                 case "wipe-store":
                     await this.deps.ensureOffscreen();
                     return await this.forward({ to: "offscreen", type: "wipe-store" });
+                case "storage-list":
+                    await this.deps.ensureOffscreen();
+                    return await this.forward({ to: "offscreen", type: "storage-list" });
+                case "wipe-network":
+                    await this.deps.ensureOffscreen();
+                    return await this.forward({ to: "offscreen", type: "wipe-network", network: msg.network });
                 case "import-snapshot":
                     await this.deps.ensureOffscreen();
                     return await this.forward({ to: "offscreen", type: "import-snapshot", network: msg.network, slot: msg.slot });

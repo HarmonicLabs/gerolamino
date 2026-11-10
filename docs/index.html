@@ -463,7 +463,12 @@ only for the mini-Blockfrost fallback.</p>
 <pre><code class="language-bash">bun run build
 </code></pre>
 <p>Open <code>chrome://extensions</code>, find Gerolamino, and click <strong>Reload</strong>. Stored chain, ledger and settings survive a
-reload. The Mithril certificate cache (OPFS <code>gerolamino/mithril-certs/&lt;network&gt;</code>) survives it too: a second
+reload.</p>
+<p>Each network keeps its own store (<code>gerolamino/&lt;network&gt;/immutable|volatile|ledger|snapshot-source</code>), and
+switching networks does not delete the other one. The popup's Storage card lists every network it finds with
+its size, marks the running one, and deletes any of them individually (two clicks, with a confirm step); deleting
+the running network makes the node restart from scratch. That is the supported way to purge a testnet before
+moving to another one. The Mithril certificate cache (OPFS <code>gerolamino/mithril-certs/&lt;network&gt;</code>) survives it too: a second
 Mithril start on the same profile walks the same 350 certificates in ~9 s instead of ~59 s, all from cache. To start clean, use the popup's wipe action; it removes immutable chunks, volatile files and the local
 UTxO ledger for the selected network, then the node syncs again from the relay.</p>
 <h2>7. dApps and the Blockfrost adapter</h2>
@@ -1299,6 +1304,12 @@ verifies; a resume reads it and the Trust card shows &quot;Mithril-certified, re
 chain still reaches that slot. Brave <code>scripts/e2e-chrome.ts --start mithril</code>: anchor slot 126584621 written,
 after reopen <code>startMode</code> resume-mithril with the same anchor slot, stored 42 → 50 blocks.</li>
 </ul>
+<h2>Storage management (2026-11-10)</h2>
+<p>OPFS is per network, and the popup now shows it: <code>storage-list</code> walks <code>gerolamino/&lt;network&gt;/*</code> and returns
+bytes, file and chunk counts per network (directories without a chain/ledger part, such as <code>mithril-certs</code>, are
+skipped), and <code>wipe-network</code> deletes one named network's four directories and restarts the node if it was the
+active one. The Storage card renders one row per network with a two-click delete. Preview and preprod can
+therefore coexist, and a testnet can be purged without touching the other.</p>
 <h2>dApp API (2026-10-23)</h2>
 <p><code>window.cardano.gerolamino</code>, CIP-30 style, for web pages: <code>enable()</code> with a per-site approval window, network
 id, tip, Trust checks, Blockfrost queries answered locally or by the Gerolamo peer (with Mithril proofs on

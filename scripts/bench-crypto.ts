@@ -152,3 +152,35 @@ if (process.argv.includes("--ecvrf")) {
     await time("noble group ops + port algorithm", N, () => vrf03VerifyNoble(h.vrfVkey, alpha, proof));
     console.log(`  identical output: ${same}`);
 }
+
+
+// ---- where the 8 ms of ECVRF goes ----
+if (process.argv.includes("--vrfparts")) {
+    const { preprodFixture } = await import("../test/lib/chunkReader");
+    const { locateHeader } = await import("../src/node/chunkFormat");
+    const { parseHeaderCrypto } = await import("../src/node/headerVerify");
+    const { praosVrfInput } = await import("../src/node/vrfInputs");
+    const { ed25519 } = await import("@harmoniclabs/crypto/dist/noble/ed25519.js");
+    const crypto = await import("@harmoniclabs/crypto/dist/rust_vrf_reimpl/vrf03.js");
+    const fx = preprodFixture();
+    const l = locateHeader(fx.conway);
+    const h = parseHeaderCrypto(fx.conway.subarray(l.headerOffset, l.headerOffset + l.headerSize), l.eraTag);
+    const alpha = praosVrfInput(BigInt(h.slot), fx.nonceEpoch310);
+    const pk = h.vrfVkey, proof = h.vrf!.proof;
+    const gamma = ed25519.ExtendedPoint.fromHex(proof.subarray(0, 32));
+    const c = leToBigintLocal(proof.subarray(32, 48));
+    console.log("\nECVRF parts, real header:");
+    await time("port hash_to_curve (elligator)", N, () => crypto.vrf_ed25519_sha512_ell2_hash_to_curve(pk, alpha));
+    await time("noble 2 scalar mults (U pair)", N, () => {
+        const Y = ed25519.ExtendedPoint.fromHex(pk);
+        return ed25519.ExtendedPoint.BASE.multiply(1n).add(Y.multiply(c).negate());
+    });
+    await time("noble 2 scalar mults (V pair)", N, () => gamma.multiply(1n).add(gamma.multiply(c).negate()));
+    await time("port compute_challenge (sha512)", N, () => crypto.vrf_ed25519_sha512_ell2_compute_challenge(new Uint8Array(32), new Uint8Array(32), new Uint8Array(32), new Uint8Array(32)));
+}
+
+function leToBigintLocal(bytes: Uint8Array): bigint {
+    let x = 0n;
+    for (let i = bytes.length - 1; i >= 0; i--) x = (x << 8n) | BigInt(bytes[i]!);
+    return x;
+}

@@ -43,6 +43,12 @@ export interface VrfPoolOptions {
     workerFactory?: (() => WorkerLike) | null;
     /** A task that has not come back in this long is verified inline instead. Default 20 s. */
     timeoutMs?: number;
+    /**
+     * Terminate the workers after this long without work, and respawn on demand. A synced node sits at the tip
+     * for hours receiving one header at a time; keeping four workers (each with its own copy of the bundle)
+     * alive for that is pure memory cost. 0 disables. Default 60 s.
+     */
+    idleMs?: number;
 }
 
 export function createInlineVrfVerifier(): VrfVerifier {
@@ -70,6 +76,7 @@ export function createVrfPool(options: VrfPoolOptions = {}): VrfVerifier {
 
     const size = Math.max(1, options.size ?? defaultPoolSize());
     const timeoutMs = options.timeoutMs ?? 20_000;
+    const idleMs = options.idleMs ?? 60_000;
     const workers: WorkerLike[] = [];
     const current = new Map<WorkerLike, { id: number; task: VrfTask }>();
     const pending = new Map<number, { resolve: (v: HeaderVerdict) => void; timer: ReturnType<typeof setTimeout> }>();
@@ -83,6 +90,7 @@ export function createVrfPool(options: VrfPoolOptions = {}): VrfVerifier {
         clearTimeout(entry.timer);
         pending.delete(id);
         entry.resolve(verdict);
+        scheduleIdle();
     };
 
     const pump = () => {
@@ -101,6 +109,30 @@ export function createVrfPool(options: VrfPoolOptions = {}): VrfVerifier {
         }
     };
 
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const cancelIdle = () => {
+        if (idleTimer != null) { clearTimeout(idleTimer); idleTimer = null; }
+    };
+
+    /** Terminate every worker; `verifyBatch` respawns them if more work arrives. */
+    const drain = () => {
+        idleTimer = null;
+        for (const worker of workers) {
+            try { worker.terminate(); } catch { /* already gone */ }
+        }
+        workers.length = 0;
+        current.clear();
+    };
+
+    const scheduleIdle = () => {
+        if (idleMs <= 0 || closed || !workers.length) return;
+        if (queue.length || pending.size) return;
+        cancelIdle();
+        idleTimer = setTimeout(drain, idleMs);
+    };
+
+    const spawn = (): void => {
     for (let i = 0; i < size; i++) {
         let worker: WorkerLike;
         try {
@@ -130,6 +162,9 @@ export function createVrfPool(options: VrfPoolOptions = {}): VrfVerifier {
         };
         workers.push(worker);
     }
+    };
+
+    spawn();
 
     if (!workers.length) return createInlineVrfVerifier();
 
@@ -137,6 +172,8 @@ export function createVrfPool(options: VrfPoolOptions = {}): VrfVerifier {
         kind: "workers",
         size: workers.length,
         verifyBatch: async (tasks) => {
+            cancelIdle();
+            if (!workers.length && !closed) spawn();
             const results = await Promise.all(tasks.map((task) => new Promise<HeaderVerdict>((resolve) => {
                 const id = nextId++;
                 const timer = setTimeout(() => {
@@ -151,6 +188,7 @@ export function createVrfPool(options: VrfPoolOptions = {}): VrfVerifier {
         },
         close: () => {
             closed = true;
+            cancelIdle();
             for (const worker of workers) {
                 try { worker.terminate(); } catch { /* already gone */ }
             }

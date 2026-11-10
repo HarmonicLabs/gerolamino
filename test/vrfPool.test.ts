@@ -91,6 +91,29 @@ describe("header crypto verifier", () => {
         verifier.close();
     });
 
+    test("workers are terminated after idling, and respawn on the next batch", async () => {
+        let made = 0;
+        let terminated = 0;
+        const factory = () => {
+            made++;
+            const w = fakeWorker("echo", 3);
+            const inner = w.terminate.bind(w);
+            w.terminate = () => { terminated++; inner(); };
+            return w;
+        };
+        const verifier = createVrfPool({ size: 2, workerFactory: factory, idleMs: 25 });
+        const [v] = await verifier.verifyBatch([conway]);
+        expect(v).toMatchObject({ opcertOk: true, kesOk: true, vrfOk: true });
+        expect(made).toBe(2);
+        expect(terminated).toBe(0);
+        await new Promise((r) => setTimeout(r, 80));       // past idleMs
+        expect(terminated).toBe(2);                          // the idle pool released its memory
+        const [again] = await verifier.verifyBatch([shelley]);
+        expect(again.opcertOk).toBe(true);
+        expect(made).toBe(4);                                // respawned on demand
+        verifier.close();
+    }, 30_000);
+
     test("a tampered header is still rejected through the pool", async () => {
         const verifier = createVrfPool({ size: 2, workerFactory: () => fakeWorker("echo", 5) });
         const tampered: VrfTask = { ...conway, nonce: fx.nonceEpoch4 };

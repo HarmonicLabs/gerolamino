@@ -463,7 +463,8 @@ only for the mini-Blockfrost fallback.</p>
 <pre><code class="language-bash">bun run build
 </code></pre>
 <p>Open <code>chrome://extensions</code>, find Gerolamino, and click <strong>Reload</strong>. Stored chain, ledger and settings survive a
-reload. To start clean, use the popup's wipe action; it removes immutable chunks, volatile files and the local
+reload. The Mithril certificate cache (OPFS <code>gerolamino/mithril-certs/&lt;network&gt;</code>) survives it too: a second
+Mithril start on the same profile walks the same 350 certificates in ~9 s instead of ~59 s, all from cache. To start clean, use the popup's wipe action; it removes immutable chunks, volatile files and the local
 UTxO ledger for the selected network, then the node syncs again from the relay.</p>
 <h2>7. dApps and the Blockfrost adapter</h2>
 <p>A page sees <code>window.cardano.gerolamino</code> (<code>apiVersion: &quot;1&quot;</code>, <code>dappApiVersion: &quot;0.2.0&quot;</code>, <code>build</code>, <code>isWallet: false</code>).
@@ -1322,6 +1323,7 @@ on a second site).</p>
 <tr><td>Brave e2e, chunk start, CEK build</td><td>36/36 headers (crypto + leader OK), 35 ledger blocks, 98 UTxO, coverage 126973467; offscreen recreate resumed at 126974629 (40 blocks); popup 44 blocks/105 UTxO; local tx/UTxO plus relay query PASS (2026-11-02)</td></tr>
 <tr><td>Mithril cross-check against Gerolamo's verifier</td><td>1 757 cases, all agree, including tampered certificates (flipped signature, key, stake, message, previous hash)</td></tr>
 <tr><td>Mithril chain walk</td><td>cold 47–51 s (network-bound, one certificate at a time); warm certificate cache 7–8 s; verification alone 5–7 s for 325 certificates</td></tr>
+<tr><td>Mithril start in the extension, warmed OPFS cache (2026-11-09, <code>--profile-dir</code> reuse)</td><td>350 certificates to genesis: cold 58.6 s (0 cached) -&gt; warm 8.9 s (350 of 350 from the cache), anchor slot 127604159 written and resumed; verification alone 5.9–6.7 s</td></tr>
 </tbody>
 </table>
 <p>The browser e2e drives Chrome over the DevTools Protocol with a small client in <code>scripts/lib/cdp.ts</code>; no Playwright

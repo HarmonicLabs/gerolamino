@@ -163,6 +163,7 @@ All live runs were against Gerolamo's preview relay, `ws://192.168.1.173:3004/n2
 | Brave e2e, chunk start, CEK build | 36/36 headers (crypto + leader OK), 35 ledger blocks, 98 UTxO, coverage 126973467; offscreen recreate resumed at 126974629 (40 blocks); popup 44 blocks/105 UTxO; local tx/UTxO plus relay query PASS (2026-11-02) |
 | Mithril cross-check against Gerolamo's verifier | 1 757 cases, all agree, including tampered certificates (flipped signature, key, stake, message, previous hash) |
 | Mithril chain walk | cold 47–51 s (network-bound, one certificate at a time); warm certificate cache 7–8 s; verification alone 5–7 s for 325 certificates |
+| Mithril start in the extension, warmed OPFS cache (2026-11-09, `--profile-dir` reuse) | 350 certificates to genesis: cold 58.6 s (0 cached) -> warm 8.9 s (350 of 350 from the cache), anchor slot 127604159 written and resumed; verification alone 5.9–6.7 s |
 
 The browser e2e drives Chrome over the DevTools Protocol with a small client in `scripts/lib/cdp.ts`; no Playwright
 or Puppeteer.

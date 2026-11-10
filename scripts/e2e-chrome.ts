@@ -51,7 +51,9 @@ function freePort(): number {
 }
 
 const port = freePort();
-const profile = mkdtempSync(join(tmpdir(), "gerolamino-e2e-"));
+const profileDirArg = arg("profile-dir");
+// --profile-dir reuses a browser profile between runs: the point is proving an OPFS cache survives a restart
+const profile = profileDirArg ? (mkdirSync(resolve(profileDirArg), { recursive: true }), resolve(profileDirArg)) : mkdtempSync(join(tmpdir(), "gerolamino-e2e-"));
 const chrome = Bun.spawn([chromeBin,
     `--load-extension=${dist}`, `--disable-extensions-except=${dist}`,
     `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
@@ -344,7 +346,7 @@ try {
     const exited = await Promise.race([chrome.exited.then(() => true), sleep(5000).then(() => false)]);
     if (!exited) { try { process.kill(chrome.pid, "SIGKILL"); } catch { /* gone */ } await chrome.exited; }
     log(`chrome (pid ${chrome.pid}) closed`);
-    if (!process.argv.includes("--keep-profile")) rmSync(profile, { recursive: true, force: true });
+    if (!process.argv.includes("--keep-profile") && !profileDirArg) rmSync(profile, { recursive: true, force: true });
 }
 console.log(JSON.stringify(results, null, 2));
 console.log(exitCode === 0 ? "PASS" : "FAIL");

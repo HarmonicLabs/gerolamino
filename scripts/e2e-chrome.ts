@@ -137,6 +137,25 @@ try {
     const phase1 = !!s && s.cryptoOk >= want && s.storedBlocks >= want && (s.opfs?.chunks ?? 0) > 0 && !s.cryptoBad && !s.linkBad && !s.bodyBad && !s.leaderBad;
     if (!phase1) throw new Error(`headers/blocks did not verify and land in OPFS within ${timeoutSec} s`);
 
+    // browser resource cost of running the node: JS heap, DOM counters, and per-process CPU/private bytes
+    if (process.argv.includes("--mem")) {
+        const heap = await cdp.send("Runtime.getHeapUsage", {}, offSession).catch(() => null);
+        const metrics = await cdp.send("Performance.getMetrics", {}, offSession).catch(() => null);
+        const procs = await cdp.send("SystemInfo.getProcessInfo", {}).catch(() => null);
+        const pick = (name: string) => (metrics as any)?.metrics?.find((m: any) => m.name === name)?.value ?? null;
+        const relevant = (procs as any)?.processInfo?.map((x: any) => ({ type: x.type, cpu: +(x.cpuTime ?? 0).toFixed(1) })) ?? [];
+        const mem = {
+            heapUsedMB: heap ? +(heap.usedSize / 1048576).toFixed(1) : null,
+            heapTotalMB: heap ? +(heap.totalSize / 1048576).toFixed(1) : null,
+            jsHeapUsedMB: pick("JSHeapUsedSize") ? +(pick("JSHeapUsedSize") / 1048576).toFixed(1) : null,
+            nodes: pick("Nodes"),
+            listeners: pick("JSEventListeners"),
+            processes: relevant
+        };
+        results.memory = mem;
+        log(`memory: ${JSON.stringify(mem)}`);
+    }
+
     // the popup's "stored chains" list: one row per network in OPFS, with its size
     const stores: any = await cdp.evaluate<any>(offSession, `chrome.runtime.sendMessage({ to: "background", type: "storage-list" })`);
     const listed = (stores?.stores ?? []) as Array<{ network: string; bytes: number; files: number; active: boolean }>;

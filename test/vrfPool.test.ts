@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { locateHeader } from "../src/node/chunkFormat";
 import { parseHeaderCrypto } from "../src/node/headerVerify";
 import { networkByMagic } from "../src/node/networks";
-import { createInlineVrfVerifier, createVrfPool, defaultPoolSize, inlineVerdict, type VrfTask, type WorkerLike } from "../src/node/vrfPool";
+import { createInlineVrfVerifier, createVrfPool, defaultPoolSize, inlineVerdict, resourceProfile, type VrfTask, type WorkerLike } from "../src/node/vrfPool";
 import { verifyHeaderTask } from "../src/node/vrfVerify";
 import { preprodFixture } from "./lib/chunkReader";
 
@@ -38,6 +38,13 @@ function fakeWorker(behaviour: "echo" | "error" | "silent" | "garbage", jitterMs
 }
 
 describe("header crypto verifier", () => {
+    test("resource modes are three fixed profiles", () => {
+        expect(resourceProfile("light")).toEqual({ size: 1, idleMs: 15_000 });
+        expect(resourceProfile("medium")).toEqual({ size: 2, idleMs: 60_000 });
+        expect(resourceProfile("heavy")).toEqual({ size: 4, idleMs: 0 });
+        expect(resourceProfile(undefined)).toEqual(resourceProfile("medium"));
+    });
+
     test("inline verifier is the reference verdict for real fixtures", () => {
         expect(inlineVerdict(conway)).toEqual(verifyHeaderTask(conway));
         expect(inlineVerdict(conway)).toMatchObject({ opcertOk: true, kesOk: true, vrfOk: true });

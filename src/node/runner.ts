@@ -37,6 +37,8 @@ export interface RunnerConfig {
     txProofs?: boolean;
     /** Where the Mithril start gets the immutable file digests: the Gerolamo peer (fast) or the Mithril aggregator. */
     mithrilDigests?: "peer" | "aggregator";
+    /** Header-crypto workers: light, medium (default) or heavy. */
+    resourceMode?: "light" | "medium" | "heavy";
 }
 
 /** A query answer, with the Mithril check of a relayed answer about a transaction. */
@@ -432,7 +434,7 @@ export class NodeRunner {
                 chunkSlots: net.chunkSlots, index: this.index, observer: this.observer,
                 ledger: this.ledgerNetwork === net.name ? this.ledger ?? undefined : undefined,
                 headerLog: this.mainLog, rollbackTo: this.rollbackTo, certifiedStake: (e) => this.certifiedStakeOf(e),
-                loadMithril: this.opts.loadMithril, mithrilDigests: this.config.mithrilDigests, WebSocketImpl: this.opts.WebSocketImpl,
+                loadMithril: this.opts.loadMithril, mithrilDigests: this.config.mithrilDigests, resourceMode: this.config.resourceMode, WebSocketImpl: this.opts.WebSocketImpl,
                 log: (l) => this.log(l), onStats: () => this.emit(),
             });
             this.node = node;

@@ -46,6 +46,7 @@ function fillForm(s: Settings): void {
     $<HTMLInputElement>("certifiedStake").checked = s.certifiedStake !== false;
     $<HTMLInputElement>("txProofs").checked = s.txProofs !== false;
     $<HTMLSelectElement>("mithrilDigests").value = s.mithrilDigests ?? "peer";
+    $<HTMLSelectElement>("mode").value = s.mode ?? "medium";
 }
 
 const START_LABEL: Record<string, string> = { tip: "tip sync", chunk: "chunk start", mithril: "Mithril start", snapshot: "snapshot base", resume: "resumed", point: "from a point" };
@@ -539,6 +540,7 @@ $("settings").addEventListener("submit", async (ev) => {
         certifiedStake: $<HTMLInputElement>("certifiedStake").checked,
         txProofs: $<HTMLInputElement>("txProofs").checked,
         mithrilDigests: $<HTMLSelectElement>("mithrilDigests").value as Settings["mithrilDigests"],
+        mode: $<HTMLSelectElement>("mode").value as Settings["mode"],
     };
     const r = await send({ type: "set-settings", settings });
     message("settings-msg", r?.ok ? "Saved; the node restarted." : `Not saved: ${r?.error ?? "no answer"}`, !!r?.ok);

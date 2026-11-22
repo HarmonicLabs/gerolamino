@@ -35,7 +35,7 @@ import { ChunkWriter, type FileSink } from "./chunkWriter";
 import { VolatileStore } from "./volatileStore";
 import { proposeBrowserHandshake } from "./handshake";
 import { parseHeaderCrypto, verifyHeaderCrypto } from "./headerVerify";
-import { createVrfPool, type HeaderVerdict, type VrfVerifier } from "./vrfPool";
+import { createVrfPool, resourceProfile, type HeaderVerdict, type ResourceMode, type VrfVerifier } from "./vrfPool";
 import { isSlotLeader } from "./leaderMath";
 import { LightQueryClient, N2N_WS_SUBPROTOCOL, type PoolStakeInfo } from "./lightQuery";
 import type { PeerQueryLimits } from "./queryRouter";
@@ -166,8 +166,10 @@ export interface BrowserNodeOptions {
     certifiedStake?: (epoch: number) => CertifiedStakeView | null;
     /** Freshness and density (trust.ts): started at the intersection, fed every header whose signatures verified. */
     observer?: ChainObserver;
-    /** Header-crypto verifier. Default: a worker pool (falls back to this thread); pass createInlineVrfVerifier() to force inline. */
+    /** Header-crypto verifier. Default: a worker pool sized by `resourceMode`; pass one to force it. */
     vrfVerifier?: VrfVerifier;
+    /** light = 1 worker, medium = 2, heavy = 4 and never idle. Default medium. */
+    resourceMode?: ResourceMode;
     /** Every header the main peer serves (hash and link checked), for cross-checking other peers (crossCheck.ts). */
     headerLog?: HeaderLog;
     /** Roll the store back to this point before resuming (a failover to a longer fork: the newest common block). */
@@ -281,7 +283,7 @@ export class BrowserNode {
     readonly stats: NodeStats;
     private readonly opts: BrowserNodeOptions;
     /** Header crypto runs here: a worker pool when Workers exist, this thread otherwise. */
-    private readonly vrf: VrfVerifier = createVrfPool();
+    private readonly vrf: VrfVerifier;
     private mux: Multiplexer | null = null;
     private socket: WebSocket | null = null;
     private stopped = false;
@@ -301,6 +303,7 @@ export class BrowserNode {
 
     constructor(opts: BrowserNodeOptions) {
         this.opts = opts;
+        this.vrf = opts.vrfVerifier ?? createVrfPool(resourceProfile(opts.resourceMode));
         this.stats = emptyStats(opts.endpoint);
         this.syncLedgerStats();
         this.closed = new Promise<never>((_, reject) => { this.closeWith = reject; });

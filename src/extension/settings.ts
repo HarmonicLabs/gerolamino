@@ -5,6 +5,7 @@
  */
 export type NetworkName = "preview" | "preprod";
 export type StartModeSetting = "tip" | "chunk" | "mithril" | "snapshot";
+export type ResourceMode = "light" | "medium" | "heavy";
 
 export interface Settings {
     network: NetworkName;
@@ -18,6 +19,8 @@ export interface Settings {
     txProofs: boolean;
     /** Where a Mithril start gets the immutable file digests: the Gerolamo peer (fast) or the Mithril aggregator (direct). */
     mithrilDigests: "peer" | "aggregator";
+    /** How many header-crypto workers to keep. light = 1, medium = 2, heavy = 4 and never idle. */
+    mode: ResourceMode;
 }
 
 export const MAX_EXTRA_RELAYS = 4;
@@ -32,10 +35,12 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
     certifiedStake: true,
     txProofs: true,
     mithrilDigests: "peer",
+    mode: "medium",
 });
 
 export const NETWORK_NAMES: readonly NetworkName[] = ["preview", "preprod"];
 export const START_MODES: readonly StartModeSetting[] = ["tip", "chunk", "mithril", "snapshot"];
+export const RESOURCE_MODES: readonly ResourceMode[] = ["light", "medium", "heavy"];
 
 /** A relay URL must be ws:// or wss:// with a host. */
 export function validRelayUrl(s: unknown): s is string {
@@ -66,6 +71,7 @@ export function normalizeSettings(raw: unknown): Settings {
         certifiedStake: typeof r.certifiedStake === "boolean" ? r.certifiedStake : DEFAULT_SETTINGS.certifiedStake,
         txProofs: typeof r.txProofs === "boolean" ? r.txProofs : DEFAULT_SETTINGS.txProofs,
         mithrilDigests: r.mithrilDigests === "aggregator" || r.mithrilDigests === "peer" ? r.mithrilDigests : DEFAULT_SETTINGS.mithrilDigests,
+        mode: RESOURCE_MODES.includes(r.mode as ResourceMode) ? (r.mode as ResourceMode) : DEFAULT_SETTINGS.mode,
     };
 }
 
@@ -75,6 +81,7 @@ export function settingsErrors(raw: Partial<Record<keyof Settings, unknown>>): s
     if (raw.relayUrl !== undefined && !validRelayUrl(raw.relayUrl)) errs.push("relay URL must be ws:// or wss://");
     if (raw.network !== undefined && !NETWORK_NAMES.includes(raw.network as NetworkName)) errs.push(`network must be one of ${NETWORK_NAMES.join(", ")}`);
     if (raw.startMode !== undefined && !START_MODES.includes(raw.startMode as StartModeSetting)) errs.push(`start mode must be one of ${START_MODES.join(", ")}`);
+    if (raw.mode !== undefined && !RESOURCE_MODES.includes(raw.mode as ResourceMode)) errs.push(`mode must be one of ${RESOURCE_MODES.join(", ")}`);
     if (raw.extraRelays !== undefined) {
         const list = Array.isArray(raw.extraRelays) ? raw.extraRelays : [raw.extraRelays];
         if (list.some((u) => !validRelayUrl(u))) errs.push("extra relays must be ws:// or wss:// URLs");
@@ -84,7 +91,7 @@ export function settingsErrors(raw: Partial<Record<keyof Settings, unknown>>): s
 }
 
 export function sameSettings(a: Settings, b: Settings): boolean {
-    return a.network === b.network && a.relayUrl === b.relayUrl && a.startMode === b.startMode && a.extraRelays.join(" ") === b.extraRelays.join(" ") && a.certifiedStake === b.certifiedStake && a.txProofs === b.txProofs && a.mithrilDigests === b.mithrilDigests;
+    return a.network === b.network && a.relayUrl === b.relayUrl && a.startMode === b.startMode && a.extraRelays.join(" ") === b.extraRelays.join(" ") && a.certifiedStake === b.certifiedStake && a.txProofs === b.txProofs && a.mithrilDigests === b.mithrilDigests && a.mode === b.mode;
 }
 
 /** The storage area the settings live in (chrome.storage.local, or a fake in tests). */

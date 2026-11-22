@@ -65,6 +65,15 @@ export function defaultPoolSize(): number {
     return Math.max(1, Math.min(4, Math.floor(cores) - 1));
 }
 
+export type ResourceMode = "light" | "medium" | "heavy";
+
+/** Workers, and how long they stay after the last header. Look-ahead depth is the worker count. */
+export function resourceProfile(mode: ResourceMode | undefined): { size: number; idleMs: number } {
+    if (mode === "light") return { size: 1, idleMs: 15_000 };
+    if (mode === "heavy") return { size: 4, idleMs: 0 };
+    return { size: 2, idleMs: 60_000 };
+}
+
 function defaultWorkerFactory(): (() => WorkerLike) | null {
     if (typeof (globalThis as any).Worker !== "function") return null;
     return () => new (globalThis as any).Worker(new URL("./vrfWorker.js", import.meta.url), { type: "module" }) as WorkerLike;

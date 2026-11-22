@@ -157,6 +157,13 @@ wss://<relay-host>/n2n
 Terminate TLS at a reverse proxy in front of the Gerolamo WebSocket port and keep the relay on the matching
 network magic. A public deployment should rate-limit, monitor `/metrics`, and keep the node current.
 
+### Reference public relay (2026-11-22)
+
+A preprod Gerolamo relay is published as `wss://n2n.onchainapps.io/ws-n2n` (subprotocol
+`cardano-n2n.v1`; TLS terminates at nginx, Let's Encrypt certificate auto-renewed, per-IP limits
+and an access log on the proxy). `/n2n` is an alias and `/webrtc-n2n` is reserved for the WebRTC
+experiment. Treat it as a test/data relay: preprod only, not a stake pool.
+
 ## Troubleshooting
 
 - `ws://` URL fails: confirm Gerolamo was started with `--n2n-ws` and `--n2n-ws-port`; check `ss` and `/health`.

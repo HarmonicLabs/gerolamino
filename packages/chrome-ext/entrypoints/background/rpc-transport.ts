@@ -24,8 +24,8 @@ export const awaitChromePortServerListening: Effect.Effect<void> = Effect.gen(
       yield* Effect.sleep("25 millis");
     }
     if (!chromePortServerListening) {
-      return yield* Effect.dieMessage(
-        "[rpc-transport] chrome.runtime.onConnect listener not registered within 15s",
+      return yield* Effect.die(new Error(
+        "[rpc-transport] chrome.runtime.onConnect listener not registered within 15s"),
       );
     }
   },

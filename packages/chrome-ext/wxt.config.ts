@@ -1,6 +1,14 @@
 import { defineConfig } from "wxt";
+import { readdirSync } from "node:fs";
 
 const root = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+
+/** msgpackr's eval-free build, whatever version the lockfile resolved (was pinned to 1.11.9). */
+const msgpackrNoEval = (() => {
+  const dir = `${root}/node_modules/.bun`;
+  const v = readdirSync(dir).filter((d) => d.startsWith("msgpackr@")).sort().pop();
+  return `${dir}/${v}/node_modules/msgpackr/dist/index-no-eval.cjs`;
+})();
 const pkg = (name: string, sub: string = "src") => `${root}/packages/${name}/${sub}`;
 
 /**
@@ -63,11 +71,14 @@ const workspaceAliases = [
   // can't JIT-compile per-shape encoders).
   {
     find: /^msgpackr$/,
-    replacement: `${root}/node_modules/.bun/msgpackr@1.11.9/node_modules/msgpackr/dist/index-no-eval.cjs`,
+    replacement: msgpackrNoEval,
   },
 ];
 
 const bootstrapUrl = process.env.BOOTSTRAP_URL ?? "ws://localhost:3040";
+
+/** Cardano network the extension syncs (`GEROLAMINO_NETWORK=preview|preprod` at build time; default preprod). */
+const network = process.env.GEROLAMINO_NETWORK === "preview" ? "preview" : "preprod";
 
 /** MV3 `host_permissions` entry for the relay WS origin (e.g. Hetzner VPS). */
 const relayHostPermission = (() => {
@@ -135,6 +146,7 @@ export default defineConfig({
     },
     define: {
       __BOOTSTRAP_URL__: JSON.stringify(bootstrapUrl),
+      __GEROLAMINO_NETWORK__: JSON.stringify(network),
     },
     // Worker bundling — emit each `new Worker(new URL("./workers/X.ts",
     // import.meta.url), { type: "module" })` as a separate ES-module

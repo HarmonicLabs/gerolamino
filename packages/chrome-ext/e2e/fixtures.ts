@@ -58,12 +58,18 @@ const dirExistsSync = (p: string): boolean => {
 
 /** Sync command-runner that doesn't import `node:child_process`. */
 const tryExecSync = (cmd: ReadonlyArray<string>, timeoutMs?: number): string | undefined => {
-  const result = Bun.spawnSync({
-    cmd: [...cmd],
-    stdout: "pipe",
-    stderr: "ignore",
-    ...(timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
-  });
+  // Bun.spawnSync throws when the executable is missing (e.g. no `nix` on PATH): treat that as no result
+  let result: ReturnType<typeof Bun.spawnSync>;
+  try {
+    result = Bun.spawnSync({
+      cmd: [...cmd],
+      stdout: "pipe",
+      stderr: "ignore",
+      ...(timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
+    });
+  } catch {
+    return undefined;
+  }
   if (result.exitCode !== 0) return undefined;
   const out = result.stdout.toString().trim();
   return out.length > 0 ? out : undefined;

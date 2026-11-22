@@ -18,7 +18,7 @@
  * The proxy is out-of-tree (no longer bundled with this monorepo);
  * the URL is build-time configurable via `BOOTSTRAP_URL` env var.
  */
-import { Cause, Effect, HashMap, Layer, Metric, Option, Ref, Schedule, Stream } from "effect";
+import { Cause, Duration, Effect, HashMap, Layer, Metric, Option, Ref, Schedule, Stream } from "effect";
 import * as Socket from "effect/unstable/socket/Socket";
 import {
   ChainEventStream,
@@ -27,14 +27,13 @@ import {
   PeerManager,
   PeerManagerLayer,
   SlotClock,
-  SlotClockPreprod,
   connectToRelayOnSocket,
-  PREPROD_MAGIC,
   getNodeStatus,
   initialVolatileState,
   Nonces,
 } from "consensus";
 import type { LedgerView } from "consensus";
+import { NETWORK, NETWORK_MAGIC, NetworkSlotClock } from "../shared/network.ts";
 // `initWasm` keeps the subpath form because tsgo's cross-package
 // barrel re-export drop affects `export * from "./X.ts"` chains.
 import { initWasm } from "wasm-utils/init.ts";
@@ -81,7 +80,7 @@ export const bootstrapSyncPipeline = (seedSettings?: BootstrapSettings) =>
   yield* initWasm.pipe(
     Effect.timeoutOrElse({
       duration: "60 seconds",
-      onTimeout: () => wasmInitTimeout,
+      orElse: () => wasmInitTimeout,
     }),
     Effect.tap(() =>
       Effect.gen(function* () {
@@ -94,7 +93,7 @@ export const bootstrapSyncPipeline = (seedSettings?: BootstrapSettings) =>
   yield* Effect.promise(() => initWasmPlexer()).pipe(
     Effect.timeoutOrElse({
       duration: "60 seconds",
-      onTimeout: () => wasmInitTimeout,
+      orElse: () => wasmInitTimeout,
     }),
     Effect.tap(() => {
       appendSessionLogLine("[offscreen-sync] wasm-plexer ready");
@@ -102,7 +101,7 @@ export const bootstrapSyncPipeline = (seedSettings?: BootstrapSettings) =>
     }),
   );
   const wasmDoneMs = Number((yield* Effect.clockWith((c) => c.currentTimeMillis)) - wasmInitStart);
-  yield* Metric.update(Metrics.wasmInitLatencyMs, wasmDoneMs);
+  yield* Metric.update(Metrics.wasmInitLatencyMs, Duration.millis(wasmDoneMs));
   yield* Metric.update(Metrics.wasmInitSuccess, 1);
 
   // Genesis boots skip the popup upload → `LsmReopenAfterUpload` path. Open the
@@ -209,8 +208,8 @@ export const bootstrapSyncPipeline = (seedSettings?: BootstrapSettings) =>
 
   const parsed = new URL(wsUrl);
   yield* pushNetworkInfo({
-    network: "preprod",
-    protocolMagic: PREPROD_MAGIC,
+    network: NETWORK,
+    protocolMagic: NETWORK_MAGIC,
     relayHost: parsed.hostname,
     relayPort: parseInt(parsed.port, 10) || 3040,
   });
@@ -343,7 +342,7 @@ export const bootstrapSyncPipeline = (seedSettings?: BootstrapSettings) =>
       yield* connectToRelayOnSocket(
         socket,
         peerId,
-        PREPROD_MAGIC,
+        NETWORK_MAGIC,
         ledgerView,
         snapshotState,
         volatileRef,
@@ -403,8 +402,8 @@ export const browserLayersWithoutBlobStore = Layer.mergeAll(
   CryptoWorkerBrowser.pipe(Layer.orDie),
   ChainEventsLive,
   ConsensusEvents.Live,
-  SlotClockPreprod,
-  PeerManagerLayer.pipe(Layer.provide(SlotClockPreprod)),
+  NetworkSlotClock,
+  PeerManagerLayer.pipe(Layer.provide(NetworkSlotClock)),
 );
 
 /**

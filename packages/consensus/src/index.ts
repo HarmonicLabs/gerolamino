@@ -25,11 +25,13 @@ export {
   SlotClockLive,
   SlotClockLayerFromConfig,
   SlotClockPreprod,
+  SlotClockPreview,
   SlotClockMainnet,
   SlotClockLiveFromEnvOrPreprod,
   SlotConfig,
   SlotConfigFromEnv,
   PREPROD_CONFIG,
+  PREVIEW_CONFIG,
   MAINNET_CONFIG,
 } from "./praos/clock";
 // The `ConsensusEngine` service was removed — its three methods were

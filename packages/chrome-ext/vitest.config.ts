@@ -16,6 +16,7 @@ export default defineConfig({
   plugins: [solid()],
   define: {
     __BOOTSTRAP_URL__: JSON.stringify("ws://localhost:3040"),
+    __GEROLAMINO_NETWORK__: JSON.stringify("preprod"),
   },
   test: {
     name: "chrome-ext",

@@ -16,7 +16,7 @@ const runEnsureOffscreen = (): Promise<{ readonly ok: boolean; readonly error?: 
   Effect.runPromise(
     ensureOffscreen.pipe(
       Effect.as({ ok: true as const }),
-      Effect.catchAll((err) =>
+      Effect.catch((err) =>
         Effect.succeed({ ok: false as const, error: String(err) }),
       ),
       Effect.provide(TestLogBufferLayer),

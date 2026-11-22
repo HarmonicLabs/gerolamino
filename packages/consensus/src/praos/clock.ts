@@ -64,6 +64,20 @@ export const PREPROD_CONFIG = new SlotConfig({
   byronEpochLength: 4320n,
 });
 
+/**
+ * Preview network config (hardcoded fallback). Preview hard-forks to Shelley-based eras at epoch 0, so
+ * the linear slot model is exact from genesis: 1 s slots, 86 400-slot epochs, k = 432
+ * (preview shelley-genesis securityParam 432, epochLength 86400, activeSlotsCoeff 0.05).
+ */
+export const PREVIEW_CONFIG = new SlotConfig({
+  systemStartMs: 1666656000000, // 2022-10-25T00:00:00Z
+  slotLengthMs: 1000,
+  epochLength: 86400n,
+  securityParam: 432,
+  activeSlotsCoeff: 0.05,
+  byronEpochLength: 4320n,
+});
+
 /** Mainnet config (hardcoded fallback). */
 export const MAINNET_CONFIG = new SlotConfig({
   systemStartMs: 1596491091000, // 2020-08-03T21:44:51Z
@@ -169,6 +183,11 @@ export const SlotClockLayerFromConfig = Effect.gen(function* () {
 export const SlotClockPreprod: Layer.Layer<SlotClock> = Layer.effect(
   SlotClock,
   SlotClockLive(PREPROD_CONFIG),
+);
+
+export const SlotClockPreview: Layer.Layer<SlotClock> = Layer.effect(
+  SlotClock,
+  SlotClockLive(PREVIEW_CONFIG),
 );
 
 export const SlotClockMainnet: Layer.Layer<SlotClock> = Layer.effect(

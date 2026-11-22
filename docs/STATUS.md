@@ -1,8 +1,14 @@
-# Gerolamino status (2026-11-02; ledger P0 2026-10-29, P2 counters and P3 CEK parity 2026-11-02)
+# Gerolamino status (2026-11-22; ledger P0 2026-10-29, P2 counters and P3 CEK parity 2026-11-02)
 
 Gerolamino is a standalone Cardano node for the browser, shipped as a Chrome MV3 extension. This page records
 why it was rebuilt, what works, what was measured, what is missing, and the problems found in the libraries it
 depends on.
+
+## Current (2026-11-22)
+
+- `main` `0c4a1bc`: resource mode `light`/`medium`/`heavy` (1/2/4 workers) in settings, popup and the node runner; docs point at the reference public relay `wss://n2n.onchainapps.io/ws-n2n` (subprotocol `cardano-n2n.v1`).
+- Companion branch `gerolamo-ws-preview` `e5342b2` (same monorepo): Effect v4 API updates — `catch`/`die`, `timeoutOrElse`, `Duration` metrics, `NetworkSlotClock` (`NETWORK`, `NETWORK_MAGIC`).
+- Suite on this tree: **213 tests, 0 fail**, `tsc --noEmit` clean.
 
 ## Role and scope (2026-10-22)
 
